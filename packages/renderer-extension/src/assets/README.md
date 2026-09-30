@@ -5,13 +5,13 @@ source and `codex-logo-transparent.png` is its white-background-free square
 variant. `codex-logo-bright.png` recolors that mark in the official bright
 Codex blue so it stays visible on dark surfaces.
 
-`codexhost-app-icon.svg` is the vector master of the codexhost brand icon: a
-light gray rounded tile with a charcoal C and central rounded square, padded to
-the macOS icon grid. It is the Renderer settings brand icon (settings header
-mark and the application-header settings trigger button).
-`crates/launcher/assets/codexhost.png` is a 1024px render of this SVG for macOS
-application and DMG icons. Windows application and installer icons use the
-multi-size `crates/launcher/assets/codexhost.ico` generated from that PNG.
+`codexhost-app-icon.svg` is the vector master of the RLY/0 Hub brand icon: the
+RLY/0 figure mark (from https://rly0.com) in paper white on an ink rounded tile,
+with the signal-orange square. It is the Renderer settings brand icon (settings
+header mark). The navigation-rail glyph uses the same figure path in
+`currentColor`. `crates/launcher/assets/codexhost.png` is a 1024px render of this
+SVG for macOS application and DMG icons. Windows application and installer icons
+use the multi-size `crates/launcher/assets/codexhost.ico` rendered from the SVG.
 
 `codex-agent.png` is the Codex App GA mark distributed with OpenAI's official
 `openai.chatgpt` VS Code extension. It is bundled as a data URL so the Renderer
