@@ -31,6 +31,7 @@ import {
   materializeExternalSubagent,
   projectExternalSnapshot,
 } from "./external-subagent-threads.js";
+import { importLegacyCodexHostData } from "./legacy-codexhost-import.js";
 
 export interface ExternalThreadStore {
   initialize(): Promise<void>;
@@ -100,6 +101,7 @@ export function defaultMappingStoreDirectory(environment: NodeJS.ProcessEnv): st
 export function createProductionExternalThreadStore(
   environment: NodeJS.ProcessEnv,
 ): ExternalThreadStore {
+  importLegacyCodexHostData(environment);
   return new MappingStore({ directory: defaultMappingStoreDirectory(environment) });
 }
 

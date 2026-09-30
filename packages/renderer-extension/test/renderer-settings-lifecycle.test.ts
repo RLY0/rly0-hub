@@ -43,6 +43,8 @@ vi.mock("../src/settings/trigger.js", () => ({
 
 import { installRendererSettingsLifecycle } from "../src/renderer-settings-lifecycle.js";
 import { createDefaultRendererSettingsPages } from "../src/settings/pages.js";
+import { installRendererSettingsShell } from "../src/settings/shell.js";
+import { installRendererSettingsRailTrigger } from "../src/settings/trigger.js";
 
 function failedUpdateCheck(): UpdateCheckResult {
   return {
@@ -152,5 +154,52 @@ describe("Renderer Settings lifecycle", () => {
     expect(openImportedThread).toHaveBeenCalledWith("imported-thread", expect.any(AbortSignal));
     expect(events).toEqual(["opened", "closed"]);
     lifecycle.dispose();
+  });
+
+  it("opens the dashboard once on first launch, then remembers it", async () => {
+    const store = new Map<string, string>();
+    const localStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+    };
+    const button = { tagName: "BUTTON" };
+    const root = { isConnected: true, querySelector: () => button };
+    const openSettings = vi.fn();
+    const shellMock = {
+      supported: true,
+      open: false,
+      activePageId: undefined,
+      openSettings,
+      close: shellClose,
+      dispose: vi.fn(),
+    };
+    const triggerMock = {
+      root,
+      refresh: triggerRefresh,
+      setUpdateAvailable: triggerSetUpdateAvailable,
+      dispose: vi.fn(),
+    };
+    vi.mocked(installRendererSettingsShell).mockReturnValue(shellMock as never);
+    vi.mocked(installRendererSettingsRailTrigger).mockReturnValue(triggerMock as never);
+    const ownerWindow = {
+      navigator: { languages: ["en"] },
+      document: {},
+      localStorage,
+      setTimeout,
+      clearTimeout,
+    } as unknown as Window;
+
+    const first = installRendererSettingsLifecycle(ownerWindow);
+    await vi.waitFor(() => expect(openSettings).toHaveBeenCalledWith(button, "dashboard"));
+    expect(store.get("rly0-hub:welcome-shown")).toBeTruthy();
+    first.dispose();
+
+    openSettings.mockClear();
+    const second = installRendererSettingsLifecycle(ownerWindow);
+    second.refresh();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(openSettings).not.toHaveBeenCalled();
+    second.dispose();
   });
 });

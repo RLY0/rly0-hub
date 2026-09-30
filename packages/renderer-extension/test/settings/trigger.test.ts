@@ -164,14 +164,14 @@ describe("Renderer settings navigation rail trigger", () => {
 
       control.setUpdateAvailable(true);
       expect(badge?.style.display).toBe("block");
-      expect(control.button.title).toBe("RLY/0 Hub settings · A new version is available.");
+      expect(control.button.title).toBe("RLY/0 Hub (main view) · A new version is available.");
       expect(control.root.hasAttribute("data-update-available")).toBe(true);
       button.dispatch("click");
       expect(opened).toHaveBeenLastCalledWith(control.button, "updates");
 
       control.setUpdateAvailable(false);
       expect(badge?.style.display).toBe("none");
-      expect(control.button.title).toBe("RLY/0 Hub settings");
+      expect(control.button.title).toBe("RLY/0 Hub (main view)");
       control.dispose();
     } finally {
       vi.unstubAllGlobals();

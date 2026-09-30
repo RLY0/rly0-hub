@@ -30,6 +30,7 @@ import {
 
 const UPDATE_CHECK_TIMEOUT_MS = 5_000;
 const UPDATE_RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000] as const;
+export const RLY0_WELCOME_STORAGE_KEY = "rly0-hub:welcome-shown";
 
 export interface RendererSettingsLifecycleOptions {
   getUpdateClient?(): RendererUpdateClient | null;
@@ -238,6 +239,24 @@ export function installRendererSettingsLifecycle(
   void refreshLocale();
   refreshUpdateIndicator();
 
+  // First launch: open the RLY/0 Hub main view (dashboard) once so users find the rail entry.
+  let welcomeChecked = false;
+  const maybeShowWelcome = (): void => {
+    if (welcomeChecked || disposed || !shell?.supported || !trigger?.root?.isConnected) return;
+    welcomeChecked = true;
+    try {
+      if (ownerWindow.localStorage.getItem(RLY0_WELCOME_STORAGE_KEY)) return;
+      ownerWindow.localStorage.setItem(RLY0_WELCOME_STORAGE_KEY, new Date().toISOString());
+    } catch {
+      return;
+    }
+    const opener = trigger.root.querySelector<HTMLButtonElement>("button") ?? undefined;
+    void refreshLocale().then(() => {
+      if (!disposed && shell && !shell.open) shell.openSettings(opener, "dashboard");
+    });
+  };
+  maybeShowWelcome();
+
   return {
     get locale() {
       return locale;
@@ -245,6 +264,7 @@ export function installRendererSettingsLifecycle(
     refresh() {
       const refreshed = trigger?.refresh() ?? false;
       refreshUpdateIndicator();
+      if (refreshed) maybeShowWelcome();
       return refreshed;
     },
     dispose() {

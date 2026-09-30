@@ -33,7 +33,7 @@ describe("Renderer settings localization", () => {
 
     expect(english.title).toBe("Settings");
     expect(chinese.title).toBe("设置");
-    expect(chinese.openSettings).toBe("打开零号枢纽设置");
+    expect(chinese.openSettings).toBe("打开零号枢纽");
     expect(chinese.starOnGitHub).toBe("Star 支持");
     expect(english.starOnGitHub).toBe("Star to support");
     expect(chinese.updateInstallation).toBe("安装方式");

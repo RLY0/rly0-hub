@@ -39,6 +39,8 @@ export default defineConfig({
       ? { exclude: [...configDefaults.exclude, ...platformIndependentFiles()] }
       : {}),
     maxWorkers: 4,
+    // Never copy the developer's real ~/.codexhost data into ~/.rly0-hub while tests run.
+    env: { RLY0_SKIP_LEGACY_IMPORT: "1" },
     passWithNoTests: false,
     // Hosted Windows runners have highly variable disk latency (fsync + rename
     // under real-time scanning): the same Mapping Store suite ranges from
