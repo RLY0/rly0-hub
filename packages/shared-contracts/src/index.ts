@@ -180,6 +180,53 @@ export type {
   Rly0SkillsImportParams,
   Rly0SkillsImportResult,
 } from "./rly0-skills.js";
+export {
+  RLY0_THREADS_LIST_METHOD,
+  RLY0_THREADS_LIST_TRASH_METHOD,
+  RLY0_THREADS_TRASH_METHOD,
+  RLY0_THREADS_RESTORE_METHOD,
+  RLY0_THREADS_LIST_MAX,
+  RLY0_THREADS_TITLE_MAX_LENGTH,
+  rly0ThreadRelPathSchema,
+  rly0ThreadStatsSchema,
+  rly0ThreadEntrySchema,
+  rly0ThreadsListParamsSchema,
+  rly0ThreadsListResultSchema,
+  rly0ThreadsListTrashParamsSchema,
+  rly0ThreadsListTrashResultSchema,
+  rly0ThreadsMoveParamsSchema,
+  rly0ThreadMoveFailureCodeSchema,
+  rly0ThreadsMoveResultSchema,
+} from "./rly0-threads.js";
+export type {
+  Rly0ThreadRelPath,
+  Rly0ThreadStats,
+  Rly0ThreadEntry,
+  Rly0ThreadsListParams,
+  Rly0ThreadsListResult,
+  Rly0ThreadsListTrashParams,
+  Rly0ThreadsListTrashResult,
+  Rly0ThreadsMoveParams,
+  Rly0ThreadMoveFailureCode,
+  Rly0ThreadsMoveResult,
+} from "./rly0-threads.js";
+export {
+  RLY0_DASHBOARD_HEALTH_METHOD,
+  RLY0_DASHBOARD_THREAD_STATS_METHOD,
+  RLY0_DASHBOARD_ACTIVITY_DAYS,
+  rly0DashboardHealthParamsSchema,
+  rly0DashboardHealthResultSchema,
+  rly0DashboardThreadStatsParamsSchema,
+  rly0DashboardActivityDaySchema,
+  rly0DashboardThreadStatsResultSchema,
+} from "./rly0-dashboard.js";
+export type {
+  Rly0DashboardHealthParams,
+  Rly0DashboardHealthResult,
+  Rly0DashboardThreadStatsParams,
+  Rly0DashboardActivityDay,
+  Rly0DashboardThreadStatsResult,
+} from "./rly0-dashboard.js";
 export { REASONING_TRANSCRIPT_COMMAND } from "./reasoning-transcript.js";
 export type { CodexhostError } from "./errors.js";
 export {

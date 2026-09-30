@@ -43,10 +43,27 @@ import {
   rly0SkillsListParamsSchema,
   rly0SkillsRestoreParamsSchema,
 } from "@codexhost/shared-contracts";
+import {
+  RLY0_THREADS_LIST_METHOD,
+  RLY0_THREADS_LIST_TRASH_METHOD,
+  RLY0_THREADS_RESTORE_METHOD,
+  RLY0_THREADS_TRASH_METHOD,
+  rly0ThreadsListParamsSchema,
+  rly0ThreadsListTrashParamsSchema,
+  rly0ThreadsMoveParamsSchema,
+} from "@codexhost/shared-contracts";
+import {
+  RLY0_DASHBOARD_HEALTH_METHOD,
+  RLY0_DASHBOARD_THREAD_STATS_METHOD,
+  rly0DashboardHealthParamsSchema,
+  rly0DashboardThreadStatsParamsSchema,
+} from "@codexhost/shared-contracts";
 import { handleCredentialImports } from "./credential-imports.js";
 import { Rly0CoreBridge, rly0CoreRpcError } from "./rly0-core/index.js";
 import { Rly0McpManager, rly0McpRpcError } from "./rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "./rly0-skills/index.js";
+import { Rly0ThreadsManager, rly0ThreadsRpcError } from "./rly0-threads/index.js";
+import { Rly0DashboardManager, rly0DashboardRpcError } from "./rly0-dashboard/index.js";
 import {
   rewriteDelegationMentionInput,
   rewriteDelegationMentionText,
@@ -562,6 +579,8 @@ export class AppServerHost {
   readonly #rly0Core: Rly0CoreBridge;
   readonly #rly0Mcp: Rly0McpManager;
   readonly #rly0Skills: Rly0SkillsManager;
+  readonly #rly0Threads: Rly0ThreadsManager;
+  readonly #rly0Dashboard: Rly0DashboardManager;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
   #pluginDescriptors: HarnessPluginDescriptor[] = [];
@@ -656,6 +675,8 @@ export class AppServerHost {
     this.#rly0Core = new Rly0CoreBridge({ environment });
     this.#rly0Mcp = new Rly0McpManager({ environment });
     this.#rly0Skills = new Rly0SkillsManager({ environment });
+    this.#rly0Threads = new Rly0ThreadsManager({ environment });
+    this.#rly0Dashboard = new Rly0DashboardManager({ environment, threads: this.#rly0Threads });
     this.#officialRuntime = new OfficialRuntimeClient({
       scope: this.#officialRuntimeScope,
       onBackendStopped: () => {
@@ -1071,6 +1092,22 @@ export class AppServerHost {
       request.method === RLY0_SKILLS_IMPORT_METHOD
     ) {
       this.#dispatchDesktopRequest(() => this.#handleRly0SkillsRequest(request));
+      return;
+    }
+    if (
+      request.method === RLY0_THREADS_LIST_METHOD ||
+      request.method === RLY0_THREADS_LIST_TRASH_METHOD ||
+      request.method === RLY0_THREADS_TRASH_METHOD ||
+      request.method === RLY0_THREADS_RESTORE_METHOD
+    ) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0ThreadsRequest(request));
+      return;
+    }
+    if (
+      request.method === RLY0_DASHBOARD_HEALTH_METHOD ||
+      request.method === RLY0_DASHBOARD_THREAD_STATS_METHOD
+    ) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0DashboardRequest(request));
       return;
     }
     if (request.method === CREDENTIAL_IMPORTS_METHOD) {
@@ -1946,6 +1983,89 @@ export class AppServerHost {
       }
     } catch (error) {
       const failure = rly0SkillsRpcError(error);
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  /**
+   * Thread manager: lists `${CODEX_HOME:-~/.codex}/sessions/**\/rollout-*.jsonl` (header-only
+   * reads) and moves files to/from `~/.rly0-hub/threads-trash/`. Never deletes a session file.
+   */
+  async #handleRly0ThreadsRequest(request: JsonRpcRequest): Promise<void> {
+    try {
+      if (request.method === RLY0_THREADS_LIST_METHOD) {
+        const params = rly0ThreadsListParamsSchema.safeParse(request.params ?? {});
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Threads list params"));
+          return;
+        }
+        const result = await this.#rly0Threads.list(params.data.limit);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_THREADS_LIST_TRASH_METHOD) {
+        if (!rly0ThreadsListTrashParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Threads listTrash params"));
+          return;
+        }
+        const result = await this.#rly0Threads.listTrash();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_THREADS_TRASH_METHOD) {
+        const params = rly0ThreadsMoveParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Threads trash params"));
+          return;
+        }
+        const result = await this.#rly0Threads.trash(params.data.relPaths);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_THREADS_RESTORE_METHOD) {
+        const params = rly0ThreadsMoveParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Threads restore params"));
+          return;
+        }
+        const result = await this.#rly0Threads.restore(params.data.relPaths);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+    } catch (error) {
+      const failure = rly0ThreadsRpcError(error);
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  /**
+   * Dashboard: existence / parse-ability health checks under `${CODEX_HOME:-~/.codex}` (never file
+   * content) and session totals plus a 12-week activity histogram from rollout file mtimes.
+   */
+  async #handleRly0DashboardRequest(request: JsonRpcRequest): Promise<void> {
+    try {
+      if (request.method === RLY0_DASHBOARD_HEALTH_METHOD) {
+        if (!rly0DashboardHealthParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Dashboard health params"));
+          return;
+        }
+        const result = await this.#rly0Dashboard.health();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_DASHBOARD_THREAD_STATS_METHOD) {
+        if (!rly0DashboardThreadStatsParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(
+            rpcError(request, -32602, "Invalid Dashboard threadStats params"),
+          );
+          return;
+        }
+        const result = await this.#rly0Dashboard.threadStats();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+    } catch {
+      const failure = rly0DashboardRpcError();
       await this.#writer.json(rpcError(request, failure.code, failure.message));
     }
   }

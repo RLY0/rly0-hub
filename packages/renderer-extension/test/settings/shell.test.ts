@@ -15,15 +15,17 @@ describe("Renderer settings foundation", () => {
     expect(RENDERER_SETTINGS_COLOR_SCHEME).toBe("inherit");
   });
 
-  it("publishes deterministic product sections with Connections as the default", () => {
+  it("publishes deterministic product sections with Dashboard as the default", () => {
     const pages = createDefaultRendererSettingsPages();
     const registry = createDefaultRendererSettingsRegistry();
 
     expect(pages.map(({ id }) => id)).toEqual(DEFAULT_RENDERER_SETTINGS_PAGE_IDS);
     expect(pages.map(({ label }) => label)).toEqual([
+      "Dashboard",
       "Connections",
       "Accounts",
       "Session Import",
+      "Threads",
       "MCP",
       "Skills",
       "General",
@@ -31,16 +33,18 @@ describe("Renderer settings foundation", () => {
       "About",
     ]);
     expect(pages.map(({ icon }) => icon)).toEqual([
+      "dashboard",
       "connections",
       "accounts",
       "session-import",
+      "threads",
       "mcp",
       "skills",
       "settings",
       "updates",
       "about",
     ]);
-    expect(registry.defaultPageId).toBe("connections");
+    expect(registry.defaultPageId).toBe("dashboard");
     expect(Object.isFrozen(pages)).toBe(true);
     expect(pages.every((page) => Object.isFrozen(page))).toBe(true);
   });
@@ -67,9 +71,11 @@ describe("Renderer settings foundation", () => {
     const pages = createDefaultRendererSettingsPages();
 
     expect(pages.map(({ id }) => id)).toEqual([
+      "dashboard",
       "connections",
       "accounts",
       "session-import",
+      "threads",
       "mcp",
       "skills",
       "appearance",

@@ -16,6 +16,8 @@ export interface RendererSettingsPageMountContext {
     operation: (signal: AbortSignal) => Promise<T>,
     handlers: RendererSettingsAsyncHandlers<T>,
   ): Promise<void>;
+  /** Switches the settings shell to another registered page (no-op for unknown ids). */
+  navigate?(pageId: string): void;
 }
 
 export interface RendererSettingsPageDefinition {

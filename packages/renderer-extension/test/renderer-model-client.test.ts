@@ -351,6 +351,8 @@ describe("Renderer fixed Model request client", () => {
       "listRly0Accounts",
       "listRly0Mcp",
       "listRly0Skills",
+      "listRly0Threads",
+      "listRly0ThreadsTrash",
       "listSessionImportSources",
       "listThreadOwnership",
       "openHarnessWebUi",
@@ -360,7 +362,10 @@ describe("Renderer fixed Model request client", () => {
       "removeRly0Mcp",
       "renameRly0Account",
       "restoreRly0Skill",
+      "restoreRly0Threads",
       "rly0CoreStatus",
+      "rly0DashboardHealth",
+      "rly0DashboardThreadStats",
       "selectThreadModel",
       "selectThreadPermissionMode",
       "selectThreadThinking",
@@ -371,6 +376,7 @@ describe("Renderer fixed Model request client", () => {
       "subscribeCodexAccounts",
       "subscribeThreadUsage",
       "switchRly0Account",
+      "trashRly0Threads",
     ]);
 
     await expect(client.inspectHarness({ harnessId: piHarnessId, refresh: true })).resolves.toEqual(

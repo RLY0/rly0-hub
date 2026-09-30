@@ -18,6 +18,8 @@ import GraduationCap from "lucide/dist/esm/icons/graduation-cap.mjs";
 import GripVertical from "lucide/dist/esm/icons/grip-vertical.mjs";
 import Info from "lucide/dist/esm/icons/info.mjs";
 import Languages from "lucide/dist/esm/icons/languages.mjs";
+import LayoutDashboard from "lucide/dist/esm/icons/layout-dashboard.mjs";
+import MessagesSquare from "lucide/dist/esm/icons/messages-square.mjs";
 import Network from "lucide/dist/esm/icons/network.mjs";
 import PlugZap from "lucide/dist/esm/icons/plug-zap.mjs";
 import RefreshCw from "lucide/dist/esm/icons/refresh-cw.mjs";
@@ -44,9 +46,11 @@ export const RENDERER_SETTINGS_ICON_NAMES = [
   "star",
   "github",
   "language",
+  "dashboard",
   "connections",
   "accounts",
   "session-import",
+  "threads",
   "mcp",
   "skills",
   "add",
@@ -99,6 +103,8 @@ const iconNodes = {
   connections: PlugZap,
   accounts: Users,
   "session-import": FolderInput,
+  dashboard: LayoutDashboard,
+  threads: MessagesSquare,
   mcp: Server,
   skills: GraduationCap,
   add: Plus,

@@ -171,6 +171,17 @@ export function mountRendererSettingsShell(
           content: pageContent,
           signal: scope.signal,
           runLatest: (operation, handlers) => scope.runLatest(operation, handlers),
+          navigate: (targetPageId) => {
+            if (
+              scope.disposed ||
+              targetPageId === navigationState.activePageId ||
+              !resolvedRegistry.getPage(targetPageId)
+            ) {
+              return;
+            }
+            activatePage(targetPageId);
+            navigationButtons.get(targetPageId)?.focus();
+          },
         }) ?? null;
     } catch {
       scope.dispose();

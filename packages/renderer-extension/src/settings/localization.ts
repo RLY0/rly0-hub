@@ -10,6 +10,12 @@ import {
 } from "./rly0-account-messages.js";
 import { mcpEnglish, mcpChinese, type McpMessages } from "./mcp-messages.js";
 import { skillsEnglish, skillsChinese, type SkillsMessages } from "./skills-messages.js";
+import {
+  dashboardEnglish,
+  dashboardChinese,
+  type DashboardMessages,
+} from "./dashboard-messages.js";
+import { threadsEnglish, threadsChinese, type ThreadsMessages } from "./threads-messages.js";
 import type { DefaultRendererSettingsPageId } from "./pages.js";
 
 export const RENDERER_SETTINGS_LOCALES = ["en", "zh-CN"] as const;
@@ -34,6 +40,8 @@ export interface RendererSettingsMessages {
   readonly rly0Accounts: Rly0AccountMessages;
   readonly mcp: McpMessages;
   readonly skills: SkillsMessages;
+  readonly dashboard: DashboardMessages;
+  readonly threads: ThreadsMessages;
   readonly locale: RendererSettingsLocale;
   readonly title: string;
   readonly close: string;
@@ -298,6 +306,8 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   rly0Accounts: rly0AccountEnglish,
   mcp: mcpEnglish,
   skills: skillsEnglish,
+  dashboard: dashboardEnglish,
+  threads: threadsEnglish,
   locale: "en",
   title: "Settings",
   close: "Close settings",
@@ -556,8 +566,10 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   pageLabels: Object.freeze({
     connections: "Connections",
     appearance: "General",
+    dashboard: "Dashboard",
     accounts: "Accounts",
     "session-import": "Session Import",
+    threads: "Threads",
     mcp: "MCP",
     skills: "Skills",
     updates: "Updates",
@@ -571,6 +583,8 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   rly0Accounts: rly0AccountChinese,
   mcp: mcpChinese,
   skills: skillsChinese,
+  dashboard: dashboardChinese,
+  threads: threadsChinese,
   locale: "zh-CN",
   title: "设置",
   close: "关闭设置",
@@ -816,8 +830,10 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   pageLabels: Object.freeze({
     connections: "连接",
     appearance: "通用",
+    dashboard: "仪表盘",
     accounts: "账号",
     "session-import": "会话导入",
+    threads: "线程管理",
     mcp: "MCP 管理",
     skills: "Skills 管理",
     updates: "更新",

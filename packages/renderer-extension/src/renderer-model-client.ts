@@ -72,6 +72,12 @@ import {
   RLY0_SKILLS_DEACTIVATE_METHOD,
   RLY0_SKILLS_RESTORE_METHOD,
   RLY0_SKILLS_IMPORT_METHOD,
+  RLY0_THREADS_LIST_METHOD,
+  RLY0_THREADS_LIST_TRASH_METHOD,
+  RLY0_THREADS_TRASH_METHOD,
+  RLY0_THREADS_RESTORE_METHOD,
+  RLY0_DASHBOARD_HEALTH_METHOD,
+  RLY0_DASHBOARD_THREAD_STATS_METHOD,
   rly0CoreStatusResultSchema,
   rly0AccountsListResultSchema,
   rly0AccountsImportCurrentParamsSchema,
@@ -94,6 +100,13 @@ import {
   rly0SkillsRestoreResultSchema,
   rly0SkillsImportParamsSchema,
   rly0SkillsImportResultSchema,
+  rly0ThreadsListParamsSchema,
+  rly0ThreadsListResultSchema,
+  rly0ThreadsListTrashResultSchema,
+  rly0ThreadsMoveParamsSchema,
+  rly0ThreadsMoveResultSchema,
+  rly0DashboardHealthResultSchema,
+  rly0DashboardThreadStatsResultSchema,
   type Rly0CoreStatusResult,
   type Rly0AccountsListResult,
   type Rly0AccountsImportCurrentParams,
@@ -116,6 +129,13 @@ import {
   type Rly0SkillsRestoreResult,
   type Rly0SkillsImportParams,
   type Rly0SkillsImportResult,
+  type Rly0ThreadsListParams,
+  type Rly0ThreadsListResult,
+  type Rly0ThreadsListTrashResult,
+  type Rly0ThreadsMoveParams,
+  type Rly0ThreadsMoveResult,
+  type Rly0DashboardHealthResult,
+  type Rly0DashboardThreadStatsResult,
   type ExternalThreadForkParams,
   type ExternalThreadForkResult,
   type CodexAccountChanged,
@@ -278,6 +298,12 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   deactivateRly0Skill?(input: Rly0SkillsDeactivateParams): Promise<Rly0SkillsDeactivateResult>;
   restoreRly0Skill?(input: Rly0SkillsRestoreParams): Promise<Rly0SkillsRestoreResult>;
   importRly0Skill?(input: Rly0SkillsImportParams): Promise<Rly0SkillsImportResult>;
+  listRly0Threads?(input?: Rly0ThreadsListParams): Promise<Rly0ThreadsListResult>;
+  listRly0ThreadsTrash?(): Promise<Rly0ThreadsListTrashResult>;
+  trashRly0Threads?(input: Rly0ThreadsMoveParams): Promise<Rly0ThreadsMoveResult>;
+  restoreRly0Threads?(input: Rly0ThreadsMoveParams): Promise<Rly0ThreadsMoveResult>;
+  rly0DashboardHealth?(): Promise<Rly0DashboardHealthResult>;
+  rly0DashboardThreadStats?(): Promise<Rly0DashboardThreadStatsResult>;
 }
 
 export function createThreadUsageSubscriptionRelay(): {
@@ -714,6 +740,45 @@ export function createRendererModelClient(
           RLY0_SKILLS_IMPORT_METHOD,
           rly0SkillsImportParamsSchema.parse(input),
         ),
+      );
+    },
+    async listRly0Threads(input: Rly0ThreadsListParams = {}): Promise<Rly0ThreadsListResult> {
+      return rly0ThreadsListResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_THREADS_LIST_METHOD,
+          rly0ThreadsListParamsSchema.parse(input),
+        ),
+      );
+    },
+    async listRly0ThreadsTrash(): Promise<Rly0ThreadsListTrashResult> {
+      return rly0ThreadsListTrashResultSchema.parse(
+        await manager.sendRequest(RLY0_THREADS_LIST_TRASH_METHOD, {}),
+      );
+    },
+    async trashRly0Threads(input: Rly0ThreadsMoveParams): Promise<Rly0ThreadsMoveResult> {
+      return rly0ThreadsMoveResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_THREADS_TRASH_METHOD,
+          rly0ThreadsMoveParamsSchema.parse(input),
+        ),
+      );
+    },
+    async restoreRly0Threads(input: Rly0ThreadsMoveParams): Promise<Rly0ThreadsMoveResult> {
+      return rly0ThreadsMoveResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_THREADS_RESTORE_METHOD,
+          rly0ThreadsMoveParamsSchema.parse(input),
+        ),
+      );
+    },
+    async rly0DashboardHealth(): Promise<Rly0DashboardHealthResult> {
+      return rly0DashboardHealthResultSchema.parse(
+        await manager.sendRequest(RLY0_DASHBOARD_HEALTH_METHOD, {}),
+      );
+    },
+    async rly0DashboardThreadStats(): Promise<Rly0DashboardThreadStatsResult> {
+      return rly0DashboardThreadStatsResultSchema.parse(
+        await manager.sendRequest(RLY0_DASHBOARD_THREAD_STATS_METHOD, {}),
       );
     },
   });

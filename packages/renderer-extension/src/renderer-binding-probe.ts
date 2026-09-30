@@ -763,6 +763,8 @@ export function installRendererBindingProbe(
     getLoadedSessionsClient: () => modelClientForHost("local"),
     getMcpClient: () => modelControl,
     getSkillsClient: () => modelControl,
+    getDashboardClient: () => modelControl,
+    getThreadsClient: () => modelControl,
     getSessionImportClient: () => {
       const client = modelClientForHost("local");
       const sources = client?.listSessionImportSources;
