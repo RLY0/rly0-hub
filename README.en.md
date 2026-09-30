@@ -30,9 +30,11 @@ implemented is called out explicitly:
     it, this section shows a notice; the rest of the app is unaffected.
 - **Thread management**: browse main/sub threads per project, with counts, sizes, active-day stats, batch selection
   and per-thread export.
-- **Relay injection**: UI for third-party model relays (API relay endpoints) — the routing, local proxy, and quota
-  detection logic live in the closed-source **RLY/0 Core**; the public repository currently ships the UI and
-  integration scaffold. Without RLY/0 Core it shows "requires RLY/0 core" and the rest of the app keeps working.
+- **Relay injection**: add / edit / test third-party model relays (API relay endpoints) and route requests by model
+  name; start a local proxy that only listens on `127.0.0.1`, write the Codex config (`[model_providers.rly0]`) in one
+  click, and restore the official config at any time. Relay keys are stored encrypted and only shown masked. The
+  routing and proxy logic live in the closed-source **RLY/0 Core**; without it the page shows "requires RLY/0 core"
+  and the rest of the app keeps working.
 - **MCP management**: view, add, enable/disable MCP servers configured in `~/.codex/config.toml` (STDIO / HTTP).
 - **Skills management**: view installed / backed-up Skills, and import new ones.
 - **Maintenance tools**: system diagnostics, exporting a redacted debug log bundle (saved locally only), clearing
