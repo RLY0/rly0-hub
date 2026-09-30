@@ -15,6 +15,7 @@ import {
   type RendererThreadsClient,
   type RendererMaintenanceClient,
   type RendererAppearanceClient,
+  type RendererRelayClient,
   type RendererUpdateClient,
 } from "./settings/pages.js";
 import type {
@@ -42,6 +43,7 @@ export interface RendererSettingsLifecycleOptions {
   getThreadsClient?(): RendererThreadsClient | null;
   getMaintenanceClient?(): RendererMaintenanceClient | null;
   getAppearanceClient?(): RendererAppearanceClient | null;
+  getRelayClient?(): RendererRelayClient | null;
   openImportedThread?: RendererImportedThreadOpener;
   onLocaleChange?(locale: RendererSettingsLocale): void;
 }
@@ -95,6 +97,7 @@ export function installRendererSettingsLifecycle(
       options.getThreadsClient ?? (() => null),
       options.getMaintenanceClient ?? (() => null),
       options.getAppearanceClient ?? (() => null),
+      options.getRelayClient ?? (() => null),
     );
     const nextShell = installRendererSettingsShell(definitions, messages, ownerWindow.document);
     const nextTrigger = installRendererSettingsRailTrigger({

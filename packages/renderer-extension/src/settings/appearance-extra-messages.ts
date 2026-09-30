@@ -27,6 +27,18 @@ export interface AppearanceExtraMessages {
   readonly quotaAlertThreshold: string;
   readonly quotaAlertThresholdDescription: string;
   readonly quotaAlertThresholdInvalid: string;
+  readonly proxyTitle: string;
+  readonly proxyDescription: string;
+  readonly proxyModeDirect: string;
+  readonly proxyModeSystem: string;
+  readonly proxyModeCustom: string;
+  readonly proxyUrlTitle: string;
+  readonly proxyUrlDescription: string;
+  readonly proxySave: string;
+  readonly proxySaved: string;
+  readonly proxySavedRestarted: string;
+  readonly proxyInvalidUrl: string;
+  readonly proxyFailed: string;
 }
 
 export const appearanceExtraEnglish: AppearanceExtraMessages = Object.freeze({
@@ -58,6 +70,19 @@ export const appearanceExtraEnglish: AppearanceExtraMessages = Object.freeze({
   quotaAlertThreshold: "Alert threshold",
   quotaAlertThresholdDescription: "1–90%.",
   quotaAlertThresholdInvalid: "Enter a whole number from 1 to 90.",
+  proxyTitle: "Network proxy for RLY/0 Core",
+  proxyDescription:
+    "Used when RLY/0 Core looks up account quota. Takes effect the next time the core starts; a running core is restarted automatically.",
+  proxyModeDirect: "Direct (no proxy)",
+  proxyModeSystem: "System proxy environment variables",
+  proxyModeCustom: "Custom HTTP proxy",
+  proxyUrlTitle: "Proxy address",
+  proxyUrlDescription: "For example http://127.0.0.1:7890",
+  proxySave: "Save",
+  proxySaved: "Proxy setting saved.",
+  proxySavedRestarted: "Proxy setting saved; RLY/0 Core was restarted to apply it.",
+  proxyInvalidUrl: "Enter an http:// or https:// proxy address.",
+  proxyFailed: "Could not save the proxy setting.",
 });
 
 export const appearanceExtraChinese: AppearanceExtraMessages = Object.freeze({
@@ -89,4 +114,17 @@ export const appearanceExtraChinese: AppearanceExtraMessages = Object.freeze({
   quotaAlertThreshold: "提醒阈值",
   quotaAlertThresholdDescription: "1～90%。",
   quotaAlertThresholdInvalid: "请输入 1～90 之间的整数。",
+  proxyTitle: "零号核心网络代理",
+  proxyDescription:
+    "零号核心查询账号额度时使用。下次启动核心时生效；核心正在运行时会自动重启以应用。",
+  proxyModeDirect: "直连（不使用代理）",
+  proxyModeSystem: "系统代理环境变量",
+  proxyModeCustom: "自定义 HTTP 代理",
+  proxyUrlTitle: "代理地址",
+  proxyUrlDescription: "例如 http://127.0.0.1:7890",
+  proxySave: "保存",
+  proxySaved: "代理设置已保存。",
+  proxySavedRestarted: "代理设置已保存，零号核心已重启以应用。",
+  proxyInvalidUrl: "请输入以 http:// 或 https:// 开头的代理地址。",
+  proxyFailed: "保存代理设置失败。",
 });

@@ -34,6 +34,16 @@ export interface Rly0CoreClientOptions {
   /** Test-only escape hatch: force a specific binary path (or force "not found" with null). */
   readonly binaryPath?: string | null;
   readonly timeoutMs?: number;
+  /**
+   * Called each time the child is spawned to derive its environment (e.g. to apply the user's
+   * outbound proxy choice). Receives a copy of the base environment.
+   */
+  readonly prepareEnvironment?: (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
+}
+
+export interface Rly0CoreRequestOptions {
+  /** Overrides the client-wide timeout for this request only (e.g. slow usage lookups). */
+  readonly timeoutMs?: number;
 }
 
 interface PendingRequest {
@@ -57,6 +67,7 @@ export class Rly0CoreClient {
   readonly #spawnImpl: typeof spawn;
   readonly #explicitBinaryPath: string | null | undefined;
   readonly #timeoutMs: number;
+  readonly #prepareEnvironment: ((environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv) | undefined;
   #child: ChildProcessWithoutNullStreams | null = null;
   #buffer = "";
   #nextId = 1;
@@ -68,6 +79,7 @@ export class Rly0CoreClient {
     this.#spawnImpl = options.spawn ?? spawn;
     this.#explicitBinaryPath = options.binaryPath;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#prepareEnvironment = options.prepareEnvironment;
   }
 
   #resolveBinary(): string | null {
@@ -89,8 +101,9 @@ export class Rly0CoreClient {
     if (this.#child) return this.#child;
     const binary = this.#resolveBinary();
     if (!binary) return null;
-    const environment: NodeJS.ProcessEnv = { ...this.#environment };
+    let environment: NodeJS.ProcessEnv = { ...this.#environment };
     if (this.#environment.CODEX_HOME) environment.CODEX_HOME = this.#environment.CODEX_HOME;
+    if (this.#prepareEnvironment) environment = this.#prepareEnvironment(environment);
     let child: ChildProcessWithoutNullStreams;
     try {
       child = this.#spawnImpl(binary, [], {
@@ -109,7 +122,10 @@ export class Rly0CoreClient {
     // fragments of request params. Drain it so the pipe never backs up.
     child.stderr.on("data", () => undefined);
     const onExit = (): void => {
-      if (this.#child === child) this.#child = null;
+      // A child replaced by restart()/dispose() already failed its own requests; its late exit
+      // must not reject requests addressed to the replacement child.
+      if (this.#child !== child) return;
+      this.#child = null;
       this.#failAllPending(new Error("RLY0_CORE_EXITED"));
     };
     child.once("exit", onExit);
@@ -157,7 +173,11 @@ export class Rly0CoreClient {
    * example `CODEX_NOT_LOGGED_IN`) rejects the returned promise instead, so callers can surface
    * the specific error code rather than a generic "unavailable" state.
    */
-  async request<T>(method: string, params: unknown): Promise<Rly0CoreResponse<T>> {
+  async request<T>(
+    method: string,
+    params: unknown,
+    options: Rly0CoreRequestOptions = {},
+  ): Promise<Rly0CoreResponse<T>> {
     const child = this.#ensureChild();
     if (!child) return { available: false };
     const id = this.#nextId++;
@@ -166,7 +186,7 @@ export class Rly0CoreClient {
       const timer = setTimeout(() => {
         this.#pending.delete(id);
         reject(new Error("RLY0_CORE_TIMEOUT"));
-      }, this.#timeoutMs);
+      }, options.timeoutMs ?? this.#timeoutMs);
       this.#pending.set(id, {
         resolve: (result) => resolve({ available: true, result: result as T }),
         reject,
@@ -178,6 +198,25 @@ export class Rly0CoreClient {
         reject(error);
       });
     });
+  }
+
+  /** Whether a child process is currently spawned (not whether the binary exists). */
+  get isRunning(): boolean {
+    return this.#child !== null;
+  }
+
+  /**
+   * Stops the running child (if any) without disposing the client; the next request respawns it
+   * with a freshly prepared environment. In-flight requests reject with `RLY0_CORE_RESTARTED`.
+   * Returns whether a child was running.
+   */
+  restart(): boolean {
+    const child = this.#child;
+    this.#child = null;
+    this.#failAllPending(new Error("RLY0_CORE_RESTARTED"));
+    if (!child) return false;
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+    return true;
   }
 
   /** Kills the child (if any) and rejects every in-flight request. Safe to call more than once. */

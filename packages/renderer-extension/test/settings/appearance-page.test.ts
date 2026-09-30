@@ -85,6 +85,9 @@ class FakeElement {
   remove(): void {
     // Detaching is not modelled.
   }
+  focus(): void {
+    // Focus is not modelled.
+  }
   // Minimal <table>/<thead>/<tbody>/<tr> surface used by the (unrelated) loaded
   // sessions table that mounts as part of the shared idle-release section.
   createTHead(): FakeElement {
@@ -361,5 +364,60 @@ describe("Appearance settings page", () => {
     expect(values.get(RENDERER_QUOTA_ALERT_THRESHOLD_STORAGE_KEY)).toBe("50");
     expect(thresholdDescription().dataset.invalid).toBe("true");
     expect(text(root)).toContain(extra.quotaAlertThresholdInvalid);
+  });
+  it("loads and saves the rly0-core outbound proxy mode through the host", async () => {
+    const { window } = createFakeWindow(false);
+    const { document } = createFakeDocument(window);
+    const get = vi.fn().mockResolvedValue({ settings: { mode: "system" } });
+    const set = vi
+      .fn()
+      .mockImplementation(async ({ settings }) => ({ settings, coreRestarted: true }));
+    const client: RendererAppearanceClient = {
+      rly0ProxySettingsGet: get,
+      rly0ProxySettingsSet: set,
+    };
+    const { root } = mountPage(window, document, () => client);
+    await flush();
+
+    const modeSelect = selectByIdPrefix(root, "codexhost-rly0-proxy-mode-");
+    expect(modeSelect.value).toBe("system");
+    expect(modeSelect.disabled).toBe(false);
+
+    modeSelect.value = "direct";
+    modeSelect.listeners.get("change")?.();
+    await flush();
+    expect(set).toHaveBeenLastCalledWith({ settings: { mode: "direct" } });
+    expect(text(root)).toContain(extra.proxySavedRestarted);
+
+    modeSelect.value = "custom";
+    modeSelect.listeners.get("change")?.();
+    expect(set).toHaveBeenCalledTimes(1);
+    const urlInput = descendants(root).find(
+      (el) => el.tagName === "input" && el.id.startsWith("codexhost-rly0-proxy-url-"),
+    );
+    if (!urlInput) throw new Error("Missing proxy URL input");
+    const save = descendants(root).find(
+      (el) => el.tagName === "button" && el.textContent === extra.proxySave,
+    );
+    urlInput.value = "not a url";
+    save?.listeners.get("click")?.();
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(text(root)).toContain(extra.proxyInvalidUrl);
+
+    urlInput.value = "http://127.0.0.1:7890";
+    save?.listeners.get("click")?.();
+    await flush();
+    expect(set).toHaveBeenLastCalledWith({
+      settings: { mode: "custom", url: "http://127.0.0.1:7890" },
+    });
+  });
+
+  it("hides the proxy group when the host cannot store proxy settings", () => {
+    const { window } = createFakeWindow(false);
+    const { document } = createFakeDocument(window);
+    const { root } = mountPage(window, document);
+    const modeSelect = selectByIdPrefix(root, "codexhost-rly0-proxy-mode-");
+    const group = descendants(root).find((el) => el.hidden && descendants(el).includes(modeSelect));
+    expect(group).toBeDefined();
   });
 });

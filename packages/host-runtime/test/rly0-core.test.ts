@@ -78,7 +78,9 @@ describe("resolveRly0CoreBinaryPath", () => {
   });
 
   it("returns null when RLY0_CORE_PATH does not exist and no fallback binary is present", () => {
-    const found = resolveRly0CoreBinaryPath({ RLY0_CORE_PATH: path.join(fixture, "does-not-exist") });
+    const found = resolveRly0CoreBinaryPath({
+      RLY0_CORE_PATH: path.join(fixture, "does-not-exist"),
+    });
     expect(found).toBeNull();
   });
 });
@@ -110,6 +112,15 @@ describe("Rly0CoreBridge", () => {
           addedAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-02T00:00:00.000Z",
           current: true,
+          lastUsage: {
+            windows: [
+              { kind: "primary", usedPercent: 95, windowSeconds: 18000, resetsAt: 1790000000 },
+              { kind: "secondary", usedPercent: 40, windowSeconds: 604800, resetsAt: 1790500000 },
+            ],
+            plan: "pro",
+            fetchedAt: 1789990000,
+            source: "snapshot",
+          },
         },
       ],
       liveLoggedIn: true,
@@ -133,6 +144,9 @@ describe("rly0CoreRpcError", () => {
   });
 
   it("falls back to a generic error for unrecognized failures", () => {
-    expect(rly0CoreRpcError(new Error("boom"))).toEqual({ code: -32000, message: "RLY0_CORE_ERROR" });
+    expect(rly0CoreRpcError(new Error("boom"))).toEqual({
+      code: -32000,
+      message: "RLY0_CORE_ERROR",
+    });
   });
 });

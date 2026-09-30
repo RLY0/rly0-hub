@@ -1,0 +1,253 @@
+import { z } from "zod";
+
+/**
+ * Contracts for the relay ("中转") injection page. Relays and the local routing proxy live in the
+ * optional, closed-source `rly0-core`; every core-backed result carries an `available` flag so a
+ * missing core degrades to a typed result. API keys only travel renderer → host → core on
+ * add/update; results expose `hasKey`/`keyMask` and never the key itself.
+ *
+ * The Codex config injection (`[model_providers.rly0]` in `${CODEX_HOME}/config.toml`) is
+ * implemented in the open-source host and works without the core.
+ */
+
+export const RLY0_RELAY_LIST_METHOD = "codexhost/rly0/relay/list";
+export const RLY0_RELAY_ADD_METHOD = "codexhost/rly0/relay/add";
+export const RLY0_RELAY_UPDATE_METHOD = "codexhost/rly0/relay/update";
+export const RLY0_RELAY_REMOVE_METHOD = "codexhost/rly0/relay/remove";
+export const RLY0_RELAY_SET_ENABLED_METHOD = "codexhost/rly0/relay/setEnabled";
+export const RLY0_RELAY_TEST_METHOD = "codexhost/rly0/relay/test";
+export const RLY0_PROXY_START_METHOD = "codexhost/rly0/proxy/start";
+export const RLY0_PROXY_STOP_METHOD = "codexhost/rly0/proxy/stop";
+export const RLY0_PROXY_STATUS_METHOD = "codexhost/rly0/proxy/status";
+export const RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD = "codexhost/rly0/relay/codexConfig/status";
+export const RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD = "codexhost/rly0/relay/codexConfig/apply";
+export const RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD = "codexhost/rly0/relay/codexConfig/restore";
+
+export const RLY0_PROXY_DEFAULT_PORT = 25817;
+/** Provider table name written into Codex's config.toml. */
+export const RLY0_CODEX_PROVIDER_ID = "rly0";
+export const RLY0_CODEX_PROVIDER_NAME = "RLY/0 Hub 本地代理";
+
+export const rly0RelayIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/u);
+export type Rly0RelayId = z.infer<typeof rly0RelayIdSchema>;
+
+export const rly0RelayNameSchema = z.string().trim().min(1).max(64);
+export const rly0RelayBaseUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2048)
+  .regex(/^https?:\/\/[^\s]+$/iu);
+/** Model names or `prefix*` patterns. */
+export const rly0RelayModelSchema = z.string().regex(/^[^\s"'\\]{1,128}$/u);
+export const rly0RelayModelsSchema = z.array(rly0RelayModelSchema).max(256);
+export const rly0RelayApiKeySchema = z.string().trim().min(1).max(512);
+
+const unixSeconds = z.number().int().nonnegative().max(100_000_000_000);
+
+export const rly0RelaySchema = z
+  .object({
+    id: rly0RelayIdSchema,
+    name: z.string().max(64),
+    baseUrl: z.string().max(2048),
+    protocol: z.literal("responses"),
+    models: z.array(z.string().max(128)).max(256),
+    enabled: z.boolean(),
+    routeLocked: z.boolean().optional(),
+    addedAt: unixSeconds.optional(),
+    updatedAt: unixSeconds.optional(),
+    hasKey: z.boolean(),
+    keyMask: z.string().max(64).optional(),
+  })
+  .strict();
+export type Rly0Relay = z.infer<typeof rly0RelaySchema>;
+
+const unavailable = z.object({ available: z.literal(false) }).strict();
+
+export const rly0RelayListParamsSchema = z.object({}).strict();
+export type Rly0RelayListParams = z.infer<typeof rly0RelayListParamsSchema>;
+export const rly0RelayListResultSchema = z.discriminatedUnion("available", [
+  unavailable,
+  z.object({ available: z.literal(true), relays: z.array(rly0RelaySchema).max(256) }).strict(),
+]);
+export type Rly0RelayListResult = z.infer<typeof rly0RelayListResultSchema>;
+
+export const rly0RelayAddParamsSchema = z
+  .object({
+    name: rly0RelayNameSchema,
+    baseUrl: rly0RelayBaseUrlSchema,
+    apiKey: rly0RelayApiKeySchema.optional(),
+    models: rly0RelayModelsSchema.optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+export type Rly0RelayAddParams = z.infer<typeof rly0RelayAddParamsSchema>;
+export const rly0RelayAddResultSchema = z.discriminatedUnion("available", [
+  unavailable,
+  z.object({ available: z.literal(true), id: rly0RelayIdSchema, relay: rly0RelaySchema }).strict(),
+]);
+export type Rly0RelayAddResult = z.infer<typeof rly0RelayAddResultSchema>;
+
+export const rly0RelayUpdateParamsSchema = z
+  .object({
+    id: rly0RelayIdSchema,
+    name: rly0RelayNameSchema.optional(),
+    baseUrl: rly0RelayBaseUrlSchema.optional(),
+    /** Omitted = keep the stored key. */
+    apiKey: rly0RelayApiKeySchema.optional(),
+    clearKey: z.boolean().optional(),
+    models: rly0RelayModelsSchema.optional(),
+    enabled: z.boolean().optional(),
+  })
+  .strict();
+export type Rly0RelayUpdateParams = z.infer<typeof rly0RelayUpdateParamsSchema>;
+export const rly0RelayMutationResultSchema = z.discriminatedUnion("available", [
+  unavailable,
+  z.object({ available: z.literal(true), relay: rly0RelaySchema }).strict(),
+]);
+export type Rly0RelayMutationResult = z.infer<typeof rly0RelayMutationResultSchema>;
+
+export const rly0RelaySetEnabledParamsSchema = z
+  .object({ id: rly0RelayIdSchema, enabled: z.boolean() })
+  .strict();
+export type Rly0RelaySetEnabledParams = z.infer<typeof rly0RelaySetEnabledParamsSchema>;
+
+export const rly0RelayRemoveParamsSchema = z.object({ id: rly0RelayIdSchema }).strict();
+export type Rly0RelayRemoveParams = z.infer<typeof rly0RelayRemoveParamsSchema>;
+export const rly0RelayRemoveResultSchema = z.discriminatedUnion("available", [
+  unavailable,
+  z.object({ available: z.literal(true), ok: z.boolean() }).strict(),
+]);
+export type Rly0RelayRemoveResult = z.infer<typeof rly0RelayRemoveResultSchema>;
+
+export const rly0RelayTestParamsSchema = z.object({ id: rly0RelayIdSchema }).strict();
+export type Rly0RelayTestParams = z.infer<typeof rly0RelayTestParamsSchema>;
+export const rly0RelayTestResultSchema = z.discriminatedUnion("available", [
+  unavailable,
+  z
+    .object({
+      available: z.literal(true),
+      ok: z.boolean(),
+      latencyMs: z.number().nonnegative().max(10_000_000),
+      status: z.number().int().min(0).max(999).optional(),
+      modelCount: z.number().int().nonnegative().max(100_000).optional(),
+      models: z.array(z.string().max(128)).max(256).optional(),
+      error: z.string().max(200).optional(),
+    })
+    .strict(),
+]);
+export type Rly0RelayTestResult = z.infer<typeof rly0RelayTestResultSchema>;
+
+export const rly0ProxyRequestSchema = z
+  .object({
+    at: unixSeconds,
+    method: z.string().max(16),
+    path: z.string().max(512),
+    model: z.string().max(128).optional(),
+    relay: z.string().max(64).optional(),
+    relayId: z.string().max(64).optional(),
+    status: z.number().int().min(0).max(999),
+    ms: z.number().nonnegative().max(10_000_000),
+  })
+  .strict();
+export type Rly0ProxyRequest = z.infer<typeof rly0ProxyRequestSchema>;
+
+const counter = z.number().int().nonnegative();
+const proxyPortSchema = z.number().int().min(1).max(65_535);
+
+export const rly0ProxyRunningSchema = z
+  .object({
+    running: z.literal(true),
+    port: proxyPortSchema,
+    baseUrl: z.string().max(64),
+    startedAt: unixSeconds.optional(),
+    requests: counter,
+    routed: counter,
+    unrouted: counter,
+    failed: counter,
+    recent: z.array(rly0ProxyRequestSchema).max(200),
+    alreadyRunning: z.boolean().optional(),
+  })
+  .strict();
+
+export const rly0ProxyStatusResultSchema = z.union([
+  unavailable,
+  rly0ProxyRunningSchema.extend({ available: z.literal(true) }).strict(),
+  z
+    .object({
+      available: z.literal(true),
+      running: z.literal(false),
+      defaultPort: proxyPortSchema.optional(),
+    })
+    .strict(),
+]);
+export type Rly0ProxyStatusResult = z.infer<typeof rly0ProxyStatusResultSchema>;
+
+export const rly0ProxyStatusParamsSchema = z.object({}).strict();
+export type Rly0ProxyStatusParams = z.infer<typeof rly0ProxyStatusParamsSchema>;
+export const rly0ProxyStartParamsSchema = z.object({ port: proxyPortSchema.optional() }).strict();
+export type Rly0ProxyStartParams = z.infer<typeof rly0ProxyStartParamsSchema>;
+export const rly0ProxyStopParamsSchema = z.object({}).strict();
+export type Rly0ProxyStopParams = z.infer<typeof rly0ProxyStopParamsSchema>;
+export const rly0ProxyStopResultSchema = z.discriminatedUnion("available", [
+  unavailable,
+  z.object({ available: z.literal(true), stopped: z.boolean() }).strict(),
+]);
+export type Rly0ProxyStopResult = z.infer<typeof rly0ProxyStopResultSchema>;
+
+/** The proxy base URL is the only value written as `base_url`; it must be loopback. */
+export const rly0LocalProxyBaseUrlSchema = z
+  .string()
+  .regex(/^http:\/\/127\.0\.0\.1:\d{1,5}\/v1$/u)
+  .refine((value) => {
+    const port = Number(/:(\d{1,5})\//u.exec(value)?.[1]);
+    return port >= 1 && port <= 65_535;
+  });
+
+export const rly0RelayCodexConfigStatusParamsSchema = z.object({}).strict();
+export type Rly0RelayCodexConfigStatusParams = z.infer<
+  typeof rly0RelayCodexConfigStatusParamsSchema
+>;
+export const rly0RelayCodexConfigStatusResultSchema = z
+  .object({
+    configPath: z.string().max(4096),
+    configExists: z.boolean(),
+    /** `[model_providers.rly0]` is present. */
+    providerPresent: z.boolean(),
+    providerBaseUrl: z.string().max(2048).optional(),
+    modelProvider: z.string().max(128).optional(),
+    model: z.string().max(256).optional(),
+    /** A previous apply recorded restore state under the RLY/0 Hub data directory. */
+    applied: z.boolean(),
+    setDefault: z.boolean().optional(),
+    parseError: z.string().max(300).optional(),
+  })
+  .strict();
+export type Rly0RelayCodexConfigStatusResult = z.infer<
+  typeof rly0RelayCodexConfigStatusResultSchema
+>;
+
+export const rly0RelayCodexConfigApplyParamsSchema = z
+  .object({
+    baseUrl: rly0LocalProxyBaseUrlSchema,
+    setDefault: z.boolean(),
+    model: rly0RelayModelSchema.optional(),
+  })
+  .strict()
+  .refine((value) => !value.setDefault || value.model !== undefined, {
+    message: "setDefault requires model",
+    path: ["model"],
+  });
+export type Rly0RelayCodexConfigApplyParams = z.infer<typeof rly0RelayCodexConfigApplyParamsSchema>;
+
+export const rly0RelayCodexConfigRestoreParamsSchema = z.object({}).strict();
+export type Rly0RelayCodexConfigRestoreParams = z.infer<
+  typeof rly0RelayCodexConfigRestoreParamsSchema
+>;
+
+export const rly0RelayCodexConfigMutationResultSchema = z
+  .object({ ok: z.boolean(), status: rly0RelayCodexConfigStatusResultSchema })
+  .strict();
+export type Rly0RelayCodexConfigMutationResult = z.infer<
+  typeof rly0RelayCodexConfigMutationResultSchema
+>;

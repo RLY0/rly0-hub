@@ -91,6 +91,7 @@ describe("Renderer settings localization", () => {
       "会话导入",
       "线程管理",
       "MCP 管理",
+      "中转注入",
       "Skills 管理",
       "维护工具",
       "通用",

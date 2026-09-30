@@ -9,6 +9,7 @@ import {
   type Rly0AccountMessages,
 } from "./rly0-account-messages.js";
 import { mcpEnglish, mcpChinese, type McpMessages } from "./mcp-messages.js";
+import { relayEnglish, relayChinese, type RelayMessages } from "./relay-messages.js";
 import { skillsEnglish, skillsChinese, type SkillsMessages } from "./skills-messages.js";
 import {
   dashboardEnglish,
@@ -49,6 +50,7 @@ export interface RendererSettingsMessages {
   readonly credentialImports: CredentialImportMessages;
   readonly rly0Accounts: Rly0AccountMessages;
   readonly mcp: McpMessages;
+  readonly relay: RelayMessages;
   readonly skills: SkillsMessages;
   readonly dashboard: DashboardMessages;
   readonly threads: ThreadsMessages;
@@ -317,6 +319,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   credentialImports: credentialImportEnglish,
   rly0Accounts: rly0AccountEnglish,
   mcp: mcpEnglish,
+  relay: relayEnglish,
   skills: skillsEnglish,
   dashboard: dashboardEnglish,
   threads: threadsEnglish,
@@ -585,6 +588,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
     "session-import": "Session Import",
     threads: "Threads",
     mcp: "MCP",
+    relay: "Relay injection",
     skills: "Skills",
     maintenance: "Maintenance",
     updates: "Updates",
@@ -597,6 +601,7 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   credentialImports: credentialImportChinese,
   rly0Accounts: rly0AccountChinese,
   mcp: mcpChinese,
+  relay: relayChinese,
   skills: skillsChinese,
   dashboard: dashboardChinese,
   threads: threadsChinese,
@@ -852,6 +857,7 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
     "session-import": "会话导入",
     threads: "线程管理",
     mcp: "MCP 管理",
+    relay: "中转注入",
     skills: "Skills 管理",
     maintenance: "维护工具",
     updates: "更新",

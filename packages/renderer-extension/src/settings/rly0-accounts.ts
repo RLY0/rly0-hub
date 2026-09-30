@@ -9,9 +9,21 @@ import type {
   Rly0AccountsSwitchParams,
   Rly0AccountsSwitchResult,
   Rly0AccountsListResult,
+  Rly0AccountsUsageAllResult,
+  Rly0AccountsUsageParams,
+  Rly0AccountsUsageResult,
+  Rly0AccountUsage,
+  Rly0AccountUsageEntry,
   Rly0CoreStatusResult,
 } from "@codexhost/shared-contracts";
-import type { Rly0AccountMessages } from "./rly0-account-messages.js";
+import { renderAccountUsage } from "./accounts-usage.js";
+import type { RendererSettingsMessages } from "./localization.js";
+import {
+  formatRly0RelativeTime,
+  rly0ErrorCode,
+  rly0UsageErrorMessage,
+  rly0UsageToCredits,
+} from "./rly0-usage.js";
 
 export interface RendererRly0AccountClient {
   rly0CoreStatus?(): Promise<Rly0CoreStatusResult>;
@@ -22,11 +34,20 @@ export interface RendererRly0AccountClient {
   switchRly0Account?(input: Rly0AccountsSwitchParams): Promise<Rly0AccountsSwitchResult>;
   renameRly0Account?(input: Rly0AccountsRenameParams): Promise<Rly0AccountsRenameResult>;
   removeRly0Account?(input: Rly0AccountsRemoveParams): Promise<Rly0AccountsRemoveResult>;
+  rly0AccountUsage?(input: Rly0AccountsUsageParams): Promise<Rly0AccountsUsageResult>;
+  rly0AccountUsageAll?(): Promise<Rly0AccountsUsageAllResult>;
+}
+
+/** Per saved account: the newest known usage (live or the core's cached snapshot) and last error. */
+interface Rly0UsageState {
+  usage?: Rly0AccountUsage;
+  error?: string | null;
+  loading: boolean;
 }
 
 type DialogMode = "save" | "switch" | "rename" | "remove";
 
-function accountDisplayName(account: Rly0Account): string {
+export function rly0AccountDisplayName(account: Rly0Account): string {
   return account.alias?.trim() || account.email || account.id;
 }
 
@@ -41,10 +62,12 @@ export function mountRly0Accounts(
   root: HTMLElement,
   signal: AbortSignal,
   getClient: () => RendererRly0AccountClient | null,
-  messages: Rly0AccountMessages,
+  settingsMessages: RendererSettingsMessages,
   changed: () => void,
 ) {
+  const messages = settingsMessages.rly0Accounts;
   const document = root.ownerDocument;
+  const usageById = new Map<string, Rly0UsageState>();
   let available = false;
   let accounts: readonly Rly0Account[] = [];
   let busy = false;
@@ -65,7 +88,15 @@ export function mountRly0Accounts(
   saveButton.className = "settings-command-button settings-command-button--secondary";
   saveButton.textContent = messages.save;
   saveButton.addEventListener("click", () => openDialog("save", null));
-  header.append(saveButton);
+  const refreshAllButton = document.createElement("button");
+  refreshAllButton.type = "button";
+  refreshAllButton.className = "settings-command-button settings-command-button--secondary";
+  refreshAllButton.textContent = messages.usageRefreshAll;
+  refreshAllButton.addEventListener("click", () => void refreshAllUsage());
+  const headerActions = document.createElement("div");
+  headerActions.className = "settings-rly0-accounts__header-actions";
+  headerActions.append(refreshAllButton, saveButton);
+  header.append(headerActions);
   const card = document.createElement("div");
   card.className = "settings-rly0-accounts__card";
   const noticeElement = document.createElement("p");
@@ -106,6 +137,19 @@ export function mountRly0Accounts(
     return ok;
   };
 
+  const seedUsage = (): void => {
+    const keep = new Set(accounts.map((account) => account.id));
+    for (const id of [...usageById.keys()]) if (!keep.has(id)) usageById.delete(id);
+    for (const account of accounts) {
+      const state = usageById.get(account.id) ?? { loading: false };
+      const cached = account.lastUsage;
+      if (cached && (!state.usage || state.usage.fetchedAt < cached.fetchedAt)) {
+        state.usage = cached;
+      }
+      usageById.set(account.id, state);
+    }
+  };
+
   const refreshAccounts = async (): Promise<void> => {
     const client = getClient();
     const listAccounts = client?.listRly0Accounts;
@@ -117,6 +161,133 @@ export function mountRly0Accounts(
     } catch {
       if (!signal.aborted) accounts = [];
     }
+    seedUsage();
+  };
+
+  const applyUsageResults = (results: readonly Rly0AccountUsageEntry[]): void => {
+    for (const entry of results) {
+      const state = usageById.get(entry.id);
+      if (!state) continue;
+      if ("usage" in entry) {
+        state.usage = entry.usage;
+        state.error = null;
+      } else {
+        state.error = entry.error;
+      }
+    }
+  };
+
+  const refreshUsage = async (account: Rly0Account): Promise<void> => {
+    const lookup = getClient()?.rly0AccountUsage;
+    const state = usageById.get(account.id);
+    if (!lookup || !state || state.loading || signal.aborted) return;
+    state.loading = true;
+    render();
+    try {
+      const result = await lookup({ id: account.id });
+      if (signal.aborted) return;
+      if (result.available) {
+        state.usage = result.usage;
+        state.error = null;
+      } else {
+        state.error = "RLY0_CORE_UNAVAILABLE";
+      }
+    } catch (error) {
+      if (!signal.aborted) state.error = rly0ErrorCode(error) ?? "USAGE_FAILED";
+    } finally {
+      state.loading = false;
+      if (!signal.aborted) {
+        render();
+        changed();
+      }
+    }
+  };
+
+  let refreshingAll = false;
+  const refreshAllUsage = async (): Promise<void> => {
+    const lookupAll = getClient()?.rly0AccountUsageAll;
+    if (!lookupAll || refreshingAll || signal.aborted || accounts.length === 0) return;
+    refreshingAll = true;
+    for (const state of usageById.values()) state.loading = true;
+    render();
+    try {
+      const result = await lookupAll();
+      if (signal.aborted) return;
+      if (result.available) applyUsageResults(result.results);
+      else notice = { text: messages.unavailableHint, tone: "error" };
+    } catch (error) {
+      if (!signal.aborted) {
+        notice = { text: rly0UsageErrorMessage(rly0ErrorCode(error), messages), tone: "error" };
+      }
+    } finally {
+      refreshingAll = false;
+      for (const state of usageById.values()) state.loading = false;
+      if (!signal.aborted) {
+        render();
+        changed();
+      }
+    }
+  };
+
+  const renderUsage = (account: Rly0Account): HTMLElement => {
+    const state = usageById.get(account.id) ?? { loading: false };
+    const wrapper = document.createElement("div");
+    wrapper.className = "settings-rly0-accounts__usage";
+    const credits = state.usage ? rly0UsageToCredits(state.usage) : null;
+    if (credits) {
+      const rendered = renderAccountUsage(
+        document,
+        {
+          status: "ready",
+          credits,
+          freshness: state.usage?.source === "live" ? "live" : "cached",
+          observedAt: null,
+        },
+        settingsMessages,
+        "remaining",
+        () => void refreshUsage(account),
+      );
+      const table = document.createElement("table");
+      table.className = "settings-account-table settings-rly0-accounts__usage-table";
+      const body = document.createElement("tbody");
+      for (const cells of [rendered.cells, ...rendered.continuationCells]) {
+        const tableRow = document.createElement("tr");
+        tableRow.append(...cells);
+        body.append(tableRow);
+      }
+      table.append(body);
+      wrapper.append(table);
+      if (rendered.additional) wrapper.append(rendered.additional);
+    }
+    const status = document.createElement("div");
+    status.className = "settings-rly0-accounts__usage-status";
+    const statusText = document.createElement("span");
+    if (state.loading) statusText.textContent = messages.usageRefreshing;
+    else if (state.usage) {
+      const updated = messages.usageUpdated.replace(
+        "{time}",
+        formatRly0RelativeTime(state.usage.fetchedAt, messages),
+      );
+      statusText.textContent =
+        state.usage.source === "snapshot" ? `${updated} · ${messages.usageCached}` : updated;
+    } else statusText.textContent = messages.usageEmpty;
+    status.append(statusText);
+    if (state.error && !state.loading) {
+      const errorText = document.createElement("span");
+      errorText.className = "settings-rly0-accounts__usage-error";
+      errorText.setAttribute("role", "alert");
+      errorText.textContent = rly0UsageErrorMessage(state.error, messages);
+      status.append(errorText);
+    }
+    const refreshButton = document.createElement("button");
+    refreshButton.type = "button";
+    refreshButton.className = "settings-account-action";
+    refreshButton.textContent = messages.usageRefresh;
+    refreshButton.disabled = state.loading || !getClient()?.rly0AccountUsage;
+    refreshButton.addEventListener("click", () => void refreshUsage(account));
+    status.append(refreshButton);
+    wrapper.append(status);
+    return wrapper;
   };
 
   const renderRow = (account: Rly0Account): HTMLElement => {
@@ -124,7 +295,7 @@ export function mountRly0Accounts(
     row.className = "settings-rly0-accounts__row";
     row.tabIndex = -1;
     row.dataset.rly0AccountId = account.id;
-    const name = accountDisplayName(account);
+    const name = rly0AccountDisplayName(account);
     row.setAttribute("aria-label", name);
     const identity = document.createElement("div");
     identity.className = "settings-rly0-accounts__identity";
@@ -178,7 +349,10 @@ export function mountRly0Accounts(
     removeButton.disabled = busy;
     removeButton.addEventListener("click", () => openDialog("remove", account));
     actions.append(switchButton, renameButton, removeButton);
-    row.append(identity, actions);
+    const top = document.createElement("div");
+    top.className = "settings-rly0-accounts__row-top";
+    top.append(identity, actions);
+    row.append(top, renderUsage(account));
     rows.set(account.id, row);
     return row;
   };
@@ -186,6 +360,12 @@ export function mountRly0Accounts(
   const render = (): void => {
     saveButton.disabled = busy || !available;
     saveButton.hidden = !available;
+    refreshAllButton.hidden = !available || accounts.length === 0;
+    refreshAllButton.disabled =
+      refreshingAll || !getClient()?.rly0AccountUsageAll || accounts.length === 0;
+    refreshAllButton.textContent = refreshingAll
+      ? messages.usageRefreshing
+      : messages.usageRefreshAll;
     const baseNoticeClass = "settings-rly0-accounts__notice";
     if (notice) {
       noticeElement.textContent = notice.text;
@@ -256,7 +436,7 @@ export function mountRly0Accounts(
     };
     const close = (): void => modal.close();
 
-    const name = account ? accountDisplayName(account) : "";
+    const name = account ? rly0AccountDisplayName(account) : "";
 
     if (mode === "save") {
       heading.textContent = messages.save;
@@ -437,6 +617,22 @@ export function mountRly0Accounts(
 
   return {
     section: section as HTMLElement,
+    /** Folds results fetched elsewhere (the low-quota alert's poll) into the saved-account cards. */
+    applyUsage(results: readonly Rly0AccountUsageEntry[]): void {
+      if (signal.aborted) return;
+      applyUsageResults(results);
+      render();
+      changed();
+    },
+    /** Re-reads the saved list (after a switch made elsewhere, e.g. from the low-quota alert). */
+    async reload(): Promise<void> {
+      if (!available) return;
+      await refreshAccounts();
+      if (!signal.aborted) {
+        render();
+        changed();
+      }
+    },
     refresh: async (): Promise<void> => {
       const rly0Client = getClient();
       if (!rly0Client?.rly0CoreStatus) {

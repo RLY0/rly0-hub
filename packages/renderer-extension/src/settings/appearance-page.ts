@@ -1,4 +1,12 @@
-import type { Rly0AppearanceAutostartResult } from "@codexhost/shared-contracts";
+import {
+  rly0ProxyUrlSchema,
+  type Rly0AppearanceAutostartResult,
+  type Rly0ProxyMode,
+  type Rly0ProxySettings,
+  type Rly0ProxySettingsGetResult,
+  type Rly0ProxySettingsSetParams,
+  type Rly0ProxySettingsSetResult,
+} from "@codexhost/shared-contracts";
 import {
   REASONING_SOFT_WRAP_CHANGE_EVENT,
   readReasoningTranscriptSoftWrap,
@@ -42,6 +50,8 @@ import {
 export interface RendererAppearanceClient {
   rly0AppearanceAutostartStatus?(): Promise<Rly0AppearanceAutostartResult>;
   rly0AppearanceAutostartSet?(input: { enabled: boolean }): Promise<Rly0AppearanceAutostartResult>;
+  rly0ProxySettingsGet?(): Promise<Rly0ProxySettingsGetResult>;
+  rly0ProxySettingsSet?(input: Rly0ProxySettingsSetParams): Promise<Rly0ProxySettingsSetResult>;
 }
 
 function createSelect(
@@ -326,6 +336,126 @@ export function createAppearanceSettingsPage(
       );
 
       context.content.append(quotaGroup);
+
+      // Outbound proxy for rly0-core (quota lookups). Stored by the host, not the renderer, so
+      // it applies whenever the host spawns the core. Uses plain promises instead of
+      // `runLatest` so it never cancels the autostart request above.
+      const { group: proxyGroup, card: proxyCard } = createPreferenceGroup(
+        document,
+        extra.proxyTitle,
+      );
+      const proxyModeId = preferenceId("rly0-proxy-mode");
+      const proxyModeRow = createPreferenceItem(document, {
+        title: extra.proxyTitle,
+        description: extra.proxyDescription,
+        controlId: proxyModeId,
+      });
+      const proxyModeSelect = createSelect(document, proxyModeId, proxyModeRow.description.id, [
+        { value: "direct", label: extra.proxyModeDirect },
+        { value: "system", label: extra.proxyModeSystem },
+        { value: "custom", label: extra.proxyModeCustom },
+      ]);
+      proxyModeSelect.value = "system";
+      proxyModeSelect.disabled = true;
+      proxyModeRow.item.append(proxyModeSelect);
+      const proxyUrlId = preferenceId("rly0-proxy-url");
+      const proxyUrlRow = createPreferenceItem(document, {
+        title: extra.proxyUrlTitle,
+        description: extra.proxyUrlDescription,
+        controlId: proxyUrlId,
+      });
+      const proxyUrlInput = document.createElement("input");
+      proxyUrlInput.type = "text";
+      proxyUrlInput.id = proxyUrlId;
+      proxyUrlInput.autocomplete = "off";
+      proxyUrlInput.spellcheck = false;
+      proxyUrlInput.maxLength = 512;
+      proxyUrlInput.placeholder = "http://127.0.0.1:7890";
+      proxyUrlInput.setAttribute("aria-describedby", proxyUrlRow.description.id);
+      proxyUrlInput.className =
+        "h-8 shrink-0 rounded-md border border-settings-border bg-settings-surface px-2 text-[13px] leading-5 text-settings-text outline-none transition-colors focus-visible:border-settings-focus";
+      const proxySave = document.createElement("button");
+      proxySave.type = "button";
+      proxySave.className = "settings-command-button settings-command-button--secondary";
+      proxySave.textContent = extra.proxySave;
+      proxySave.disabled = true;
+      const proxyUrlControls = document.createElement("div");
+      proxyUrlControls.className = "flex shrink-0 items-center gap-2";
+      proxyUrlControls.append(proxyUrlInput, proxySave);
+      proxyUrlRow.item.append(proxyUrlControls);
+      proxyCard.append(proxyModeRow.item, proxyUrlRow.item);
+      context.content.append(proxyGroup);
+
+      const proxyClient = (): RendererAppearanceClient | null => getAppearanceClient();
+      const syncProxyVisibility = (): void => {
+        proxyUrlRow.item.hidden = proxyModeSelect.value !== "custom";
+      };
+      const setProxyStatus = (text: string, invalid = false): void => {
+        const target = proxyModeSelect.value === "custom" ? proxyUrlRow : proxyModeRow;
+        target.description.textContent = text;
+        target.description.dataset.invalid = invalid ? "true" : "false";
+      };
+      const resetProxyDescriptions = (): void => {
+        proxyModeRow.description.textContent = extra.proxyDescription;
+        proxyModeRow.description.dataset.invalid = "false";
+        proxyUrlRow.description.textContent = extra.proxyUrlDescription;
+        proxyUrlRow.description.dataset.invalid = "false";
+      };
+      const saveProxy = (): void => {
+        const setter = proxyClient()?.rly0ProxySettingsSet;
+        if (!setter) return;
+        resetProxyDescriptions();
+        const mode = proxyModeSelect.value as Rly0ProxyMode;
+        const url = proxyUrlInput.value.trim();
+        if (mode === "custom" && !rly0ProxyUrlSchema.safeParse(url).success) {
+          setProxyStatus(extra.proxyInvalidUrl, true);
+          proxyUrlInput.focus();
+          return;
+        }
+        const settings: Rly0ProxySettings = mode === "custom" ? { mode, url } : { mode };
+        proxyModeSelect.disabled = true;
+        proxySave.disabled = true;
+        void setter({ settings })
+          .then((result) => {
+            if (context.signal.aborted) return;
+            setProxyStatus(result.coreRestarted ? extra.proxySavedRestarted : extra.proxySaved);
+          })
+          .catch(() => {
+            if (!context.signal.aborted) setProxyStatus(extra.proxyFailed, true);
+          })
+          .finally(() => {
+            if (context.signal.aborted) return;
+            proxyModeSelect.disabled = false;
+            proxySave.disabled = false;
+          });
+      };
+      proxyModeSelect.addEventListener("change", () => {
+        syncProxyVisibility();
+        // Direct/system apply immediately; custom waits for an address and an explicit save.
+        if (proxyModeSelect.value === "custom") {
+          resetProxyDescriptions();
+          proxyUrlInput.focus();
+        } else saveProxy();
+      });
+      proxySave.addEventListener("click", saveProxy);
+      syncProxyVisibility();
+      const getProxy = proxyClient()?.rly0ProxySettingsGet;
+      if (getProxy) {
+        void getProxy()
+          .then((result) => {
+            if (context.signal.aborted) return;
+            proxyModeSelect.value = result.settings.mode;
+            proxyUrlInput.value = result.settings.url ?? "";
+            proxyModeSelect.disabled = false;
+            proxySave.disabled = false;
+            syncProxyVisibility();
+          })
+          .catch(() => {
+            if (!context.signal.aborted) setProxyStatus(extra.proxyFailed, true);
+          });
+      } else {
+        proxyGroup.hidden = true;
+      }
 
       // Reasoning soft wrap (existing).
       const { group: softWrapGroup, card: softWrapCard } = createPreferenceGroup(

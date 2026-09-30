@@ -227,3 +227,182 @@ export function appendMcpServer(
   const next = lines.length === 0 ? block : [...lines, "", ...block];
   return `${joinLines(next, usesCrLf)}${usesCrLf ? "\r\n" : "\n"}`;
 }
+
+/* -------------------------------------------------------------------------------------------- *
+ * Generic helpers used by the relay page to inject `[model_providers.rly0]` and top-level
+ * `model_provider` / `model` keys. Same line-level, comment-preserving approach as above; callers
+ * must re-parse the result with `smol-toml` and verify the values they meant to write.
+ * -------------------------------------------------------------------------------------------- */
+
+export interface TomlTableRange {
+  readonly start: number;
+  readonly directEnd: number;
+  readonly blockEnd: number;
+}
+
+function isSegmentPrefix(prefix: readonly string[], segments: readonly string[]): boolean {
+  return (
+    segments.length >= prefix.length &&
+    prefix.every((segment, index) => segments[index] === segment)
+  );
+}
+
+/** Locates the plain table `[a.b.c]` whose path equals `segments` exactly (subtables included). */
+export function findTableRange(
+  lines: readonly string[],
+  segments: readonly string[],
+): TomlTableRange | null {
+  let start = -1;
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = matchTableHeader(lines[index] ?? "");
+    if (
+      header &&
+      !header.isArrayTable &&
+      header.segments.length === segments.length &&
+      isSegmentPrefix(segments, header.segments)
+    ) {
+      start = index;
+      break;
+    }
+  }
+  if (start === -1) return null;
+  let directEnd = lines.length;
+  let blockEnd = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const header = matchTableHeader(lines[index] ?? "");
+    if (!header) continue;
+    if (directEnd === lines.length) directEnd = index;
+    if (!isSegmentPrefix(segments, header.segments) || header.segments.length === segments.length) {
+      blockEnd = index;
+      break;
+    }
+  }
+  return { start, directEnd, blockEnd };
+}
+
+function tableHeaderLine(segments: readonly string[]): string {
+  return `[${segments
+    .map((segment) => (/^[A-Za-z0-9_-]+$/u.test(segment) ? segment : tomlQuotedString(segment)))
+    .join(".")}]`;
+}
+
+/** TOML literal for a string value (basic string, escaped). */
+export function tomlString(value: string): string {
+  return `"${value
+    .replace(/\\/gu, "\\\\")
+    .replace(/"/gu, '\\"')
+    .replace(/\n/gu, "\\n")
+    .replace(/\r/gu, "\\r")
+    .replace(/\t/gu, "\\t")}"`;
+}
+
+/** Removes the table at `segments` (and its subtables). Returns the content unchanged if absent. */
+export function removeTable(content: string, segments: readonly string[]): string {
+  const usesCrLf = content.includes("\r\n");
+  const lines = splitLines(content);
+  const range = findTableRange(lines, segments);
+  if (!range) return content;
+  let end = range.blockEnd;
+  if (end < lines.length && (lines[end] ?? "").trim() === "" && range.start > 0) end += 1;
+  lines.splice(range.start, end - range.start);
+  return joinLines(lines, usesCrLf);
+}
+
+/**
+ * Replaces the table at `segments` with a freshly written block holding `entries` (key, already
+ * TOML-encoded literal), or appends it at the end of the file when absent. Trailing blank lines
+ * that separated the old block from the next table are kept.
+ */
+export function upsertTable(
+  content: string,
+  segments: readonly string[],
+  entries: readonly (readonly [key: string, literal: string])[],
+): string {
+  const usesCrLf = content.includes("\r\n");
+  const lines = splitLines(content);
+  const block = [
+    tableHeaderLine(segments),
+    ...entries.map(([key, literal]) => `${key} = ${literal}`),
+  ];
+  const range = findTableRange(lines, segments);
+  if (range) {
+    let end = range.blockEnd;
+    while (end > range.start + 1 && (lines[end - 1] ?? "").trim() === "") end -= 1;
+    lines.splice(range.start, end - range.start, ...block);
+    return joinLines(lines, usesCrLf);
+  }
+  while (lines.length > 0 && (lines.at(-1) ?? "").trim() === "") lines.pop();
+  const next = lines.length === 0 ? block : [...lines, "", ...block];
+  return `${joinLines(next, usesCrLf)}${usesCrLf ? "\r\n" : "\n"}`;
+}
+
+/** Index of the first table header (end of the top-level key region). */
+function topLevelEnd(lines: readonly string[]): number {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (matchTableHeader(lines[index] ?? "")) return index;
+  }
+  return lines.length;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function topLevelKeyPattern(key: string): RegExp {
+  const escaped = escapeRegExp(key);
+  return new RegExp(`^(\\s*(?:${escaped}|"${escaped}"|'${escaped}')\\s*=\\s*)(.*)$`, "u");
+}
+
+/** Splits `"value" # comment` into the value part and a trailing comment (if safely detectable). */
+function splitValueAndComment(rest: string): { comment: string } | null {
+  const match = /^("(?:[^"\\]|\\.)*"|'[^']*'|[^\s#"'][^#]*?)(\s*#.*)?$/u.exec(rest.trimEnd());
+  if (!match) return null;
+  return { comment: match[2] ?? "" };
+}
+
+/** Line index of a top-level `key = ...` assignment, or -1. */
+export function findTopLevelKeyLine(lines: readonly string[], key: string): number {
+  const end = topLevelEnd(lines);
+  const pattern = topLevelKeyPattern(key);
+  for (let index = 0; index < end; index += 1) {
+    if (pattern.test(lines[index] ?? "")) return index;
+  }
+  return -1;
+}
+
+/**
+ * Sets a top-level `key = <literal>` (before the first table header). An existing assignment is
+ * rewritten in place keeping its indentation and any trailing `# comment`; otherwise the line is
+ * inserted after the last top-level assignment (or at the top of the file).
+ */
+export function setTopLevelKey(content: string, key: string, literal: string): string {
+  const usesCrLf = content.includes("\r\n");
+  const lines = splitLines(content);
+  const existing = findTopLevelKeyLine(lines, key);
+  if (existing !== -1) {
+    const match = topLevelKeyPattern(key).exec(lines[existing] ?? "");
+    const prefix = match?.[1] ?? `${key} = `;
+    const comment = splitValueAndComment(match?.[2] ?? "")?.comment ?? "";
+    lines[existing] = `${prefix}${literal}${comment}`;
+    return joinLines(lines, usesCrLf);
+  }
+  const end = topLevelEnd(lines);
+  let insertAt = 0;
+  for (let index = 0; index < end; index += 1) {
+    const trimmed = (lines[index] ?? "").trim();
+    if (trimmed !== "" && !trimmed.startsWith("#")) insertAt = index + 1;
+  }
+  lines.splice(insertAt, 0, `${key} = ${literal}`);
+  if (content.length === 0) return `${lines[0]}${usesCrLf ? "\r\n" : "\n"}`;
+  return joinLines(lines, usesCrLf);
+}
+
+/** Removes a top-level `key = ...` line. Returns the content unchanged if absent. */
+export function removeTopLevelKey(content: string, key: string): string {
+  const usesCrLf = content.includes("\r\n");
+  const lines = splitLines(content);
+  const existing = findTopLevelKeyLine(lines, key);
+  if (existing === -1) return content;
+  lines.splice(existing, 1);
+  return joinLines(lines, usesCrLf);
+}

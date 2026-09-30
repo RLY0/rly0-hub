@@ -37,6 +37,7 @@ import Server from "lucide/dist/esm/icons/server.mjs";
 import CircleHelp from "lucide/dist/esm/icons/circle-question-mark.mjs";
 import X from "lucide/dist/esm/icons/x.mjs";
 import Users from "lucide/dist/esm/icons/users.mjs";
+import Waypoints from "lucide/dist/esm/icons/waypoints.mjs";
 import Plus from "lucide/dist/esm/icons/plus.mjs";
 import codexhostLogoUrl from "../assets/codexhost-app-icon.svg";
 
@@ -52,6 +53,7 @@ export const RENDERER_SETTINGS_ICON_NAMES = [
   "session-import",
   "threads",
   "mcp",
+  "relay",
   "skills",
   "add",
   "model-pool",
@@ -106,6 +108,7 @@ const iconNodes = {
   dashboard: LayoutDashboard,
   threads: MessagesSquare,
   mcp: Server,
+  relay: Waypoints,
   skills: GraduationCap,
   add: Plus,
   "model-pool": Boxes,

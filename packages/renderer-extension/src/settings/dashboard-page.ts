@@ -21,9 +21,10 @@ import {
 import type { RendererSettingsPageDefinition, RendererSettingsPageMountContext } from "./core.js";
 import type { DashboardMessages } from "./dashboard-messages.js";
 import type { RendererSettingsMessages } from "./localization.js";
+import { mountRly0QuotaAlert, type RendererRly0QuotaAlertClient } from "./rly0-quota-alert.js";
 import { formatByteSize } from "./threads-page.js";
 
-export interface RendererDashboardClient {
+export interface RendererDashboardClient extends RendererRly0QuotaAlertClient {
   rly0CoreStatus?(): Promise<Rly0CoreStatusResult>;
   listRly0Accounts?(): Promise<Rly0AccountsListResult>;
   listRly0Mcp?(): Promise<Rly0McpListResult>;
@@ -129,7 +130,9 @@ export function createDashboardSettingsPage(
       activitySection.className =
         "settings-rly0-dashboard__panel settings-rly0-dashboard__activity";
 
+      const quotaAlert = mountRly0QuotaAlert(context.content, context.signal, getClient, messages);
       context.content.append(
+        quotaAlert.element,
         header,
         description,
         stats,

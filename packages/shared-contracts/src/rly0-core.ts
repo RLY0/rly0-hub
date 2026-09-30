@@ -15,9 +15,7 @@ export const RLY0_ACCOUNTS_RENAME_METHOD = "codexhost/rly0/accounts/rename";
 export const RLY0_ACCOUNTS_REMOVE_METHOD = "codexhost/rly0/accounts/remove";
 
 /** rly0-core mints ids as 12 lowercase hex characters. */
-export const rly0AccountIdSchema = z
-  .string()
-  .regex(/^[0-9a-f]{12}$/u);
+export const rly0AccountIdSchema = z.string().regex(/^[0-9a-f]{12}$/u);
 export type Rly0AccountId = z.infer<typeof rly0AccountIdSchema>;
 
 export const rly0AliasSchema = z.string().trim().min(1).max(40);
@@ -38,6 +36,42 @@ export const rly0CoreStatusResultSchema = z.discriminatedUnion("available", [
 ]);
 export type Rly0CoreStatusResult = z.infer<typeof rly0CoreStatusResultSchema>;
 
+export const RLY0_ACCOUNTS_USAGE_METHOD = "codexhost/rly0/accounts/usage";
+export const RLY0_ACCOUNTS_USAGE_ALL_METHOD = "codexhost/rly0/accounts/usageAll";
+export const RLY0_PROXY_SETTINGS_GET_METHOD = "codexhost/rly0/settings/proxy/get";
+export const RLY0_PROXY_SETTINGS_SET_METHOD = "codexhost/rly0/settings/proxy/set";
+
+/** One rate-limit window reported by `accounts/usage`. Times are unix seconds. */
+export const rly0UsageWindowSchema = z
+  .object({
+    kind: z.enum(["primary", "secondary"]),
+    usedPercent: z.number().finite().min(0).max(100),
+    windowSeconds: z.number().int().nonnegative().max(10_000_000_000).optional(),
+    resetsAt: z.number().int().nonnegative().max(100_000_000_000).optional(),
+  })
+  .strict();
+export type Rly0UsageWindow = z.infer<typeof rly0UsageWindowSchema>;
+
+export const rly0AccountUsageSchema = z
+  .object({
+    windows: z.array(rly0UsageWindowSchema).max(8),
+    plan: z.string().max(64).optional(),
+    fetchedAt: z.number().int().nonnegative().max(100_000_000_000),
+    source: z.enum(["live", "snapshot"]),
+  })
+  .strict();
+export type Rly0AccountUsage = z.infer<typeof rly0AccountUsageSchema>;
+
+/** Error codes rly0-core reports for usage lookups; anything else maps to a generic message. */
+export const RLY0_USAGE_ERROR_CODES = [
+  "USAGE_TOKEN_EXPIRED",
+  "USAGE_BLOCKED",
+  "USAGE_NETWORK",
+  "USAGE_BAD_RESPONSE",
+  "ACCOUNT_TOKEN_MISSING",
+] as const;
+export const rly0UsageErrorCodeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u);
+
 export const rly0AccountSchema = z
   .object({
     id: rly0AccountIdSchema,
@@ -48,6 +82,7 @@ export const rly0AccountSchema = z
     addedAt: z.string().max(64).optional(),
     updatedAt: z.string().max(64).optional(),
     current: z.boolean(),
+    lastUsage: rly0AccountUsageSchema.optional(),
   })
   .strict();
 export type Rly0Account = z.infer<typeof rly0AccountSchema>;
@@ -56,7 +91,9 @@ export const rly0AccountsListParamsSchema = z.object({}).strict();
 export type Rly0AccountsListParams = z.infer<typeof rly0AccountsListParamsSchema>;
 
 export const rly0AccountsListResultSchema = z.discriminatedUnion("available", [
-  z.object({ available: z.literal(false), accounts: z.array(rly0AccountSchema).length(0) }).strict(),
+  z
+    .object({ available: z.literal(false), accounts: z.array(rly0AccountSchema).length(0) })
+    .strict(),
   z
     .object({
       available: z.literal(true),
@@ -77,9 +114,7 @@ export const rly0AccountsImportCurrentResultSchema = z.discriminatedUnion("avail
   z.object({ available: z.literal(false) }).strict(),
   z.object({ available: z.literal(true), id: rly0AccountIdSchema }).strict(),
 ]);
-export type Rly0AccountsImportCurrentResult = z.infer<
-  typeof rly0AccountsImportCurrentResultSchema
->;
+export type Rly0AccountsImportCurrentResult = z.infer<typeof rly0AccountsImportCurrentResultSchema>;
 
 export const rly0AccountsSwitchParamsSchema = z.object({ id: rly0AccountIdSchema }).strict();
 export type Rly0AccountsSwitchParams = z.infer<typeof rly0AccountsSwitchParamsSchema>;
@@ -117,3 +152,68 @@ export const rly0AccountsRemoveResultSchema = z.discriminatedUnion("available", 
   z.object({ available: z.literal(true), ok: z.boolean() }).strict(),
 ]);
 export type Rly0AccountsRemoveResult = z.infer<typeof rly0AccountsRemoveResultSchema>;
+
+export const rly0AccountsUsageParamsSchema = z.object({ id: rly0AccountIdSchema }).strict();
+export type Rly0AccountsUsageParams = z.infer<typeof rly0AccountsUsageParamsSchema>;
+
+export const rly0AccountsUsageResultSchema = z.discriminatedUnion("available", [
+  z.object({ available: z.literal(false) }).strict(),
+  z.object({ available: z.literal(true), usage: rly0AccountUsageSchema }).strict(),
+]);
+export type Rly0AccountsUsageResult = z.infer<typeof rly0AccountsUsageResultSchema>;
+
+export const rly0AccountsUsageAllParamsSchema = z.object({}).strict();
+export type Rly0AccountsUsageAllParams = z.infer<typeof rly0AccountsUsageAllParamsSchema>;
+
+export const rly0AccountUsageEntrySchema = z.union([
+  z.object({ id: rly0AccountIdSchema, usage: rly0AccountUsageSchema }).strict(),
+  z.object({ id: rly0AccountIdSchema, error: rly0UsageErrorCodeSchema }).strict(),
+]);
+export type Rly0AccountUsageEntry = z.infer<typeof rly0AccountUsageEntrySchema>;
+
+export const rly0AccountsUsageAllResultSchema = z.discriminatedUnion("available", [
+  z.object({ available: z.literal(false) }).strict(),
+  z
+    .object({ available: z.literal(true), results: z.array(rly0AccountUsageEntrySchema).max(64) })
+    .strict(),
+]);
+export type Rly0AccountsUsageAllResult = z.infer<typeof rly0AccountsUsageAllResultSchema>;
+
+/**
+ * Outbound proxy used by the rly0-core child process. `system` keeps the inherited
+ * HTTPS_PROXY/HTTP_PROXY variables, `direct` strips them, `custom` sets both to `url`.
+ */
+export const rly0ProxyModeSchema = z.enum(["direct", "system", "custom"]);
+export type Rly0ProxyMode = z.infer<typeof rly0ProxyModeSchema>;
+
+export const rly0ProxyUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(512)
+  .regex(/^https?:\/\/[^\s]+$/iu);
+
+export const rly0ProxySettingsSchema = z
+  .object({ mode: rly0ProxyModeSchema, url: rly0ProxyUrlSchema.optional() })
+  .strict()
+  .refine((value) => value.mode !== "custom" || value.url !== undefined, {
+    message: "custom proxy requires url",
+    path: ["url"],
+  });
+export type Rly0ProxySettings = z.infer<typeof rly0ProxySettingsSchema>;
+
+export const rly0ProxySettingsGetParamsSchema = z.object({}).strict();
+export type Rly0ProxySettingsGetParams = z.infer<typeof rly0ProxySettingsGetParamsSchema>;
+export const rly0ProxySettingsGetResultSchema = z
+  .object({ settings: rly0ProxySettingsSchema })
+  .strict();
+export type Rly0ProxySettingsGetResult = z.infer<typeof rly0ProxySettingsGetResultSchema>;
+
+export const rly0ProxySettingsSetParamsSchema = z
+  .object({ settings: rly0ProxySettingsSchema })
+  .strict();
+export type Rly0ProxySettingsSetParams = z.infer<typeof rly0ProxySettingsSetParamsSchema>;
+export const rly0ProxySettingsSetResultSchema = z
+  .object({ settings: rly0ProxySettingsSchema, coreRestarted: z.boolean() })
+  .strict();
+export type Rly0ProxySettingsSetResult = z.infer<typeof rly0ProxySettingsSetResultSchema>;

@@ -11,6 +11,7 @@ import {
   type RendererCredentialImportClient,
 } from "./credential-imports.js";
 import { mountRly0Accounts, type RendererRly0AccountClient } from "./rly0-accounts.js";
+import { mountRly0QuotaAlert } from "./rly0-quota-alert.js";
 import { codexAccountDisplayName } from "../renderer-codex-account-options.js";
 import {
   accountListFocusRestorer,
@@ -28,9 +29,7 @@ import type { RendererSettingsMessages } from "./localization.js";
 import { shouldApplyCodexAccountSnapshot } from "../renderer-codex-account-state.js";
 
 export interface RendererCodexAccountClient
-  extends RendererHarnessAccountClient,
-    RendererCredentialImportClient,
-    RendererRly0AccountClient {
+  extends RendererHarnessAccountClient, RendererCredentialImportClient, RendererRly0AccountClient {
   listCodexAccounts(): Promise<CodexAccountListResult>;
   refreshCodexAccounts?(): Promise<CodexAccountListResult>;
   inspectCodexAccountUsage?(input: CodexAccountUsageParams): Promise<CodexAccountUsageResult>;
@@ -126,11 +125,16 @@ export function createAccountsSettingsPage(
         context.content,
         context.signal,
         getClient,
-        messages.rly0Accounts,
+        messages,
         () => render(),
       );
+      const quotaAlert = mountRly0QuotaAlert(context.content, context.signal, getClient, messages, {
+        onUsage: (results) => rly0Accounts.applyUsage(results),
+        onSwitched: () => void rly0Accounts.reload(),
+      });
       context.content.append(
         header,
+        quotaAlert.element,
         status,
         toolbar,
         list,

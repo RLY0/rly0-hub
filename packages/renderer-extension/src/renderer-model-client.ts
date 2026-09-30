@@ -158,6 +158,66 @@ import {
   type Rly0MaintenanceProcessActionResult,
   type Rly0AppearanceAutostartResult,
   type Rly0AppearanceAutostartSetParams,
+  RLY0_ACCOUNTS_USAGE_METHOD,
+  RLY0_ACCOUNTS_USAGE_ALL_METHOD,
+  RLY0_PROXY_SETTINGS_GET_METHOD,
+  RLY0_PROXY_SETTINGS_SET_METHOD,
+  RLY0_RELAY_LIST_METHOD,
+  RLY0_RELAY_ADD_METHOD,
+  RLY0_RELAY_UPDATE_METHOD,
+  RLY0_RELAY_REMOVE_METHOD,
+  RLY0_RELAY_SET_ENABLED_METHOD,
+  RLY0_RELAY_TEST_METHOD,
+  RLY0_PROXY_START_METHOD,
+  RLY0_PROXY_STOP_METHOD,
+  RLY0_PROXY_STATUS_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
+  rly0AccountsUsageParamsSchema,
+  rly0AccountsUsageResultSchema,
+  rly0AccountsUsageAllResultSchema,
+  rly0ProxySettingsGetResultSchema,
+  rly0ProxySettingsSetParamsSchema,
+  rly0ProxySettingsSetResultSchema,
+  rly0RelayListResultSchema,
+  rly0RelayAddParamsSchema,
+  rly0RelayAddResultSchema,
+  rly0RelayUpdateParamsSchema,
+  rly0RelayMutationResultSchema,
+  rly0RelayRemoveParamsSchema,
+  rly0RelayRemoveResultSchema,
+  rly0RelaySetEnabledParamsSchema,
+  rly0RelayTestParamsSchema,
+  rly0RelayTestResultSchema,
+  rly0ProxyStartParamsSchema,
+  rly0ProxyStatusResultSchema,
+  rly0ProxyStopResultSchema,
+  rly0RelayCodexConfigStatusResultSchema,
+  rly0RelayCodexConfigApplyParamsSchema,
+  rly0RelayCodexConfigMutationResultSchema,
+  type Rly0AccountsUsageParams,
+  type Rly0AccountsUsageResult,
+  type Rly0AccountsUsageAllResult,
+  type Rly0ProxySettingsGetResult,
+  type Rly0ProxySettingsSetParams,
+  type Rly0ProxySettingsSetResult,
+  type Rly0RelayListResult,
+  type Rly0RelayAddParams,
+  type Rly0RelayAddResult,
+  type Rly0RelayUpdateParams,
+  type Rly0RelayMutationResult,
+  type Rly0RelayRemoveParams,
+  type Rly0RelayRemoveResult,
+  type Rly0RelaySetEnabledParams,
+  type Rly0RelayTestParams,
+  type Rly0RelayTestResult,
+  type Rly0ProxyStartParams,
+  type Rly0ProxyStatusResult,
+  type Rly0ProxyStopResult,
+  type Rly0RelayCodexConfigStatusResult,
+  type Rly0RelayCodexConfigApplyParams,
+  type Rly0RelayCodexConfigMutationResult,
   type ExternalThreadForkParams,
   type ExternalThreadForkResult,
   type CodexAccountChanged,
@@ -336,6 +396,24 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0AppearanceAutostartSet?(
     input: Rly0AppearanceAutostartSetParams,
   ): Promise<Rly0AppearanceAutostartResult>;
+  rly0AccountUsage?(input: Rly0AccountsUsageParams): Promise<Rly0AccountsUsageResult>;
+  rly0AccountUsageAll?(): Promise<Rly0AccountsUsageAllResult>;
+  rly0ProxySettingsGet?(): Promise<Rly0ProxySettingsGetResult>;
+  rly0ProxySettingsSet?(input: Rly0ProxySettingsSetParams): Promise<Rly0ProxySettingsSetResult>;
+  listRly0Relays?(): Promise<Rly0RelayListResult>;
+  addRly0Relay?(input: Rly0RelayAddParams): Promise<Rly0RelayAddResult>;
+  updateRly0Relay?(input: Rly0RelayUpdateParams): Promise<Rly0RelayMutationResult>;
+  removeRly0Relay?(input: Rly0RelayRemoveParams): Promise<Rly0RelayRemoveResult>;
+  setRly0RelayEnabled?(input: Rly0RelaySetEnabledParams): Promise<Rly0RelayMutationResult>;
+  testRly0Relay?(input: Rly0RelayTestParams): Promise<Rly0RelayTestResult>;
+  rly0ProxyStart?(input?: Rly0ProxyStartParams): Promise<Rly0ProxyStatusResult>;
+  rly0ProxyStop?(): Promise<Rly0ProxyStopResult>;
+  rly0ProxyStatus?(): Promise<Rly0ProxyStatusResult>;
+  rly0RelayCodexConfigStatus?(): Promise<Rly0RelayCodexConfigStatusResult>;
+  rly0RelayCodexConfigApply?(
+    input: Rly0RelayCodexConfigApplyParams,
+  ): Promise<Rly0RelayCodexConfigMutationResult>;
+  rly0RelayCodexConfigRestore?(): Promise<Rly0RelayCodexConfigMutationResult>;
 }
 
 export function createThreadUsageSubscriptionRelay(): {
@@ -856,6 +934,104 @@ export function createRendererModelClient(
           RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
           rly0AppearanceAutostartSetParamsSchema.parse(input),
         ),
+      );
+    },
+    async rly0AccountUsage(input: Rly0AccountsUsageParams): Promise<Rly0AccountsUsageResult> {
+      return rly0AccountsUsageResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_USAGE_METHOD,
+          rly0AccountsUsageParamsSchema.parse(input),
+        ),
+      );
+    },
+    async rly0AccountUsageAll(): Promise<Rly0AccountsUsageAllResult> {
+      return rly0AccountsUsageAllResultSchema.parse(
+        await manager.sendRequest(RLY0_ACCOUNTS_USAGE_ALL_METHOD, {}),
+      );
+    },
+    async rly0ProxySettingsGet(): Promise<Rly0ProxySettingsGetResult> {
+      return rly0ProxySettingsGetResultSchema.parse(
+        await manager.sendRequest(RLY0_PROXY_SETTINGS_GET_METHOD, {}),
+      );
+    },
+    async rly0ProxySettingsSet(
+      input: Rly0ProxySettingsSetParams,
+    ): Promise<Rly0ProxySettingsSetResult> {
+      return rly0ProxySettingsSetResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_PROXY_SETTINGS_SET_METHOD,
+          rly0ProxySettingsSetParamsSchema.parse(input),
+        ),
+      );
+    },
+    async listRly0Relays(): Promise<Rly0RelayListResult> {
+      return rly0RelayListResultSchema.parse(await manager.sendRequest(RLY0_RELAY_LIST_METHOD, {}));
+    },
+    async addRly0Relay(input: Rly0RelayAddParams): Promise<Rly0RelayAddResult> {
+      return rly0RelayAddResultSchema.parse(
+        await manager.sendRequest(RLY0_RELAY_ADD_METHOD, rly0RelayAddParamsSchema.parse(input)),
+      );
+    },
+    async updateRly0Relay(input: Rly0RelayUpdateParams): Promise<Rly0RelayMutationResult> {
+      return rly0RelayMutationResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_RELAY_UPDATE_METHOD,
+          rly0RelayUpdateParamsSchema.parse(input),
+        ),
+      );
+    },
+    async removeRly0Relay(input: Rly0RelayRemoveParams): Promise<Rly0RelayRemoveResult> {
+      return rly0RelayRemoveResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_RELAY_REMOVE_METHOD,
+          rly0RelayRemoveParamsSchema.parse(input),
+        ),
+      );
+    },
+    async setRly0RelayEnabled(input: Rly0RelaySetEnabledParams): Promise<Rly0RelayMutationResult> {
+      return rly0RelayMutationResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_RELAY_SET_ENABLED_METHOD,
+          rly0RelaySetEnabledParamsSchema.parse(input),
+        ),
+      );
+    },
+    async testRly0Relay(input: Rly0RelayTestParams): Promise<Rly0RelayTestResult> {
+      return rly0RelayTestResultSchema.parse(
+        await manager.sendRequest(RLY0_RELAY_TEST_METHOD, rly0RelayTestParamsSchema.parse(input)),
+      );
+    },
+    async rly0ProxyStart(input: Rly0ProxyStartParams = {}): Promise<Rly0ProxyStatusResult> {
+      return rly0ProxyStatusResultSchema.parse(
+        await manager.sendRequest(RLY0_PROXY_START_METHOD, rly0ProxyStartParamsSchema.parse(input)),
+      );
+    },
+    async rly0ProxyStop(): Promise<Rly0ProxyStopResult> {
+      return rly0ProxyStopResultSchema.parse(await manager.sendRequest(RLY0_PROXY_STOP_METHOD, {}));
+    },
+    async rly0ProxyStatus(): Promise<Rly0ProxyStatusResult> {
+      return rly0ProxyStatusResultSchema.parse(
+        await manager.sendRequest(RLY0_PROXY_STATUS_METHOD, {}),
+      );
+    },
+    async rly0RelayCodexConfigStatus(): Promise<Rly0RelayCodexConfigStatusResult> {
+      return rly0RelayCodexConfigStatusResultSchema.parse(
+        await manager.sendRequest(RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD, {}),
+      );
+    },
+    async rly0RelayCodexConfigApply(
+      input: Rly0RelayCodexConfigApplyParams,
+    ): Promise<Rly0RelayCodexConfigMutationResult> {
+      return rly0RelayCodexConfigMutationResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
+          rly0RelayCodexConfigApplyParamsSchema.parse(input),
+        ),
+      );
+    },
+    async rly0RelayCodexConfigRestore(): Promise<Rly0RelayCodexConfigMutationResult> {
+      return rly0RelayCodexConfigMutationResultSchema.parse(
+        await manager.sendRequest(RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD, {}),
       );
     },
   });

@@ -22,6 +22,38 @@ import {
   rly0AccountsRenameParamsSchema,
   rly0AccountsSwitchParamsSchema,
   rly0CoreStatusParamsSchema,
+  RLY0_ACCOUNTS_USAGE_METHOD,
+  RLY0_ACCOUNTS_USAGE_ALL_METHOD,
+  RLY0_PROXY_SETTINGS_GET_METHOD,
+  RLY0_PROXY_SETTINGS_SET_METHOD,
+  rly0AccountsUsageParamsSchema,
+  rly0AccountsUsageAllParamsSchema,
+  rly0ProxySettingsGetParamsSchema,
+  rly0ProxySettingsSetParamsSchema,
+  RLY0_RELAY_LIST_METHOD,
+  RLY0_RELAY_ADD_METHOD,
+  RLY0_RELAY_UPDATE_METHOD,
+  RLY0_RELAY_REMOVE_METHOD,
+  RLY0_RELAY_SET_ENABLED_METHOD,
+  RLY0_RELAY_TEST_METHOD,
+  RLY0_PROXY_START_METHOD,
+  RLY0_PROXY_STOP_METHOD,
+  RLY0_PROXY_STATUS_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
+  rly0RelayListParamsSchema,
+  rly0RelayAddParamsSchema,
+  rly0RelayUpdateParamsSchema,
+  rly0RelayRemoveParamsSchema,
+  rly0RelaySetEnabledParamsSchema,
+  rly0RelayTestParamsSchema,
+  rly0ProxyStartParamsSchema,
+  rly0ProxyStopParamsSchema,
+  rly0ProxyStatusParamsSchema,
+  rly0RelayCodexConfigStatusParamsSchema,
+  rly0RelayCodexConfigApplyParamsSchema,
+  rly0RelayCodexConfigRestoreParamsSchema,
 } from "@codexhost/shared-contracts";
 import {
   RLY0_MCP_ADD_METHOD,
@@ -86,6 +118,10 @@ import { Rly0DashboardManager, rly0DashboardRpcError } from "./rly0-dashboard/in
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "./rly0-maintenance/index.js";
 import { Rly0AppearanceManager, rly0AppearanceRpcError } from "./rly0-appearance/index.js";
 import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
+import {
+  Rly0RelayCodexConfigManager,
+  rly0RelayCodexConfigRpcError,
+} from "./rly0-relay/codex-config.js";
 import {
   rewriteDelegationMentionInput,
   rewriteDelegationMentionText,
@@ -256,6 +292,32 @@ import type { HostUpdateCoordinator } from "./update-coordinator.js";
 
 const SUBAGENT_TERMINAL_REFRESH_DELAYS_MS = [0, 50, 100, 150] as const;
 const THREAD_USAGE_UPDATED_METHOD = "codexhost/thread/usage/updated";
+
+const RLY0_EXTENDED_METHODS: ReadonlySet<string> = new Set([
+  RLY0_ACCOUNTS_USAGE_METHOD,
+  RLY0_ACCOUNTS_USAGE_ALL_METHOD,
+  RLY0_PROXY_SETTINGS_GET_METHOD,
+  RLY0_PROXY_SETTINGS_SET_METHOD,
+  RLY0_RELAY_LIST_METHOD,
+  RLY0_RELAY_ADD_METHOD,
+  RLY0_RELAY_UPDATE_METHOD,
+  RLY0_RELAY_REMOVE_METHOD,
+  RLY0_RELAY_SET_ENABLED_METHOD,
+  RLY0_RELAY_TEST_METHOD,
+  RLY0_PROXY_START_METHOD,
+  RLY0_PROXY_STOP_METHOD,
+  RLY0_PROXY_STATUS_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
+  RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
+]);
+
+interface Rly0ExtendedRoute {
+  readonly schema: { safeParse(value: unknown): { success: boolean; data?: unknown } };
+  readonly run: (params: unknown) => Promise<unknown>;
+  /** Errors map through the Codex-config allowlist instead of the core bridge's. */
+  readonly codexConfig: boolean;
+}
 // Native Codex account quota is still pulled through its official API; keep
 // that reading briefly cached so concurrent Composer inspections coalesce.
 
@@ -605,6 +667,7 @@ export class AppServerHost {
   readonly #rly0Dashboard: Rly0DashboardManager;
   readonly #rly0Maintenance: Rly0MaintenanceManager;
   readonly #rly0Appearance: Rly0AppearanceManager;
+  readonly #rly0RelayConfig: Rly0RelayCodexConfigManager;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
   #pluginDescriptors: HarnessPluginDescriptor[] = [];
@@ -698,6 +761,7 @@ export class AppServerHost {
       }));
     this.#rly0Core = new Rly0CoreBridge({ environment });
     this.#rly0Mcp = new Rly0McpManager({ environment });
+    this.#rly0RelayConfig = new Rly0RelayCodexConfigManager({ environment });
     this.#rly0Skills = new Rly0SkillsManager({ environment });
     this.#rly0Threads = new Rly0ThreadsManager({ environment });
     this.#rly0Dashboard = new Rly0DashboardManager({ environment, threads: this.#rly0Threads });
@@ -1109,6 +1173,10 @@ export class AppServerHost {
       request.method === RLY0_ACCOUNTS_REMOVE_METHOD
     ) {
       this.#dispatchDesktopRequest(() => this.#handleRly0Request(request));
+      return;
+    }
+    if (RLY0_EXTENDED_METHODS.has(request.method)) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0ExtendedRequest(request));
       return;
     }
     if (
@@ -1936,6 +2004,86 @@ export class AppServerHost {
       const failure = rly0CoreRpcError(error);
       await this.#writer.json(rpcError(request, failure.code, failure.message));
     }
+  }
+
+  /**
+   * Usage lookups, outbound proxy settings, relays and the local routing proxy (all backed by the
+   * optional `rly0-core`), plus the open-source Codex config injection for the relay page. Params
+   * are validated before anything runs and are never logged: `relay/add` / `relay/update` may
+   * carry an API key, which is handed to the core and nowhere else.
+   */
+  async #handleRly0ExtendedRequest(request: JsonRpcRequest): Promise<void> {
+    const route = this.#rly0ExtendedRoutes()[request.method];
+    if (!route) {
+      await this.#writer.json(rpcError(request, -32601, "Method not found"));
+      return;
+    }
+    const params = route.schema.safeParse(request.params ?? {});
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, `Invalid params for ${request.method}`));
+      return;
+    }
+    try {
+      const result = await route.run(params.data);
+      await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+    } catch (error) {
+      const failure = route.codexConfig
+        ? rly0RelayCodexConfigRpcError(error)
+        : rly0CoreRpcError(error);
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  #rly0ExtendedRoutes(): Record<string, Rly0ExtendedRoute> {
+    const core = this.#rly0Core;
+    const config = this.#rly0RelayConfig;
+    const route = <T>(
+      schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } },
+      run: (params: T) => Promise<unknown>,
+      codexConfig = false,
+    ): Rly0ExtendedRoute => ({
+      schema,
+      run: (params) => run(params as T),
+      codexConfig,
+    });
+    return {
+      [RLY0_ACCOUNTS_USAGE_METHOD]: route(rly0AccountsUsageParamsSchema, (p) => core.usage(p)),
+      [RLY0_ACCOUNTS_USAGE_ALL_METHOD]: route(rly0AccountsUsageAllParamsSchema, () =>
+        core.usageAll(),
+      ),
+      [RLY0_PROXY_SETTINGS_GET_METHOD]: route(rly0ProxySettingsGetParamsSchema, async () => ({
+        settings: core.getProxySettings(),
+      })),
+      [RLY0_PROXY_SETTINGS_SET_METHOD]: route(rly0ProxySettingsSetParamsSchema, (p) =>
+        core.setProxySettings(p.settings),
+      ),
+      [RLY0_RELAY_LIST_METHOD]: route(rly0RelayListParamsSchema, () => core.listRelays()),
+      [RLY0_RELAY_ADD_METHOD]: route(rly0RelayAddParamsSchema, (p) => core.addRelay(p)),
+      [RLY0_RELAY_UPDATE_METHOD]: route(rly0RelayUpdateParamsSchema, (p) => core.updateRelay(p)),
+      [RLY0_RELAY_REMOVE_METHOD]: route(rly0RelayRemoveParamsSchema, (p) => core.removeRelay(p)),
+      [RLY0_RELAY_SET_ENABLED_METHOD]: route(rly0RelaySetEnabledParamsSchema, (p) =>
+        core.setRelayEnabled(p),
+      ),
+      [RLY0_RELAY_TEST_METHOD]: route(rly0RelayTestParamsSchema, (p) => core.testRelay(p)),
+      [RLY0_PROXY_START_METHOD]: route(rly0ProxyStartParamsSchema, (p) => core.proxyStart(p)),
+      [RLY0_PROXY_STOP_METHOD]: route(rly0ProxyStopParamsSchema, () => core.proxyStop()),
+      [RLY0_PROXY_STATUS_METHOD]: route(rly0ProxyStatusParamsSchema, () => core.proxyStatus()),
+      [RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD]: route(
+        rly0RelayCodexConfigStatusParamsSchema,
+        () => config.status(),
+        true,
+      ),
+      [RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD]: route(
+        rly0RelayCodexConfigApplyParamsSchema,
+        (p) => config.apply(p),
+        true,
+      ),
+      [RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD]: route(
+        rly0RelayCodexConfigRestoreParamsSchema,
+        () => config.restore(),
+        true,
+      ),
+    };
   }
 
   /**
