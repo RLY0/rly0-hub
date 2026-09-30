@@ -1,6 +1,6 @@
 <div align="center">
 
-# RLY/0 Hub (零号枢纽)
+# RLY/0 Hub
 
 **CodexHost's multi-harness hosting, plus multi-account management and other enhancements**
 
@@ -33,7 +33,7 @@ implemented is called out explicitly:
 - **Relay injection**: add / edit / test third-party model relays (API relay endpoints) and route requests by model
   name; start a local proxy that only listens on `127.0.0.1`, write the Codex config (`[model_providers.rly0]`) in one
   click, and restore the official config at any time. Relay keys are stored encrypted and only shown masked. The
-  routing and proxy logic live in the closed-source **RLY/0 Core**; without it the page shows "requires RLY/0 core"
+  routing and proxy logic live in the closed-source **RLY/0 Core**; without it the page shows "requires RLY/0 Core"
   and the rest of the app keeps working.
 - **MCP management**: view, add, enable/disable MCP servers configured in `~/.codex/config.toml` (STDIO / HTTP).
 - **Skills management**: view installed / backed-up Skills, and import new ones.
@@ -52,7 +52,7 @@ implemented is called out explicitly:
   code over **JSON-RPC on stdio**; it does not contain, link against, or embed any CodexHost code — the two are
   independent executables talking over an inter-process protocol.
 - **This public repository builds and runs fine without RLY/0 Core installed**: the features above simply show
-  "requires RLY/0 core" in the UI, while everything else (dashboard, thread management, MCP/Skills management,
+  "requires RLY/0 Core" in the UI, while everything else (dashboard, thread management, MCP/Skills management,
   maintenance tools, appearance, etc.) keeps working normally.
 - See [`docs/CLOSED_SOURCE.md`](docs/CLOSED_SOURCE.md) for more on the LGPL compliance rationale.
 

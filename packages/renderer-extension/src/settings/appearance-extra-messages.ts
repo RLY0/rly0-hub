@@ -6,6 +6,7 @@ export interface AppearanceExtraMessages {
   readonly themeSystem: string;
   readonly accentTitle: string;
   readonly accentDescription: string;
+  readonly accentSignal: string;
   readonly accentBlue: string;
   readonly accentPurple: string;
   readonly accentGreen: string;
@@ -49,6 +50,7 @@ export const appearanceExtraEnglish: AppearanceExtraMessages = Object.freeze({
   themeSystem: "Follow system",
   accentTitle: "Accent color",
   accentDescription: "Applied to the settings interface.",
+  accentSignal: "RLY/0 Signal (default)",
   accentBlue: "Blue",
   accentPurple: "Purple",
   accentGreen: "Green",
@@ -93,13 +95,14 @@ export const appearanceExtraChinese: AppearanceExtraMessages = Object.freeze({
   themeSystem: "跟随系统",
   accentTitle: "强调色",
   accentDescription: "应用于设置界面。",
+  accentSignal: "RLY/0 信号橙（默认）",
   accentBlue: "蓝色",
   accentPurple: "紫色",
   accentGreen: "绿色",
   accentOrange: "橙色",
   accentRose: "玫红",
   autostartTitle: "开机自动启动",
-  autostartDescription: "登录 Windows 时自动启动零号枢纽。",
+  autostartDescription: "登录 Windows 时自动启动 RLY/0 Hub。",
   autostartUnsupported: "当前系统不支持。",
   autostartPending: "同步中…",
   autostartFailed: "同步失败，请重试",
@@ -114,9 +117,9 @@ export const appearanceExtraChinese: AppearanceExtraMessages = Object.freeze({
   quotaAlertThreshold: "提醒阈值",
   quotaAlertThresholdDescription: "1～90%。",
   quotaAlertThresholdInvalid: "请输入 1～90 之间的整数。",
-  proxyTitle: "零号核心网络代理",
+  proxyTitle: "RLY/0 Core 网络代理",
   proxyDescription:
-    "零号核心查询账号额度时使用。下次启动核心时生效；核心正在运行时会自动重启以应用。",
+    "RLY/0 Core 查询账号额度时使用。下次启动核心时生效；核心正在运行时会自动重启以应用。",
   proxyModeDirect: "直连（不使用代理）",
   proxyModeSystem: "系统代理环境变量",
   proxyModeCustom: "自定义 HTTP 代理",
@@ -124,7 +127,7 @@ export const appearanceExtraChinese: AppearanceExtraMessages = Object.freeze({
   proxyUrlDescription: "例如 http://127.0.0.1:7890",
   proxySave: "保存",
   proxySaved: "代理设置已保存。",
-  proxySavedRestarted: "代理设置已保存，零号核心已重启以应用。",
+  proxySavedRestarted: "代理设置已保存，RLY/0 Core 已重启以应用。",
   proxyInvalidUrl: "请输入以 http:// 或 https:// 开头的代理地址。",
   proxyFailed: "保存代理设置失败。",
 });

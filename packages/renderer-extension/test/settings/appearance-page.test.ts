@@ -268,9 +268,9 @@ describe("Appearance settings page", () => {
     const { document, documentElement } = createFakeDocument(window);
     const { root } = mountPage(window, document);
 
-    expect(documentElement.style.getPropertyValue("--codexhost-rly0-accent")).toBe("#3b82f6");
+    expect(documentElement.style.getPropertyValue("--codexhost-rly0-accent")).toBe("#ff4b2e");
     const accentSelect = selectByIdPrefix(root, "codexhost-accent-");
-    expect(accentSelect.value).toBe("blue");
+    expect(accentSelect.value).toBe("signal");
 
     accentSelect.value = "purple";
     accentSelect.listeners.get("change")?.();

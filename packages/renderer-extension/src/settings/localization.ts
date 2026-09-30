@@ -241,6 +241,7 @@ export interface RendererSettingsMessages {
   readonly updateInstallationUnknown: string;
   readonly updateLatestVersion: string;
   readonly updateUpToDate: string;
+  readonly updateNoRelease: string;
   readonly updateAvailable: string;
   readonly updateWindowsManualRequired: string;
   readonly updateAndRestart: string;
@@ -306,7 +307,7 @@ const sponsorEnglish: RendererSponsorMessages = Object.freeze({
 const sponsorChinese: RendererSponsorMessages = Object.freeze({
   entry: "请作者喝杯咖啡",
   title: "请作者喝杯咖啡",
-  description: "零号枢纽免费开源。如果它帮到了你，欢迎自愿赞助，完全不影响任何功能。",
+  description: "RLY/0 Hub 免费开源。如果它帮到了你，欢迎自愿赞助，完全不影响任何功能。",
   wechat: "微信",
   alipay: "支付宝",
   relayPrefix: "作者自营中转站：",
@@ -536,6 +537,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   updateInstallationUnknown: "Unknown",
   updateLatestVersion: "Latest version",
   updateUpToDate: "You are up to date.",
+  updateNoRelease: "No public release yet. You are running the latest local build.",
   updateAvailable: "A new version is available.",
   updateWindowsManualRequired:
     "Automatic updates are unavailable on Windows. Update manually below.",
@@ -597,7 +599,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
 });
 
 const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
-  brandName: "零号枢纽",
+  brandName: "RLY/0 Hub",
   credentialImports: credentialImportChinese,
   rly0Accounts: rly0AccountChinese,
   mcp: mcpChinese,
@@ -651,7 +653,7 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   idleReleaseHelpLabel: "自动释放空闲会话说明",
   idleReleaseHelp: Object.freeze([
     "Agent 回复结束后，后台进程可能仍在运行并占用内存。打开的会话越多，资源占用可能越大。",
-    "开启后，零号枢纽会定期检查，在会话空闲达到设定时间、且没有任务或待处理交互时，自动关闭后台实例，减少资源占用。聊天记录不会删除，再次打开或发送消息时会重新启动该进程。",
+    "开启后，RLY/0 Hub 会定期检查，在会话空闲达到设定时间、且没有任务或待处理交互时，自动关闭后台实例，减少资源占用。聊天记录不会删除，再次打开或发送消息时会重新启动该进程。",
   ]),
   idleReleaseTimeout: "空闲超时",
   idleReleaseTimeoutDescription: "5～1440 分钟。",
@@ -763,10 +765,10 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   launchPathLabel: "应用安装路径",
   launchPathPlaceholder: "填写安装目录，例如 D:\\program\\WorkBuddy",
   launchPathWorkbuddyHelp:
-    "此接入依赖 WorkBuddy 应用。若未自动识别，请填写应用安装目录，零号枢纽会自动定位所需文件。保存后重启零号枢纽生效。",
+    "此接入依赖 WorkBuddy 应用。若未自动识别，请填写应用安装目录，RLY/0 Hub 会自动定位所需文件。保存后重启 RLY/0 Hub 生效。",
   launchPathSave: "保存路径",
   launchPathReset: "清除自定义路径",
-  launchPathRestart: "已保存，重启零号枢纽后生效；当前运行中的会话不受影响。",
+  launchPathRestart: "已保存，重启 RLY/0 Hub 后生效；当前运行中的会话不受影响。",
   launchPathSaved: "此 Host 正在使用已保存的路径；是否可用仍以连接检测结果为准。",
   launchPathAutomatic: "未设置自定义路径，使用环境变量配置或自动发现。",
   launchPathSaving: "正在保存…",
@@ -797,9 +799,9 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   pickerHideUnusedAgentsCta: "收起不常用的 Agent",
   enabled: "已开启",
   disabled: "已关闭",
-  openSettings: "打开零号枢纽",
-  settingsButtonTitle: "零号枢纽 · 主界面",
-  settingsUnavailableTitle: "零号枢纽设置不可用",
+  openSettings: "打开 RLY/0 Hub",
+  settingsButtonTitle: "RLY/0 Hub · 主界面",
+  settingsUnavailableTitle: "RLY/0 Hub 设置不可用",
   updateCurrentVersion: "当前版本",
   updateInstallation: "安装方式",
   updateInstallationNpm: "npm",
@@ -808,6 +810,7 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   updateInstallationUnknown: "未知",
   updateLatestVersion: "最新版本",
   updateUpToDate: "当前已是最新版本。",
+  updateNoRelease: "暂无公开发布版本，当前使用的就是最新的本地版本。",
   updateAvailable: "有新版本可用。",
   updateWindowsManualRequired: "Windows 暂不支持自动更新，请在下方手动更新。",
   updateAndRestart: "更新",
@@ -824,28 +827,28 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   updateFailed: "更新失败。",
   updateRetry: "重试",
   updateManualNpmDescription:
-    "如需手动更新，请在终端运行以下命令。更新完成后，请退出 Codex 并通过零号枢纽重新启动。",
+    "如需手动更新，请在终端运行以下命令。更新完成后，请退出 Codex 并通过 RLY/0 Hub 重新启动。",
   updateWindowsNpmDescription:
-    "Windows 暂不支持自动更新。请退出零号枢纽，在终端运行以下命令完成更新。",
+    "Windows 暂不支持自动更新。请退出 RLY/0 Hub，在终端运行以下命令完成更新。",
   updateWindowsInstallerDescription:
     "Windows 暂不支持自动更新。请下载并运行适用于当前系统的安装包。",
   updateManualTitle: "手动更新",
   updateManualFallbackDescription:
-    "自动更新未能完成，请改用下列命令在终端手动更新。完成后请退出 Codex 并通过零号枢纽重新启动。",
+    "自动更新未能完成，请改用下列命令在终端手动更新。完成后请退出 Codex 并通过 RLY/0 Hub 重新启动。",
   updateCopyCommand: "复制",
   updateCommandCopied: "已复制",
   updateCopyFailed: "复制失败",
   updateDownloadFromReleases: "前往 GitHub Releases 下载",
   updateDownloadWindowsInstaller: "下载 Windows 安装包",
-  updateStarCallout: "如果零号枢纽帮到了你，请在 GitHub 点个 Star，这对我们意义重大 👉",
+  updateStarCallout: "如果 RLY/0 Hub 帮到了你，请在 GitHub 点个 Star，这对我们意义重大 👉",
   updateStarLink: "GitHub",
   aboutTagline: "在 Codex Desktop 中运行 Pi 和其他 Harness",
   aboutParagraphs: Object.freeze([
     "我们认为 Codex Desktop 提供了目前最好的桌面开发交互体验。",
     "但 Codex 并不是唯一优秀的 Agent Harness，也有人偏好 Claude Code 和 Pi Agent。",
-    "零号枢纽让你在 Codex Desktop 中选择真正执行任务的 Agent，同时保留 Codex 的原生体验，并让它们协作完成任务。",
+    "RLY/0 Hub 让你在 Codex Desktop 中选择真正执行任务的 Agent，同时保留 Codex 的原生体验，并让它们协作完成任务。",
   ]),
-  aboutOpenSource: "零号枢纽是一个开源项目，开源地址：",
+  aboutOpenSource: "RLY/0 Hub 是一个开源项目，开源地址：",
   aboutStarCallout: "⭐ 如果这个项目对你有帮助，请给我们一个 Star！⭐",
   aboutRepository: "开源仓库",
   sponsor: sponsorChinese,

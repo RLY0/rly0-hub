@@ -7,7 +7,7 @@ import {
 export const SETTINGS_TRIGGER_ATTRIBUTE = "data-codexhost-settings-trigger";
 const SETTINGS_RAIL_SELECTOR = "nav[data-app-navigation-rail]";
 const SETTINGS_RAIL_DESTINATION_SELECTOR = "[data-sidebar-destination]";
-const UPDATE_ACCENT = "#3b82f6";
+const UPDATE_ACCENT = "#ff4b2e";
 const RAIL_ICON_COLOR = "var(--color-text-secondary-ghost, rgba(26, 28, 31, 0.5))";
 const RAIL_ICON_HOVER_COLOR = "var(--color-text-secondary-ghost-hover, #1a1c1f)";
 const RAIL_ICON_HOVER_BACKGROUND =

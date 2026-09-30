@@ -1,6 +1,10 @@
 import type { LoadedSessionsClient } from "./settings/loaded-sessions-table.js";
 import { readCodexLocaleSettings, type CodexLocaleSettings } from "./codex-locale-adapter.js";
 import {
+  applyRendererAccentColor,
+  readRendererAccentColor,
+} from "./renderer-appearance-preferences.js";
+import {
   rendererSettingsMessages,
   resolveRendererSettingsLocale,
   type RendererSettingsLocale,
@@ -235,6 +239,11 @@ export function installRendererSettingsLifecycle(
       });
   };
 
+  try {
+    applyRendererAccentColor(ownerWindow.document, readRendererAccentColor(ownerWindow));
+  } catch {
+    // Storage can be unavailable; the stylesheet falls back to RLY/0 signal orange.
+  }
   mount();
   void refreshLocale();
   refreshUpdateIndicator();

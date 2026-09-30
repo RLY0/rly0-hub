@@ -8,7 +8,14 @@
 export const RENDERER_THEMES = ["light", "dark", "system"] as const;
 export type RendererTheme = (typeof RENDERER_THEMES)[number];
 
-export const RENDERER_ACCENT_COLORS = ["blue", "purple", "green", "orange", "rose"] as const;
+export const RENDERER_ACCENT_COLORS = [
+  "signal",
+  "blue",
+  "purple",
+  "green",
+  "orange",
+  "rose",
+] as const;
 export type RendererAccentColor = (typeof RENDERER_ACCENT_COLORS)[number];
 
 export const RENDERER_QUOTA_REFRESH_INTERVALS_MS = {
@@ -60,7 +67,7 @@ export function setRendererTheme(ownerWindow: Window, theme: RendererTheme): voi
 
 export function readRendererAccentColor(ownerWindow: Window): RendererAccentColor {
   const stored = ownerWindow.localStorage.getItem(RENDERER_ACCENT_STORAGE_KEY);
-  return isRendererAccentColor(stored) ? stored : "blue";
+  return isRendererAccentColor(stored) ? stored : "signal";
 }
 
 export function setRendererAccentColor(ownerWindow: Window, accent: RendererAccentColor): void {
@@ -140,6 +147,7 @@ export function applyRendererTheme(ownerDocument: Document, theme: RendererTheme
 }
 
 const ACCENT_CSS_VARIABLES: Record<RendererAccentColor, string> = {
+  signal: "#ff4b2e",
   blue: "#3b82f6",
   purple: "#8b5cf6",
   green: "#22c55e",

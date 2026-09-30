@@ -39,7 +39,7 @@ export const dashboardChinese: DashboardMessages = {
   sessionsSize: "占用 {size}",
   mcpEnabled: "MCP 启用 / 总数",
   skills: "Skills 数",
-  requiresCore: "需要零号核心",
+  requiresCore: "需要 RLY/0 Core",
   loadFailed: "暂不可用",
   currentAccount: "当前活动账户",
   noCurrentAccount: "当前没有登录的 Codex 账号。",

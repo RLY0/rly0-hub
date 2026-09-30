@@ -1,22 +1,31 @@
 :host {
   --settings-titlebar-height: env(titlebar-area-height, 0px);
-  --settings-bg: light-dark(#ffffff, #202020);
-  --settings-sidebar: light-dark(#f7f7f8, #191919);
-  --settings-panel: light-dark(#ffffff, #232323);
-  --settings-surface: light-dark(#f6f6f6, #292929);
-  --settings-surface-hover: light-dark(#eeeeee, #303030);
-  --settings-inset: light-dark(#f3f3f3, #161616);
-  --settings-text: light-dark(#0d0d0d, #ececec);
-  --settings-muted: light-dark(#676767, #a3a3a3);
-  --settings-subtle: light-dark(#8a8a8a, #777777);
-  --settings-border: light-dark(rgb(13 13 13 / 9%), rgb(255 255 255 / 9%));
-  --settings-divider: light-dark(rgb(13 13 13 / 7%), rgb(255 255 255 / 7%));
-  --settings-hover: light-dark(rgb(13 13 13 / 5%), rgb(255 255 255 / 7%));
-  --settings-active: light-dark(rgb(13 13 13 / 7%), rgb(255 255 255 / 9%));
-  --settings-focus: light-dark(#0b75d1, #66aaf9);
-  --settings-primary: light-dark(#171717, #f4f4f4);
-  --settings-primary-hover: light-dark(#2f2f2f, #ffffff);
-  --settings-primary-text: light-dark(#ffffff, #171717);
+  /* RLY/0 brand palette (https://rly0.com): ink / paper neutrals + signal orange. */
+  --settings-accent: var(--codexhost-rly0-accent, #ff4b2e);
+  --settings-brand-font: "Bahnschrift Condensed", Bahnschrift, "Arial Narrow", Arial, sans-serif;
+  --settings-bg: light-dark(#f5f5f0, #171714);
+  --settings-sidebar: light-dark(#e9e9e3, #0d0d0b);
+  --settings-panel: light-dark(#fbfbf7, #1d1d19);
+  --settings-surface: light-dark(#efefe9, #1d1d19);
+  --settings-surface-hover: light-dark(#e4e4dd, #30302b);
+  --settings-inset: light-dark(#e9e9e3, #0d0d0b);
+  --settings-text: light-dark(#0d0d0b, #e9e9e3);
+  --settings-muted: light-dark(#5d5d56, #a6a69d);
+  --settings-subtle: light-dark(#86867d, #76766e);
+  --settings-border: light-dark(rgb(13 13 11 / 12%), rgb(233 233 227 / 10%));
+  --settings-divider: light-dark(rgb(13 13 11 / 8%), rgb(233 233 227 / 7%));
+  --settings-hover: light-dark(rgb(13 13 11 / 5%), rgb(233 233 227 / 6%));
+  --settings-active: light-dark(rgb(13 13 11 / 8%), rgb(233 233 227 / 9%));
+  --settings-focus: light-dark(
+    color-mix(in srgb, var(--settings-accent) 84%, #000000),
+    var(--settings-accent)
+  );
+  --settings-primary: light-dark(
+    color-mix(in srgb, var(--settings-accent) 88%, #000000),
+    var(--settings-accent)
+  );
+  --settings-primary-hover: color-mix(in srgb, var(--settings-accent) 76%, #000000);
+  --settings-primary-text: #f5f5f0;
   --settings-warning: light-dark(#8a5500, #f5c96a);
   --settings-warning-bg: light-dark(#fff8e6, rgb(245 201 106 / 8%));
   --settings-warning-border: light-dark(#ead8a8, rgb(245 201 106 / 24%));
@@ -180,8 +189,10 @@
 .settings-brand__name {
   overflow: hidden;
   color: var(--settings-text);
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--settings-brand-font);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -210,8 +221,11 @@
   min-height: 24px;
   padding: 4px 9px 2px;
   color: var(--settings-subtle);
+  font-family: var(--settings-brand-font);
   font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   line-height: 18px;
 }
 
@@ -253,6 +267,22 @@
   background: var(--settings-active);
   color: var(--settings-text);
   font-weight: 500;
+}
+
+.settings-nav-button[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+  width: 3px;
+  background: var(--settings-accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.settings-nav-button[aria-current="page"] .codexhost-settings-icon {
+  color: var(--settings-accent);
+  opacity: 1;
 }
 
 .settings-nav-button span {

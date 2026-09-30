@@ -74,7 +74,7 @@ export const maintenanceChinese: MaintenanceMessages = {
   authJson: "auth.json",
   configToml: "config.toml",
   sessionsDir: "sessions 目录",
-  core: "零号核心",
+  core: "RLY/0 Core",
   present: "存在",
   missing: "缺失",
   parses: "可解析",
@@ -88,7 +88,7 @@ export const maintenanceChinese: MaintenanceMessages = {
   adviceConfigTomlMissing: "缺少 config.toml，将使用默认设置。",
   adviceConfigTomlInvalid: "config.toml 存在但解析失败，请检查其 TOML 语法。",
   adviceSessionsDirMissing: "sessions 目录尚不存在，首次使用时会自动创建。",
-  adviceCoreUnavailable: "零号核心不可用，部分功能仅限开源部分。",
+  adviceCoreUnavailable: "RLY/0 Core 不可用，部分功能仅限开源部分。",
   exportTitle: "诊断包",
   exportDescription:
     "将上方诊断信息与本程序自身的运行时信息打包为本地文件，邮箱、Token、API Key 与你的用户目录路径会先被脱敏处理。该文件不会发送给任何人，只会保存在你的本地磁盘上。",
@@ -122,8 +122,8 @@ export const maintenanceChinese: MaintenanceMessages = {
   processSucceeded: "操作完成。",
   processFailed: "操作失败。",
   filtersTitle: "内容过滤",
-  filtersDescription: "以下过滤功能由闭源的零号核心提供。",
+  filtersDescription: "以下过滤功能由闭源的 RLY/0 Core 提供。",
   imageFilterLabel: "Image 声明过滤",
   webSearchFilterLabel: "Claude WebSearch 声明过滤",
-  requiresCore: "需要零号核心",
+  requiresCore: "需要 RLY/0 Core",
 };

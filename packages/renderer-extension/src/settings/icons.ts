@@ -157,32 +157,32 @@ export function createRendererSettingsIcon(name: RendererSettingsIconName, size 
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
+const RLY0_MARK_PATH =
+  "M140.209,185.084l-30.428-0.008l-0.014,4.978l4.053,0.027l-0.028,4.518l-10.271-0.038l0.007-9.484 l-16.996,0.004c-6.357-0.246-12.022-3.784-14.713-9.534c-3.168-6.77-1.165-14.588,4.593-19.223l-2.956-0.067 c-5.411-0.124-10.487-2.147-14.089-6.106c-7.474-8.214-5.697-20.863,3.513-26.869c-3.856-1.014-7.058-2.929-9.575-5.786 c-6.502-7.378-5.79-18.433,1.547-24.976c3.31-2.952,7.433-4.695,11.94-4.749l10.335-0.122c-7.811-4.262-11.087-13.515-7-21.504 c2.703-5.285,8.238-8.987,14.383-8.988l80.908-0.001c6.793,0,12.823,4.433,15.167,10.611c2.943,7.757-0.546,16.026-7.763,19.897 l10.056,0.092c5.292,0.049,10.198,2.277,13.716,6.208c4.243,4.741,5.657,11.227,3.658,17.3 c-1.992,6.051-6.925,10.425-13.151,12.013c4.824,3.135,7.898,8.411,8.162,14.081c0.275,5.911-2.371,11.488-7.146,15.086 c-3.245,2.46-7.03,3.698-11.122,3.805l-3.394,0.089c7.849,6.304,8.138,17.935,0.511,24.586c-3.122,2.722-7.028,4.154-11.271,4.154 l-16.344-0.001l-0.023,4.96l4.065,0.058l-0.048,4.477l-10.247,0L140.209,185.084z M119.493,114.179l0.008-5.621 c0.004-2.644-2.403-4.483-4.83-4.577c-2.486-0.097-5.194,1.578-5.2,4.255l-0.014,6.158c-0.006,2.704,2.703,4.457,5.218,4.365 C117.059,118.671,119.489,116.905,119.493,114.179z M140.566,114.217l-0.016-5.88c-0.007-2.636-2.606-4.378-5.053-4.363 c-2.372,0.015-4.939,1.679-4.945,4.263l-0.015,6.161c-0.006,2.691,2.685,4.454,5.212,4.358 C138.093,118.665,140.574,116.943,140.566,114.217z";
+
 /**
- * Line brand mark in `currentColor` for native icon surfaces such as the rail:
- * the app icon's open ring and core square without its plate. The ring is a
- * little heavier than native strokes so the mark stays recognizable at 20px.
+ * RLY/0 mark for native icon surfaces such as the rail: the figure follows
+ * `currentColor` (eyes are cut out with even-odd fill) and keeps the RLY/0
+ * signal-orange square so the entry is recognizable at 20px.
  */
 export function createRendererSettingsBrandGlyph(size = 20): SVGElement {
   const svg = document.createElementNS(SVG_NAMESPACE, "svg");
-  svg.setAttribute("viewBox", "12.8 12.2 40 40");
+  svg.setAttribute("viewBox", "56 44 158 158");
   svg.setAttribute("width", String(size));
   svg.setAttribute("height", String(size));
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
-  const ring = document.createElementNS(SVG_NAMESPACE, "path");
-  ring.setAttribute("d", "M 44.55 23.97 A 14.35 14.35 0 1 0 44.55 40.43");
-  ring.setAttribute("fill", "none");
-  ring.setAttribute("stroke", "currentColor");
-  ring.setAttribute("stroke-width", "4.4");
-  ring.setAttribute("stroke-linecap", "round");
-  const core = document.createElementNS(SVG_NAMESPACE, "rect");
-  core.setAttribute("x", "27.6");
-  core.setAttribute("y", "27");
-  core.setAttribute("width", "10.4");
-  core.setAttribute("height", "10.4");
-  core.setAttribute("rx", "2.4");
-  core.setAttribute("fill", "currentColor");
-  svg.append(ring, core);
+  const figure = document.createElementNS(SVG_NAMESPACE, "path");
+  figure.setAttribute("d", RLY0_MARK_PATH);
+  figure.setAttribute("fill", "currentColor");
+  figure.setAttribute("fill-rule", "evenodd");
+  const signal = document.createElementNS(SVG_NAMESPACE, "rect");
+  signal.setAttribute("x", "190");
+  signal.setAttribute("y", "50");
+  signal.setAttribute("width", "18");
+  signal.setAttribute("height", "18");
+  signal.setAttribute("fill", "#ff4b2e");
+  svg.append(figure, signal);
   svg.classList.add("codexhost-settings-icon");
   return svg;
 }

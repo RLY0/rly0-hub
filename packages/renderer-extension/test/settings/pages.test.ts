@@ -1482,7 +1482,7 @@ describe("Renderer Updates page", () => {
   });
 
   it.each([
-    ["npm" as const, "Windows 暂不支持自动更新。请退出零号枢纽，在终端运行以下命令完成更新。"],
+    ["npm" as const, "Windows 暂不支持自动更新。请退出 RLY/0 Hub，在终端运行以下命令完成更新。"],
     [
       "windows-installer" as const,
       "Windows 暂不支持自动更新。请下载并运行适用于当前系统的安装包。",
@@ -1556,7 +1556,7 @@ describe("Renderer Updates page", () => {
       "我们认为 Codex Desktop 提供了目前最好的桌面开发交互体验",
     );
     expect(visibleText(content)).toContain("Claude Code 和 Pi Agent");
-    expect(visibleText(content)).toContain("零号枢纽是一个开源项目");
+    expect(visibleText(content)).toContain("RLY/0 Hub 是一个开源项目");
     expect(visibleText(content)).toContain("请给我们一个 Star");
     const repository = descendants(content).find(
       ({ tagName, href }) =>
@@ -1613,7 +1613,7 @@ describe("Renderer Updates page", () => {
     expect(content.children.indexOf(starBanner)).toBeLessThan(
       content.children.indexOf(elementWithClass(content, "settings-update-notes-section")),
     );
-    expect(visibleText(starBanner)).toContain("如果零号枢纽帮到了你，请在 GitHub 点个 Star");
+    expect(visibleText(starBanner)).toContain("如果 RLY/0 Hub 帮到了你，请在 GitHub 点个 Star");
     const starLink = descendants(starBanner).find(({ tagName }) => tagName === "a");
     expect(starLink).toMatchObject({
       href: "https://github.com/a1039861261-stack/rly0-hub",

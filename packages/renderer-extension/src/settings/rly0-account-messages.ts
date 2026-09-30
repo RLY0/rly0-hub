@@ -59,7 +59,7 @@ export const rly0AccountEnglish = {
 export type Rly0AccountMessages = typeof rly0AccountEnglish;
 export const rly0AccountChinese: Rly0AccountMessages = {
   sectionTitle: "已保存账号",
-  unavailableHint: "多账号功能需要零号核心（rly0-core）。",
+  unavailableHint: "多账号功能需要 RLY/0 Core（rly0-core）。",
   empty: "尚未保存任何账号。先保存当前 Codex 账号，之后即可在不同登录之间切换。",
   save: "保存当前账号",
   saving: "保存中…",
@@ -111,6 +111,6 @@ export const rly0AccountChinese: Rly0AccountMessages = {
   alertBest: "剩余最多的账号：{name}（剩余 {percent}）。",
   alertNoCandidate: "没有剩余更多的已保存账号。",
   alertSwitch: "一键切换",
-  alertUnavailable: "额度不足提醒需要零号核心（rly0-core）。",
+  alertUnavailable: "额度不足提醒需要 RLY/0 Core（rly0-core）。",
   alertDismiss: "暂时隐藏",
 };

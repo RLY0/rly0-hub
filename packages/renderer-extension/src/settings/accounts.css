@@ -118,8 +118,8 @@
 }
 
 .settings-account-list {
-  --account-border: light-dark(#e2e2e8, #36363b);
-  --account-muted: light-dark(#676773, #a5a5af);
+  --account-border: light-dark(rgb(13 13 11 / 12%), rgb(233 233 227 / 12%));
+  --account-muted: light-dark(#5d5d56, #a6a69d);
   border: 1px solid var(--account-border);
   border-radius: 11px;
   overflow: hidden;
@@ -134,7 +134,7 @@
 .settings-account-table th {
   padding: 12px 16px;
   color: var(--account-muted);
-  background: light-dark(#f8f8fa, #202024);
+  background: light-dark(#efefe9, #171714);
   font-size: 11px;
   font-weight: 500;
   text-align: left;
@@ -156,10 +156,10 @@
   border-top: 1px solid var(--settings-divider);
 }
 .settings-account-row {
-  background: light-dark(#ffffff, #232326);
+  background: light-dark(#fbfbf7, #1d1d19);
 }
 .settings-account-row:hover {
-  background: light-dark(#f7f7fa, #26262a);
+  background: light-dark(#e9e9e3, #30302b);
 }
 .settings-account-row__person {
   display: grid;
@@ -202,14 +202,14 @@
   overflow-wrap: anywhere;
 }
 .settings-account-plan--highlighted {
-  color: light-dark(#654f91, #c8bfff);
-  background: light-dark(#f2edf9, #a99bff18);
-  border-color: light-dark(#d9ccea, #a99bff52);
+  color: light-dark(#b83220, #ff8a73);
+  background: light-dark(#fff0ec, rgb(255 75 46 / 10%));
+  border-color: light-dark(#f5c3b8, rgb(255 75 46 / 32%));
   font-weight: 600;
 }
 .settings-account-active {
   flex: none;
-  color: light-dark(#66548e, #c8bfff);
+  color: light-dark(#b83220, #ff8a73);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -285,13 +285,13 @@
   grid-column: 1 / -1;
   height: 4px;
   overflow: hidden;
-  background: light-dark(#e3e1e8, #3c3c43);
+  background: light-dark(#dcdcd4, #30302b);
   border-radius: 4px;
 }
 .settings-account-usage__bar > span {
   display: block;
   height: 100%;
-  background: light-dark(#81769e, #9993b8);
+  background: var(--settings-accent, #ff4b2e);
   border-radius: inherit;
 }
 .settings-account-usage__bar--warn > span {
@@ -564,7 +564,7 @@
 .settings-pi-accounts__card {
   container-type: inline-size;
   overflow: hidden;
-  border: 1px solid var(--account-border, light-dark(#e2e2e8, #36363b));
+  border: 1px solid var(--account-border, light-dark(rgb(13 13 11 / 12%), rgb(233 233 227 / 12%)));
   border-radius: 11px;
 }
 .settings-pi-accounts__row {
@@ -573,7 +573,7 @@
   align-items: center;
   gap: 11px;
   padding: 14px 16px;
-  background: light-dark(#ffffff, #232326);
+  background: light-dark(#fbfbf7, #1d1d19);
 }
 .settings-pi-accounts__row + .settings-pi-accounts__row {
   border-top: 1px solid var(--settings-divider);
@@ -582,7 +582,7 @@
   border-top: 1px solid var(--settings-divider);
 }
 .settings-pi-accounts__row:hover {
-  background: light-dark(#f7f7fa, #26262a);
+  background: light-dark(#e9e9e3, #30302b);
 }
 .settings-pi-accounts__identity {
   min-width: 0;
@@ -649,7 +649,7 @@
   padding: 16px;
   color: var(--settings-muted);
   font-size: 12px;
-  background: light-dark(#ffffff, #232326);
+  background: light-dark(#fbfbf7, #1d1d19);
 }
 .settings-pi-accounts :focus-visible {
   outline: 2px solid var(--settings-focus);

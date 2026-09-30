@@ -157,7 +157,7 @@ describe("Renderer settings navigation rail trigger", () => {
 
       expect(button.style.width).toBe("36px");
       expect(button.style.color).toContain("--color-text-secondary-ghost");
-      expect(button.children[0]?.children[0]?.attributes.get("stroke")).toBe("currentColor");
+      expect(button.children[0]?.children[0]?.attributes.get("fill")).toBe("currentColor");
       expect(badge?.style.display).toBe("none");
       button.dispatch("click");
       expect(opened).toHaveBeenLastCalledWith(control.button, undefined);

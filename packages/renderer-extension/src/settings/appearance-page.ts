@@ -139,6 +139,7 @@ export function createAppearanceSettingsPage(
         controlId: accentId,
       });
       const accentLabels: Record<RendererAccentColor, string> = {
+        signal: extra.accentSignal,
         blue: extra.accentBlue,
         purple: extra.accentPurple,
         green: extra.accentGreen,

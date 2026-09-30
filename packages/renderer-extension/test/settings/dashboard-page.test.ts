@@ -261,7 +261,7 @@ describe("createDashboardSettingsPage", () => {
     await flush();
     const accountsCard = statCard(root, "accounts");
     expect(text(accountsCard)).toContain("—");
-    expect(text(accountsCard)).toContain("需要零号核心");
+    expect(text(accountsCard)).toContain("需要 RLY/0 Core");
   });
 
   it("shows missing files in the health block", async () => {

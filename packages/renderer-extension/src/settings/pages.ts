@@ -547,13 +547,16 @@ function updatesPage(
           result.status?.phase === "failed" && result.status.version === result.latestVersion
             ? result.status
             : null;
-        const view = result.error ? "error" : result.updateAvailable ? "available" : "current";
+        // Before the first public release GitHub answers 404; that is not a failure.
+        const noRelease = result.error !== null && /HTTP 404/.test(result.error);
+        const resultError = noRelease ? null : result.error;
+        const view = resultError ? "error" : result.updateAvailable ? "available" : "current";
         panel.dataset.updateState = view;
         panel.replaceChildren();
-        setManualFallback(Boolean(result.error) || actionableStatus !== null);
+        setManualFallback(Boolean(resultError) || actionableStatus !== null);
         // Every state gets a status line; a bare button in an empty card reads as unfinished.
         const inlineUpdate =
-          !result.error && !windows && !actionableStatus && result.updateAvailable;
+          !resultError && !windows && !actionableStatus && result.updateAvailable;
         if (inlineUpdate) panel.dataset.inline = "";
         else delete panel.dataset.inline;
         panel.append(
@@ -562,13 +565,15 @@ function updatesPage(
             view,
             actionableStatus
               ? (statusMessage(actionableStatus, messages) ?? messages.updateFailed)
-              : result.error
+              : resultError
                 ? messages.updateFailed
                 : result.updateAvailable
                   ? windows
                     ? messages.updateWindowsManualRequired
                     : messages.updateAvailable
-                  : messages.updateUpToDate,
+                  : noRelease
+                    ? messages.updateNoRelease
+                    : messages.updateUpToDate,
           ),
         );
         if (actionableStatus?.error) {
@@ -577,10 +582,10 @@ function updatesPage(
           error.textContent = actionableStatus.error;
           panel.append(error);
         }
-        if (result.error) {
+        if (resultError) {
           const error = document.createElement("p");
           error.className = "settings-update-error";
-          error.textContent = result.error;
+          error.textContent = resultError;
           panel.append(error);
         }
         const buttons: HTMLElement[] = [];
@@ -592,7 +597,7 @@ function updatesPage(
           update.addEventListener("click", () => start(client));
           buttons.push(update);
         }
-        if (result.error) {
+        if (resultError) {
           const retry = document.createElement("button");
           retry.type = "button";
           retry.className = "settings-command-button settings-command-button--secondary";

@@ -132,7 +132,9 @@ describe("Sponsor dialog", () => {
     expect(modal?.open).toBe(true);
     const text = visibleText(modal as FakeElement);
     expect(text).toContain("请作者喝杯咖啡");
-    expect(text).toContain("零号枢纽免费开源。如果它帮到了你，欢迎自愿赞助，完全不影响任何功能。");
+    expect(text).toContain(
+      "RLY/0 Hub 免费开源。如果它帮到了你，欢迎自愿赞助，完全不影响任何功能。",
+    );
     expect(text).toContain("微信");
     expect(text).toContain("支付宝");
     expect(text).toContain("作者自营中转站：");

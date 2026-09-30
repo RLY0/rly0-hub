@@ -49,10 +49,10 @@ const ENGLISH_RUNNING_DESKTOP_TEXT: RunningDesktopText = RunningDesktopText {
 
 const CHINESE_RUNNING_DESKTOP_TEXT: RunningDesktopText = RunningDesktopText {
     instruction: "Codex 已在运行",
-    content: "当前 Codex 不是由零号枢纽启动的。要使用零号枢纽，需要重新启动 Codex。",
+    content: "当前 Codex 不是由 RLY/0 Hub 启动的。要使用 RLY/0 Hub，需要重新启动 Codex。",
     restart: "自动退出并重新启动（推荐）",
     retry: "我已退出，重试",
-    fallback: "当前 Codex 不是由零号枢纽启动的。要使用零号枢纽，需要重新启动 Codex。\n\n是：自动退出并重新启动。\n否：退出后重试。",
+    fallback: "当前 Codex 不是由 RLY/0 Hub 启动的。要使用 RLY/0 Hub，需要重新启动 Codex。\n\n是：自动退出并重新启动。\n否：退出后重试。",
 };
 
 #[link(name = "kernel32")]
