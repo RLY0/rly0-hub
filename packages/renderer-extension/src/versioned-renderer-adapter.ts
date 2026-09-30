@@ -31,6 +31,7 @@ import {
 
 import type { RendererAgent } from "./agent-selection-state.js";
 import { installRendererForkControl } from "./renderer-fork-control.js";
+import { createRendererRly0Forwarders } from "./renderer-rly0-forwarding.js";
 import {
   createThreadUsageSubscriptionRelay,
   type RendererModelClient,
@@ -1021,6 +1022,8 @@ export function installCurrentRendererAdapter(): {
       if (!client.subscribeCodexAccounts) throw new Error("Codex Account updates are unavailable");
       return client.subscribeCodexAccounts(listener);
     },
+    // Runtime-only forwarders: the settings pages feature-detect these by name.
+    ...(createRendererRly0Forwarders(currentModelClient) as object),
   });
   const forkControl = installRendererForkControl({
     getClient: () => modelControl,
