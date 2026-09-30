@@ -8,6 +8,8 @@ import {
   rly0AccountChinese,
   type Rly0AccountMessages,
 } from "./rly0-account-messages.js";
+import { mcpEnglish, mcpChinese, type McpMessages } from "./mcp-messages.js";
+import { skillsEnglish, skillsChinese, type SkillsMessages } from "./skills-messages.js";
 import type { DefaultRendererSettingsPageId } from "./pages.js";
 
 export const RENDERER_SETTINGS_LOCALES = ["en", "zh-CN"] as const;
@@ -30,6 +32,8 @@ export interface RendererSettingsLanguageControl {
 export interface RendererSettingsMessages {
   readonly credentialImports: CredentialImportMessages;
   readonly rly0Accounts: Rly0AccountMessages;
+  readonly mcp: McpMessages;
+  readonly skills: SkillsMessages;
   readonly locale: RendererSettingsLocale;
   readonly title: string;
   readonly close: string;
@@ -292,6 +296,8 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   brandName: "RLY/0 Hub",
   credentialImports: credentialImportEnglish,
   rly0Accounts: rly0AccountEnglish,
+  mcp: mcpEnglish,
+  skills: skillsEnglish,
   locale: "en",
   title: "Settings",
   close: "Close settings",
@@ -552,6 +558,8 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
     appearance: "General",
     accounts: "Accounts",
     "session-import": "Session Import",
+    mcp: "MCP",
+    skills: "Skills",
     updates: "Updates",
     about: "About",
   }),
@@ -561,6 +569,8 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   brandName: "零号枢纽",
   credentialImports: credentialImportChinese,
   rly0Accounts: rly0AccountChinese,
+  mcp: mcpChinese,
+  skills: skillsChinese,
   locale: "zh-CN",
   title: "设置",
   close: "关闭设置",
@@ -808,6 +818,8 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
     appearance: "通用",
     accounts: "账号",
     "session-import": "会话导入",
+    mcp: "MCP 管理",
+    skills: "Skills 管理",
     updates: "更新",
     about: "关于",
   }),

@@ -64,6 +64,14 @@ import {
   RLY0_ACCOUNTS_SWITCH_METHOD,
   RLY0_ACCOUNTS_RENAME_METHOD,
   RLY0_ACCOUNTS_REMOVE_METHOD,
+  RLY0_MCP_LIST_METHOD,
+  RLY0_MCP_SET_ENABLED_METHOD,
+  RLY0_MCP_REMOVE_METHOD,
+  RLY0_MCP_ADD_METHOD,
+  RLY0_SKILLS_LIST_METHOD,
+  RLY0_SKILLS_DEACTIVATE_METHOD,
+  RLY0_SKILLS_RESTORE_METHOD,
+  RLY0_SKILLS_IMPORT_METHOD,
   rly0CoreStatusResultSchema,
   rly0AccountsListResultSchema,
   rly0AccountsImportCurrentParamsSchema,
@@ -74,6 +82,18 @@ import {
   rly0AccountsRenameResultSchema,
   rly0AccountsRemoveParamsSchema,
   rly0AccountsRemoveResultSchema,
+  rly0McpListResultSchema,
+  rly0McpSetEnabledParamsSchema,
+  rly0McpMutationResultSchema,
+  rly0McpRemoveParamsSchema,
+  rly0McpAddParamsSchema,
+  rly0SkillsListResultSchema,
+  rly0SkillsDeactivateParamsSchema,
+  rly0SkillsDeactivateResultSchema,
+  rly0SkillsRestoreParamsSchema,
+  rly0SkillsRestoreResultSchema,
+  rly0SkillsImportParamsSchema,
+  rly0SkillsImportResultSchema,
   type Rly0CoreStatusResult,
   type Rly0AccountsListResult,
   type Rly0AccountsImportCurrentParams,
@@ -84,6 +104,18 @@ import {
   type Rly0AccountsRenameResult,
   type Rly0AccountsRemoveParams,
   type Rly0AccountsRemoveResult,
+  type Rly0McpListResult,
+  type Rly0McpSetEnabledParams,
+  type Rly0McpMutationResult,
+  type Rly0McpRemoveParams,
+  type Rly0McpAddParams,
+  type Rly0SkillsListResult,
+  type Rly0SkillsDeactivateParams,
+  type Rly0SkillsDeactivateResult,
+  type Rly0SkillsRestoreParams,
+  type Rly0SkillsRestoreResult,
+  type Rly0SkillsImportParams,
+  type Rly0SkillsImportResult,
   type ExternalThreadForkParams,
   type ExternalThreadForkResult,
   type CodexAccountChanged,
@@ -238,6 +270,14 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   listCodexAccounts(): Promise<CodexAccountListResult>;
   refreshCodexAccounts(): Promise<CodexAccountListResult>;
   subscribeCodexAccounts?(listener: (state: CodexAccountChanged) => void): () => void;
+  listRly0Mcp?(): Promise<Rly0McpListResult>;
+  setRly0McpEnabled?(input: Rly0McpSetEnabledParams): Promise<Rly0McpMutationResult>;
+  removeRly0Mcp?(input: Rly0McpRemoveParams): Promise<Rly0McpMutationResult>;
+  addRly0Mcp?(input: Rly0McpAddParams): Promise<Rly0McpMutationResult>;
+  listRly0Skills?(): Promise<Rly0SkillsListResult>;
+  deactivateRly0Skill?(input: Rly0SkillsDeactivateParams): Promise<Rly0SkillsDeactivateResult>;
+  restoreRly0Skill?(input: Rly0SkillsRestoreParams): Promise<Rly0SkillsRestoreResult>;
+  importRly0Skill?(input: Rly0SkillsImportParams): Promise<Rly0SkillsImportResult>;
 }
 
 export function createThreadUsageSubscriptionRelay(): {
@@ -581,7 +621,9 @@ export function createRendererModelClient(
       });
     },
     async rly0CoreStatus(): Promise<Rly0CoreStatusResult> {
-      return rly0CoreStatusResultSchema.parse(await manager.sendRequest(RLY0_CORE_STATUS_METHOD, {}));
+      return rly0CoreStatusResultSchema.parse(
+        await manager.sendRequest(RLY0_CORE_STATUS_METHOD, {}),
+      );
     },
     async listRly0Accounts(): Promise<Rly0AccountsListResult> {
       return rly0AccountsListResultSchema.parse(
@@ -600,19 +642,79 @@ export function createRendererModelClient(
     },
     async switchRly0Account(input: Rly0AccountsSwitchParams): Promise<Rly0AccountsSwitchResult> {
       return rly0AccountsSwitchResultSchema.parse(
-        await manager.sendRequest(RLY0_ACCOUNTS_SWITCH_METHOD, rly0AccountsSwitchParamsSchema.parse(input)),
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_SWITCH_METHOD,
+          rly0AccountsSwitchParamsSchema.parse(input),
+        ),
       );
     },
     async renameRly0Account(input: Rly0AccountsRenameParams): Promise<Rly0AccountsRenameResult> {
       return rly0AccountsRenameResultSchema.parse(
-        await manager.sendRequest(RLY0_ACCOUNTS_RENAME_METHOD, rly0AccountsRenameParamsSchema.parse(input)),
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_RENAME_METHOD,
+          rly0AccountsRenameParamsSchema.parse(input),
+        ),
       );
     },
     async removeRly0Account(input: Rly0AccountsRemoveParams): Promise<Rly0AccountsRemoveResult> {
       return rly0AccountsRemoveResultSchema.parse(
-        await manager.sendRequest(RLY0_ACCOUNTS_REMOVE_METHOD, rly0AccountsRemoveParamsSchema.parse(input)),
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_REMOVE_METHOD,
+          rly0AccountsRemoveParamsSchema.parse(input),
+        ),
+      );
+    },
+    async listRly0Mcp(): Promise<Rly0McpListResult> {
+      return rly0McpListResultSchema.parse(await manager.sendRequest(RLY0_MCP_LIST_METHOD, {}));
+    },
+    async setRly0McpEnabled(input: Rly0McpSetEnabledParams): Promise<Rly0McpMutationResult> {
+      return rly0McpMutationResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_MCP_SET_ENABLED_METHOD,
+          rly0McpSetEnabledParamsSchema.parse(input),
+        ),
+      );
+    },
+    async removeRly0Mcp(input: Rly0McpRemoveParams): Promise<Rly0McpMutationResult> {
+      return rly0McpMutationResultSchema.parse(
+        await manager.sendRequest(RLY0_MCP_REMOVE_METHOD, rly0McpRemoveParamsSchema.parse(input)),
+      );
+    },
+    async addRly0Mcp(input: Rly0McpAddParams): Promise<Rly0McpMutationResult> {
+      return rly0McpMutationResultSchema.parse(
+        await manager.sendRequest(RLY0_MCP_ADD_METHOD, rly0McpAddParamsSchema.parse(input)),
+      );
+    },
+    async listRly0Skills(): Promise<Rly0SkillsListResult> {
+      return rly0SkillsListResultSchema.parse(
+        await manager.sendRequest(RLY0_SKILLS_LIST_METHOD, {}),
+      );
+    },
+    async deactivateRly0Skill(
+      input: Rly0SkillsDeactivateParams,
+    ): Promise<Rly0SkillsDeactivateResult> {
+      return rly0SkillsDeactivateResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_SKILLS_DEACTIVATE_METHOD,
+          rly0SkillsDeactivateParamsSchema.parse(input),
+        ),
+      );
+    },
+    async restoreRly0Skill(input: Rly0SkillsRestoreParams): Promise<Rly0SkillsRestoreResult> {
+      return rly0SkillsRestoreResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_SKILLS_RESTORE_METHOD,
+          rly0SkillsRestoreParamsSchema.parse(input),
+        ),
+      );
+    },
+    async importRly0Skill(input: Rly0SkillsImportParams): Promise<Rly0SkillsImportResult> {
+      return rly0SkillsImportResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_SKILLS_IMPORT_METHOD,
+          rly0SkillsImportParamsSchema.parse(input),
+        ),
       );
     },
   });
 }
-

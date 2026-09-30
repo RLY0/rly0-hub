@@ -23,8 +23,30 @@ import {
   rly0AccountsSwitchParamsSchema,
   rly0CoreStatusParamsSchema,
 } from "@codexhost/shared-contracts";
+import {
+  RLY0_MCP_ADD_METHOD,
+  RLY0_MCP_LIST_METHOD,
+  RLY0_MCP_REMOVE_METHOD,
+  RLY0_MCP_SET_ENABLED_METHOD,
+  rly0McpAddParamsSchema,
+  rly0McpListParamsSchema,
+  rly0McpRemoveParamsSchema,
+  rly0McpSetEnabledParamsSchema,
+} from "@codexhost/shared-contracts";
+import {
+  RLY0_SKILLS_DEACTIVATE_METHOD,
+  RLY0_SKILLS_IMPORT_METHOD,
+  RLY0_SKILLS_LIST_METHOD,
+  RLY0_SKILLS_RESTORE_METHOD,
+  rly0SkillsDeactivateParamsSchema,
+  rly0SkillsImportParamsSchema,
+  rly0SkillsListParamsSchema,
+  rly0SkillsRestoreParamsSchema,
+} from "@codexhost/shared-contracts";
 import { handleCredentialImports } from "./credential-imports.js";
 import { Rly0CoreBridge, rly0CoreRpcError } from "./rly0-core/index.js";
+import { Rly0McpManager, rly0McpRpcError } from "./rly0-mcp/index.js";
+import { Rly0SkillsManager, rly0SkillsRpcError } from "./rly0-skills/index.js";
 import {
   rewriteDelegationMentionInput,
   rewriteDelegationMentionText,
@@ -538,6 +560,8 @@ export class AppServerHost {
   #ownsOfficialRuntimeScope: boolean;
   #accountControl: CodexAccountControl;
   readonly #rly0Core: Rly0CoreBridge;
+  readonly #rly0Mcp: Rly0McpManager;
+  readonly #rly0Skills: Rly0SkillsManager;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
   #pluginDescriptors: HarnessPluginDescriptor[] = [];
@@ -630,6 +654,8 @@ export class AppServerHost {
         ],
       }));
     this.#rly0Core = new Rly0CoreBridge({ environment });
+    this.#rly0Mcp = new Rly0McpManager({ environment });
+    this.#rly0Skills = new Rly0SkillsManager({ environment });
     this.#officialRuntime = new OfficialRuntimeClient({
       scope: this.#officialRuntimeScope,
       onBackendStopped: () => {
@@ -1027,6 +1053,24 @@ export class AppServerHost {
       request.method === RLY0_ACCOUNTS_REMOVE_METHOD
     ) {
       this.#dispatchDesktopRequest(() => this.#handleRly0Request(request));
+      return;
+    }
+    if (
+      request.method === RLY0_MCP_LIST_METHOD ||
+      request.method === RLY0_MCP_SET_ENABLED_METHOD ||
+      request.method === RLY0_MCP_REMOVE_METHOD ||
+      request.method === RLY0_MCP_ADD_METHOD
+    ) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0McpRequest(request));
+      return;
+    }
+    if (
+      request.method === RLY0_SKILLS_LIST_METHOD ||
+      request.method === RLY0_SKILLS_DEACTIVATE_METHOD ||
+      request.method === RLY0_SKILLS_RESTORE_METHOD ||
+      request.method === RLY0_SKILLS_IMPORT_METHOD
+    ) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0SkillsRequest(request));
       return;
     }
     if (request.method === CREDENTIAL_IMPORTS_METHOD) {
@@ -1800,6 +1844,108 @@ export class AppServerHost {
       }
     } catch (error) {
       const failure = rly0CoreRpcError(error);
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  /**
+   * MCP server manager: reads and edits `[mcp_servers.*]` in `${CODEX_HOME:-~/.codex}/config.toml`.
+   * Open-source and independent of the closed-source `rly0-core` bridge above.
+   */
+  async #handleRly0McpRequest(request: JsonRpcRequest): Promise<void> {
+    try {
+      if (request.method === RLY0_MCP_LIST_METHOD) {
+        if (!rly0McpListParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid MCP list params"));
+          return;
+        }
+        const result = await this.#rly0Mcp.list();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MCP_SET_ENABLED_METHOD) {
+        const params = rly0McpSetEnabledParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid MCP setEnabled params"));
+          return;
+        }
+        const result = await this.#rly0Mcp.setEnabled(params.data.name, params.data.enabled);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MCP_REMOVE_METHOD) {
+        const params = rly0McpRemoveParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid MCP remove params"));
+          return;
+        }
+        const result = await this.#rly0Mcp.remove(params.data.name);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MCP_ADD_METHOD) {
+        const params = rly0McpAddParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid MCP add params"));
+          return;
+        }
+        const result = await this.#rly0Mcp.add(params.data);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+    } catch (error) {
+      const failure = rly0McpRpcError(error);
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  /**
+   * Skills manager: reads `SKILL.md` front matter under `${CODEX_HOME:-~/.codex}/skills/` and
+   * moves skill directories to/from `~/.rly0-hub/skills-backup/`. "Deactivate" never deletes.
+   */
+  async #handleRly0SkillsRequest(request: JsonRpcRequest): Promise<void> {
+    try {
+      if (request.method === RLY0_SKILLS_LIST_METHOD) {
+        if (!rly0SkillsListParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Skills list params"));
+          return;
+        }
+        const result = await this.#rly0Skills.list();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_SKILLS_DEACTIVATE_METHOD) {
+        const params = rly0SkillsDeactivateParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Skills deactivate params"));
+          return;
+        }
+        const result = await this.#rly0Skills.deactivate(params.data.name);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_SKILLS_RESTORE_METHOD) {
+        const params = rly0SkillsRestoreParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Skills restore params"));
+          return;
+        }
+        const result = await this.#rly0Skills.restore(params.data.backupId);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_SKILLS_IMPORT_METHOD) {
+        const params = rly0SkillsImportParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Skills import params"));
+          return;
+        }
+        const result = await this.#rly0Skills.importSkill(params.data);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+    } catch (error) {
+      const failure = rly0SkillsRpcError(error);
       await this.#writer.json(rpcError(request, failure.code, failure.message));
     }
   }

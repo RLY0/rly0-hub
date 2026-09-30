@@ -122,6 +122,64 @@ export type {
   Rly0AccountsRemoveParams,
   Rly0AccountsRemoveResult,
 } from "./rly0-core.js";
+export {
+  RLY0_MCP_LIST_METHOD,
+  RLY0_MCP_SET_ENABLED_METHOD,
+  RLY0_MCP_REMOVE_METHOD,
+  RLY0_MCP_ADD_METHOD,
+  rly0McpNameSchema,
+  rly0McpServerTypeSchema,
+  rly0McpServerSchema,
+  rly0McpListParamsSchema,
+  rly0McpListResultSchema,
+  rly0McpSetEnabledParamsSchema,
+  rly0McpMutationResultSchema,
+  rly0McpRemoveParamsSchema,
+  rly0McpAddParamsSchema,
+} from "./rly0-mcp.js";
+export type {
+  Rly0McpName,
+  Rly0McpServerType,
+  Rly0McpServer,
+  Rly0McpListParams,
+  Rly0McpListResult,
+  Rly0McpSetEnabledParams,
+  Rly0McpMutationResult,
+  Rly0McpRemoveParams,
+  Rly0McpAddParams,
+} from "./rly0-mcp.js";
+export {
+  RLY0_SKILLS_LIST_METHOD,
+  RLY0_SKILLS_DEACTIVATE_METHOD,
+  RLY0_SKILLS_RESTORE_METHOD,
+  RLY0_SKILLS_IMPORT_METHOD,
+  rly0SkillNameSchema,
+  rly0SkillBackupIdSchema,
+  rly0SkillEntrySchema,
+  rly0SkillBackupEntrySchema,
+  rly0SkillsListParamsSchema,
+  rly0SkillsListResultSchema,
+  rly0SkillsDeactivateParamsSchema,
+  rly0SkillsDeactivateResultSchema,
+  rly0SkillsRestoreParamsSchema,
+  rly0SkillsRestoreResultSchema,
+  rly0SkillsImportParamsSchema,
+  rly0SkillsImportResultSchema,
+} from "./rly0-skills.js";
+export type {
+  Rly0SkillName,
+  Rly0SkillBackupId,
+  Rly0SkillEntry,
+  Rly0SkillBackupEntry,
+  Rly0SkillsListParams,
+  Rly0SkillsListResult,
+  Rly0SkillsDeactivateParams,
+  Rly0SkillsDeactivateResult,
+  Rly0SkillsRestoreParams,
+  Rly0SkillsRestoreResult,
+  Rly0SkillsImportParams,
+  Rly0SkillsImportResult,
+} from "./rly0-skills.js";
 export { REASONING_TRANSCRIPT_COMMAND } from "./reasoning-transcript.js";
 export type { CodexhostError } from "./errors.js";
 export {

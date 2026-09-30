@@ -14,6 +14,7 @@ import Download from "lucide/dist/esm/icons/download.mjs";
 import ExternalLink from "lucide/dist/esm/icons/external-link.mjs";
 import Ellipsis from "lucide/dist/esm/icons/ellipsis.mjs";
 import FolderInput from "lucide/dist/esm/icons/folder-input.mjs";
+import GraduationCap from "lucide/dist/esm/icons/graduation-cap.mjs";
 import GripVertical from "lucide/dist/esm/icons/grip-vertical.mjs";
 import Info from "lucide/dist/esm/icons/info.mjs";
 import Languages from "lucide/dist/esm/icons/languages.mjs";
@@ -30,6 +31,7 @@ import Ticket from "lucide/dist/esm/icons/ticket.mjs";
 import Trash from "lucide/dist/esm/icons/trash-2.mjs";
 import Terminal from "lucide/dist/esm/icons/terminal.mjs";
 import Search from "lucide/dist/esm/icons/search.mjs";
+import Server from "lucide/dist/esm/icons/server.mjs";
 import CircleHelp from "lucide/dist/esm/icons/circle-question-mark.mjs";
 import X from "lucide/dist/esm/icons/x.mjs";
 import Users from "lucide/dist/esm/icons/users.mjs";
@@ -45,6 +47,8 @@ export const RENDERER_SETTINGS_ICON_NAMES = [
   "connections",
   "accounts",
   "session-import",
+  "mcp",
+  "skills",
   "add",
   "model-pool",
   "routes",
@@ -95,6 +99,8 @@ const iconNodes = {
   connections: PlugZap,
   accounts: Users,
   "session-import": FolderInput,
+  mcp: Server,
+  skills: GraduationCap,
   add: Plus,
   "model-pool": Boxes,
   routes: Route,

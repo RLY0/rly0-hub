@@ -9,6 +9,8 @@ import {
   createDefaultRendererSettingsPages,
   type RendererConnectionDiagnostics,
   type RendererCodexAccountClient,
+  type RendererMcpClient,
+  type RendererSkillsClient,
   type RendererUpdateClient,
 } from "./settings/pages.js";
 import type {
@@ -30,6 +32,8 @@ export interface RendererSettingsLifecycleOptions {
   getAccountClient?(): RendererCodexAccountClient | null;
   getSessionImportClient?(): RendererSessionImportClient | null;
   getLoadedSessionsClient?(): LoadedSessionsClient | null;
+  getMcpClient?(): RendererMcpClient | null;
+  getSkillsClient?(): RendererSkillsClient | null;
   openImportedThread?: RendererImportedThreadOpener;
   onLocaleChange?(locale: RendererSettingsLocale): void;
 }
@@ -77,6 +81,8 @@ export function installRendererSettingsLifecycle(
         if (!disposed && !signal.aborted) shell?.close();
       },
       options.getLoadedSessionsClient ?? (() => null),
+      options.getMcpClient ?? (() => null),
+      options.getSkillsClient ?? (() => null),
     );
     const nextShell = installRendererSettingsShell(definitions, messages, ownerWindow.document);
     const nextTrigger = installRendererSettingsRailTrigger({
