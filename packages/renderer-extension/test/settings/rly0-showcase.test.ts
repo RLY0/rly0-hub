@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { relayChinese } from "../../src/settings/relay-messages.js";
-import {
-  createRly0Showcase,
-  RLY0_RELAY_PROMO_DISMISSED_KEY,
-  RLY0_RELAY_PROMO_URL,
-} from "../../src/settings/rly0-showcase.js";
+import { createRly0Showcase, RLY0_RELAY_PROMO_URL } from "../../src/settings/rly0-showcase.js";
 
 class FakeElement {
   children: FakeElement[] = [];
@@ -71,8 +67,8 @@ describe("RLY/0 relay showcase", () => {
     expect(nodes.some((node) => node.textContent === relayChinese.promoTagline)).toBe(true);
   });
 
-  it("stays dismissed once closed and omits the details in compact mode", () => {
-    const storage: Record<string, string> = {};
+  it("has no close control, ignores an old dismissal and omits the details in compact mode", () => {
+    const storage: Record<string, string> = { "codexhost.rly0-relay-promo-dismissed.v1": "1" };
     const document = fakeDocument(storage);
     const compact = createRly0Showcase(document, relayChinese, {
       compact: true,
@@ -81,10 +77,7 @@ describe("RLY/0 relay showcase", () => {
     expect(all(compact).some((node) => node.className === "settings-rly0-showcase__route")).toBe(
       false,
     );
-    const dismiss = all(compact).find((node) => node.textContent === relayChinese.promoDismiss);
-    dismiss?.listeners.get("click")?.();
-    expect(storage[RLY0_RELAY_PROMO_DISMISSED_KEY]).toBe("1");
-    expect(compact.hidden).toBe(true);
-    expect(createRly0Showcase(document, relayChinese)).toBeNull();
+    expect(all(compact).some((node) => node.tagName === "button")).toBe(false);
+    expect(createRly0Showcase(document, relayChinese)).not.toBeNull();
   });
 });

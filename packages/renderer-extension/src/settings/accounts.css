@@ -1042,20 +1042,6 @@
   border-radius: 4px;
   letter-spacing: 0.04em;
 }
-.settings-rly0-showcase__dismiss {
-  padding: 0 4px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--showcase-muted);
-  font: inherit;
-  cursor: pointer;
-}
-.settings-rly0-showcase__dismiss:hover,
-.settings-rly0-showcase__dismiss:focus-visible {
-  color: var(--showcase-paper);
-  background: rgb(233 233 227 / 8%);
-}
 .settings-rly0-showcase__main {
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;

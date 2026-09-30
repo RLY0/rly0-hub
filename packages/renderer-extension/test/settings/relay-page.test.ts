@@ -11,7 +11,6 @@ import {
   createRelaySettingsPage,
   parseRelayModels,
   relayCodexModelOptions,
-  RLY0_RELAY_PROMO_DISMISSED_KEY,
   RLY0_RELAY_PROMO_URL,
   type RendererRelayClient,
 } from "../../src/settings/relay-page.js";
@@ -476,7 +475,7 @@ describe("Relay settings page", () => {
     expect(buttonByText(root, messages.proxyStart).disabled).toBe(false);
   });
 
-  it("shows a dismissible author-run promo that only links out", async () => {
+  it("always shows the author-run promo, which only links out and cannot be closed", async () => {
     const client = fullClient();
     const { root, storage } = mountPage(client);
     await flush();
@@ -487,13 +486,12 @@ describe("Relay settings page", () => {
     expect(link.rel).toBe("noopener noreferrer");
     expect(link.listeners.size).toBe(0);
     expect(allText(root)).toContain("作者自营");
-    buttonByText(root, messages.promoDismiss).listeners.get("click")?.();
-    expect(storage[RLY0_RELAY_PROMO_DISMISSED_KEY]).toBe("1");
-    expect(() => buttonByText(root, messages.promoOpen)).toThrow();
+    expect(allText(root)).not.toContain("关闭");
     expect(client.addRly0Relay).not.toHaveBeenCalled();
 
+    storage["codexhost.rly0-relay-promo-dismissed.v1"] = "1";
     const again = mountPage(fullClient(), storage);
     await flush();
-    expect(() => buttonByText(again.root, messages.promoOpen)).toThrow();
+    expect(buttonByText(again.root, messages.promoOpen).tagName).toBe("a");
   });
 });

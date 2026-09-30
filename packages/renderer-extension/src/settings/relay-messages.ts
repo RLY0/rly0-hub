@@ -12,7 +12,6 @@ export const relayEnglish = {
   promoRouteFrom: "Codex",
   promoRouteTo: "Claude · GPT",
   promoOpen: "Visit rly0.com ↗",
-  promoDismiss: "Dismiss",
   proxyTitle: "Local proxy",
   proxyDescription:
     "A small relay station on this computer (127.0.0.1). Codex sends requests here first; models one of your relays lists go to that relay, everything else goes to your official account unchanged. It has to be running for relay models to work, and RLY/0 Hub starts it automatically when you pick a relay model.",
@@ -121,7 +120,6 @@ export const relayChinese: RelayMessages = {
   promoRouteFrom: "Codex",
   promoRouteTo: "Claude · GPT",
   promoOpen: "访问 rly0.com ↗",
-  promoDismiss: "关闭",
   proxyTitle: "本地代理",
   proxyDescription:
     "相当于你电脑上（127.0.0.1）的一个小中转站：Codex 的请求先发到这里，属于你某个中转的模型就转给那个中转，其它模型原样交给你的官方账号。要用中转模型，它必须在运行；你在模型选择器里选了中转模型时，RLY/0 Hub 会自动启动它。",

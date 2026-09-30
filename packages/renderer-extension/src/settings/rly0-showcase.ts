@@ -2,44 +2,22 @@ import rly0MarkUrl from "../assets/codexhost-app-icon.svg";
 import type { RelayMessages } from "./relay-messages.js";
 
 export const RLY0_RELAY_PROMO_URL = "https://rly0.com";
-export const RLY0_RELAY_PROMO_DISMISSED_KEY = "codexhost.rly0-relay-promo-dismissed.v1";
-
-export function readRly0ShowcaseDismissed(view: Window | null): boolean {
-  try {
-    return view?.localStorage.getItem(RLY0_RELAY_PROMO_DISMISSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeRly0ShowcaseDismissed(view: Window | null): void {
-  try {
-    view?.localStorage.setItem(RLY0_RELAY_PROMO_DISMISSED_KEY, "1");
-  } catch {
-    // Dismissal then lasts only for this page visit.
-  }
-}
-
 export interface Rly0ShowcaseOptions {
   /** Single-row card for pages where the relay is not the main subject. */
   readonly compact?: boolean;
-  readonly onDismiss?: () => void;
 }
 
 /**
  * Author-run relay card. It is clearly labelled as the author's own ad, only links out to
- * rly0.com in the browser, never touches request routing, and can be dismissed for good.
- * Layout: a small "ad · run by the author" caption with a close control, then the brand
+ * rly0.com in the browser, never touches request routing, and always stays on the page.
+ * Layout: a small "ad · run by the author" caption, then the brand
  * (logo, name, one-line description), a route diagram showing what a relay does, and one link.
- * Returns `null` when the viewer has already dismissed it.
  */
 export function createRly0Showcase(
   document: Document,
   messages: RelayMessages,
   options: Rly0ShowcaseOptions = {},
-): HTMLElement | null {
-  const view = document.defaultView ?? null;
-  if (readRly0ShowcaseDismissed(view)) return null;
+): HTMLElement {
   const el = <K extends keyof HTMLElementTagNameMap>(
     tag: K,
     className: string,
@@ -65,16 +43,7 @@ export function createRly0Showcase(
     el("span", "settings-rly0-showcase__tag", messages.promoKicker),
     el("span", "settings-rly0-showcase__owner", messages.promoBadge),
   );
-  const dismiss = el("button", "settings-rly0-showcase__dismiss", messages.promoDismiss);
-  dismiss.type = "button";
-  dismiss.setAttribute("aria-label", `${messages.promoDismiss} ${messages.promoTitle}`);
-  dismiss.addEventListener("click", () => {
-    writeRly0ShowcaseDismissed(view);
-    root.hidden = true;
-    root.replaceChildren();
-    options.onDismiss?.();
-  });
-  caption.append(label, dismiss);
+  caption.append(label);
 
   const brand = el("div", "settings-rly0-showcase__brand");
   const logo = el("img", "settings-rly0-showcase__logo");

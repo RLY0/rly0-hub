@@ -139,7 +139,7 @@ export function createDashboardSettingsPage(
         quotaAlert.element,
         header,
         description,
-        ...(showcase ? [showcase] : []),
+        showcase,
         stats,
         accountSection,
         healthSection,

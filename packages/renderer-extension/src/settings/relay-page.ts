@@ -42,7 +42,7 @@ export interface RendererRelayClient {
   rly0RelayCodexConfigRestore?(): Promise<Rly0RelayCodexConfigMutationResult>;
 }
 
-export { RLY0_RELAY_PROMO_DISMISSED_KEY, RLY0_RELAY_PROMO_URL } from "./rly0-showcase.js";
+export { RLY0_RELAY_PROMO_URL } from "./rly0-showcase.js";
 
 /** Splits the model textarea into names; `null` when any entry is not a valid model name. */
 export function parseRelayModels(text: string): string[] | null {
@@ -156,12 +156,8 @@ export function createRelaySettingsPage(
 
       // ---- Promo ----
       const renderPromo = (): void => {
-        promo.replaceChildren();
-        const showcase = createRly0Showcase(document, messages, {
-          onDismiss: () => renderPromo(),
-        });
-        promo.hidden = !showcase;
-        if (showcase) promo.append(showcase);
+        promo.replaceChildren(createRly0Showcase(document, messages));
+        promo.hidden = false;
       };
 
       const renderStatus = (): void => {
