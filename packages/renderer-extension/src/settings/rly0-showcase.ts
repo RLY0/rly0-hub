@@ -87,3 +87,17 @@ export function createRly0Showcase(
   root.append(caption, main);
   return root;
 }
+
+/**
+ * Small always-visible promo chip that sits next to the "Add relay" button (like a sponsor
+ * pill). Placeholder implementation; the showcase workstream owns its final look.
+ */
+export function createRly0PromoChip(document: Document, messages: RelayMessages): HTMLElement {
+  const chip = document.createElement("a");
+  chip.className = "settings-rly0-promo-chip";
+  chip.href = RLY0_RELAY_PROMO_URL;
+  chip.target = "_blank";
+  chip.rel = "noopener noreferrer";
+  chip.textContent = messages.promoTitle;
+  return chip;
+}
