@@ -131,6 +131,7 @@ export function createAccountsSettingsPage(
       const quotaAlert = mountRly0QuotaAlert(context.content, context.signal, getClient, messages, {
         onUsage: (results) => rly0Accounts.applyUsage(results),
         onSwitched: () => void rly0Accounts.reload(),
+        ...(context.navigate ? { onOpenRelay: () => context.navigate?.("relay") } : {}),
       });
       context.content.append(
         header,

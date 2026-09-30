@@ -99,6 +99,8 @@ interface QuotaAlertOptions {
   readonly onUsage?: (results: readonly Rly0AccountUsageEntry[]) => void;
   /** Called after the person confirmed and the core switched the saved login. */
   readonly onSwitched?: () => void;
+  /** Opens the relay page so the person can route models through a relay instead. */
+  readonly onOpenRelay?: () => void;
 }
 
 function safeRead<T>(read: () => T, fallback: T): T {
@@ -112,8 +114,9 @@ function safeRead<T>(read: () => T, fallback: T): T {
 /**
  * Low-quota banner shared by the Accounts page and the dashboard. Off by default; when the
  * appearance preference enables it, polls `usageAll` at the chosen frequency while the page is
- * mounted. The only action is a "switch" button that opens a confirmation dialog (stating that
- * Codex must be restarted); it never switches accounts on its own.
+ * mounted. Actions: "switch" opens a confirmation dialog (the switch takes effect in place once
+ * the current reply finishes), and "use a relay" opens the relay page. It never switches accounts
+ * or rewrites routing on its own.
  */
 export function mountRly0QuotaAlert(
   root: HTMLElement,
@@ -192,6 +195,17 @@ export function mountRly0QuotaAlert(
       switchButton.textContent = messages.alertSwitch;
       switchButton.addEventListener("click", () => confirmSwitch(target));
       actions.append(switchButton);
+    }
+    const openRelay = options.onOpenRelay;
+    if (openRelay) {
+      const relayButton = document.createElement("button");
+      relayButton.type = "button";
+      relayButton.className = current.best
+        ? "settings-command-button settings-command-button--secondary"
+        : "settings-command-button";
+      relayButton.textContent = messages.alertUseRelay;
+      relayButton.addEventListener("click", () => openRelay());
+      actions.append(relayButton);
     }
     const dismiss = document.createElement("button");
     dismiss.type = "button";

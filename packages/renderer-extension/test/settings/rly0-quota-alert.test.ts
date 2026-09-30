@@ -234,12 +234,13 @@ function mountAlert(client: RendererRly0QuotaAlertClient | null, storage: Record
   const root = new FakeElement("div", document);
   const controller = new AbortController();
   const onSwitched = vi.fn();
+  const onOpenRelay = vi.fn();
   const alert = mountRly0QuotaAlert(
     root as unknown as HTMLElement,
     controller.signal,
     () => client,
     settingsMessages,
-    { onSwitched },
+    { onSwitched, onOpenRelay },
   );
   return {
     alert,
@@ -247,6 +248,7 @@ function mountAlert(client: RendererRly0QuotaAlertClient | null, storage: Record
     element: alert.element as unknown as FakeElement,
     controller,
     onSwitched,
+    onOpenRelay,
   };
 }
 
@@ -319,6 +321,38 @@ describe("mountRly0QuotaAlert", () => {
     expect(onSwitched).toHaveBeenCalled();
     expect(dialog.open).toBe(false);
     expect(element.className).toContain("--info");
+    controller.abort();
+  });
+
+  it("offers the relay page as the way out when no saved account has more left", async () => {
+    const switchRly0Account = vi.fn();
+    const { element, controller, onOpenRelay } = mountAlert(
+      {
+        listRly0Accounts: async () => ({ available: true, accounts }),
+        rly0AccountUsageAll: async () => ({
+          available: true,
+          results: [
+            { id: "aaaaaaaaaaaa", usage: usage(95, 20) },
+            { id: "bbbbbbbbbbbb", usage: usage(99, 10) },
+          ],
+        }),
+        switchRly0Account,
+      },
+      {
+        [RENDERER_QUOTA_ALERT_ENABLED_STORAGE_KEY]: "true",
+        [RENDERER_QUOTA_ALERT_THRESHOLD_STORAGE_KEY]: "10",
+      },
+    );
+    await flush();
+    expect(element.hidden).toBe(false);
+    expect(text(element)).toContain(messages.alertNoCandidate);
+    expect(descendants(element).some((el) => el.textContent === messages.alertSwitch)).toBe(false);
+    const relayButton = descendants(element).find(
+      (el) => el.textContent === messages.alertUseRelay,
+    );
+    relayButton?.listeners.get("click")?.();
+    expect(onOpenRelay).toHaveBeenCalledTimes(1);
+    expect(switchRly0Account).not.toHaveBeenCalled();
     controller.abort();
   });
 });

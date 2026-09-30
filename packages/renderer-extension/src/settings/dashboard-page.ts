@@ -130,7 +130,9 @@ export function createDashboardSettingsPage(
       activitySection.className =
         "settings-rly0-dashboard__panel settings-rly0-dashboard__activity";
 
-      const quotaAlert = mountRly0QuotaAlert(context.content, context.signal, getClient, messages);
+      const quotaAlert = mountRly0QuotaAlert(context.content, context.signal, getClient, messages, {
+        ...(context.navigate ? { onOpenRelay: () => context.navigate?.("relay") } : {}),
+      });
       context.content.append(
         quotaAlert.element,
         header,

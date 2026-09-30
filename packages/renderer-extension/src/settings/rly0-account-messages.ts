@@ -57,6 +57,7 @@ export const rly0AccountEnglish = {
   alertBest: "Most quota left: {name} ({percent}).",
   alertNoCandidate: "No other saved account has more quota left.",
   alertSwitch: "Switch now",
+  alertUseRelay: "Use a relay",
   alertUnavailable: "Low-quota alerts need the RLY/0 Core bridge (rly0-core).",
   alertDismiss: "Hide",
 };
@@ -118,6 +119,7 @@ export const rly0AccountChinese: Rly0AccountMessages = {
   alertBest: "剩余最多的账号：{name}（剩余 {percent}）。",
   alertNoCandidate: "没有剩余更多的已保存账号。",
   alertSwitch: "一键切换",
+  alertUseRelay: "改走中转",
   alertUnavailable: "额度不足提醒需要 RLY/0 Core（rly0-core）。",
   alertDismiss: "暂时隐藏",
 };
