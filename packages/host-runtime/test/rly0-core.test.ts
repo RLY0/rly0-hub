@@ -13,9 +13,8 @@ const fixture = path.resolve(
 );
 
 /** Spawns the Node fixture instead of a real binary, ignoring the (fake) binary path argument. */
-function spawnFake(_binary: string, _args: string[], options: Parameters<typeof spawn>[2]) {
-  return spawn(process.execPath, [fixture], options);
-}
+const spawnFake = ((_binary: string, _args: string[], options: Parameters<typeof spawn>[2]) =>
+  spawn(process.execPath, [fixture], options)) as unknown as typeof spawn;
 
 describe("Rly0CoreClient", () => {
   it("resolves unavailable when no binary can be found", async () => {
