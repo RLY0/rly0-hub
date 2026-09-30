@@ -21,6 +21,7 @@ import type { JsonObject } from "@codexhost/protocol-core";
 import {
   hostThreadIdSchema,
   hostTurnIdSchema,
+  RLY0_HOME_DATA_DIRECTORY_NAME,
   type HostThreadId,
   type NativeCheckpointRef,
   type NativeSessionRef,
@@ -89,7 +90,9 @@ function sameMapping(left: StoredTurnMappingV1, right: StoredTurnMappingV1): boo
 export function defaultMappingStoreDirectory(environment: NodeJS.ProcessEnv): string {
   const dataDirectory = environment.CODEXHOST_DATA_DIR;
   return path.join(
-    dataDirectory ? path.resolve(dataDirectory) : path.join(os.homedir(), ".codexhost"),
+    dataDirectory
+      ? path.resolve(dataDirectory)
+      : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
     "mapping-store",
   );
 }

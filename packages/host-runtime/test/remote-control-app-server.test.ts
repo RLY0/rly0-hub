@@ -75,7 +75,7 @@ describe("Remote Control app-server bridge", () => {
     expect(plan).not.toBeNull();
     expect(plan?.pipePath).toBe("\\\\.\\pipe\\codexhost-remote-control-42-fixture-id");
     expect(plan?.descriptorPath).toBe(
-      path.join(environment.LOCALAPPDATA, "codexhost", "remote-control-bridge-v1.json"),
+      path.join(environment.LOCALAPPDATA, "rly0-hub", "remote-control-bridge-v1.json"),
     );
     expect(plan?.descriptor).toEqual({
       schemaVersion: 1,

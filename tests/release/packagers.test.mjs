@@ -114,7 +114,7 @@ describe("platform packagers", () => {
     expect(script).toContain('ValidateSet("x64", "arm64")');
     expect(script).toContain("Inno Setup 6\\ISCC.exe");
     expect(script).toContain("Inno Setup build");
-    expect(installer).toContain("DefaultDirName={localappdata}\\Programs\\codexhost");
+    expect(installer).toContain("DefaultDirName={localappdata}\\Programs\\rly0-hub");
     expect(installer).toContain("PrivilegesRequired=lowest");
     expect(installer).toContain("DisableProgramGroupPage=yes");
     expect(installer).toContain("ArchitecturesAllowed=x64compatible");

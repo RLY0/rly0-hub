@@ -11,6 +11,7 @@ import {
   jsonValueSchema,
   nativeCheckpointRefSchema,
   nativeTurnRefSchema,
+  RLY0_HOME_DATA_DIRECTORY_NAME,
   type HarnessModelRef,
   type HarnessThinkingOptionId,
   type JsonValue,
@@ -131,7 +132,9 @@ export type AntigravityTurn = HostThreadSnapshot["turns"][number];
 function historyRoot(environment: NodeJS.ProcessEnv): string {
   const dataDirectory = environment.CODEXHOST_DATA_DIR;
   return path.join(
-    dataDirectory ? path.resolve(dataDirectory) : path.join(os.homedir(), ".codexhost"),
+    dataDirectory
+      ? path.resolve(dataDirectory)
+      : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
     "antigravity-history",
   );
 }

@@ -225,12 +225,10 @@ describe("remote SSH Host installation", () => {
       expect(first).not.toHaveProperty("claudeCommand");
       expect(second).not.toHaveProperty("claudeCommand");
       expect(
-        JSON.parse(
-          await readFile(path.join(home, ".codexhost", "remote", "manifest.json"), "utf8"),
-        ),
+        JSON.parse(await readFile(path.join(home, ".rly0-hub", "remote", "manifest.json"), "utf8")),
       ).not.toHaveProperty("claudeCommand");
       expect(profile).toContain(
-        `CODEXHOST_DATA_DIR='${path.join(home, ".codexhost", "remote", "data")}'`,
+        `CODEXHOST_DATA_DIR='${path.join(home, ".rly0-hub", "remote", "data")}'`,
       );
       expect(profile).toContain("export EXISTING_SETTING=1");
       expect(profile.match(/>>> codexhost remote SSH >>>/gu)).toHaveLength(1);
@@ -240,7 +238,7 @@ describe("remote SSH Host installation", () => {
         state: "ready",
         stockCodexPath,
         profilePath,
-        dataDirectory: path.join(home, ".codexhost", "remote", "data"),
+        dataDirectory: path.join(home, ".rly0-hub", "remote", "data"),
       });
     } finally {
       await rm(home, { recursive: true, force: true });
@@ -261,7 +259,7 @@ describe("remote SSH Host installation", () => {
 
     try {
       const installed = await installRemoteHost(options);
-      const manifestPath = path.join(home, ".codexhost", "remote", "manifest.json");
+      const manifestPath = path.join(home, ".rly0-hub", "remote", "manifest.json");
       const oldCommand = path.join(home, "removed-claude");
       await writeFile(
         manifestPath,
@@ -349,7 +347,7 @@ describe("remote SSH Host installation", () => {
 
   it("rolls back a first installation when manifest publication fails", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codexhost-remote-rollback-"));
-    const installRoot = path.join(home, ".codexhost", "remote");
+    const installRoot = path.join(home, ".rly0-hub", "remote");
     const profilePath = path.join(home, ".zshenv");
     const originalProfile = "export EXISTING_SETTING=1\n";
     await writeFile(profilePath, originalProfile, "utf8");
@@ -386,7 +384,7 @@ describe("remote SSH Host installation", () => {
 
   it("restores the previous managed installation when upgrade publication fails", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codexhost-remote-upgrade-rollback-"));
-    const installRoot = path.join(home, ".codexhost", "remote");
+    const installRoot = path.join(home, ".rly0-hub", "remote");
     const profilePath = path.join(home, ".zshenv");
     await writeFile(profilePath, "export EXISTING_SETTING=1\n", "utf8");
     const initialOptions = {
@@ -442,7 +440,7 @@ describe("remote SSH Host installation", () => {
 
   it("diagnoses and migrates the legacy shell entrypoint", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codexhost-remote-migrate-"));
-    const installRoot = path.join(home, ".codexhost", "remote");
+    const installRoot = path.join(home, ".rly0-hub", "remote");
     const wrapperPath = path.join(installRoot, "bin", "codex");
     const profilePath = path.join(home, ".zshenv");
     const stockCodexPath = await executable(path.join(home, "stock-codex"));
@@ -539,7 +537,7 @@ describe("remote SSH Host installation", () => {
       });
       await expect(uninstallRemoteHost(options)).resolves.toBeUndefined();
       await expect(
-        readFile(path.join(home, ".codexhost", "remote", "bin", "codex")),
+        readFile(path.join(home, ".rly0-hub", "remote", "bin", "codex")),
       ).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(home, { recursive: true, force: true });
@@ -577,7 +575,7 @@ describe("remote SSH Host installation", () => {
 
   it("keeps legacy digest-free manifests fail-closed when the source shim is missing", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codexhost-remote-legacy-digest-"));
-    const installRoot = path.join(home, ".codexhost", "remote");
+    const installRoot = path.join(home, ".rly0-hub", "remote");
     const wrapperPath = path.join(installRoot, "bin", "codex");
     const profilePath = path.join(home, ".zshenv");
     const stockCodexPath = await executable(path.join(home, "stock-codex"));
@@ -729,7 +727,7 @@ describe("remote SSH Host installation", () => {
 
   it("refuses to overwrite an unmanaged remote Codex entrypoint", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codexhost-remote-conflict-"));
-    const installRoot = path.join(home, ".codexhost", "remote");
+    const installRoot = path.join(home, ".rly0-hub", "remote");
     const wrapperPath = path.join(installRoot, "bin", "codex");
     await mkdir(path.dirname(wrapperPath), { recursive: true });
     await writeFile(wrapperPath, "unmanaged\n", "utf8");
@@ -776,7 +774,7 @@ describe("remote SSH Host installation", () => {
 
   it("rejects a manifest containing undeclared or relative paths", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "codexhost-remote-manifest-"));
-    const installRoot = path.join(home, ".codexhost", "remote");
+    const installRoot = path.join(home, ".rly0-hub", "remote");
     await mkdir(installRoot, { recursive: true });
     await writeFile(
       path.join(installRoot, "manifest.json"),

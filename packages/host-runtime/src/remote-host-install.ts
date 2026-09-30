@@ -15,6 +15,8 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
+
 const MANIFEST_FORMAT = 1;
 // Kept only so status/install can identify and migrate preview installs.
 const WRAPPER_MARKER = "# codexhost remote SSH wrapper v1";
@@ -70,7 +72,9 @@ function resolvePaths(options: RemoteHostInstallOptions): ResolvedRemoteHostPath
   if (!home || home === path.parse(home).root) {
     throw new Error("A non-root HOME is required for remote Host installation");
   }
-  const installRoot = path.resolve(options.installRoot ?? path.join(home, ".codexhost", "remote"));
+  const installRoot = path.resolve(
+    options.installRoot ?? path.join(home, RLY0_HOME_DATA_DIRECTORY_NAME, "remote"),
+  );
   const profilePath = path.resolve(
     options.profilePath ??
       path.join(

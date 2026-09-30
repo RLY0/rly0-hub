@@ -24,13 +24,13 @@ const home = "/home/developer";
 const socketPath = path.join(home, ".codex", "app-server-control", "app-server-control.sock");
 const manifest: RemoteHostManifestV1 = {
   format: 1,
-  wrapperPath: "/home/developer/.codexhost/remote/bin/codex",
+  wrapperPath: "/home/developer/.rly0-hub/remote/bin/codex",
   profilePath: "/home/developer/.bashrc",
   stockCodexPath: "/opt/codex/bin/codex",
   nodePath: "/opt/node/bin/node",
   shimPath: "/opt/codexhost/bin/codexhost-shim",
   hostRuntimePath: "/opt/codexhost/app/host-runtime.mjs",
-  dataDirectory: "/home/developer/.codexhost/remote/data",
+  dataDirectory: "/home/developer/.rly0-hub/remote/data",
 };
 const readyInstallation: RemoteHostInstallationStatus = {
   state: "ready",

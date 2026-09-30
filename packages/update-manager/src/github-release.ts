@@ -1,13 +1,17 @@
+import {
+  RLY0_GITHUB_API_LATEST_RELEASE_URL,
+  RLY0_GITHUB_RELEASE_DOWNLOAD_URL_PREFIX,
+  RLY0_GITHUB_RELEASE_TAG_URL_PATTERN,
+} from "@codexhost/shared-contracts";
+
 import type { ArtifactSource } from "./artifact.js";
 import { requireSemanticVersion } from "./status.js";
 
-export const CODEXHOST_LATEST_RELEASE_URL =
-  "https://api.github.com/repos/BytePioneer-AI/codex-host/releases/latest";
+export const CODEXHOST_LATEST_RELEASE_URL = RLY0_GITHUB_API_LATEST_RELEASE_URL;
 
 const SHA256_DIGEST_PATTERN = /^sha256:([0-9a-f]{64})$/u;
-const RELEASE_NOTES_URL_PATTERN =
-  /^https:\/\/github\.com\/BytePioneer-AI\/codex-host\/releases\/tag\/(v[0-9A-Za-z.+-]+)$/u;
-const DOWNLOAD_URL_PREFIX = "https://github.com/BytePioneer-AI/codex-host/releases/download/";
+const RELEASE_NOTES_URL_PATTERN = RLY0_GITHUB_RELEASE_TAG_URL_PATTERN;
+const DOWNLOAD_URL_PREFIX = RLY0_GITHUB_RELEASE_DOWNLOAD_URL_PREFIX;
 
 export type InstallerReleaseTarget = "macos-arm64" | "macos-x64" | "windows-x64" | "windows-arm64";
 export type ReleaseTarget = InstallerReleaseTarget | "linux-x64" | "linux-arm64";

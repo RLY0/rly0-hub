@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
+import { RLY0_APP_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
+
 import { createRemoteOfficialAppServerConnection } from "./remote-official-connection.js";
 
 export const REMOTE_CONTROL_BRIDGE_PIPE_ENV = "CODEXHOST_REMOTE_CONTROL_BRIDGE_PIPE";
@@ -65,7 +67,11 @@ export function remoteControlBridgePipePath(
 export function remoteControlBridgeDescriptorPath(environment: NodeJS.ProcessEnv): string | null {
   const root = environment.LOCALAPPDATA;
   if (!root || !path.isAbsolute(root)) return null;
-  return path.join(path.normalize(root), "codexhost", REMOTE_CONTROL_BRIDGE_DESCRIPTOR_FILE);
+  return path.join(
+    path.normalize(root),
+    RLY0_APP_DATA_DIRECTORY_NAME,
+    REMOTE_CONTROL_BRIDGE_DESCRIPTOR_FILE,
+  );
 }
 
 /**

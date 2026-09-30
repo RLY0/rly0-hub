@@ -110,8 +110,8 @@ const guides: Readonly<Record<ExternalRendererAgent, InstallationGuide>> = {
     url: "https://www.workbuddy.ai/docs/workbuddy/Quickstart",
     commands: [],
     before: [
-      "Install the WorkBuddy desktop app. codexhost uses its bundled CLI, not the standalone CodeBuddy CLI.",
-      "请安装 WorkBuddy 桌面应用。codexhost 使用应用内置 CLI，不能用 CodeBuddy CLI 代替。",
+      "Install the WorkBuddy desktop app. RLY/0 Hub uses its bundled CLI, not the standalone CodeBuddy CLI.",
+      "请安装 WorkBuddy 桌面应用。零号枢纽使用应用内置 CLI，不能用 CodeBuddy CLI 代替。",
     ],
     downloads: [
       {
@@ -124,8 +124,8 @@ const guides: Readonly<Record<ExternalRendererAgent, InstallationGuide>> = {
       },
     ],
     after: [
-      "The bundled CLI may require separate login. Restart codexhost after changing the installation path.",
-      "内置 CLI 可能需要单独登录。修改安装路径后需重启 codexhost。",
+      "The bundled CLI may require separate login. Restart RLY/0 Hub after changing the installation path.",
+      "内置 CLI 可能需要单独登录。修改安装路径后需重启零号枢纽。",
     ],
   },
   "cursor-cli": {

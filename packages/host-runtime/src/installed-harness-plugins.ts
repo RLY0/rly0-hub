@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { HarnessPluginContext } from "@codexhost/harness-adapter/plugin";
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 
 import { createLauncherUrlOpener } from "./launcher-url-opener.js";
 
@@ -22,7 +23,7 @@ export function installedHarnessPluginOptions(
         path.join(
           environment.CODEXHOST_DATA_DIR
             ? path.resolve(environment.CODEXHOST_DATA_DIR)
-            : path.join(os.homedir(), ".codexhost"),
+            : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
           "plugins",
         ),
     ],

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { RLY0_GITHUB_RELEASE_TAG_URL_PATTERN } from "./repository.js";
+
 export const UPDATE_ERROR_MAX_LENGTH = 500;
 export const UPDATE_SEMVER_PATTERN =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
@@ -46,8 +48,8 @@ const githubReleaseNotesUrlSchema = z
   .string()
   .max(300)
   .regex(
-    /^https:\/\/github\.com\/BytePioneer-AI\/codex-host\/releases\/tag\/v[0-9A-Za-z.+-]+$/u,
-    "release notes URL must identify a codexhost GitHub Release",
+    RLY0_GITHUB_RELEASE_TAG_URL_PATTERN,
+    "release notes URL must identify an RLY/0 Hub GitHub Release",
   );
 
 export const updateCheckResultSchema = z.strictObject({

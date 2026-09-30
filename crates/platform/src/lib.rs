@@ -36,6 +36,13 @@ mod windows_proxy;
 #[allow(unsafe_code)]
 mod windows_ui;
 
+/// Dot-directory under the user's home directory holding RLY/0 Hub data (`~/.rly0-hub`).
+/// Kept separate from upstream CodexHost so both can be installed side by side;
+/// `CODEXHOST_DATA_DIR` still overrides the data directory at runtime.
+pub const RLY0_HOME_DATA_DIRECTORY_NAME: &str = ".rly0-hub";
+/// Directory under platform app-data roots (LOCALAPPDATA, Application Support, XDG state).
+pub const RLY0_APP_DATA_DIRECTORY_NAME: &str = "rly0-hub";
+
 pub use background::detach_from_terminal;
 pub use desktop_launch::{
     DesktopProcess, launch_desktop, launch_stock_desktop, open_external_url,

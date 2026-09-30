@@ -13,6 +13,12 @@ import {
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import {
+  RLY0_GITHUB_ISSUES_URL,
+  RLY0_GITHUB_REPOSITORY_URL,
+  RLY0_HOME_DATA_DIRECTORY_NAME,
+} from "@codexhost/shared-contracts";
+
 import { writeDistributionMetadata } from "./distribution-metadata.mjs";
 import {
   buildPreinstalledHarnessPlugins,
@@ -266,12 +272,12 @@ export function createNpmPackageManifest({ version, target }) {
     keywords: ["codex", "codexhost", "pi", "claude-code", "agent", "harness"],
     repository: {
       type: "git",
-      url: "git+https://github.com/BytePioneer-AI/codex-host.git",
+      url: `git+${RLY0_GITHUB_REPOSITORY_URL}.git`,
     },
     bugs: {
-      url: "https://github.com/BytePioneer-AI/codex-host/issues",
+      url: RLY0_GITHUB_ISSUES_URL,
     },
-    homepage: "https://github.com/BytePioneer-AI/codex-host#readme",
+    homepage: `${RLY0_GITHUB_REPOSITORY_URL}#readme`,
     publishConfig: {
       access: "public",
     },
@@ -289,7 +295,7 @@ import { fileURLToPath } from "node:url";
 
 const version = ${JSON.stringify(version)};
 const userArguments = process.argv.slice(2);
-const repositoryUrl = "https://github.com/BytePioneer-AI/codex-host";
+const repositoryUrl = ${JSON.stringify(RLY0_GITHUB_REPOSITORY_URL)};
 const startupTraceStartedAt = Date.now();
 function startupTrace(stage) {
   if (process.env.CODEXHOST_STARTUP_TRACE !== "1") return;
@@ -493,7 +499,7 @@ const remoteSshBootstrapEnvironment = [
 ];
 if (updateEnvironment.CODEXHOST_REMOTE_SSH_MANAGED === "1") {
   for (const name of remoteSshBootstrapEnvironment) delete updateEnvironment[name];
-  updateEnvironment.CODEXHOST_DATA_DIR = path.join(homedir(), ".codexhost");
+  updateEnvironment.CODEXHOST_DATA_DIR = path.join(homedir(), ${JSON.stringify(RLY0_HOME_DATA_DIRECTORY_NAME)});
 }
 
 let launchArguments;

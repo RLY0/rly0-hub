@@ -1,4 +1,8 @@
-import type { CodexhostError, HarnessLaunchSettings } from "@codexhost/shared-contracts";
+import {
+  RLY0_GITHUB_ISSUES_NEW_URL,
+  type CodexhostError,
+  type HarnessLaunchSettings,
+} from "@codexhost/shared-contracts";
 
 import {
   getSharedAgentGroupPreferenceStore,
@@ -14,8 +18,7 @@ import { createHarnessLaunchControls } from "./harness-launch-controls.js";
 import { createHarnessInstallationPanel } from "./harness-installation-panel.js";
 import type { RendererSettingsMessages } from "./localization.js";
 
-export const CODEXHOST_GITHUB_ISSUES_NEW_URL =
-  "https://github.com/BytePioneer-AI/codex-host/issues/new";
+export const CODEXHOST_GITHUB_ISSUES_NEW_URL = RLY0_GITHUB_ISSUES_NEW_URL;
 
 export interface RendererConnectionAgentSnapshot {
   readonly agent: ExternalRendererAgent;

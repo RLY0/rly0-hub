@@ -1,5 +1,7 @@
 import { z } from "zod";
 export * from "./credential-imports.js";
+export * from "./product-directories.js";
+export * from "./repository.js";
 import { WORKSPACE_CONTRACT_VERSION } from "./version.js";
 export {
   IDLE_RELEASE_SETTINGS_METHOD,

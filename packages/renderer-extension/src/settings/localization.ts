@@ -234,6 +234,7 @@ export interface RendererSettingsMessages {
   readonly updateCopyFailed: string;
   readonly updateDownloadFromReleases: string;
   readonly updateDownloadWindowsInstaller: string;
+  readonly brandName: string;
   readonly updateStarCallout: string;
   readonly updateStarLink: string;
   readonly aboutTagline: string;
@@ -245,6 +246,7 @@ export interface RendererSettingsMessages {
 }
 
 const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
+  brandName: "RLY/0 Hub",
   credentialImports: credentialImportEnglish,
   locale: "en",
   title: "Settings",
@@ -291,7 +293,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   idleReleaseHelpLabel: "About releasing idle sessions",
   idleReleaseHelp: Object.freeze([
     "After an Agent finishes replying, its background process may continue running and using memory. Keeping more sessions open may increase resource usage.",
-    "When enabled, codexhost periodically checks sessions and closes background instances once the idle timeout is reached and no tasks or interactions are pending, reducing resource usage. Chat history is not deleted. Opening the session again or sending a message restarts the process.",
+    "When enabled, RLY/0 Hub periodically checks sessions and closes background instances once the idle timeout is reached and no tasks or interactions are pending, reducing resource usage. Chat history is not deleted. Opening the session again or sending a message restarts the process.",
   ]),
   idleReleaseTimeout: "Idle timeout",
   idleReleaseTimeoutDescription: "5–1440 minutes.",
@@ -408,10 +410,10 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   launchPathLabel: "Installed application path",
   launchPathPlaceholder: "Installation folder, e.g. D:\\program\\WorkBuddy",
   launchPathWorkbuddyHelp:
-    "This integration requires the WorkBuddy app. If it is not detected automatically, enter its installation folder. codexhost locates the required files inside it. Restart codexhost after saving to apply.",
+    "This integration requires the WorkBuddy app. If it is not detected automatically, enter its installation folder. RLY/0 Hub locates the required files inside it. Restart RLY/0 Hub after saving to apply.",
   launchPathSave: "Save path",
   launchPathReset: "Clear override",
-  launchPathRestart: "Saved. Restart codexhost to apply; running sessions are unchanged.",
+  launchPathRestart: "Saved. Restart RLY/0 Hub to apply; running sessions are unchanged.",
   launchPathSaved: "This Host is using the saved override. Availability is checked separately.",
   launchPathAutomatic:
     "No saved override. Uses environment configuration, then automatic discovery.",
@@ -446,9 +448,9 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   pickerHideUnusedAgentsCta: "Hide unused agents",
   enabled: "Enabled",
   disabled: "Disabled",
-  openSettings: "Open codexhost settings",
-  settingsButtonTitle: "codexhost settings",
-  settingsUnavailableTitle: "codexhost settings unavailable",
+  openSettings: "Open RLY/0 Hub settings",
+  settingsButtonTitle: "RLY/0 Hub settings",
+  settingsUnavailableTitle: "RLY/0 Hub settings unavailable",
   updateCurrentVersion: "Current version",
   updateInstallation: "Installation method",
   updateInstallationNpm: "npm",
@@ -475,29 +477,29 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   updateSucceeded: "Update installed successfully.",
   updateFailed: "Update failed.",
   updateRetry: "Retry",
-  updateManualNpmDescription: "To update manually, quit codexhost and run this command:",
+  updateManualNpmDescription: "To update manually, quit RLY/0 Hub and run this command:",
   updateWindowsNpmDescription:
-    "Automatic updates are unavailable on Windows. Quit codexhost and run this command in a terminal:",
+    "Automatic updates are unavailable on Windows. Quit RLY/0 Hub and run this command in a terminal:",
   updateWindowsInstallerDescription:
     "Automatic updates are unavailable on Windows. Download and run the installer for this system.",
   updateManualTitle: "Manual update",
   updateManualFallbackDescription:
-    "The automatic update did not complete. Run this command in a terminal instead, then quit Codex and relaunch it with codexhost.",
+    "The automatic update did not complete. Run this command in a terminal instead, then quit Codex and relaunch it with RLY/0 Hub.",
   updateCopyCommand: "Copy",
   updateCommandCopied: "Copied",
   updateCopyFailed: "Copy failed",
   updateDownloadFromReleases: "Download from GitHub Releases",
   updateDownloadWindowsInstaller: "Download Windows installer",
   updateStarCallout:
-    "If CodexHost has helped you, please Star it on GitHub. It means a lot to us 👉",
+    "If RLY/0 Hub has helped you, please Star it on GitHub. It means a lot to us 👉",
   updateStarLink: "GitHub",
   aboutTagline: "Run Pi and other Harnesses in Codex Desktop",
   aboutParagraphs: Object.freeze([
     "We believe Codex Desktop offers the best desktop development experience available today.",
     "But Codex is not the only excellent Agent Harness. Some developers prefer Claude Code or Pi Agent.",
-    "codexhost lets you choose the Agent that actually executes tasks inside Codex Desktop, while preserving the native Codex experience and enabling them to collaborate.",
+    "RLY/0 Hub lets you choose the Agent that actually executes tasks inside Codex Desktop, while preserving the native Codex experience and enabling them to collaborate.",
   ]),
-  aboutOpenSource: "codexhost is an open-source project. The source code is available at:",
+  aboutOpenSource: "RLY/0 Hub is an open-source project. The source code is available at:",
   aboutStarCallout: "⭐ If this project helps you, please give us a Star! ⭐",
   aboutRepository: "Open-source repository",
   pageLabels: Object.freeze({
@@ -511,6 +513,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
 });
 
 const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
+  brandName: "零号枢纽",
   credentialImports: credentialImportChinese,
   locale: "zh-CN",
   title: "设置",
@@ -556,7 +559,7 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   idleReleaseHelpLabel: "自动释放空闲会话说明",
   idleReleaseHelp: Object.freeze([
     "Agent 回复结束后，后台进程可能仍在运行并占用内存。打开的会话越多，资源占用可能越大。",
-    "开启后，codexhost 会定期检查，在会话空闲达到设定时间、且没有任务或待处理交互时，自动关闭后台实例，减少资源占用。聊天记录不会删除，再次打开或发送消息时会重新启动该进程。",
+    "开启后，零号枢纽会定期检查，在会话空闲达到设定时间、且没有任务或待处理交互时，自动关闭后台实例，减少资源占用。聊天记录不会删除，再次打开或发送消息时会重新启动该进程。",
   ]),
   idleReleaseTimeout: "空闲超时",
   idleReleaseTimeoutDescription: "5～1440 分钟。",
@@ -668,10 +671,10 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   launchPathLabel: "应用安装路径",
   launchPathPlaceholder: "填写安装目录，例如 D:\\program\\WorkBuddy",
   launchPathWorkbuddyHelp:
-    "此接入依赖 WorkBuddy 应用。若未自动识别，请填写应用安装目录，codexhost 会自动定位所需文件。保存后重启 codexhost 生效。",
+    "此接入依赖 WorkBuddy 应用。若未自动识别，请填写应用安装目录，零号枢纽会自动定位所需文件。保存后重启零号枢纽生效。",
   launchPathSave: "保存路径",
   launchPathReset: "清除自定义路径",
-  launchPathRestart: "已保存，重启 codexhost 后生效；当前运行中的会话不受影响。",
+  launchPathRestart: "已保存，重启零号枢纽后生效；当前运行中的会话不受影响。",
   launchPathSaved: "此 Host 正在使用已保存的路径；是否可用仍以连接检测结果为准。",
   launchPathAutomatic: "未设置自定义路径，使用环境变量配置或自动发现。",
   launchPathSaving: "正在保存…",
@@ -702,9 +705,9 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   pickerHideUnusedAgentsCta: "收起不常用的 Agent",
   enabled: "已开启",
   disabled: "已关闭",
-  openSettings: "打开 codexhost 设置",
-  settingsButtonTitle: "codexhost 设置",
-  settingsUnavailableTitle: "codexhost 设置不可用",
+  openSettings: "打开零号枢纽设置",
+  settingsButtonTitle: "零号枢纽设置",
+  settingsUnavailableTitle: "零号枢纽设置不可用",
   updateCurrentVersion: "当前版本",
   updateInstallation: "安装方式",
   updateInstallationNpm: "npm",
@@ -729,28 +732,28 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   updateFailed: "更新失败。",
   updateRetry: "重试",
   updateManualNpmDescription:
-    "如需手动更新，请在终端运行以下命令。更新完成后，请退出 Codex 并通过 codexhost 重新启动。",
+    "如需手动更新，请在终端运行以下命令。更新完成后，请退出 Codex 并通过零号枢纽重新启动。",
   updateWindowsNpmDescription:
-    "Windows 暂不支持自动更新。请退出 codexhost，在终端运行以下命令完成更新。",
+    "Windows 暂不支持自动更新。请退出零号枢纽，在终端运行以下命令完成更新。",
   updateWindowsInstallerDescription:
     "Windows 暂不支持自动更新。请下载并运行适用于当前系统的安装包。",
   updateManualTitle: "手动更新",
   updateManualFallbackDescription:
-    "自动更新未能完成，请改用下列命令在终端手动更新。完成后请退出 Codex 并通过 codexhost 重新启动。",
+    "自动更新未能完成，请改用下列命令在终端手动更新。完成后请退出 Codex 并通过零号枢纽重新启动。",
   updateCopyCommand: "复制",
   updateCommandCopied: "已复制",
   updateCopyFailed: "复制失败",
   updateDownloadFromReleases: "前往 GitHub Releases 下载",
   updateDownloadWindowsInstaller: "下载 Windows 安装包",
-  updateStarCallout: "如果 CodexHost 帮到了你，请在 GitHub 点个 Star，这对我们意义重大 👉",
+  updateStarCallout: "如果零号枢纽帮到了你，请在 GitHub 点个 Star，这对我们意义重大 👉",
   updateStarLink: "GitHub",
   aboutTagline: "在 Codex Desktop 中运行 Pi 和其他 Harness",
   aboutParagraphs: Object.freeze([
     "我们认为 Codex Desktop 提供了目前最好的桌面开发交互体验。",
     "但 Codex 并不是唯一优秀的 Agent Harness，也有人偏好 Claude Code 和 Pi Agent。",
-    "codexhost 让你在 Codex Desktop 中选择真正执行任务的 Agent，同时保留 Codex 的原生体验，并让它们协作完成任务。",
+    "零号枢纽让你在 Codex Desktop 中选择真正执行任务的 Agent，同时保留 Codex 的原生体验，并让它们协作完成任务。",
   ]),
-  aboutOpenSource: "codexhost 是一个开源项目，开源地址：",
+  aboutOpenSource: "零号枢纽是一个开源项目，开源地址：",
   aboutStarCallout: "⭐ 如果这个项目对你有帮助，请给我们一个 Star！⭐",
   aboutRepository: "开源仓库",
   pageLabels: Object.freeze({

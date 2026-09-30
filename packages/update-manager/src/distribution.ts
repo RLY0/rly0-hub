@@ -1,6 +1,11 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  RLY0_APP_DATA_DIRECTORY_NAME,
+  RLY0_HOME_DATA_DIRECTORY_NAME,
+} from "@codexhost/shared-contracts";
+
 import type {
   CommonUpdateOptions,
   MacOsDmgUpdateOptions,
@@ -112,13 +117,13 @@ export function defaultUpdateStateDirectory(
   if (platform === "win32") {
     const root = environment.LOCALAPPDATA;
     if (!root || !path.isAbsolute(root)) throw new Error("LOCALAPPDATA is unavailable");
-    return path.join(root, "codexhost", "updates");
+    return path.join(root, RLY0_APP_DATA_DIRECTORY_NAME, "updates");
   }
   const home = environment.HOME;
   if (!home || !path.isAbsolute(home)) throw new Error("HOME is unavailable");
   return platform === "darwin"
-    ? path.join(home, "Library", "Application Support", "codexhost", "updates")
-    : path.join(home, ".codexhost", "updates");
+    ? path.join(home, "Library", "Application Support", RLY0_APP_DATA_DIRECTORY_NAME, "updates")
+    : path.join(home, RLY0_HOME_DATA_DIRECTORY_NAME, "updates");
 }
 
 export async function resolveInstalledUpdateContext(

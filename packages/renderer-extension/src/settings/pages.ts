@@ -1,9 +1,12 @@
-import type {
-  UpdateCheckResult,
-  UpdateInstallation,
-  UpdateStartResult,
-  UpdateStatus,
-  UpdateStatusResult,
+import {
+  RLY0_GITHUB_RELEASE_DOWNLOAD_URL_PREFIX,
+  RLY0_GITHUB_RELEASES_LATEST_URL,
+  RLY0_GITHUB_REPOSITORY_URL,
+  type UpdateCheckResult,
+  type UpdateInstallation,
+  type UpdateStartResult,
+  type UpdateStatus,
+  type UpdateStatusResult,
 } from "@codexhost/shared-contracts";
 
 import {
@@ -42,8 +45,8 @@ import {
   runBoundedRendererUpdateRequest,
 } from "./update-request.js";
 
-export const CODEXHOST_GITHUB_REPOSITORY_URL = "https://github.com/BytePioneer-AI/codex-host";
-export const CODEXHOST_RELEASES_LATEST_URL = `${CODEXHOST_GITHUB_REPOSITORY_URL}/releases/latest`;
+export const CODEXHOST_GITHUB_REPOSITORY_URL = RLY0_GITHUB_REPOSITORY_URL;
+export const CODEXHOST_RELEASES_LATEST_URL = RLY0_GITHUB_RELEASES_LATEST_URL;
 export const CODEXHOST_NPM_MANUAL_UPDATE_COMMAND = "npm install -g @codexhost/cli@latest";
 
 interface RendererUserAgentData {
@@ -68,7 +71,7 @@ function windowsInstallerDownloadUrl(window: Window | null | undefined, version:
   const hints = navigator ? rendererUserAgentData(navigator) : undefined;
   const identity = `${hints?.architecture ?? ""} ${hints?.platform ?? ""} ${navigator?.platform ?? ""} ${navigator?.userAgent ?? ""}`;
   const architecture = /arm64|aarch64|\barm\b/iu.test(identity) ? "arm64" : "x64";
-  return `https://github.com/BytePioneer-AI/codex-host/releases/download/v${version}/codexhost-${version}-windows-${architecture}.exe`;
+  return `${RLY0_GITHUB_RELEASE_DOWNLOAD_URL_PREFIX}v${version}/codexhost-${version}-windows-${architecture}.exe`;
 }
 
 export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = [
@@ -172,7 +175,7 @@ function aboutPage(messages: RendererSettingsMessages): RendererSettingsPageDefi
       panel.className = "settings-about-panel";
       const product = document.createElement("strong");
       product.className = "settings-about-product";
-      product.textContent = "CodexHost";
+      product.textContent = messages.brandName;
       const tagline = document.createElement("strong");
       tagline.className = "settings-about-tagline";
       tagline.textContent = messages.aboutTagline;

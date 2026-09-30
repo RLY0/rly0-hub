@@ -217,7 +217,10 @@ pub fn plan_native_harness_broker_launch_agent_with_environment(
         .home
         .join("Library/LaunchAgents")
         .join(format!("{label}.plist"));
-    let broker_directory = paths.home.join(".codexhost/harness-broker");
+    let broker_directory = paths
+        .home
+        .join(crate::RLY0_HOME_DATA_DIRECTORY_NAME)
+        .join("harness-broker");
     let descriptor_path = broker_directory.join(format!("{}-broker-v1.json", paths.harness_id));
     let mut program_arguments = vec![
         node,
@@ -453,8 +456,8 @@ fn ensure_managed_directories(
     let launch_agents = library.join("LaunchAgents");
     ensure_owned_directory(&library, uid, false)?;
     ensure_owned_directory(&launch_agents, uid, true)?;
-    let codexhost = home.join(".codexhost");
-    ensure_owned_directory(&codexhost, uid, true)?;
+    let data_root = home.join(crate::RLY0_HOME_DATA_DIRECTORY_NAME);
+    ensure_owned_directory(&data_root, uid, true)?;
     ensure_owned_directory(&plan.broker_directory, uid, true)
 }
 
@@ -856,7 +859,7 @@ mod tests {
         assert_eq!(plan.launchctl_domain, "gui/501");
         assert_eq!(
             plan.descriptor_path,
-            Path::new("/Users/moka/.codexhost/harness-broker/claude-code-broker-v1.json")
+            Path::new("/Users/moka/.rly0-hub/harness-broker/claude-code-broker-v1.json")
         );
         assert_eq!(
             plan.program_arguments,

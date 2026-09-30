@@ -317,14 +317,14 @@ export function createDraftPrewarmPolicyBridge(
     // opaque UTF-16LE argument across the Remote Control process boundary.
     const powershellScript =
       "$ErrorActionPreference = 'Stop'; " +
-      "$descriptorPath = Join-Path $env:LOCALAPPDATA 'codexhost\\remote-control-bridge-v1.json'; " +
+      "$descriptorPath = Join-Path $env:LOCALAPPDATA 'rly0-hub\\remote-control-bridge-v1.json'; " +
       "$descriptor = Get-Content -LiteralPath $descriptorPath -Raw | ConvertFrom-Json; " +
       "if ($descriptor.schemaVersion -ne 1) { throw 'Unsupported codexhost Remote Control descriptor' }; " +
       "$nodePath = [string]$descriptor.nodePath; " +
       "$runtimePath = [string]$descriptor.runtimePath; " +
       "if (-not [System.IO.Path]::IsPathRooted($nodePath) -or -not [System.IO.Path]::IsPathRooted($runtimePath)) { throw 'Invalid codexhost Remote Control runtime path' }; " +
       "$owner = Get-Process -Id ([int]$descriptor.ownerPid) -ErrorAction SilentlyContinue; " +
-      "if ($null -eq $owner) { throw 'CodexHost Remote Control runtime is not running' }; " +
+      "if ($null -eq $owner) { throw 'RLY/0 Hub Remote Control runtime is not running' }; " +
       "$env:CODEXHOST_REMOTE_CONTROL_BRIDGE_PIPE = [string]$descriptor.pipePath; " +
       "& $nodePath $runtimePath '--codexhost-remote-control-bridge'; " +
       "exit $LASTEXITCODE";

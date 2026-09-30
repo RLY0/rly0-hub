@@ -1,9 +1,11 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
 
+import { RLY0_GITHUB_API_LATEST_RELEASE_ENDPOINT } from "@codexhost/shared-contracts";
+
 import { parseLatestGitHubRelease, type CodexhostLatestRelease } from "./github-release.js";
 
-const GITHUB_LATEST_RELEASE_ENDPOINT = "repos/BytePioneer-AI/codex-host/releases/latest";
+const GITHUB_LATEST_RELEASE_ENDPOINT = RLY0_GITHUB_API_LATEST_RELEASE_ENDPOINT;
 const MAX_RELEASE_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_CLI_TIMEOUT_MS = 5_000;
 

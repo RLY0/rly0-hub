@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   harnessLaunchPathSchema,
   harnessPluginIdSchema,
+  RLY0_HOME_DATA_DIRECTORY_NAME,
   type HarnessLaunchSettings,
 } from "@codexhost/shared-contracts";
 
@@ -17,7 +18,7 @@ export class HarnessLaunchSettingsStore {
     this.#directory = path.join(
       environment.CODEXHOST_DATA_DIR
         ? path.resolve(environment.CODEXHOST_DATA_DIR)
-        : path.join(os.homedir(), ".codexhost"),
+        : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
       "harness-launch-settings",
     );
   }

@@ -118,7 +118,7 @@ function release(version = "1.2.3"): CodexhostLatestRelease {
   return {
     version,
     releaseNotes: `Release ${version}`,
-    releaseNotesUrl: `https://github.com/BytePioneer-AI/codex-host/releases/tag/v${version}`,
+    releaseNotesUrl: `https://github.com/a1039861261-stack/rly0-hub/releases/tag/v${version}`,
     assets: [],
   };
 }
@@ -206,7 +206,7 @@ describe("Host update coordinator", () => {
       home,
       "Library",
       "Application Support",
-      "codexhost",
+      "rly0-hub",
       "updates",
       "update-1.2.3-one",
       "request-v1.json",
@@ -249,14 +249,14 @@ describe("Host update coordinator", () => {
       fetchLatest: async () => ({
         version: "1.2.3",
         releaseNotes: "Release 1.2.3",
-        releaseNotesUrl: "https://github.com/BytePioneer-AI/codex-host/releases/tag/v1.2.3",
+        releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
         assets: [
           {
             name: "codexhost-1.2.3-macos-arm64.dmg",
             size: bytes.length,
             digest: `sha256:${digest(bytes)}`,
             downloadUrl:
-              "https://github.com/BytePioneer-AI/codex-host/releases/download/v1.2.3/codexhost-1.2.3-macos-arm64.dmg",
+              "https://github.com/a1039861261-stack/rly0-hub/releases/download/v1.2.3/codexhost-1.2.3-macos-arm64.dmg",
           },
         ],
       }),
@@ -279,7 +279,7 @@ describe("Host update coordinator", () => {
       home,
       "Library",
       "Application Support",
-      "codexhost",
+      "rly0-hub",
       "updates",
       "update-1.2.3-async-macos",
       "request-v1.json",
@@ -294,7 +294,7 @@ describe("Host update coordinator", () => {
     const fixture = await npmFixture();
     const home = fixture.environment.HOME;
     if (!home) throw new Error("fixture HOME is missing");
-    const stateDirectory = path.join(home, ".codexhost", "updates");
+    const stateDirectory = path.join(home, ".rly0-hub", "updates");
     await mkdir(path.join(stateDirectory, "update-stale"), { recursive: true });
     await writeFile(
       path.join(stateDirectory, "update-stale", "status-v1.json"),

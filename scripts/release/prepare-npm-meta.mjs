@@ -2,6 +2,8 @@ import { chmod, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "n
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { RLY0_GITHUB_ISSUES_URL, RLY0_GITHUB_REPOSITORY_URL } from "@codexhost/shared-contracts";
+
 import {
   NPM_PACKAGE_DESCRIPTION,
   NPM_PACKAGE_NAME,
@@ -32,10 +34,10 @@ export function createNpmMetaPackageManifest({ version }) {
     keywords: ["codex", "codexhost", "pi", "claude-code", "agent", "harness"],
     repository: {
       type: "git",
-      url: "git+https://github.com/BytePioneer-AI/codex-host.git",
+      url: `git+${RLY0_GITHUB_REPOSITORY_URL}.git`,
     },
-    bugs: { url: "https://github.com/BytePioneer-AI/codex-host/issues" },
-    homepage: "https://github.com/BytePioneer-AI/codex-host#readme",
+    bugs: { url: RLY0_GITHUB_ISSUES_URL },
+    homepage: `${RLY0_GITHUB_REPOSITORY_URL}#readme`,
     publishConfig: { access: "public" },
   };
 }

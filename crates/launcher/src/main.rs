@@ -1654,12 +1654,12 @@ mod tests {
             &runtime_control(),
             Path::new("/opt/codexhost"),
             Path::new("/run/user/1000/codexhost/desktop-runtime-v1.json"),
-            Some(OsString::from("/home/codex/.codexhost")),
+            Some(OsString::from("/home/codex/.rly0-hub")),
         );
 
         assert!(environment.contains(&(
             OsString::from("CODEXHOST_DATA_DIR"),
-            OsString::from("/home/codex/.codexhost"),
+            OsString::from("/home/codex/.rly0-hub"),
         )));
     }
 
@@ -1717,7 +1717,7 @@ mod tests {
 
     #[test]
     fn managed_desktop_data_directory_rejects_a_remote_profile_value() {
-        let remote_data = Some(OsString::from("/home/codex/.codexhost/remote/data"));
+        let remote_data = Some(OsString::from("/home/codex/.rly0-hub/remote/data"));
 
         assert_eq!(
             managed_desktop_data_directory(remote_data.clone(), Some(OsString::from("1"))),

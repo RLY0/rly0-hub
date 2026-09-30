@@ -33,7 +33,7 @@ describe("Renderer settings localization", () => {
 
     expect(english.title).toBe("Settings");
     expect(chinese.title).toBe("设置");
-    expect(chinese.openSettings).toBe("打开 codexhost 设置");
+    expect(chinese.openSettings).toBe("打开零号枢纽设置");
     expect(chinese.starOnGitHub).toBe("Star 支持");
     expect(english.starOnGitHub).toBe("Star to support");
     expect(chinese.updateInstallation).toBe("安装方式");
@@ -45,17 +45,17 @@ describe("Renderer settings localization", () => {
     expect(chinese.updateWindowsManualRequired).toContain("Windows 暂不支持自动更新");
     expect(chinese.updateWindowsInstallerDescription).toContain("适用于当前系统的安装包");
     expect(chinese.updateManualNpmDescription).toBe(
-      "如需手动更新，请在终端运行以下命令。更新完成后，请退出 Codex 并通过 codexhost 重新启动。",
+      "如需手动更新，请在终端运行以下命令。更新完成后，请退出 Codex 并通过零号枢纽重新启动。",
     );
     expect(english.updateInstalling).toBe("Installing update...");
     expect(english.updateDownloadFromReleases).toBe("Download from GitHub Releases");
     expect(chinese.updateDownloadFromReleases).toBe("前往 GitHub Releases 下载");
     expect(chinese.updateDownloadWindowsInstaller).toBe("下载 Windows 安装包");
     expect(chinese.updateStarCallout).toBe(
-      "如果 CodexHost 帮到了你，请在 GitHub 点个 Star，这对我们意义重大 👉",
+      "如果零号枢纽帮到了你，请在 GitHub 点个 Star，这对我们意义重大 👉",
     );
     expect(english.updateStarCallout).toBe(
-      "If CodexHost has helped you, please Star it on GitHub. It means a lot to us 👉",
+      "If RLY/0 Hub has helped you, please Star it on GitHub. It means a lot to us 👉",
     );
     expect(chinese.updateStarLink).toBe("GitHub");
     expect(chinese.pageLabels.about).toBe("关于");

@@ -8,7 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "linux")]
-const CODEXHOST_DIRECTORY: &str = "codexhost";
+const CODEXHOST_DIRECTORY: &str = codexhost_platform::RLY0_APP_DATA_DIRECTORY_NAME;
 
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy)]
@@ -357,7 +357,7 @@ mod tests {
     fn makes_only_the_codexhost_directory_private() {
         let base = fixture("private");
         fs::set_permissions(&base, fs::Permissions::from_mode(0o755)).expect("set base mode");
-        let directory = base.join("codexhost");
+        let directory = base.join(CODEXHOST_DIRECTORY);
         let previous_umask = rustix::process::umask(rustix::fs::Mode::empty());
         secure_user_directory(&directory).expect("secure child");
         rustix::process::umask(previous_umask);

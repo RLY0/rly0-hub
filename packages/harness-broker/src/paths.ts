@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { harnessPluginIdSchema } from "@codexhost/shared-contracts";
+import { harnessPluginIdSchema, RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 
 export const HARNESS_BROKER_DESCRIPTOR_ENV = "CODEXHOST_CLAUDE_BROKER_DESCRIPTOR";
 export const HARNESS_BROKER_DESCRIPTOR_FILE = "claude-code-broker-v1.json";
@@ -10,7 +10,7 @@ export function defaultHarnessBrokerDirectory(
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
   const home = environment.HOME || os.homedir();
-  return path.join(home, ".codexhost", "harness-broker");
+  return path.join(home, RLY0_HOME_DATA_DIRECTORY_NAME, "harness-broker");
 }
 
 export function defaultHarnessBrokerDescriptorPath(

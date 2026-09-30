@@ -1429,7 +1429,7 @@ describe("AppServerHost HarnessAdapter projection", () => {
         updateAvailable: true,
         installationAvailable: true,
         releaseNotes: "Safer updates",
-        releaseNotesUrl: "https://github.com/BytePioneer-AI/codex-host/releases/tag/v1.2.3",
+        releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
         status: null,
         error: null,
       })),

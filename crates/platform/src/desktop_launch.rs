@@ -32,7 +32,7 @@ pub type DesktopProcess = super::windows_desktop::WindowsDesktopProcess;
 pub type DesktopProcess = Child;
 
 const CODEXHOST_RELEASES_LATEST_URL: &str =
-    "https://github.com/BytePioneer-AI/codex-host/releases/latest";
+    "https://github.com/a1039861261-stack/rly0-hub/releases/latest";
 const REMOTE_SSH_MANAGED_ENV: &str = "CODEXHOST_REMOTE_SSH_MANAGED";
 const REMOTE_PROFILE_ONLY_ENVIRONMENT: [&str; 3] = [
     "CODEX_INSTALL_DIR",
@@ -1339,7 +1339,7 @@ mod tests {
                 ),
                 (
                     OsString::from("CODEXHOST_DATA_DIR"),
-                    OsString::from("/home/codex/.codexhost"),
+                    OsString::from("/home/codex/.rly0-hub"),
                 ),
             ],
         );
@@ -1351,7 +1351,7 @@ mod tests {
         )));
         assert!(environment.contains(&(
             std::ffi::OsStr::new("CODEXHOST_DATA_DIR"),
-            Some(std::ffi::OsStr::new("/home/codex/.codexhost")),
+            Some(std::ffi::OsStr::new("/home/codex/.rly0-hub")),
         )));
         for name in ["CODEX_INSTALL_DIR", "CODEXHOST_REMOTE_SSH_MANAGED"] {
             assert!(environment.contains(&(std::ffi::OsStr::new(name), None)));
@@ -1392,7 +1392,7 @@ mod tests {
             &[
                 (
                     OsString::from("CODEXHOST_DATA_DIR"),
-                    OsString::from("/home/codex/.codexhost"),
+                    OsString::from("/home/codex/.rly0-hub"),
                 ),
                 (
                     OsString::from("CODEXHOST_HOST_RUNTIME_PATH"),
@@ -1404,7 +1404,7 @@ mod tests {
         let output = command.output().expect("read managed child environment");
         assert!(output.status.success());
         let environment = String::from_utf8(output.stdout).expect("UTF-8 environment");
-        assert!(environment.contains("CODEXHOST_DATA_DIR=/home/codex/.codexhost\n"));
+        assert!(environment.contains("CODEXHOST_DATA_DIR=/home/codex/.rly0-hub\n"));
         assert!(
             environment.contains("CODEXHOST_HOST_RUNTIME_PATH=/local/npm/app/host-runtime.mjs\n")
         );

@@ -41,18 +41,18 @@ struct RunningDesktopText {
 
 const ENGLISH_RUNNING_DESKTOP_TEXT: RunningDesktopText = RunningDesktopText {
     instruction: "Codex is already running",
-    content: "The current Codex was not started by codexhost. To use codexhost, Codex must be restarted.",
+    content: "The current Codex was not started by RLY/0 Hub. To use RLY/0 Hub, Codex must be restarted.",
     restart: "Exit and restart automatically (Recommended)",
     retry: "I've quit Codex, try again",
-    fallback: "The current Codex was not started by codexhost. To use codexhost, Codex must be restarted.\n\nYes: exit and restart automatically.\nNo: try again after you quit Codex.",
+    fallback: "The current Codex was not started by RLY/0 Hub. To use RLY/0 Hub, Codex must be restarted.\n\nYes: exit and restart automatically.\nNo: try again after you quit Codex.",
 };
 
 const CHINESE_RUNNING_DESKTOP_TEXT: RunningDesktopText = RunningDesktopText {
     instruction: "Codex 已在运行",
-    content: "当前 Codex 不是由 codexhost 启动的。要使用 codexhost，需要重新启动 Codex。",
+    content: "当前 Codex 不是由零号枢纽启动的。要使用零号枢纽，需要重新启动 Codex。",
     restart: "自动退出并重新启动（推荐）",
     retry: "我已退出，重试",
-    fallback: "当前 Codex 不是由 codexhost 启动的。要使用 codexhost，需要重新启动 Codex。\n\n是：自动退出并重新启动。\n否：退出后重试。",
+    fallback: "当前 Codex 不是由零号枢纽启动的。要使用零号枢纽，需要重新启动 Codex。\n\n是：自动退出并重新启动。\n否：退出后重试。",
 };
 
 #[link(name = "kernel32")]
@@ -132,7 +132,7 @@ fn running_desktop_text_for_locale(locale: &str) -> RunningDesktopText {
 
 fn message_box(message: &str, kind: u32) -> i32 {
     let message = wide_null(message);
-    let caption = wide_null("codexhost");
+    let caption = wide_null("RLY/0 Hub");
     unsafe { MessageBoxW(null_mut(), message.as_ptr(), caption.as_ptr(), kind) }
 }
 
@@ -173,7 +173,7 @@ fn choice_dialog(
     buttons: &[(i32, &str)],
     default_button: i32,
 ) -> io::Result<i32> {
-    let title = wide_null("codexhost");
+    let title = wide_null("RLY/0 Hub");
     let instruction = wide_null(instruction);
     let content = wide_null(content);
     let button_text = buttons

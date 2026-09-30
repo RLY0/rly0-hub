@@ -120,7 +120,9 @@ pub fn default_descriptor_path() -> io::Result<PathBuf> {
     let root = env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "LOCALAPPDATA is unavailable"))?;
-    Ok(root.join("codexhost").join(RUNTIME_DESCRIPTOR_FILE))
+    Ok(root
+        .join(codexhost_platform::RLY0_APP_DATA_DIRECTORY_NAME)
+        .join(RUNTIME_DESCRIPTOR_FILE))
 }
 
 #[cfg(target_os = "macos")]
@@ -129,7 +131,9 @@ pub fn default_descriptor_path() -> io::Result<PathBuf> {
         .map(PathBuf::from)
         .map(|home| home.join("Library").join("Application Support"))
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is unavailable"))?;
-    Ok(root.join("codexhost").join(RUNTIME_DESCRIPTOR_FILE))
+    Ok(root
+        .join(codexhost_platform::RLY0_APP_DATA_DIRECTORY_NAME)
+        .join(RUNTIME_DESCRIPTOR_FILE))
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
