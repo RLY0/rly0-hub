@@ -10,6 +10,7 @@ import {
   mountCredentialImports,
   type RendererCredentialImportClient,
 } from "./credential-imports.js";
+import { mountRly0Accounts, type RendererRly0AccountClient } from "./rly0-accounts.js";
 import { codexAccountDisplayName } from "../renderer-codex-account-options.js";
 import {
   accountListFocusRestorer,
@@ -27,7 +28,9 @@ import type { RendererSettingsMessages } from "./localization.js";
 import { shouldApplyCodexAccountSnapshot } from "../renderer-codex-account-state.js";
 
 export interface RendererCodexAccountClient
-  extends RendererHarnessAccountClient, RendererCredentialImportClient {
+  extends RendererHarnessAccountClient,
+    RendererCredentialImportClient,
+    RendererRly0AccountClient {
   listCodexAccounts(): Promise<CodexAccountListResult>;
   refreshCodexAccounts?(): Promise<CodexAccountListResult>;
   inspectCodexAccountUsage?(input: CodexAccountUsageParams): Promise<CodexAccountUsageResult>;
@@ -104,6 +107,7 @@ export function createAccountsSettingsPage(
         loadUsage(accounts);
         void harnessAccounts?.refresh(true);
         void credentialImports.refresh();
+        void rly0Accounts.refresh();
       });
       search.addEventListener("input", () => render());
       toolbar.append(connected, searchWrapper, displayControls, refreshUsage);
@@ -118,7 +122,21 @@ export function createAccountsSettingsPage(
         messages.credentialImports,
         () => render(),
       );
-      context.content.append(header, status, toolbar, list, credentialImports.section);
+      const rly0Accounts = mountRly0Accounts(
+        context.content,
+        context.signal,
+        getClient,
+        messages.rly0Accounts,
+        () => render(),
+      );
+      context.content.append(
+        header,
+        status,
+        toolbar,
+        list,
+        credentialImports.section,
+        rly0Accounts.section,
+      );
       const stopCountdowns = mountAccountResetCountdowns(list, messages, context.signal);
 
       let accounts: readonly CodexAccountSummary[] = [];
@@ -318,6 +336,7 @@ export function createAccountsSettingsPage(
       const harnessAccounts = createHarnessAccounts(context.signal, getClient, render);
       void credentialImports.refresh();
       void harnessAccounts.refresh();
+      void rly0Accounts.refresh();
       load();
       return () => {
         stopCountdowns();

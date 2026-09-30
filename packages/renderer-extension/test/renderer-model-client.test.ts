@@ -330,6 +330,7 @@ describe("Renderer fixed Model request client", () => {
       "executeThreadCommand",
       "forkThread",
       "getHarnessLaunchSettings",
+      "importCurrentRly0Account",
       "importHarnessSession",
       "inspectCodexAccountUsage",
       "inspectHarness",
@@ -344,11 +345,15 @@ describe("Renderer fixed Model request client", () => {
       "listHarnessPlugins",
       "listHarnessSessions",
       "listLoadedSessions",
+      "listRly0Accounts",
       "listSessionImportSources",
       "listThreadOwnership",
       "openHarnessWebUi",
       "readUpdateStatus",
       "refreshCodexAccounts",
+      "removeRly0Account",
+      "renameRly0Account",
+      "rly0CoreStatus",
       "selectThreadModel",
       "selectThreadPermissionMode",
       "selectThreadThinking",
@@ -357,6 +362,7 @@ describe("Renderer fixed Model request client", () => {
       "startUpdate",
       "subscribeCodexAccounts",
       "subscribeThreadUsage",
+      "switchRly0Account",
     ]);
 
     await expect(client.inspectHarness({ harnessId: piHarnessId, refresh: true })).resolves.toEqual(

@@ -58,6 +58,32 @@ import {
   updateEmptyParamsSchema,
   updateStartResultSchema,
   updateStatusResultSchema,
+  RLY0_CORE_STATUS_METHOD,
+  RLY0_ACCOUNTS_LIST_METHOD,
+  RLY0_ACCOUNTS_IMPORT_CURRENT_METHOD,
+  RLY0_ACCOUNTS_SWITCH_METHOD,
+  RLY0_ACCOUNTS_RENAME_METHOD,
+  RLY0_ACCOUNTS_REMOVE_METHOD,
+  rly0CoreStatusResultSchema,
+  rly0AccountsListResultSchema,
+  rly0AccountsImportCurrentParamsSchema,
+  rly0AccountsImportCurrentResultSchema,
+  rly0AccountsSwitchParamsSchema,
+  rly0AccountsSwitchResultSchema,
+  rly0AccountsRenameParamsSchema,
+  rly0AccountsRenameResultSchema,
+  rly0AccountsRemoveParamsSchema,
+  rly0AccountsRemoveResultSchema,
+  type Rly0CoreStatusResult,
+  type Rly0AccountsListResult,
+  type Rly0AccountsImportCurrentParams,
+  type Rly0AccountsImportCurrentResult,
+  type Rly0AccountsSwitchParams,
+  type Rly0AccountsSwitchResult,
+  type Rly0AccountsRenameParams,
+  type Rly0AccountsRenameResult,
+  type Rly0AccountsRemoveParams,
+  type Rly0AccountsRemoveResult,
   type ExternalThreadForkParams,
   type ExternalThreadForkResult,
   type CodexAccountChanged,
@@ -554,5 +580,39 @@ export function createRendererModelClient(
         if (state.success) listener(state.data);
       });
     },
+    async rly0CoreStatus(): Promise<Rly0CoreStatusResult> {
+      return rly0CoreStatusResultSchema.parse(await manager.sendRequest(RLY0_CORE_STATUS_METHOD, {}));
+    },
+    async listRly0Accounts(): Promise<Rly0AccountsListResult> {
+      return rly0AccountsListResultSchema.parse(
+        await manager.sendRequest(RLY0_ACCOUNTS_LIST_METHOD, {}),
+      );
+    },
+    async importCurrentRly0Account(
+      input: Rly0AccountsImportCurrentParams,
+    ): Promise<Rly0AccountsImportCurrentResult> {
+      return rly0AccountsImportCurrentResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_IMPORT_CURRENT_METHOD,
+          rly0AccountsImportCurrentParamsSchema.parse(input),
+        ),
+      );
+    },
+    async switchRly0Account(input: Rly0AccountsSwitchParams): Promise<Rly0AccountsSwitchResult> {
+      return rly0AccountsSwitchResultSchema.parse(
+        await manager.sendRequest(RLY0_ACCOUNTS_SWITCH_METHOD, rly0AccountsSwitchParamsSchema.parse(input)),
+      );
+    },
+    async renameRly0Account(input: Rly0AccountsRenameParams): Promise<Rly0AccountsRenameResult> {
+      return rly0AccountsRenameResultSchema.parse(
+        await manager.sendRequest(RLY0_ACCOUNTS_RENAME_METHOD, rly0AccountsRenameParamsSchema.parse(input)),
+      );
+    },
+    async removeRly0Account(input: Rly0AccountsRemoveParams): Promise<Rly0AccountsRemoveResult> {
+      return rly0AccountsRemoveResultSchema.parse(
+        await manager.sendRequest(RLY0_ACCOUNTS_REMOVE_METHOD, rly0AccountsRemoveParamsSchema.parse(input)),
+      );
+    },
   });
 }
+

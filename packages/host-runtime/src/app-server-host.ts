@@ -9,7 +9,22 @@ import {
   CREDENTIAL_IMPORTS_METHOD,
   credentialImportsParamsSchema,
 } from "@codexhost/shared-contracts";
+import {
+  RLY0_ACCOUNTS_IMPORT_CURRENT_METHOD,
+  RLY0_ACCOUNTS_LIST_METHOD,
+  RLY0_ACCOUNTS_REMOVE_METHOD,
+  RLY0_ACCOUNTS_RENAME_METHOD,
+  RLY0_ACCOUNTS_SWITCH_METHOD,
+  RLY0_CORE_STATUS_METHOD,
+  rly0AccountsImportCurrentParamsSchema,
+  rly0AccountsListParamsSchema,
+  rly0AccountsRemoveParamsSchema,
+  rly0AccountsRenameParamsSchema,
+  rly0AccountsSwitchParamsSchema,
+  rly0CoreStatusParamsSchema,
+} from "@codexhost/shared-contracts";
 import { handleCredentialImports } from "./credential-imports.js";
+import { Rly0CoreBridge, rly0CoreRpcError } from "./rly0-core/index.js";
 import {
   rewriteDelegationMentionInput,
   rewriteDelegationMentionText,
@@ -522,6 +537,7 @@ export class AppServerHost {
   #officialRuntimeScope: OfficialRuntimeScope;
   #ownsOfficialRuntimeScope: boolean;
   #accountControl: CodexAccountControl;
+  readonly #rly0Core: Rly0CoreBridge;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
   #pluginDescriptors: HarnessPluginDescriptor[] = [];
@@ -613,6 +629,7 @@ export class AppServerHost {
           },
         ],
       }));
+    this.#rly0Core = new Rly0CoreBridge({ environment });
     this.#officialRuntime = new OfficialRuntimeClient({
       scope: this.#officialRuntimeScope,
       onBackendStopped: () => {
@@ -961,6 +978,7 @@ export class AppServerHost {
     this.#externalSteering.close();
     if (this.#drainActiveWorkOnInputEnd) await this.#waitForActiveWorkToDrain();
     await this.#closeOfficialRuntime();
+    await this.#rly0Core.dispose();
   }
 
   async #handleDesktopRequest(
@@ -998,6 +1016,17 @@ export class AppServerHost {
       request.method === "codexhost/account/refresh"
     ) {
       this.#dispatchDesktopRequest(() => this.#handleCodexAccountRequest(request));
+      return;
+    }
+    if (
+      request.method === RLY0_CORE_STATUS_METHOD ||
+      request.method === RLY0_ACCOUNTS_LIST_METHOD ||
+      request.method === RLY0_ACCOUNTS_IMPORT_CURRENT_METHOD ||
+      request.method === RLY0_ACCOUNTS_SWITCH_METHOD ||
+      request.method === RLY0_ACCOUNTS_RENAME_METHOD ||
+      request.method === RLY0_ACCOUNTS_REMOVE_METHOD
+    ) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0Request(request));
       return;
     }
     if (request.method === CREDENTIAL_IMPORTS_METHOD) {
@@ -1698,6 +1727,79 @@ export class AppServerHost {
       );
     } catch (error) {
       const failure = codexAccountRpcError(error);
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  /**
+   * Bridges the optional closed-source `rly0-core` binary (saved-account store, distinct from
+   * the single live Codex identity `#handleCodexAccountRequest` reports). Every result carries
+   * an `available` flag so a missing binary is a normal typed response, never an RPC failure;
+   * business errors from the core (e.g. `CODEX_NOT_LOGGED_IN`) are forwarded as short error
+   * codes, never raw messages that could embed credential material.
+   */
+  async #handleRly0Request(request: JsonRpcRequest): Promise<void> {
+    try {
+      if (request.method === RLY0_CORE_STATUS_METHOD) {
+        if (!rly0CoreStatusParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid rly0 status params"));
+          return;
+        }
+        const result = await this.#rly0Core.status();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_ACCOUNTS_LIST_METHOD) {
+        if (!rly0AccountsListParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid rly0 accounts list params"));
+          return;
+        }
+        const result = await this.#rly0Core.listAccounts();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_ACCOUNTS_IMPORT_CURRENT_METHOD) {
+        const params = rly0AccountsImportCurrentParamsSchema.safeParse(request.params ?? {});
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid rly0 import params"));
+          return;
+        }
+        const result = await this.#rly0Core.importCurrent(params.data);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_ACCOUNTS_SWITCH_METHOD) {
+        const params = rly0AccountsSwitchParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid rly0 switch params"));
+          return;
+        }
+        const result = await this.#rly0Core.switchAccount(params.data);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_ACCOUNTS_RENAME_METHOD) {
+        const params = rly0AccountsRenameParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid rly0 rename params"));
+          return;
+        }
+        const result = await this.#rly0Core.rename(params.data);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_ACCOUNTS_REMOVE_METHOD) {
+        const params = rly0AccountsRemoveParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid rly0 remove params"));
+          return;
+        }
+        const result = await this.#rly0Core.remove(params.data);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+    } catch (error) {
+      const failure = rly0CoreRpcError(error);
       await this.#writer.json(rpcError(request, failure.code, failure.message));
     }
   }
