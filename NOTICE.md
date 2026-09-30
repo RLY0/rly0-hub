@@ -21,3 +21,10 @@
 
 为便于合并上游更新，以下内部标识暂未改名：`codexhost/` RPC 方法前缀、`@codexhost/*` 包名、
 `CODEXHOST_*` 环境变量、`data-codexhost-*` DOM 属性、Rust crate 名与可执行文件名。
+
+## 第三方组件
+
+npm 安装包与各平台发布产物中打包的第三方依赖（例如 `smol-toml`，BSD-3-Clause）附带各自的许可证文本，
+由发布脚本（`scripts/release/prepare-npm.mjs`、`scripts/release/prepare-payload.mjs`）在打包时生成，
+随发行产物一并分发。闭源组件 rly0-core 不在本仓库范围内，其许可与依赖说明由该组件自行提供，
+详见 [`docs/CLOSED_SOURCE.md`](docs/CLOSED_SOURCE.md)。
