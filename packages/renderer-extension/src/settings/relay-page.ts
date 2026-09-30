@@ -23,6 +23,7 @@ import {
 import type { RendererSettingsPageDefinition, RendererSettingsPageMountContext } from "./core.js";
 import type { RendererSettingsMessages } from "./localization.js";
 import { formatRly0RelativeTime, rly0ErrorCode } from "./rly0-usage.js";
+import { createRly0Showcase } from "./rly0-showcase.js";
 
 export interface RendererRelayClient {
   listRly0Relays?(): Promise<Rly0RelayListResult>;
@@ -41,8 +42,7 @@ export interface RendererRelayClient {
   rly0RelayCodexConfigRestore?(): Promise<Rly0RelayCodexConfigMutationResult>;
 }
 
-export const RLY0_RELAY_PROMO_URL = "https://rly0.com";
-export const RLY0_RELAY_PROMO_DISMISSED_KEY = "codexhost.rly0-relay-promo-dismissed.v1";
+export { RLY0_RELAY_PROMO_DISMISSED_KEY, RLY0_RELAY_PROMO_URL } from "./rly0-showcase.js";
 
 /** Splits the model textarea into names; `null` when any entry is not a valid model name. */
 export function parseRelayModels(text: string): string[] | null {
@@ -69,22 +69,6 @@ export function relayCodexModelOptions(relays: readonly Rly0Relay[]): string[] {
   return models;
 }
 
-function readPromoDismissed(view: Window | null): boolean {
-  try {
-    return view?.localStorage.getItem(RLY0_RELAY_PROMO_DISMISSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writePromoDismissed(view: Window | null): void {
-  try {
-    view?.localStorage.setItem(RLY0_RELAY_PROMO_DISMISSED_KEY, "1");
-  } catch {
-    // Dismissal then lasts only for this page visit.
-  }
-}
-
 type ProxyState = Extract<Rly0ProxyStatusResult, { available: true }>;
 type RunningProxy = Extract<ProxyState, { running: true }>;
 
@@ -106,7 +90,6 @@ export function createRelaySettingsPage(
     mount(context: RendererSettingsPageMountContext) {
       const { signal } = context;
       const document = context.content.ownerDocument;
-      const view = document.defaultView ?? null;
       const el = <K extends keyof HTMLElementTagNameMap>(
         tag: K,
         className?: string,
@@ -141,7 +124,6 @@ export function createRelaySettingsPage(
       let codex: Rly0RelayCodexConfigStatusResult | null = null;
       let notice: { text: string; error: boolean } | null = null;
       let busy = false;
-      let promoDismissed = readPromoDismissed(view);
       const tests = new Map<string, TestState>();
       let dialog: HTMLDialogElement | undefined;
 
@@ -153,7 +135,7 @@ export function createRelaySettingsPage(
         el("p", "settings-rly0-mcp__description", messages.description),
       );
       header.append(copy);
-      const promo = el("div", "settings-rly0-relay__promo");
+      const promo = el("div", "settings-rly0-relay__promo-slot");
       const status = el("p", "settings-rly0-mcp__notice");
       status.setAttribute("aria-live", "polite");
       const proxyCard = el("section", "settings-rly0-relay__card settings-rly0-relay__proxy");
@@ -175,29 +157,11 @@ export function createRelaySettingsPage(
       // ---- Promo ----
       const renderPromo = (): void => {
         promo.replaceChildren();
-        promo.hidden = promoDismissed;
-        if (promoDismissed) return;
-        const text = el("div", "settings-rly0-relay__promo-text");
-        const titleRow = el("div", "settings-rly0-relay__promo-title");
-        titleRow.append(
-          el("strong", undefined, messages.promoTitle),
-          el("span", "settings-rly0-relay__badge", messages.promoBadge),
-        );
-        text.append(titleRow, el("span", undefined, messages.promoBody));
-        const link = el("a", "settings-command-button settings-command-button--secondary");
-        link.href = RLY0_RELAY_PROMO_URL;
-        link.target = "_blank";
-        link.rel = "noopener noreferrer";
-        link.textContent = messages.promoOpen;
-        const dismiss = button(messages.promoDismiss, "secondary", () => {
-          promoDismissed = true;
-          writePromoDismissed(view);
-          renderPromo();
+        const showcase = createRly0Showcase(document, messages, {
+          onDismiss: () => renderPromo(),
         });
-        dismiss.setAttribute("aria-label", `${messages.promoDismiss} ${messages.promoTitle}`);
-        const actions = el("div", "settings-rly0-relay__actions");
-        actions.append(link, dismiss);
-        promo.append(text, actions);
+        promo.hidden = !showcase;
+        if (showcase) promo.append(showcase);
       };
 
       const renderStatus = (): void => {

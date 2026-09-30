@@ -22,6 +22,7 @@ import type { RendererSettingsPageDefinition, RendererSettingsPageMountContext }
 import type { DashboardMessages } from "./dashboard-messages.js";
 import type { RendererSettingsMessages } from "./localization.js";
 import { mountRly0QuotaAlert, type RendererRly0QuotaAlertClient } from "./rly0-quota-alert.js";
+import { createRly0Showcase } from "./rly0-showcase.js";
 import { formatByteSize } from "./threads-page.js";
 
 export interface RendererDashboardClient extends RendererRly0QuotaAlertClient {
@@ -133,10 +134,12 @@ export function createDashboardSettingsPage(
       const quotaAlert = mountRly0QuotaAlert(context.content, context.signal, getClient, messages, {
         ...(context.navigate ? { onOpenRelay: () => context.navigate?.("relay") } : {}),
       });
+      const showcase = createRly0Showcase(document, messages.relay, { compact: true });
       context.content.append(
         quotaAlert.element,
         header,
         description,
+        ...(showcase ? [showcase] : []),
         stats,
         accountSection,
         healthSection,
