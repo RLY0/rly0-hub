@@ -915,7 +915,13 @@ export function createRelaySettingsPage(
                 error.textContent = messages.codexFailed;
                 return false;
               }
-              setNotice(messages.codexApplyDone);
+              setNotice(
+                result.backendReload === "reloaded"
+                  ? messages.codexApplyReloaded
+                  : result.backendReload === "deferred"
+                    ? messages.codexApplyDeferred
+                    : messages.codexApplyDone,
+              );
               render();
               return true;
             } catch {
@@ -941,7 +947,13 @@ export function createRelaySettingsPage(
                 error.textContent = messages.codexFailed;
                 return false;
               }
-              setNotice(messages.codexRestoreDone);
+              setNotice(
+                result.backendReload === "reloaded"
+                  ? messages.codexRestoreReloaded
+                  : result.backendReload === "deferred"
+                    ? messages.codexRestoreDeferred
+                    : messages.codexRestoreDone,
+              );
               render();
               return true;
             } catch {

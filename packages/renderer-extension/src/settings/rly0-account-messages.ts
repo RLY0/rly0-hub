@@ -14,10 +14,14 @@ export const rly0AccountEnglish = {
   removeAction: "Remove",
   switchConfirmTitle: "Switch account",
   switchConfirmBody:
-    "Switch the active Codex login to {name}? Codex must be restarted for this to take effect.",
+    "Switch the active Codex login to {name}? The Codex window stays open; a reply that is still generating finishes first.",
   switchConfirm: "Confirm switch",
   switchAlreadyCurrent: "{name} is already the active account.",
   switchRequiresRestart: "Switched to {name}. Restart Codex for this to take effect.",
+  switchReloaded:
+    "Switched to {name}. It is already in effect; your next message uses this account.",
+  switchDeferred:
+    "Switched to {name}. It takes effect automatically once the current reply finishes; no restart needed.",
   switchFailed: "Could not switch accounts.",
   removeConfirmTitle: "Remove saved account",
   removeConfirmBody:
@@ -72,10 +76,13 @@ export const rly0AccountChinese: Rly0AccountMessages = {
   renameAction: "重命名",
   removeAction: "删除",
   switchConfirmTitle: "切换账号",
-  switchConfirmBody: "确定要将当前 Codex 登录切换为 {name} 吗？切换后需要重启 Codex 才能生效。",
+  switchConfirmBody:
+    "确定要将当前 Codex 登录切换为 {name} 吗？Codex 窗口不会关闭，正在生成的回复会先完成。",
   switchConfirm: "确认切换",
   switchAlreadyCurrent: "{name} 已经是当前账号。",
   switchRequiresRestart: "已切换到 {name}。请重启 Codex 以使其生效。",
+  switchReloaded: "已切换到 {name}，已无缝生效，下一条消息就用这个账号。",
+  switchDeferred: "已切换到 {name}。当前回复结束后自动生效，无需重启 Codex。",
   switchFailed: "切换账号失败。",
   removeConfirmTitle: "删除已保存账号",
   removeConfirmBody:
@@ -114,3 +121,16 @@ export const rly0AccountChinese: Rly0AccountMessages = {
   alertUnavailable: "额度不足提醒需要 RLY/0 Core（rly0-core）。",
   alertDismiss: "暂时隐藏",
 };
+
+/** Picks the post-switch notice from whether the Host hot-reloaded the official backend. */
+export function switchResultMessage(
+  messages: Pick<
+    Rly0AccountMessages,
+    "switchReloaded" | "switchDeferred" | "switchRequiresRestart"
+  >,
+  result: { backendReload?: "reloaded" | "deferred" | "failed" | undefined },
+): string {
+  if (result.backendReload === "reloaded") return messages.switchReloaded;
+  if (result.backendReload === "deferred") return messages.switchDeferred;
+  return messages.switchRequiresRestart;
+}

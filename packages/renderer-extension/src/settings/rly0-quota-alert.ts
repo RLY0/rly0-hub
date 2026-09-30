@@ -18,7 +18,7 @@ import {
 } from "../renderer-appearance-preferences.js";
 import { formatRendererCreditsPercent } from "../renderer-usage-control.js";
 import type { RendererSettingsMessages } from "./localization.js";
-import type { Rly0AccountMessages } from "./rly0-account-messages.js";
+import { switchResultMessage, type Rly0AccountMessages } from "./rly0-account-messages.js";
 import { rly0AccountDisplayName } from "./rly0-accounts.js";
 import { rly0UsageLowestWindow, type Rly0UsagePeriod } from "./rly0-usage.js";
 
@@ -308,7 +308,7 @@ export function mountRly0QuotaAlert(
           }
           resultNotice = result.alreadyCurrent
             ? messages.switchAlreadyCurrent.replace("{name}", name)
-            : messages.switchRequiresRestart.replace("{name}", name);
+            : switchResultMessage(messages, result).replace("{name}", name);
           evaluation = null;
           options.onSwitched?.();
           modal.close();

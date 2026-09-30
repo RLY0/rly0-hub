@@ -102,6 +102,9 @@ import {
   rly0MaintenanceDiagnosticsParamsSchema,
   rly0MaintenanceExportDiagnosticsParamsSchema,
   rly0MaintenanceProcessActionParamsSchema,
+  RLY0_CODEX_RELOAD_BACKEND_METHOD,
+  rly0CodexReloadBackendParamsSchema,
+  type Rly0CodexReloadBackendResult,
 } from "@codexhost/shared-contracts";
 import {
   RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
@@ -288,6 +291,7 @@ import {
   OfficialRuntimeClient,
   OfficialRuntimeScope,
 } from "./codex-runtime/official-runtime-scope.js";
+import { OfficialAdmissionError } from "./codex-runtime/official-work-gate.js";
 import type { HostUpdateCoordinator } from "./update-coordinator.js";
 
 const SUBAGENT_TERMINAL_REFRESH_DELAYS_MS = [0, 50, 100, 150] as const;
@@ -688,6 +692,7 @@ export class AppServerHost {
   #activeOfficialTurns = new Map<string, string>();
   #pendingOfficialTurnStarts = new Map<unknown, string>();
   #activeWorkDrainWaiters = new Set<() => void>();
+  #deferredBackendReload: Promise<void> | undefined;
   #pendingOfficialDelegationThreads = new Set<string>();
   #pendingOfficialTerminalStatuses = new Map<string, DelegationStartResult["status"]>();
   #officialUsageByThread = new Map<string, HostUsage>();
@@ -1030,6 +1035,61 @@ export class AppServerHost {
     }
   }
 
+  /**
+   * Swaps the official app-server process so a switched account or relay provider applies to
+   * the next request without restarting the Desktop window. While a turn is running the reload
+   * is deferred until all work drains, so no in-progress reply is interrupted.
+   */
+  async reloadOfficialBackend(): Promise<Rly0CodexReloadBackendResult> {
+    if (this.#closeRequested || this.#officialRuntimeScope.closed) return { status: "failed" };
+    if (this.#deferredBackendReload) return { status: "deferred" };
+    if (this.#hasActiveWork()) {
+      this.#scheduleDeferredBackendReload();
+      return { status: "deferred" };
+    }
+    return (await this.#restartOfficialBackend()) ? { status: "reloaded" } : { status: "failed" };
+  }
+
+  async #withBackendReload<T extends { ok: boolean }>(
+    result: T,
+  ): Promise<T & { backendReload?: Rly0CodexReloadBackendResult["status"] }> {
+    if (!result.ok) return result;
+    return { ...result, backendReload: (await this.reloadOfficialBackend()).status };
+  }
+
+  #scheduleDeferredBackendReload(): void {
+    const reload = (async () => {
+      await this.#waitForActiveWorkToDrain();
+      if (this.#closeRequested) return;
+      await this.#restartOfficialBackend();
+    })()
+      .catch((error: unknown) => this.#diagnose(error))
+      .finally(() => {
+        if (this.#deferredBackendReload === reload) this.#deferredBackendReload = undefined;
+      });
+    this.#deferredBackendReload = reload;
+  }
+
+  async #restartOfficialBackend(): Promise<boolean> {
+    // Short-lived official requests (reads, list calls) briefly hold the admission gate;
+    // retry a few times instead of interrupting them.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        await this.#officialRuntimeScope.restartBackend();
+        return true;
+      } catch (error) {
+        if (error instanceof OfficialAdmissionError && error.code === "busy" && attempt < 19) {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          if (this.#closeRequested) return false;
+          continue;
+        }
+        this.#diagnose(`Official app-server reload failed: ${errorMessage(error)}`);
+        return false;
+      }
+    }
+    return false;
+  }
+
   #hasActiveWork(): boolean {
     return (
       this.#externalSteering.hasPending() ||
@@ -1222,6 +1282,17 @@ export class AppServerHost {
       request.method === RLY0_MAINTENANCE_RESTART_CODEX_METHOD
     ) {
       this.#dispatchDesktopRequest(() => this.#handleRly0MaintenanceRequest(request));
+      return;
+    }
+    if (request.method === RLY0_CODEX_RELOAD_BACKEND_METHOD) {
+      this.#dispatchDesktopRequest(async () => {
+        if (!rly0CodexReloadBackendParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid reloadBackend params"));
+          return;
+        }
+        const result = await this.reloadOfficialBackend();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+      });
       return;
     }
     if (
@@ -1976,7 +2047,11 @@ export class AppServerHost {
           await this.#writer.json(rpcError(request, -32602, "Invalid rly0 switch params"));
           return;
         }
-        const result = await this.#rly0Core.switchAccount(params.data);
+        const switched = await this.#rly0Core.switchAccount(params.data);
+        const result =
+          switched.available && switched.switched && switched.alreadyCurrent !== true
+            ? { ...switched, backendReload: (await this.reloadOfficialBackend()).status }
+            : switched;
         await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
         return;
       }
@@ -2075,12 +2150,12 @@ export class AppServerHost {
       ),
       [RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD]: route(
         rly0RelayCodexConfigApplyParamsSchema,
-        (p) => config.apply(p),
+        async (p) => this.#withBackendReload(await config.apply(p)),
         true,
       ),
       [RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD]: route(
         rly0RelayCodexConfigRestoreParamsSchema,
-        () => config.restore(),
+        async () => this.#withBackendReload(await config.restore()),
         true,
       ),
     };

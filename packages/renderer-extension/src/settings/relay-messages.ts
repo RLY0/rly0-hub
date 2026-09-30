@@ -77,14 +77,21 @@ export const relayEnglish = {
   codexRestore: "Restore official",
   codexApplyTitle: "Write Codex configuration",
   codexApplyBody:
-    "This modifies Codex's config.toml ({path}) to add the RLY/0 Hub local proxy provider{default}. A backup is created automatically first. Restart Codex for the change to take effect.",
+    "This modifies Codex's config.toml ({path}) to add the RLY/0 Hub local proxy provider{default}. A backup is created automatically first. RLY/0 Hub reloads the Codex background service for you; the window stays open.",
   codexApplyDefault: " and set it as the default model_provider with model {model}",
   codexRestoreTitle: "Restore official configuration",
   codexRestoreBody:
-    "This removes the RLY/0 Hub provider from Codex's config.toml and restores the values from before it was written. A backup is created automatically first. Restart Codex for the change to take effect.",
+    "This removes the RLY/0 Hub provider from Codex's config.toml and restores the values from before it was written. A backup is created automatically first. RLY/0 Hub reloads the Codex background service for you; the window stays open.",
   codexConfirm: "Continue",
   codexApplyDone: "Codex config updated. Restart Codex for it to take effect.",
   codexRestoreDone: "Official configuration restored. Restart Codex for it to take effect.",
+  codexApplyReloaded:
+    "Codex config updated and already in effect; your next message goes through RLY/0 Hub.",
+  codexApplyDeferred:
+    "Codex config updated. It takes effect automatically once the current reply finishes.",
+  codexRestoreReloaded: "Official configuration restored and already in effect.",
+  codexRestoreDeferred:
+    "Official configuration restored. It takes effect automatically once the current reply finishes.",
   codexFailed: "Could not update the Codex configuration.",
 };
 export type RelayMessages = typeof relayEnglish;
@@ -168,13 +175,17 @@ export const relayChinese: RelayMessages = {
   codexRestore: "恢复官方",
   codexApplyTitle: "写入 Codex 配置",
   codexApplyBody:
-    "将修改 Codex 的 config.toml（{path}），新增 RLY/0 Hub 本地代理提供方{default}。修改前已自动备份。需要重启 Codex 才能生效。",
+    "将修改 Codex 的 config.toml（{path}），新增 RLY/0 Hub 本地代理提供方{default}。修改前已自动备份。RLY/0 Hub 会自动重载 Codex 后台服务，窗口不会关闭。",
   codexApplyDefault: "，并设为默认 model_provider，模型为 {model}",
   codexRestoreTitle: "恢复官方配置",
   codexRestoreBody:
-    "将从 Codex 的 config.toml 中移除 RLY/0 Hub 提供方，并恢复写入前的原值。修改前已自动备份。需要重启 Codex 才能生效。",
+    "将从 Codex 的 config.toml 中移除 RLY/0 Hub 提供方，并恢复写入前的原值。修改前已自动备份。RLY/0 Hub 会自动重载 Codex 后台服务，窗口不会关闭。",
   codexConfirm: "继续",
   codexApplyDone: "Codex 配置已更新，重启 Codex 后生效。",
   codexRestoreDone: "已恢复官方配置，重启 Codex 后生效。",
+  codexApplyReloaded: "Codex 配置已更新并已生效，下一条消息就走 RLY/0 Hub 本地代理。",
+  codexApplyDeferred: "Codex 配置已更新，当前回复结束后自动生效。",
+  codexRestoreReloaded: "已恢复官方配置并已生效。",
+  codexRestoreDeferred: "已恢复官方配置，当前回复结束后自动生效。",
   codexFailed: "修改 Codex 配置失败。",
 };

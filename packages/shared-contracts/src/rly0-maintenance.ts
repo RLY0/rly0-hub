@@ -16,6 +16,11 @@ export const RLY0_MAINTENANCE_CACHE_INFO_METHOD = "codexhost/rly0/maintenance/ca
 export const RLY0_MAINTENANCE_CLEAR_CACHE_METHOD = "codexhost/rly0/maintenance/clearCache";
 export const RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD = "codexhost/rly0/maintenance/forceQuitCodex";
 export const RLY0_MAINTENANCE_RESTART_CODEX_METHOD = "codexhost/rly0/maintenance/restartCodex";
+/**
+ * Hot-reloads the official app-server behind the Desktop window so a switched account or a
+ * changed relay provider takes effect without closing Codex. Never touches the Desktop process.
+ */
+export const RLY0_CODEX_RELOAD_BACKEND_METHOD = "codexhost/rly0/codex/reloadBackend";
 
 /** Machine-readable advice codes; the renderer owns the localized copy for each. */
 export const rly0MaintenanceAdviceCodeSchema = z.enum([
@@ -112,3 +117,16 @@ export const rly0MaintenanceProcessActionResultSchema = z.discriminatedUnion("su
 export type Rly0MaintenanceProcessActionResult = z.infer<
   typeof rly0MaintenanceProcessActionResultSchema
 >;
+
+export const rly0CodexReloadBackendParamsSchema = z.object({}).strict();
+export type Rly0CodexReloadBackendParams = z.infer<typeof rly0CodexReloadBackendParamsSchema>;
+
+/**
+ * `reloaded`: the new backend is already serving requests. `deferred`: a turn is running; the
+ * reload happens automatically once all work finishes. `failed`: the reload did not complete
+ * (restarting Codex manually still works).
+ */
+export const rly0CodexReloadBackendResultSchema = z
+  .object({ status: z.enum(["reloaded", "deferred", "failed"]) })
+  .strict();
+export type Rly0CodexReloadBackendResult = z.infer<typeof rly0CodexReloadBackendResultSchema>;

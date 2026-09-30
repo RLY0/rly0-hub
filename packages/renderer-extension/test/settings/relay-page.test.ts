@@ -393,7 +393,7 @@ describe("Relay settings page", () => {
     expect(client.rly0ProxyStop).toHaveBeenCalled();
   });
 
-  it("writes the Codex config only after a confirmation that mentions backup and restart", async () => {
+  it("writes the Codex config only after a confirmation that mentions backup and the in-place reload", async () => {
     const client = fullClient();
     const { root } = mountPage(client);
     await flush();
@@ -403,7 +403,7 @@ describe("Relay settings page", () => {
     const body = allText(dialog);
     expect(body).toContain("config.toml");
     expect(body).toContain("自动备份");
-    expect(body).toContain("重启 Codex");
+    expect(body).toContain("窗口不会关闭");
     const setDefault = inputByName(dialog, "relay-set-default");
     setDefault.checked = true;
     setDefault.listeners.get("change")?.();

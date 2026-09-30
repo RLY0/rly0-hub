@@ -17,6 +17,7 @@ import type {
   Rly0CoreStatusResult,
 } from "@codexhost/shared-contracts";
 import { renderAccountUsage } from "./accounts-usage.js";
+import { switchResultMessage } from "./rly0-account-messages.js";
 import type { RendererSettingsMessages } from "./localization.js";
 import {
   formatRly0RelativeTime,
@@ -492,7 +493,10 @@ export function mountRly0Accounts(
                 await refreshAccounts();
                 notice = result.alreadyCurrent
                   ? { text: messages.switchAlreadyCurrent.replace("{name}", name), tone: "info" }
-                  : { text: messages.switchRequiresRestart.replace("{name}", name), tone: "info" };
+                  : {
+                      text: switchResultMessage(messages, result).replace("{name}", name),
+                      tone: "info",
+                    };
               },
               messages.switchFailed,
             );

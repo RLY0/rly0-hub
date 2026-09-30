@@ -128,6 +128,8 @@ export const rly0AccountsSwitchResultSchema = z.discriminatedUnion("available", 
       requiresRestart: z.boolean().optional(),
       alias: z.string().max(40).optional(),
       alreadyCurrent: z.boolean().optional(),
+      /** Set by the Host after a real switch: whether the official backend hot-reloaded. */
+      backendReload: z.enum(["reloaded", "deferred", "failed"]).optional(),
     })
     .strict(),
 ]);

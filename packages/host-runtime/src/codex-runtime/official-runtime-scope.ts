@@ -19,6 +19,8 @@ export class OfficialRuntimeScope {
   #starting: Promise<void> | undefined;
   #started = false;
   #closed = false;
+  #restarting: Promise<void> | undefined;
+  #restartActive = false;
 
   constructor(input: Omit<OfficialRuntimeOwnerOptions, "gate"> & { permanentHome: string }) {
     this.permanentHome = input.permanentHome;
@@ -32,9 +34,13 @@ export class OfficialRuntimeScope {
       gate: this.gate,
     });
     this.gate.subscribe(() => {
-      if (this.#started && this.gate.phase === "unavailable")
+      if (this.#started && !this.#restartActive && this.gate.phase === "unavailable")
         this.#failure.resolve(new Error("Official Codex is unavailable"));
     });
+  }
+
+  get restarting(): boolean {
+    return this.#restartActive;
   }
 
   get closed(): boolean {
@@ -71,6 +77,42 @@ export class OfficialRuntimeScope {
   }
   failure(): Promise<Error> {
     return this.#failure.promise;
+  }
+
+  /**
+   * Replaces the official app-server process in place so a freshly switched account
+   * (`auth.json`) or relay provider (`config.toml`) takes effect without restarting the
+   * Desktop window. Attached clients keep their connection; the owner re-initializes them
+   * and lazily resumes remembered threads. Rejects with `busy` while official work is active.
+   */
+  restartBackend(): Promise<void> {
+    if (this.#closed) return Promise.reject(new OfficialAdmissionError("unavailable"));
+    if (this.#restarting) return this.#restarting;
+    if (this.gate.busy) return Promise.reject(new OfficialAdmissionError("busy"));
+    // Must be set before owner.stop() synchronously marks the gate unavailable.
+    this.#restartActive = true;
+    const restarting = (async () => {
+      await this.#starting?.catch(() => undefined);
+      await this.owner.stop();
+      if (this.#closed) throw new OfficialAdmissionError("unavailable");
+      await this.owner.start();
+      if (this.#closed) throw new OfficialAdmissionError("unavailable");
+      this.#started = true;
+      this.gate.initialized();
+    })();
+    this.#restarting = restarting;
+    void restarting.then(
+      () => this.#finishRestart(),
+      () => this.#finishRestart(),
+    );
+    return restarting;
+  }
+
+  #finishRestart(): void {
+    this.#restartActive = false;
+    this.#restarting = undefined;
+    if (this.#started && this.gate.phase === "unavailable")
+      this.#failure.resolve(new Error("Official Codex is unavailable"));
   }
 
   async close(): Promise<void> {

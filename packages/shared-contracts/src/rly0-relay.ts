@@ -246,7 +246,12 @@ export type Rly0RelayCodexConfigRestoreParams = z.infer<
 >;
 
 export const rly0RelayCodexConfigMutationResultSchema = z
-  .object({ ok: z.boolean(), status: rly0RelayCodexConfigStatusResultSchema })
+  .object({
+    ok: z.boolean(),
+    status: rly0RelayCodexConfigStatusResultSchema,
+    /** Set by the Host after a successful write: whether the official backend hot-reloaded. */
+    backendReload: z.enum(["reloaded", "deferred", "failed"]).optional(),
+  })
   .strict();
 export type Rly0RelayCodexConfigMutationResult = z.infer<
   typeof rly0RelayCodexConfigMutationResultSchema
