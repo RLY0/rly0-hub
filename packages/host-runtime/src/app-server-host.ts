@@ -58,12 +58,34 @@ import {
   rly0DashboardHealthParamsSchema,
   rly0DashboardThreadStatsParamsSchema,
 } from "@codexhost/shared-contracts";
+import {
+  RLY0_MAINTENANCE_CACHE_INFO_METHOD,
+  RLY0_MAINTENANCE_CLEAR_CACHE_METHOD,
+  RLY0_MAINTENANCE_DIAGNOSTICS_METHOD,
+  RLY0_MAINTENANCE_EXPORT_DIAGNOSTICS_METHOD,
+  RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD,
+  RLY0_MAINTENANCE_RESTART_CODEX_METHOD,
+  rly0MaintenanceCacheInfoParamsSchema,
+  rly0MaintenanceClearCacheParamsSchema,
+  rly0MaintenanceDiagnosticsParamsSchema,
+  rly0MaintenanceExportDiagnosticsParamsSchema,
+  rly0MaintenanceProcessActionParamsSchema,
+} from "@codexhost/shared-contracts";
+import {
+  RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
+  RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
+  rly0AppearanceAutostartGetParamsSchema,
+  rly0AppearanceAutostartSetParamsSchema,
+} from "@codexhost/shared-contracts";
 import { handleCredentialImports } from "./credential-imports.js";
 import { Rly0CoreBridge, rly0CoreRpcError } from "./rly0-core/index.js";
 import { Rly0McpManager, rly0McpRpcError } from "./rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "./rly0-skills/index.js";
 import { Rly0ThreadsManager, rly0ThreadsRpcError } from "./rly0-threads/index.js";
 import { Rly0DashboardManager, rly0DashboardRpcError } from "./rly0-dashboard/index.js";
+import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "./rly0-maintenance/index.js";
+import { Rly0AppearanceManager, rly0AppearanceRpcError } from "./rly0-appearance/index.js";
+import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
 import {
   rewriteDelegationMentionInput,
   rewriteDelegationMentionText,
@@ -581,6 +603,8 @@ export class AppServerHost {
   readonly #rly0Skills: Rly0SkillsManager;
   readonly #rly0Threads: Rly0ThreadsManager;
   readonly #rly0Dashboard: Rly0DashboardManager;
+  readonly #rly0Maintenance: Rly0MaintenanceManager;
+  readonly #rly0Appearance: Rly0AppearanceManager;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
   #pluginDescriptors: HarnessPluginDescriptor[] = [];
@@ -677,6 +701,17 @@ export class AppServerHost {
     this.#rly0Skills = new Rly0SkillsManager({ environment });
     this.#rly0Threads = new Rly0ThreadsManager({ environment });
     this.#rly0Dashboard = new Rly0DashboardManager({ environment, threads: this.#rly0Threads });
+    // No safe force-quit/restart implementation exists yet: `processControl` is left unset as an
+    // injectable seam so the maintenance page can wire real process control later without
+    // another RPC change (it then reports `{ supported: false }`).
+    this.#rly0Maintenance = new Rly0MaintenanceManager({
+      environment,
+      dashboard: this.#rly0Dashboard,
+      core: this.#rly0Core,
+    });
+    this.#rly0Appearance = new Rly0AppearanceManager(
+      process.platform === "win32" ? { registry: new WindowsRegistryAutostart() } : {},
+    );
     this.#officialRuntime = new OfficialRuntimeClient({
       scope: this.#officialRuntimeScope,
       onBackendStopped: () => {
@@ -1108,6 +1143,24 @@ export class AppServerHost {
       request.method === RLY0_DASHBOARD_THREAD_STATS_METHOD
     ) {
       this.#dispatchDesktopRequest(() => this.#handleRly0DashboardRequest(request));
+      return;
+    }
+    if (
+      request.method === RLY0_MAINTENANCE_DIAGNOSTICS_METHOD ||
+      request.method === RLY0_MAINTENANCE_EXPORT_DIAGNOSTICS_METHOD ||
+      request.method === RLY0_MAINTENANCE_CACHE_INFO_METHOD ||
+      request.method === RLY0_MAINTENANCE_CLEAR_CACHE_METHOD ||
+      request.method === RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD ||
+      request.method === RLY0_MAINTENANCE_RESTART_CODEX_METHOD
+    ) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0MaintenanceRequest(request));
+      return;
+    }
+    if (
+      request.method === RLY0_APPEARANCE_AUTOSTART_GET_METHOD ||
+      request.method === RLY0_APPEARANCE_AUTOSTART_SET_METHOD
+    ) {
+      this.#dispatchDesktopRequest(() => this.#handleRly0AppearanceRequest(request));
       return;
     }
     if (request.method === CREDENTIAL_IMPORTS_METHOD) {
@@ -2066,6 +2119,112 @@ export class AppServerHost {
       }
     } catch {
       const failure = rly0DashboardRpcError();
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  /**
+   * Maintenance: read-only diagnostics/export/cache-housekeeping for this program's own state,
+   * plus best-effort (currently unwired, `{ supported: false }`) Codex process control.
+   */
+  async #handleRly0MaintenanceRequest(request: JsonRpcRequest): Promise<void> {
+    try {
+      if (request.method === RLY0_MAINTENANCE_DIAGNOSTICS_METHOD) {
+        if (!rly0MaintenanceDiagnosticsParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(
+            rpcError(request, -32602, "Invalid Maintenance diagnostics params"),
+          );
+          return;
+        }
+        const result = await this.#rly0Maintenance.diagnostics();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MAINTENANCE_EXPORT_DIAGNOSTICS_METHOD) {
+        if (!rly0MaintenanceExportDiagnosticsParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Maintenance export params"));
+          return;
+        }
+        const result = await this.#rly0Maintenance.exportDiagnostics();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MAINTENANCE_CACHE_INFO_METHOD) {
+        if (!rly0MaintenanceCacheInfoParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(
+            rpcError(request, -32602, "Invalid Maintenance cacheInfo params"),
+          );
+          return;
+        }
+        const result = await this.#rly0Maintenance.cacheInfo();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MAINTENANCE_CLEAR_CACHE_METHOD) {
+        if (!rly0MaintenanceClearCacheParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(
+            rpcError(request, -32602, "Invalid Maintenance clearCache params"),
+          );
+          return;
+        }
+        const result = await this.#rly0Maintenance.clearCache();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD) {
+        if (!rly0MaintenanceProcessActionParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(
+            rpcError(request, -32602, "Invalid Maintenance forceQuit params"),
+          );
+          return;
+        }
+        const result = await this.#rly0Maintenance.forceQuitCodex();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MAINTENANCE_RESTART_CODEX_METHOD) {
+        if (!rly0MaintenanceProcessActionParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Maintenance restart params"));
+          return;
+        }
+        const result = await this.#rly0Maintenance.restartCodex();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+    } catch {
+      const failure = rly0MaintenanceRpcError();
+      await this.#writer.json(rpcError(request, failure.code, failure.message));
+    }
+  }
+
+  /** Appearance: Windows-only autostart toggle (HKCU Run key), `{ supported: false }` elsewhere. */
+  async #handleRly0AppearanceRequest(request: JsonRpcRequest): Promise<void> {
+    try {
+      if (request.method === RLY0_APPEARANCE_AUTOSTART_GET_METHOD) {
+        if (!rly0AppearanceAutostartGetParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(
+            rpcError(request, -32602, "Invalid Appearance autostart get params"),
+          );
+          return;
+        }
+        const result = await this.#rly0Appearance.autostartStatus();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_APPEARANCE_AUTOSTART_SET_METHOD) {
+        const params = rly0AppearanceAutostartSetParamsSchema.safeParse(request.params);
+        if (!params.success) {
+          await this.#writer.json(
+            rpcError(request, -32602, "Invalid Appearance autostart set params"),
+          );
+          return;
+        }
+        const result = await this.#rly0Appearance.setAutostart(params.data.enabled);
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+    } catch {
+      const failure = rly0AppearanceRpcError();
       await this.#writer.json(rpcError(request, failure.code, failure.message));
     }
   }

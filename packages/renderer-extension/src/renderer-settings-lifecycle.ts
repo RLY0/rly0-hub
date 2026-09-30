@@ -13,6 +13,8 @@ import {
   type RendererSkillsClient,
   type RendererDashboardClient,
   type RendererThreadsClient,
+  type RendererMaintenanceClient,
+  type RendererAppearanceClient,
   type RendererUpdateClient,
 } from "./settings/pages.js";
 import type {
@@ -38,6 +40,8 @@ export interface RendererSettingsLifecycleOptions {
   getSkillsClient?(): RendererSkillsClient | null;
   getDashboardClient?(): RendererDashboardClient | null;
   getThreadsClient?(): RendererThreadsClient | null;
+  getMaintenanceClient?(): RendererMaintenanceClient | null;
+  getAppearanceClient?(): RendererAppearanceClient | null;
   openImportedThread?: RendererImportedThreadOpener;
   onLocaleChange?(locale: RendererSettingsLocale): void;
 }
@@ -89,6 +93,8 @@ export function installRendererSettingsLifecycle(
       options.getSkillsClient ?? (() => null),
       options.getDashboardClient ?? (() => null),
       options.getThreadsClient ?? (() => null),
+      options.getMaintenanceClient ?? (() => null),
+      options.getAppearanceClient ?? (() => null),
     );
     const nextShell = installRendererSettingsShell(definitions, messages, ownerWindow.document);
     const nextTrigger = installRendererSettingsRailTrigger({

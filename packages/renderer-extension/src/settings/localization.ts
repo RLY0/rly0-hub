@@ -16,6 +16,16 @@ import {
   type DashboardMessages,
 } from "./dashboard-messages.js";
 import { threadsEnglish, threadsChinese, type ThreadsMessages } from "./threads-messages.js";
+import {
+  maintenanceEnglish,
+  maintenanceChinese,
+  type MaintenanceMessages,
+} from "./maintenance-messages.js";
+import {
+  appearanceExtraEnglish,
+  appearanceExtraChinese,
+  type AppearanceExtraMessages,
+} from "./appearance-extra-messages.js";
 import type { DefaultRendererSettingsPageId } from "./pages.js";
 
 export const RENDERER_SETTINGS_LOCALES = ["en", "zh-CN"] as const;
@@ -42,6 +52,8 @@ export interface RendererSettingsMessages {
   readonly skills: SkillsMessages;
   readonly dashboard: DashboardMessages;
   readonly threads: ThreadsMessages;
+  readonly maintenance: MaintenanceMessages;
+  readonly appearanceExtra: AppearanceExtraMessages;
   readonly locale: RendererSettingsLocale;
   readonly title: string;
   readonly close: string;
@@ -308,6 +320,8 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   skills: skillsEnglish,
   dashboard: dashboardEnglish,
   threads: threadsEnglish,
+  maintenance: maintenanceEnglish,
+  appearanceExtra: appearanceExtraEnglish,
   locale: "en",
   title: "Settings",
   close: "Close settings",
@@ -572,6 +586,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
     threads: "Threads",
     mcp: "MCP",
     skills: "Skills",
+    maintenance: "Maintenance",
     updates: "Updates",
     about: "About",
   }),
@@ -585,6 +600,8 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   skills: skillsChinese,
   dashboard: dashboardChinese,
   threads: threadsChinese,
+  maintenance: maintenanceChinese,
+  appearanceExtra: appearanceExtraChinese,
   locale: "zh-CN",
   title: "设置",
   close: "关闭设置",
@@ -836,6 +853,7 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
     threads: "线程管理",
     mcp: "MCP 管理",
     skills: "Skills 管理",
+    maintenance: "维护工具",
     updates: "更新",
     about: "关于",
   }),

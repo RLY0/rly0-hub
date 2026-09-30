@@ -78,6 +78,21 @@ import {
   RLY0_THREADS_RESTORE_METHOD,
   RLY0_DASHBOARD_HEALTH_METHOD,
   RLY0_DASHBOARD_THREAD_STATS_METHOD,
+  RLY0_MAINTENANCE_DIAGNOSTICS_METHOD,
+  RLY0_MAINTENANCE_EXPORT_DIAGNOSTICS_METHOD,
+  RLY0_MAINTENANCE_CACHE_INFO_METHOD,
+  RLY0_MAINTENANCE_CLEAR_CACHE_METHOD,
+  RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD,
+  RLY0_MAINTENANCE_RESTART_CODEX_METHOD,
+  RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
+  RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
+  rly0MaintenanceDiagnosticsResultSchema,
+  rly0MaintenanceExportDiagnosticsResultSchema,
+  rly0MaintenanceCacheInfoResultSchema,
+  rly0MaintenanceClearCacheResultSchema,
+  rly0MaintenanceProcessActionResultSchema,
+  rly0AppearanceAutostartResultSchema,
+  rly0AppearanceAutostartSetParamsSchema,
   rly0CoreStatusResultSchema,
   rly0AccountsListResultSchema,
   rly0AccountsImportCurrentParamsSchema,
@@ -136,6 +151,13 @@ import {
   type Rly0ThreadsMoveResult,
   type Rly0DashboardHealthResult,
   type Rly0DashboardThreadStatsResult,
+  type Rly0MaintenanceDiagnosticsResult,
+  type Rly0MaintenanceExportDiagnosticsResult,
+  type Rly0MaintenanceCacheInfoResult,
+  type Rly0MaintenanceClearCacheResult,
+  type Rly0MaintenanceProcessActionResult,
+  type Rly0AppearanceAutostartResult,
+  type Rly0AppearanceAutostartSetParams,
   type ExternalThreadForkParams,
   type ExternalThreadForkResult,
   type CodexAccountChanged,
@@ -304,6 +326,16 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   restoreRly0Threads?(input: Rly0ThreadsMoveParams): Promise<Rly0ThreadsMoveResult>;
   rly0DashboardHealth?(): Promise<Rly0DashboardHealthResult>;
   rly0DashboardThreadStats?(): Promise<Rly0DashboardThreadStatsResult>;
+  rly0MaintenanceDiagnostics?(): Promise<Rly0MaintenanceDiagnosticsResult>;
+  rly0MaintenanceExportDiagnostics?(): Promise<Rly0MaintenanceExportDiagnosticsResult>;
+  rly0MaintenanceCacheInfo?(): Promise<Rly0MaintenanceCacheInfoResult>;
+  rly0MaintenanceClearCache?(): Promise<Rly0MaintenanceClearCacheResult>;
+  rly0MaintenanceForceQuitCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
+  rly0MaintenanceRestartCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
+  rly0AppearanceAutostartStatus?(): Promise<Rly0AppearanceAutostartResult>;
+  rly0AppearanceAutostartSet?(
+    input: Rly0AppearanceAutostartSetParams,
+  ): Promise<Rly0AppearanceAutostartResult>;
 }
 
 export function createThreadUsageSubscriptionRelay(): {
@@ -779,6 +811,51 @@ export function createRendererModelClient(
     async rly0DashboardThreadStats(): Promise<Rly0DashboardThreadStatsResult> {
       return rly0DashboardThreadStatsResultSchema.parse(
         await manager.sendRequest(RLY0_DASHBOARD_THREAD_STATS_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceDiagnostics(): Promise<Rly0MaintenanceDiagnosticsResult> {
+      return rly0MaintenanceDiagnosticsResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_DIAGNOSTICS_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceExportDiagnostics(): Promise<Rly0MaintenanceExportDiagnosticsResult> {
+      return rly0MaintenanceExportDiagnosticsResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_EXPORT_DIAGNOSTICS_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceCacheInfo(): Promise<Rly0MaintenanceCacheInfoResult> {
+      return rly0MaintenanceCacheInfoResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_CACHE_INFO_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceClearCache(): Promise<Rly0MaintenanceClearCacheResult> {
+      return rly0MaintenanceClearCacheResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_CLEAR_CACHE_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceForceQuitCodex(): Promise<Rly0MaintenanceProcessActionResult> {
+      return rly0MaintenanceProcessActionResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceRestartCodex(): Promise<Rly0MaintenanceProcessActionResult> {
+      return rly0MaintenanceProcessActionResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_RESTART_CODEX_METHOD, {}),
+      );
+    },
+    async rly0AppearanceAutostartStatus(): Promise<Rly0AppearanceAutostartResult> {
+      return rly0AppearanceAutostartResultSchema.parse(
+        await manager.sendRequest(RLY0_APPEARANCE_AUTOSTART_GET_METHOD, {}),
+      );
+    },
+    async rly0AppearanceAutostartSet(
+      input: Rly0AppearanceAutostartSetParams,
+    ): Promise<Rly0AppearanceAutostartResult> {
+      return rly0AppearanceAutostartResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
+          rly0AppearanceAutostartSetParamsSchema.parse(input),
+        ),
       );
     },
   });

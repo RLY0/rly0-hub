@@ -227,6 +227,52 @@ export type {
   Rly0DashboardActivityDay,
   Rly0DashboardThreadStatsResult,
 } from "./rly0-dashboard.js";
+export {
+  RLY0_MAINTENANCE_DIAGNOSTICS_METHOD,
+  RLY0_MAINTENANCE_EXPORT_DIAGNOSTICS_METHOD,
+  RLY0_MAINTENANCE_CACHE_INFO_METHOD,
+  RLY0_MAINTENANCE_CLEAR_CACHE_METHOD,
+  RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD,
+  RLY0_MAINTENANCE_RESTART_CODEX_METHOD,
+  rly0MaintenanceAdviceCodeSchema,
+  rly0MaintenanceDiagnosticsParamsSchema,
+  rly0MaintenanceDiagnosticsResultSchema,
+  rly0MaintenanceExportDiagnosticsParamsSchema,
+  rly0MaintenanceExportDiagnosticsResultSchema,
+  rly0MaintenanceCacheEntrySchema,
+  rly0MaintenanceCacheInfoParamsSchema,
+  rly0MaintenanceCacheInfoResultSchema,
+  rly0MaintenanceClearCacheParamsSchema,
+  rly0MaintenanceClearCacheResultSchema,
+  rly0MaintenanceProcessActionParamsSchema,
+  rly0MaintenanceProcessActionResultSchema,
+} from "./rly0-maintenance.js";
+export type {
+  Rly0MaintenanceAdviceCode,
+  Rly0MaintenanceDiagnosticsParams,
+  Rly0MaintenanceDiagnosticsResult,
+  Rly0MaintenanceExportDiagnosticsParams,
+  Rly0MaintenanceExportDiagnosticsResult,
+  Rly0MaintenanceCacheEntry,
+  Rly0MaintenanceCacheInfoParams,
+  Rly0MaintenanceCacheInfoResult,
+  Rly0MaintenanceClearCacheParams,
+  Rly0MaintenanceClearCacheResult,
+  Rly0MaintenanceProcessActionParams,
+  Rly0MaintenanceProcessActionResult,
+} from "./rly0-maintenance.js";
+export {
+  RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
+  RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
+  rly0AppearanceAutostartGetParamsSchema,
+  rly0AppearanceAutostartResultSchema,
+  rly0AppearanceAutostartSetParamsSchema,
+} from "./rly0-appearance.js";
+export type {
+  Rly0AppearanceAutostartGetParams,
+  Rly0AppearanceAutostartResult,
+  Rly0AppearanceAutostartSetParams,
+} from "./rly0-appearance.js";
 export { REASONING_TRANSCRIPT_COMMAND } from "./reasoning-transcript.js";
 export type { CodexhostError } from "./errors.js";
 export {

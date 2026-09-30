@@ -29,7 +29,7 @@ import {
   type RendererSessionImportClient,
   type RendererImportedThreadOpener,
 } from "./session-import-page.js";
-import { createAppearanceSettingsPage } from "./appearance-page.js";
+import { createAppearanceSettingsPage, type RendererAppearanceClient } from "./appearance-page.js";
 import type { LoadedSessionsClient } from "./loaded-sessions-table.js";
 import { createReleaseNotesElement } from "./release-notes.js";
 import { createAccountsSettingsPage, type RendererCodexAccountClient } from "./accounts-page.js";
@@ -37,6 +37,10 @@ import { createMcpSettingsPage, type RendererMcpClient } from "./mcp-page.js";
 import { createSkillsSettingsPage, type RendererSkillsClient } from "./skills-page.js";
 import { createDashboardSettingsPage, type RendererDashboardClient } from "./dashboard-page.js";
 import { createThreadsSettingsPage, type RendererThreadsClient } from "./threads-page.js";
+import {
+  createMaintenanceSettingsPage,
+  type RendererMaintenanceClient,
+} from "./maintenance-page.js";
 import { createSponsorEntry } from "./sponsor-dialog.js";
 
 export type {
@@ -87,6 +91,7 @@ export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = [
   "threads",
   "mcp",
   "skills",
+  "maintenance",
   "appearance",
   "updates",
   "about",
@@ -642,6 +647,8 @@ export function createDefaultRendererSettingsPages(
   getSkillsClient: () => RendererSkillsClient | null = () => null,
   getDashboardClient: () => RendererDashboardClient | null = () => null,
   getThreadsClient: () => RendererThreadsClient | null = () => null,
+  getMaintenanceClient: () => RendererMaintenanceClient | null = () => null,
+  getAppearanceClient: () => RendererAppearanceClient | null = () => null,
 ): readonly RendererSettingsPageDefinition[] {
   return Object.freeze([
     createDashboardSettingsPage(messages, getDashboardClient),
@@ -651,7 +658,8 @@ export function createDefaultRendererSettingsPages(
     createThreadsSettingsPage(messages, getThreadsClient),
     createMcpSettingsPage(messages, getMcpClient),
     createSkillsSettingsPage(messages, getSkillsClient),
-    createAppearanceSettingsPage(messages, getLoadedSessionsClient),
+    createMaintenanceSettingsPage(messages, getMaintenanceClient),
+    createAppearanceSettingsPage(messages, getLoadedSessionsClient, getAppearanceClient),
     updatesPage(messages, getUpdateClient),
     aboutPage(messages),
   ]);
@@ -669,6 +677,8 @@ export function createDefaultRendererSettingsRegistry(
   getSkillsClient?: () => RendererSkillsClient | null,
   getDashboardClient?: () => RendererDashboardClient | null,
   getThreadsClient?: () => RendererThreadsClient | null,
+  getMaintenanceClient?: () => RendererMaintenanceClient | null,
+  getAppearanceClient?: () => RendererAppearanceClient | null,
 ): RendererSettingsPageRegistry {
   return createRendererSettingsPageRegistry(
     createDefaultRendererSettingsPages(
@@ -683,6 +693,8 @@ export function createDefaultRendererSettingsRegistry(
       getSkillsClient,
       getDashboardClient,
       getThreadsClient,
+      getMaintenanceClient,
+      getAppearanceClient,
     ),
   );
 }
@@ -692,3 +704,5 @@ export type { RendererMcpClient } from "./mcp-page.js";
 export type { RendererSkillsClient } from "./skills-page.js";
 export type { RendererDashboardClient } from "./dashboard-page.js";
 export type { RendererThreadsClient } from "./threads-page.js";
+export type { RendererMaintenanceClient } from "./maintenance-page.js";
+export type { RendererAppearanceClient } from "./appearance-page.js";

@@ -92,6 +92,7 @@ describe("Renderer settings localization", () => {
       "线程管理",
       "MCP 管理",
       "Skills 管理",
+      "维护工具",
       "通用",
       "更新",
       "关于",
