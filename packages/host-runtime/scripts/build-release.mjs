@@ -16,7 +16,8 @@ const forbiddenInputFragments = [
   "/tools/",
 ];
 const forbiddenBundleReferences = ["sourceMappingURL="];
-const allowedRuntimePackages = new Set(["diff", "ws", "zod"]);
+// smol-toml (MIT, pure JS, no deps): RLY/0 MCP page and dashboard read ~/.codex/config.toml.
+const allowedRuntimePackages = new Set(["diff", "smol-toml", "ws", "zod"]);
 
 function normalizedInputPath(value) {
   return `/${value.replaceAll("\\", "/").replace(/^\/+|\/+$/gu, "")}/`;
