@@ -12,6 +12,35 @@ const RAIL_ICON_COLOR = "var(--color-text-secondary-ghost, rgba(26, 28, 31, 0.5)
 const RAIL_ICON_HOVER_COLOR = "var(--color-text-secondary-ghost-hover, #1a1c1f)";
 const RAIL_ICON_HOVER_BACKGROUND =
   "var(--color-background-secondary-ghost-hover, rgba(26, 28, 31, 0.05))";
+export const TOOLTIP_ATTRIBUTE = "data-rly0-rail-tooltip";
+export const TOOLTIP_TEXT_ATTRIBUTE = "data-rly0-tooltip-text";
+const TOOLTIP_GAP = 4;
+const TOOLTIP_DELAY_MS = 120;
+// Values read from Codex Desktop's rail tooltip (role="tooltip", data-side="right").
+const TOOLTIP_STYLE: Partial<Record<keyof CSSStyleDeclaration, string>> = {
+  position: "fixed",
+  left: "0px",
+  top: "0px",
+  zIndex: "2147483000",
+  width: "max-content",
+  maxWidth: "min(20rem, calc(100vw - 16px))",
+  padding: "5px 12px",
+  borderRadius: "20px",
+  border: "1px solid var(--color-border-tooltip, rgba(255, 255, 255, 0.05))",
+  background: "var(--color-background-tooltip, #2d2d2d)",
+  color: "var(--color-text-tooltip, #ffffff)",
+  boxShadow: "var(--shadow-tooltip, 0 8px 18px rgba(15, 23, 42, 0.2))",
+  fontSize: "13px",
+  lineHeight: "18px",
+  fontWeight: "var(--tooltip-compact-font-weight, 430)",
+  letterSpacing: "var(--tracking-tooltip, normal)",
+  textAlign: "center",
+  whiteSpace: "nowrap",
+  pointerEvents: "none",
+  userSelect: "none",
+  opacity: "0",
+  transition: "opacity 100ms ease-out",
+};
 
 export interface RendererSettingsTriggerControl {
   root: HTMLElement;
@@ -134,32 +163,76 @@ export function mountRendererSettingsTrigger(
   button.append(updateBadge);
 
   let updateAvailable = false;
+  let tooltipText = "";
   const renderTitle = (): void => {
-    button.title = !available
+    // Codex's own rail tooltips (not the OS `title` tooltip) carry the label; see below.
+    tooltipText = !available
       ? messages.settingsUnavailableTitle
       : updateAvailable
         ? `${messages.settingsButtonTitle} · ${messages.updateAvailable}`
         : messages.settingsButtonTitle;
+    button.setAttribute(TOOLTIP_TEXT_ATTRIBUTE, tooltipText);
+    if (tooltip) tooltip.textContent = tooltipText;
+  };
+
+  // Mirrors the Codex Desktop rail tooltip (Radix, side="right"): same theme tokens, pill shape,
+  // 13px text, centered on the button with a small gap. Falls back to its dark-theme values.
+  let tooltip: HTMLDivElement | null = null;
+  let showTimer: ReturnType<typeof setTimeout> | undefined;
+  const hideTooltip = (): void => {
+    if (showTimer !== undefined) clearTimeout(showTimer);
+    showTimer = undefined;
+    tooltip?.remove();
+    tooltip = null;
+  };
+  const showTooltip = (): void => {
+    const body = ownerDocument.body as HTMLElement | null | undefined;
+    if (!body || !button.isConnected) return;
+    hideTooltip();
+    const node = ownerDocument.createElement("div");
+    node.setAttribute("role", "tooltip");
+    node.setAttribute(TOOLTIP_ATTRIBUTE, "");
+    node.textContent = tooltipText;
+    Object.assign(node.style, TOOLTIP_STYLE);
+    body.append(node);
+    const anchor = button.getBoundingClientRect();
+    const own = node.getBoundingClientRect();
+    node.style.left = `${Math.round(anchor.right + TOOLTIP_GAP)}px`;
+    node.style.top = `${Math.round(anchor.top + (anchor.height - own.height) / 2)}px`;
+    node.style.opacity = "1";
+    tooltip = node;
+  };
+  const scheduleTooltip = (): void => {
+    if (showTimer !== undefined) clearTimeout(showTimer);
+    showTimer = setTimeout(() => {
+      showTimer = undefined;
+      showTooltip();
+    }, TOOLTIP_DELAY_MS);
   };
   renderTitle();
 
   const onPointerEnter = (): void => {
+    scheduleTooltip();
     if (button.disabled) return;
     button.style.background = RAIL_ICON_HOVER_BACKGROUND;
     button.style.color = RAIL_ICON_HOVER_COLOR;
   };
   const onPointerLeave = (): void => {
+    hideTooltip();
     button.style.background = "transparent";
     button.style.color = RAIL_ICON_COLOR;
   };
   const onClick = (event: MouseEvent): void => {
     event.stopPropagation();
+    hideTooltip();
     if (button.disabled) return;
     if (updateAvailable) onOpen(button, "updates");
     else onOpen(button);
   };
   button.addEventListener("pointerenter", onPointerEnter);
   button.addEventListener("pointerleave", onPointerLeave);
+  button.addEventListener("focus", scheduleTooltip);
+  button.addEventListener("blur", hideTooltip);
   button.addEventListener("click", onClick);
   root.append(button);
 
@@ -173,8 +246,11 @@ export function mountRendererSettingsTrigger(
       renderTitle();
     },
     dispose() {
+      hideTooltip();
       button.removeEventListener("pointerenter", onPointerEnter);
       button.removeEventListener("pointerleave", onPointerLeave);
+      button.removeEventListener("focus", scheduleTooltip);
+      button.removeEventListener("blur", hideTooltip);
       button.removeEventListener("click", onClick);
       root.remove();
     },

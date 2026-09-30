@@ -4,6 +4,8 @@ import {
   inspectRendererSettingsContract,
   installRendererSettingsRailTrigger,
   mountRendererSettingsTrigger,
+  TOOLTIP_ATTRIBUTE,
+  TOOLTIP_TEXT_ATTRIBUTE,
 } from "../../src/settings/trigger.js";
 
 class FakeElement {
@@ -164,16 +166,51 @@ describe("Renderer settings navigation rail trigger", () => {
 
       control.setUpdateAvailable(true);
       expect(badge?.style.display).toBe("block");
-      expect(control.button.title).toBe("RLY/0 Hub (main view) · A new version is available.");
+      expect(button.attributes.get(TOOLTIP_TEXT_ATTRIBUTE)).toBe(
+        "RLY/0 Hub (main view) · A new version is available.",
+      );
       expect(control.root.hasAttribute("data-update-available")).toBe(true);
       button.dispatch("click");
       expect(opened).toHaveBeenLastCalledWith(control.button, "updates");
 
       control.setUpdateAvailable(false);
       expect(badge?.style.display).toBe("none");
-      expect(control.button.title).toBe("RLY/0 Hub (main view)");
+      expect(button.attributes.get(TOOLTIP_TEXT_ATTRIBUTE)).toBe("RLY/0 Hub (main view)");
+      expect(control.button.title).toBe("");
       control.dispose();
     } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows a Codex-style tooltip to the right of the button on hover", () => {
+    vi.useFakeTimers();
+    const body = new FakeElement("BODY");
+    const document = {
+      ...stubRailDocument(() => createFakeRail().rail),
+      body,
+    } as unknown as Document;
+    try {
+      const control = mountRendererSettingsTrigger("test", true, vi.fn(), document);
+      const button = control.button as unknown as FakeElement;
+      button.getBoundingClientRect = () =>
+        ({ top: 96, right: 44, height: 36, width: 36 }) as DOMRect;
+      button.dispatch("pointerenter");
+      expect(body.children).toHaveLength(0);
+      vi.advanceTimersByTime(200);
+      const tip = body.children[0] as FakeElement & { textContent: string };
+      expect(tip.attributes.has(TOOLTIP_ATTRIBUTE)).toBe(true);
+      expect(tip.attributes.get("role")).toBe("tooltip");
+      expect(tip.textContent).toBe("RLY/0 Hub (main view)");
+      expect(tip.style.background).toContain("--color-background-tooltip");
+      expect(tip.style.borderRadius).toBe("20px");
+      expect(tip.style.left).toBe("48px");
+      expect(tip.style.top).toBe("96px");
+      button.dispatch("pointerleave");
+      expect(body.children).toHaveLength(0);
+      control.dispose();
+    } finally {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
