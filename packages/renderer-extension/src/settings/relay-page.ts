@@ -252,6 +252,7 @@ export function createRelaySettingsPage(
         stat(messages.proxyAddress, running.baseUrl);
         stat(messages.proxyRequests, String(running.requests));
         stat(messages.proxyRouted, String(running.routed));
+        if (running.official !== undefined) stat(messages.proxyOfficial, String(running.official));
         stat(messages.proxyUnrouted, String(running.unrouted));
         stat(messages.proxyFailed, String(running.failed));
         proxyCard.append(stats);
@@ -276,7 +277,7 @@ export function createRelaySettingsPage(
               "settings-rly0-mcp__detail",
               [
                 request.model,
-                request.relay,
+                request.route === "official" ? messages.routeOfficial : request.relay,
                 `${Math.round(request.ms)} ms`,
                 formatRly0RelativeTime(request.at, settingsMessages.rly0Accounts),
               ]
@@ -384,6 +385,7 @@ export function createRelaySettingsPage(
               messages.protocolResponses,
               messages.modelCount.replace("{n}", String(relay.models.length)),
               relay.hasKey ? `${messages.keyLabel} ${relay.keyMask ?? "••••"}` : messages.noKey,
+              ...(relay.routeLocked === true ? [messages.routeLocked] : []),
             ].join(" · "),
           ),
           el("span", "settings-rly0-relay__url", relay.baseUrl),
@@ -681,6 +683,12 @@ export function createRelaySettingsPage(
         models.rows = 4;
         models.spellcheck = false;
         models.value = relay?.models.join("\n") ?? "";
+        const routeLocked = el("input");
+        routeLocked.type = "checkbox";
+        routeLocked.name = "relay-route-locked";
+        routeLocked.checked = relay?.routeLocked === true;
+        const routeLockedLabel = el("label", "settings-rly0-relay__toggle");
+        routeLockedLabel.append(routeLocked, el("span", undefined, messages.formRouteLocked));
         const testLine = el("p", "settings-rly0-mcp__detail");
         const fillHost = el("div", "settings-rly0-relay__actions");
         // Id of a relay created by "save and test" inside this dialog, so a later save updates it.
@@ -718,6 +726,7 @@ export function createRelaySettingsPage(
                 name: form.name,
                 baseUrl: form.baseUrl,
                 models: form.models,
+                routeLocked: routeLocked.checked,
                 ...(key ? { apiKey: key } : {}),
               });
               if (!result.available) {
@@ -731,6 +740,7 @@ export function createRelaySettingsPage(
               name: form.name,
               baseUrl: form.baseUrl,
               models: form.models,
+              ...(routeLocked.checked ? { routeLocked: true } : {}),
               ...(key ? { apiKey: key } : {}),
             });
             if (!result.available) {
@@ -759,6 +769,14 @@ export function createRelaySettingsPage(
                   : messages.formApiKeyHint,
               ),
               field(messages.formModels, models, messages.formModelsHint),
+              (() => {
+                const wrap = el("div", "settings-credential-dialog__field");
+                wrap.append(
+                  routeLockedLabel,
+                  el("small", "settings-rly0-mcp__detail", messages.formRouteLockedHint),
+                );
+                return wrap;
+              })(),
               testLine,
               fillHost,
             );

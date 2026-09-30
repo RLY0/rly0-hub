@@ -362,7 +362,12 @@ describe("Rly0RelayCodexConfigManager", () => {
     expect(written).toContain("# keep me");
     const parsed = parseToml(written) as Record<string, unknown>;
     expect(parsed.model_providers).toEqual({
-      rly0: { name: "RLY/0 Hub 本地代理", base_url: BASE_URL, wire_api: "responses" },
+      rly0: {
+        name: "RLY/0 Hub 本地代理",
+        base_url: BASE_URL,
+        wire_api: "responses",
+        requires_openai_auth: true,
+      },
     });
     const backups = (await fs.readdir(path.dirname(configPath))).filter((name) =>
       name.includes(".rly0-bak-"),

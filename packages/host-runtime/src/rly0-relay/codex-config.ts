@@ -178,6 +178,9 @@ export class Rly0RelayCodexConfigManager {
       ["name", tomlString(RLY0_CODEX_PROVIDER_NAME)],
       ["base_url", tomlString(params.baseUrl)],
       ["wire_api", tomlString("responses")],
+      // Codex attaches its own login so the local proxy can hand models no relay claims back to
+      // the official account. The proxy strips it (and the account id) before any relay request.
+      ["requires_openai_auth", "true"],
     ]);
     if (params.setDefault && params.model !== undefined) {
       next = setTopLevelKey(next, "model_provider", tomlString(RLY0_CODEX_PROVIDER_ID));
@@ -191,7 +194,8 @@ export class Rly0RelayCodexConfigManager {
       isRecord(provider) &&
       provider.base_url === params.baseUrl &&
       provider.name === RLY0_CODEX_PROVIDER_NAME &&
-      provider.wire_api === "responses";
+      provider.wire_api === "responses" &&
+      provider.requires_openai_auth === true;
     const defaultsOk =
       !params.setDefault ||
       (verified.model_provider === RLY0_CODEX_PROVIDER_ID && verified.model === params.model);

@@ -79,6 +79,8 @@ export const rly0RelayAddParamsSchema = z
     apiKey: rly0RelayApiKeySchema.optional(),
     models: rly0RelayModelsSchema.optional(),
     enabled: z.boolean().optional(),
+    /** Send every model no relay lists to this relay instead of the official account. */
+    routeLocked: z.boolean().optional(),
   })
   .strict();
 export type Rly0RelayAddParams = z.infer<typeof rly0RelayAddParamsSchema>;
@@ -98,6 +100,7 @@ export const rly0RelayUpdateParamsSchema = z
     clearKey: z.boolean().optional(),
     models: rly0RelayModelsSchema.optional(),
     enabled: z.boolean().optional(),
+    routeLocked: z.boolean().optional(),
   })
   .strict();
 export type Rly0RelayUpdateParams = z.infer<typeof rly0RelayUpdateParamsSchema>;
@@ -146,6 +149,8 @@ export const rly0ProxyRequestSchema = z
     model: z.string().max(128).optional(),
     relay: z.string().max(64).optional(),
     relayId: z.string().max(64).optional(),
+    /** `official` when no relay claimed the model and Codex's own login handled it. */
+    route: z.literal("official").optional(),
     status: z.number().int().min(0).max(999),
     ms: z.number().nonnegative().max(10_000_000),
   })
@@ -163,6 +168,8 @@ export const rly0ProxyRunningSchema = z
     startedAt: unixSeconds.optional(),
     requests: counter,
     routed: counter,
+    /** Requests handed back to the official account (absent from older cores). */
+    official: counter.optional(),
     unrouted: counter,
     failed: counter,
     recent: z.array(rly0ProxyRequestSchema).max(200),

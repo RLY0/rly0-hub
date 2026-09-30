@@ -318,6 +318,43 @@ describe("Relay settings page", () => {
     expect(allText(root)).toContain("Second");
   });
 
+  it("shows requests handed back to the official account and saves the catch-all switch", async () => {
+    const client = fullClient({
+      rly0ProxyStatus: vi.fn(async () => ({
+        ...running,
+        official: 4,
+        recent: [
+          {
+            at: Math.floor(Date.now() / 1000),
+            method: "POST",
+            path: "/v1/responses",
+            model: "gpt-5.5",
+            route: "official" as const,
+            status: 200,
+            ms: 88,
+          },
+        ],
+      })),
+    });
+    const { root } = mountPage(client);
+    await flush();
+    const text = allText(root);
+    expect(text).toContain(messages.proxyOfficial);
+    expect(text).toContain(`gpt-5.5 · ${messages.routeOfficial}`);
+
+    buttonByText(root, messages.add).listeners.get("click")?.();
+    const dialog = openDialog(root);
+    expect(inputByName(dialog, "relay-route-locked").checked).toBe(false);
+    inputByName(dialog, "relay-name").value = "Catch all";
+    inputByName(dialog, "relay-base-url").value = "https://relay.example.org/v1";
+    inputByName(dialog, "relay-route-locked").checked = true;
+    buttonByText(dialog, messages.formSave).listeners.get("click")?.();
+    await flush();
+    expect(client.addRly0Relay).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Catch all", routeLocked: true }),
+    );
+  });
+
   it("keeps the saved key when editing with an empty key field", async () => {
     const client = fullClient();
     const { root } = mountPage(client);
