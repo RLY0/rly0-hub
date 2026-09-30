@@ -64,6 +64,21 @@ import {
   RLY0_ACCOUNTS_SWITCH_METHOD,
   RLY0_ACCOUNTS_RENAME_METHOD,
   RLY0_ACCOUNTS_REMOVE_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
+  rly0AccountsAddLoginStartParamsSchema,
+  rly0AccountsAddLoginStartResultSchema,
+  rly0AccountsAddLoginStatusParamsSchema,
+  rly0AccountsAddLoginStatusResultSchema,
+  rly0AccountsAddLoginCancelParamsSchema,
+  rly0AccountsAddLoginCancelResultSchema,
+  type Rly0AccountsAddLoginStartParams,
+  type Rly0AccountsAddLoginStartResult,
+  type Rly0AccountsAddLoginStatusParams,
+  type Rly0AccountsAddLoginStatusResult,
+  type Rly0AccountsAddLoginCancelParams,
+  type Rly0AccountsAddLoginCancelResult,
   RLY0_MCP_LIST_METHOD,
   RLY0_MCP_SET_ENABLED_METHOD,
   RLY0_MCP_REMOVE_METHOD,
@@ -797,6 +812,36 @@ export function createRendererModelClient(
         await manager.sendRequest(
           RLY0_ACCOUNTS_REMOVE_METHOD,
           rly0AccountsRemoveParamsSchema.parse(input),
+        ),
+      );
+    },
+    async startRly0AddAccountLogin(
+      input: Rly0AccountsAddLoginStartParams,
+    ): Promise<Rly0AccountsAddLoginStartResult> {
+      return rly0AccountsAddLoginStartResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
+          rly0AccountsAddLoginStartParamsSchema.parse(input),
+        ),
+      );
+    },
+    async rly0AddAccountLoginStatus(
+      input: Rly0AccountsAddLoginStatusParams,
+    ): Promise<Rly0AccountsAddLoginStatusResult> {
+      return rly0AccountsAddLoginStatusResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
+          rly0AccountsAddLoginStatusParamsSchema.parse(input),
+        ),
+      );
+    },
+    async cancelRly0AddAccountLogin(
+      input: Rly0AccountsAddLoginCancelParams,
+    ): Promise<Rly0AccountsAddLoginCancelResult> {
+      return rly0AccountsAddLoginCancelResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
+          rly0AccountsAddLoginCancelParamsSchema.parse(input),
         ),
       );
     },

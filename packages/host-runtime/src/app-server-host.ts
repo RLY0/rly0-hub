@@ -126,6 +126,21 @@ import {
   rly0RelayCodexConfigRpcError,
 } from "./rly0-relay/codex-config.js";
 import {
+  RLY0_RELAY_PROXY_FAILED_MESSAGE,
+  RLY0_RELAY_THREAD_MISMATCH_MESSAGE,
+  Rly0RelayModelRouter,
+} from "./rly0-relay/model-routing.js";
+import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
+import {
+  RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
+  rly0AccountsAddLoginCancelParamsSchema,
+  rly0AccountsAddLoginStartParamsSchema,
+  rly0AccountsAddLoginStatusParamsSchema,
+} from "@codexhost/shared-contracts";
+import { Rly0AddAccountLogins } from "./rly0-core/add-account-login.js";
+import {
   rewriteDelegationMentionInput,
   rewriteDelegationMentionText,
 } from "./delegation-mention-rewrite.js";
@@ -314,6 +329,9 @@ const RLY0_EXTENDED_METHODS: ReadonlySet<string> = new Set([
   RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
   RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
   RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
+  RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
 ]);
 
 interface Rly0ExtendedRoute {
@@ -672,6 +690,8 @@ export class AppServerHost {
   readonly #rly0Maintenance: Rly0MaintenanceManager;
   readonly #rly0Appearance: Rly0AppearanceManager;
   readonly #rly0RelayConfig: Rly0RelayCodexConfigManager;
+  readonly #rly0RelayModels: Rly0RelayModelRouter;
+  readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
   #pluginDescriptors: HarnessPluginDescriptor[] = [];
@@ -691,6 +711,7 @@ export class AppServerHost {
   #unsubscribeAccountState: (() => void) | undefined;
   #activeOfficialTurns = new Map<string, string>();
   #pendingOfficialTurnStarts = new Map<unknown, string>();
+  readonly #pendingRelayModelLists = new Set<unknown>();
   #activeWorkDrainWaiters = new Set<() => void>();
   #deferredBackendReload: Promise<void> | undefined;
   #pendingOfficialDelegationThreads = new Set<string>();
@@ -767,6 +788,21 @@ export class AppServerHost {
     this.#rly0Core = new Rly0CoreBridge({ environment });
     this.#rly0Mcp = new Rly0McpManager({ environment });
     this.#rly0RelayConfig = new Rly0RelayCodexConfigManager({ environment });
+    this.#rly0RelayModels = new Rly0RelayModelRouter(this.#rly0Core);
+    this.#rly0AddAccount = new Rly0AddAccountLogins({
+      coreAvailable: async () => (await this.#rly0Core.status()).available,
+      importFrom: (params) => this.#rly0Core.importFrom(params),
+      // A private official app-server whose CODEX_HOME is the throw-away login directory, so the
+      // browser login lands there and never in the user's live Codex home.
+      spawnOfficial: (codexHome) =>
+        spawnOfficialAppServerConnection({
+          stockCodexPath: this.#options.stockCodexPath,
+          arguments: this.#options.arguments,
+          environment: { ...officialEnvironment(environment), CODEX_HOME: codexHome },
+          cwd: codexHome,
+          ...(this.#options.spawnOfficial ? { spawnOfficial: this.#options.spawnOfficial } : {}),
+        }),
+    });
     this.#rly0Skills = new Rly0SkillsManager({ environment });
     this.#rly0Threads = new Rly0ThreadsManager({ environment });
     this.#rly0Dashboard = new Rly0DashboardManager({ environment, threads: this.#rly0Threads });
@@ -1184,6 +1220,7 @@ export class AppServerHost {
     this.#externalSteering.close();
     if (this.#drainActiveWorkOnInputEnd) await this.#waitForActiveWorkToDrain();
     await this.#closeOfficialRuntime();
+    await this.#rly0AddAccount.close().catch(() => {});
     await this.#rly0Core.dispose();
   }
 
@@ -1893,9 +1930,19 @@ export class AppServerHost {
     request: JsonRpcRequest,
     frame: Buffer<ArrayBufferLike>,
   ): Promise<void> {
+    let replacement: JsonObject | null = null;
     try {
-      await this.#officialRuntime.sendFrame(frame);
+      const routed = await this.#routeRelayModelRequest(request);
+      if (routed === "handled") return;
+      replacement = routed;
+    } catch (error) {
+      this.#diagnose(error);
+    }
+    try {
+      if (replacement) await this.#officialRuntime.send(replacement);
+      else await this.#officialRuntime.sendFrame(frame);
     } catch {
+      this.#pendingRelayModelLists.delete(request.id);
       if (request.method === "turn/start") {
         this.#pendingOfficialTurnStarts.delete(request.id);
         this.#signalActiveWorkChanged();
@@ -1906,6 +1953,56 @@ export class AppServerHost {
     }
   }
 
+  /**
+   * Relay models in Codex's own picker: remembers `model/list` calls so their responses can be
+   * extended, and moves threads that use a relay model onto the RLY/0 local proxy. Returns the
+   * request to send instead, `null` to forward the original frame, or `"handled"` after replying.
+   */
+  async #routeRelayModelRequest(request: JsonRpcRequest): Promise<JsonObject | null | "handled"> {
+    const router = this.#rly0RelayModels;
+    if (request.method === "model/list") {
+      await router.prepareModelList();
+      this.#pendingRelayModelLists.add(request.id);
+      return null;
+    }
+    const params = isRecord(request.params) ? request.params : null;
+    if (!params) return null;
+    if (
+      request.method === "thread/start" ||
+      request.method === "thread/resume" ||
+      request.method === "thread/fork"
+    ) {
+      let next: Record<string, unknown> | null;
+      try {
+        next = await router.rewriteThreadParams(params);
+      } catch {
+        await this.#writer.json(rpcError(request, -32001, RLY0_RELAY_PROXY_FAILED_MESSAGE));
+        return "handled";
+      }
+      return next ? ({ ...request, params: next } as unknown as JsonObject) : null;
+    }
+    if (request.method === "turn/start" && typeof params.threadId === "string") {
+      const provider = router.threadProvider(params.threadId);
+      const relayModel = await router.isRelayModel(params.model);
+      if (!relayModel && provider !== RLY0_CODEX_PROVIDER_ID) return null;
+      if (relayModel && provider !== undefined && provider !== RLY0_CODEX_PROVIDER_ID) {
+        this.#pendingOfficialTurnStarts.delete(request.id);
+        this.#signalActiveWorkChanged();
+        await this.#writer.json(rpcError(request, -32602, RLY0_RELAY_THREAD_MISMATCH_MESSAGE));
+        return "handled";
+      }
+      try {
+        await router.ensureProxy();
+      } catch {
+        this.#pendingOfficialTurnStarts.delete(request.id);
+        this.#signalActiveWorkChanged();
+        await this.#writer.json(rpcError(request, -32001, RLY0_RELAY_PROXY_FAILED_MESSAGE));
+        return "handled";
+      }
+    }
+    return null;
+  }
+
   async #handleOfficialOutput(input: {
     accountId: string;
     frame: Buffer<ArrayBufferLike>;
@@ -1913,7 +2010,17 @@ export class AppServerHost {
   }): Promise<void> {
     const parsed = input.value;
     this.#observeOfficialTurnStartResponse(parsed);
+    this.#rly0RelayModels.observeResponse(parsed);
     let forwarded: JsonValue = parsed;
+    if (
+      isRecord(parsed) &&
+      !("method" in parsed) &&
+      (typeof parsed.id === "string" || typeof parsed.id === "number") &&
+      this.#pendingRelayModelLists.delete(parsed.id)
+    ) {
+      const rewritten = this.#rly0RelayModels.rewriteModelListResponse(parsed);
+      if (rewritten) forwarded = rewritten as JsonValue;
+    }
     if (isRecord(parsed) && typeof parsed.method === "string" && "id" in parsed) {
       const originalId = parsed.id;
       if (typeof originalId === "string" || typeof originalId === "number") {
@@ -2157,6 +2264,16 @@ export class AppServerHost {
         rly0RelayCodexConfigRestoreParamsSchema,
         async () => this.#withBackendReload(await config.restore()),
         true,
+      ),
+      [RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD]: route(rly0AccountsAddLoginStartParamsSchema, (p) =>
+        this.#rly0AddAccount.start(p),
+      ),
+      [RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD]: route(
+        rly0AccountsAddLoginStatusParamsSchema,
+        async (p) => this.#rly0AddAccount.status(p),
+      ),
+      [RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD]: route(rly0AccountsAddLoginCancelParamsSchema, (p) =>
+        this.#rly0AddAccount.cancel(p),
       ),
     };
   }

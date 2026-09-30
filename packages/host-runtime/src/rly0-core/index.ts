@@ -328,6 +328,16 @@ export class Rly0CoreBridge {
     return { available: true, id: response.result.id };
   }
 
+  /** Saves the login found in a temporary `rly0-login-*` CODEX_HOME (the "add account" flow). */
+  async importFrom(params: {
+    codexHome: string;
+    alias?: string;
+  }): Promise<Rly0AccountsImportCurrentResult> {
+    const response = await this.#client.request<{ id: string }>("accounts/importFrom", params);
+    if (!response.available) return { available: false };
+    return { available: true, id: response.result.id };
+  }
+
   async switchAccount(params: Rly0AccountsSwitchParams): Promise<Rly0AccountsSwitchResult> {
     const response = await this.#client.request<{
       switched: boolean;

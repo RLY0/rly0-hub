@@ -116,6 +116,68 @@ export const rly0AccountsImportCurrentResultSchema = z.discriminatedUnion("avail
 ]);
 export type Rly0AccountsImportCurrentResult = z.infer<typeof rly0AccountsImportCurrentResultSchema>;
 
+/**
+ * "Add account": the Host runs the official ChatGPT browser login in a throw-away CODEX_HOME and
+ * hands the result to rly0-core. The live Codex login is never changed. The renderer polls
+ * `status` until the state leaves `pending`.
+ */
+export const RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD = "codexhost/rly0/accounts/addLogin/start";
+export const RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD = "codexhost/rly0/accounts/addLogin/status";
+export const RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD = "codexhost/rly0/accounts/addLogin/cancel";
+
+const rly0AddLoginIdSchema = z.string().regex(/^[0-9a-f]{16}$/u);
+
+export const rly0AccountsAddLoginStartParamsSchema = z
+  .object({ alias: rly0AliasSchema.optional() })
+  .strict();
+export type Rly0AccountsAddLoginStartParams = z.infer<typeof rly0AccountsAddLoginStartParamsSchema>;
+
+export const rly0AccountsAddLoginStartResultSchema = z.discriminatedUnion("available", [
+  z.object({ available: z.literal(false) }).strict(),
+  z
+    .object({
+      available: z.literal(true),
+      loginId: rly0AddLoginIdSchema,
+      authUrl: z.string().url().max(4096),
+    })
+    .strict(),
+]);
+export type Rly0AccountsAddLoginStartResult = z.infer<typeof rly0AccountsAddLoginStartResultSchema>;
+
+export const rly0AccountsAddLoginStatusParamsSchema = z
+  .object({ loginId: rly0AddLoginIdSchema })
+  .strict();
+export type Rly0AccountsAddLoginStatusParams = z.infer<
+  typeof rly0AccountsAddLoginStatusParamsSchema
+>;
+
+export const rly0AccountsAddLoginStatusResultSchema = z.discriminatedUnion("state", [
+  z.object({ available: z.literal(true), state: z.literal("pending") }).strict(),
+  z
+    .object({ available: z.literal(true), state: z.literal("completed"), id: rly0AccountIdSchema })
+    .strict(),
+  z
+    .object({
+      available: z.literal(true),
+      state: z.literal("failed"),
+      error: z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u),
+    })
+    .strict(),
+  z.object({ available: z.literal(true), state: z.literal("cancelled") }).strict(),
+]);
+export type Rly0AccountsAddLoginStatusResult = z.infer<
+  typeof rly0AccountsAddLoginStatusResultSchema
+>;
+
+export const rly0AccountsAddLoginCancelParamsSchema = rly0AccountsAddLoginStatusParamsSchema;
+export type Rly0AccountsAddLoginCancelParams = Rly0AccountsAddLoginStatusParams;
+export const rly0AccountsAddLoginCancelResultSchema = z
+  .object({ available: z.literal(true), cancelled: z.boolean() })
+  .strict();
+export type Rly0AccountsAddLoginCancelResult = z.infer<
+  typeof rly0AccountsAddLoginCancelResultSchema
+>;
+
 export const rly0AccountsSwitchParamsSchema = z.object({ id: rly0AccountIdSchema }).strict();
 export type Rly0AccountsSwitchParams = z.infer<typeof rly0AccountsSwitchParamsSchema>;
 

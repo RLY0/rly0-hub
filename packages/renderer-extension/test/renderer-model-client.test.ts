@@ -327,6 +327,7 @@ describe("Renderer fixed Model request client", () => {
     expect(Object.keys(client).sort()).toEqual([
       "addRly0Mcp",
       "addRly0Relay",
+      "cancelRly0AddAccountLogin",
       "checkUpdate",
       "credentialImports",
       "deactivateRly0Skill",
@@ -368,6 +369,7 @@ describe("Renderer fixed Model request client", () => {
       "restoreRly0Threads",
       "rly0AccountUsage",
       "rly0AccountUsageAll",
+      "rly0AddAccountLoginStatus",
       "rly0AppearanceAutostartSet",
       "rly0AppearanceAutostartStatus",
       "rly0CoreStatus",
@@ -394,6 +396,7 @@ describe("Renderer fixed Model request client", () => {
       "setIdleReleaseSettings",
       "setRly0McpEnabled",
       "setRly0RelayEnabled",
+      "startRly0AddAccountLogin",
       "startUpdate",
       "subscribeCodexAccounts",
       "subscribeThreadUsage",

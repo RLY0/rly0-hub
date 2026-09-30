@@ -271,7 +271,7 @@ describe("Relay settings page", () => {
     });
     await flush();
     expect(page.id).toBe("relay");
-    expect(page.label).toBe("中转注入");
+    expect(page.label).toBe("中转站");
     expect(allText(root)).toContain(messages.unavailable);
     expect(() => buttonByText(root, messages.add)).toThrow();
     // The Codex config card is host-side and stays visible.

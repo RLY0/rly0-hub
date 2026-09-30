@@ -66,6 +66,9 @@ describe("RLY/0 relay showcase", () => {
     expect(link?.href).toBe(RLY0_RELAY_PROMO_URL);
     expect(link?.rel).toBe("noopener noreferrer");
     expect(link?.listeners.size).toBe(0);
+    const route = nodes.find((node) => node.className === "settings-rly0-showcase__route");
+    expect(route?.attributes.get("aria-hidden")).toBe("true");
+    expect(nodes.some((node) => node.textContent === relayChinese.promoTagline)).toBe(true);
   });
 
   it("stays dismissed once closed and omits the details in compact mode", () => {
@@ -75,7 +78,9 @@ describe("RLY/0 relay showcase", () => {
       compact: true,
     }) as unknown as FakeElement;
     expect(compact.className).toContain("settings-rly0-showcase--compact");
-    expect(all(compact).some((node) => node.tagName === "ul")).toBe(false);
+    expect(all(compact).some((node) => node.className === "settings-rly0-showcase__route")).toBe(
+      false,
+    );
     const dismiss = all(compact).find((node) => node.textContent === relayChinese.promoDismiss);
     dismiss?.listeners.get("click")?.();
     expect(storage[RLY0_RELAY_PROMO_DISMISSED_KEY]).toBe("1");

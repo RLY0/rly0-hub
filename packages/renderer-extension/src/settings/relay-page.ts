@@ -205,7 +205,7 @@ export function createRelaySettingsPage(
         }
         actions.append(button(messages.refresh, "secondary", () => void load()));
         top.append(actions);
-        proxyCard.append(top);
+        proxyCard.append(top, el("p", "settings-rly0-mcp__detail", messages.proxyDescription));
         if (!running) return;
         const stats = el("dl", "settings-rly0-relay__stats");
         const stat = (label: string, value: string): void => {

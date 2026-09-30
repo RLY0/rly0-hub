@@ -1,5 +1,11 @@
 import type {
   Rly0Account,
+  Rly0AccountsAddLoginCancelParams,
+  Rly0AccountsAddLoginCancelResult,
+  Rly0AccountsAddLoginStartParams,
+  Rly0AccountsAddLoginStartResult,
+  Rly0AccountsAddLoginStatusParams,
+  Rly0AccountsAddLoginStatusResult,
   Rly0AccountsImportCurrentParams,
   Rly0AccountsImportCurrentResult,
   Rly0AccountsRemoveParams,
@@ -37,6 +43,27 @@ export interface RendererRly0AccountClient {
   removeRly0Account?(input: Rly0AccountsRemoveParams): Promise<Rly0AccountsRemoveResult>;
   rly0AccountUsage?(input: Rly0AccountsUsageParams): Promise<Rly0AccountsUsageResult>;
   rly0AccountUsageAll?(): Promise<Rly0AccountsUsageAllResult>;
+  startRly0AddAccountLogin?(
+    input: Rly0AccountsAddLoginStartParams,
+  ): Promise<Rly0AccountsAddLoginStartResult>;
+  rly0AddAccountLoginStatus?(
+    input: Rly0AccountsAddLoginStatusParams,
+  ): Promise<Rly0AccountsAddLoginStatusResult>;
+  cancelRly0AddAccountLogin?(
+    input: Rly0AccountsAddLoginCancelParams,
+  ): Promise<Rly0AccountsAddLoginCancelResult>;
+}
+
+const ADD_LOGIN_POLL_MS = 1_500;
+
+function addLoginErrorMessage(
+  code: string | null | undefined,
+  messages: RendererSettingsMessages["rly0Accounts"],
+): string {
+  if (code === "LOGIN_TIMEOUT") return messages.addTimeout;
+  if (code === "LOGIN_FAILED" || code === "LOGIN_NOT_COMPLETED") return messages.addLoginFailed;
+  if (code === "RLY0_CORE_UNAVAILABLE") return messages.unavailableHint;
+  return messages.addFailed;
 }
 
 /** Per saved account: the newest known usage (live or the core's cached snapshot) and last error. */
@@ -46,7 +73,7 @@ interface Rly0UsageState {
   loading: boolean;
 }
 
-type DialogMode = "save" | "switch" | "rename" | "remove";
+type DialogMode = "save" | "add" | "switch" | "rename" | "remove";
 
 export function rly0AccountDisplayName(account: Rly0Account): string {
   return account.alias?.trim() || account.email || account.id;
@@ -89,6 +116,11 @@ export function mountRly0Accounts(
   saveButton.className = "settings-command-button settings-command-button--secondary";
   saveButton.textContent = messages.save;
   saveButton.addEventListener("click", () => openDialog("save", null));
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "settings-command-button";
+  addButton.textContent = messages.add;
+  addButton.addEventListener("click", () => openDialog("add", null));
   const refreshAllButton = document.createElement("button");
   refreshAllButton.type = "button";
   refreshAllButton.className = "settings-command-button settings-command-button--secondary";
@@ -96,7 +128,7 @@ export function mountRly0Accounts(
   refreshAllButton.addEventListener("click", () => void refreshAllUsage());
   const headerActions = document.createElement("div");
   headerActions.className = "settings-rly0-accounts__header-actions";
-  headerActions.append(refreshAllButton, saveButton);
+  headerActions.append(refreshAllButton, saveButton, addButton);
   header.append(headerActions);
   const card = document.createElement("div");
   card.className = "settings-rly0-accounts__card";
@@ -123,6 +155,7 @@ export function mountRly0Accounts(
         notice = { text: messages.unavailableHint, tone: "error" };
         available = false;
       } else {
+        notice = null;
         onSuccess(result as Extract<T, { available: true }>);
         ok = true;
       }
@@ -361,6 +394,9 @@ export function mountRly0Accounts(
   const render = (): void => {
     saveButton.disabled = busy || !available;
     saveButton.hidden = !available;
+    const canAdd = Boolean(addLoginClient());
+    addButton.disabled = busy || !available || !canAdd;
+    addButton.hidden = !available || !canAdd;
     refreshAllButton.hidden = !available || accounts.length === 0;
     refreshAllButton.disabled =
       refreshingAll || !getClient()?.rly0AccountUsageAll || accounts.length === 0;
@@ -436,10 +472,168 @@ export function mountRly0Accounts(
       for (const child of controls.children) (child as HTMLButtonElement).disabled = value;
     };
     const close = (): void => modal.close();
+    let onDialogClose: (() => void) | undefined;
 
     const name = account ? rly0AccountDisplayName(account) : "";
 
-    if (mode === "save") {
+    if (mode === "add") {
+      heading.textContent = messages.addTitle;
+      const label = document.createElement("label");
+      label.className = "settings-credential-dialog__field";
+      const caption = document.createElement("span");
+      caption.textContent = messages.aliasColumn;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 40;
+      input.autocomplete = "off";
+      label.append(caption, input);
+      const status = document.createElement("p");
+      status.className = "settings-rly0-accounts__add-status";
+      status.setAttribute("role", "status");
+      status.hidden = true;
+      const linkRow = document.createElement("div");
+      linkRow.className = "settings-rly0-accounts__add-link";
+      linkRow.hidden = true;
+      body.append(note(messages.addBody), label, status, linkRow);
+
+      let loginId: string | null = null;
+      let finished = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let pollErrors = 0;
+      const stopPolling = (): void => {
+        if (timer !== undefined) clearTimeout(timer);
+        timer = undefined;
+      };
+      onDialogClose = () => {
+        stopPolling();
+        // Closing the dialog while the browser sign-in is still open abandons that login.
+        if (loginId && !finished) {
+          void addLoginClient()
+            ?.cancelRly0AddAccountLogin({ loginId })
+            .catch(() => {});
+        }
+      };
+      const cancelButton = command(messages.cancel, close);
+      const startButton = command(
+        messages.addStart,
+        async () => {
+          const api = addLoginClient();
+          if (!api) {
+            error.textContent = messages.addFailed;
+            return;
+          }
+          error.textContent = "";
+          startButton.disabled = true;
+          startButton.textContent = messages.addStarting;
+          input.disabled = true;
+          const alias = input.value.trim();
+          try {
+            const started = await api.startRly0AddAccountLogin(alias ? { alias } : {});
+            if (!started.available) {
+              resetStart(messages.unavailableHint);
+              return;
+            }
+            if (!modal.open || signal.aborted) {
+              void api.cancelRly0AddAccountLogin({ loginId: started.loginId }).catch(() => {});
+              return;
+            }
+            loginId = started.loginId;
+            finished = false;
+            showLink(started.authUrl);
+            poll();
+          } catch (failure) {
+            resetStart(addLoginErrorMessage(rly0ErrorCode(failure), messages));
+          }
+        },
+        "primary",
+      );
+      const resetStart = (message: string): void => {
+        stopPolling();
+        loginId = null;
+        error.textContent = message;
+        status.hidden = true;
+        linkRow.hidden = true;
+        linkRow.replaceChildren();
+        input.disabled = false;
+        startButton.hidden = false;
+        startButton.disabled = false;
+        startButton.textContent = messages.addStart;
+      };
+      const showLink = (authUrl: string): void => {
+        const hint = document.createElement("span");
+        hint.textContent = messages.addLinkHint;
+        const link = document.createElement("a");
+        link.className = "settings-command-button settings-command-button--secondary";
+        link.href = authUrl;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = messages.addOpenLink;
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "settings-command-button settings-command-button--secondary";
+        copy.textContent = messages.addCopyLink;
+        copy.addEventListener("click", () => {
+          void document.defaultView?.navigator.clipboard
+            ?.writeText(authUrl)
+            .then(() => {
+              copy.textContent = messages.addCopied;
+            })
+            .catch(() => {});
+        });
+        linkRow.replaceChildren(hint, link, copy);
+        linkRow.hidden = false;
+        status.textContent = messages.addWaiting;
+        status.hidden = false;
+        startButton.hidden = true;
+        // Same path as any external link on this page: Codex hands it to the system browser.
+        link.click();
+      };
+      const poll = (): void => {
+        stopPolling();
+        timer = setTimeout(() => {
+          timer = undefined;
+          const api = addLoginClient();
+          const id = loginId;
+          if (!api || !id || !modal.open || signal.aborted) return;
+          void api.rly0AddAccountLoginStatus({ loginId: id }).then(
+            async (result) => {
+              if (!modal.open || signal.aborted || loginId !== id) return;
+              pollErrors = 0;
+              if (result.state === "pending") {
+                poll();
+                return;
+              }
+              finished = true;
+              if (result.state === "completed") {
+                await refreshAccounts();
+                const added = accounts.find((entry) => entry.id === result.id);
+                notice = {
+                  text: messages.addDone.replace(
+                    "{name}",
+                    added ? rly0AccountDisplayName(added) : result.id,
+                  ),
+                  tone: "info",
+                };
+                close();
+                return;
+              }
+              if (result.state === "cancelled") {
+                resetStart("");
+                return;
+              }
+              resetStart(addLoginErrorMessage(result.error, messages));
+            },
+            () => {
+              pollErrors += 1;
+              if (pollErrors >= 5) resetStart(messages.addFailed);
+              else poll();
+            },
+          );
+        }, ADD_LOGIN_POLL_MS);
+      };
+      controls.append(cancelButton, startButton);
+      input.focus();
+    } else if (mode === "save") {
       heading.textContent = messages.save;
       const label = document.createElement("label");
       label.className = "settings-credential-dialog__field";
@@ -590,6 +784,7 @@ export function mountRly0Accounts(
       if (busy) event.preventDefault();
     });
     modal.addEventListener("close", () => {
+      onDialogClose?.();
       modal.remove();
       dialog = undefined;
       const target = account ? rows.get(account.id) : undefined;
@@ -612,6 +807,22 @@ export function mountRly0Accounts(
       !value.removeRly0Account
     ) {
       throw new Error("rly0-core bridge is unavailable");
+    }
+    return value as Required<RendererRly0AccountClient>;
+  };
+
+  /** The optional "add account" methods; absent with an older Host. */
+  const addLoginClient = (): Pick<
+    Required<RendererRly0AccountClient>,
+    "startRly0AddAccountLogin" | "rly0AddAccountLoginStatus" | "cancelRly0AddAccountLogin"
+  > | null => {
+    const value = getClient();
+    if (
+      !value?.startRly0AddAccountLogin ||
+      !value.rly0AddAccountLoginStatus ||
+      !value.cancelRly0AddAccountLogin
+    ) {
+      return null;
     }
     return value as Required<RendererRly0AccountClient>;
   };
@@ -645,12 +856,20 @@ export function mountRly0Accounts(
         changed();
         return;
       }
-      try {
-        const status = await rly0Client.rly0CoreStatus();
-        if (signal.aborted) return;
-        available = status.available;
-      } catch {
-        if (!signal.aborted) available = false;
+      notice = null;
+      // A proxy-settings change restarts rly0-core, which rejects an in-flight hello; one retry
+      // after a short pause keeps that transient from reading as "rly0-core is missing".
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const status = await rly0Client.rly0CoreStatus();
+          if (signal.aborted) return;
+          available = status.available;
+          break;
+        } catch {
+          if (signal.aborted) return;
+          available = false;
+          if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 800));
+        }
       }
       if (available) await refreshAccounts();
       else accounts = [];
