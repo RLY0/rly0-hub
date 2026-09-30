@@ -248,8 +248,45 @@ export interface RendererSettingsMessages {
   readonly aboutOpenSource: string;
   readonly aboutStarCallout: string;
   readonly aboutRepository: string;
+  readonly sponsor: RendererSponsorMessages;
   readonly pageLabels: Readonly<Record<DefaultRendererSettingsPageId, string>>;
 }
+
+export interface RendererSponsorMessages {
+  readonly entry: string;
+  readonly title: string;
+  readonly description: string;
+  readonly wechat: string;
+  readonly alipay: string;
+  readonly relayPrefix: string;
+  readonly relayName: string;
+  readonly close: string;
+}
+
+export const RLY0_RELAY_URL = "https://rly0.com";
+
+const sponsorEnglish: RendererSponsorMessages = Object.freeze({
+  entry: "Buy me a coffee",
+  title: "Buy me a coffee",
+  description:
+    "RLY/0 Hub is free and open source. If it has helped you, a voluntary sponsorship is welcome. It never affects any feature.",
+  wechat: "WeChat Pay",
+  alipay: "Alipay",
+  relayPrefix: "Author-run relay:",
+  relayName: "RLY/0 · Zero Relay",
+  close: "Close",
+});
+
+const sponsorChinese: RendererSponsorMessages = Object.freeze({
+  entry: "请作者喝杯咖啡",
+  title: "请作者喝杯咖啡",
+  description: "零号枢纽免费开源。如果它帮到了你，欢迎自愿赞助，完全不影响任何功能。",
+  wechat: "微信",
+  alipay: "支付宝",
+  relayPrefix: "作者自营中转站：",
+  relayName: "RLY/0 · 零号中转",
+  close: "关闭",
+});
 
 const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   brandName: "RLY/0 Hub",
@@ -509,6 +546,7 @@ const ENGLISH_MESSAGES: RendererSettingsMessages = Object.freeze({
   aboutOpenSource: "RLY/0 Hub is an open-source project. The source code is available at:",
   aboutStarCallout: "⭐ If this project helps you, please give us a Star! ⭐",
   aboutRepository: "Open-source repository",
+  sponsor: sponsorEnglish,
   pageLabels: Object.freeze({
     connections: "Connections",
     appearance: "General",
@@ -764,6 +802,7 @@ const CHINESE_MESSAGES: RendererSettingsMessages = Object.freeze({
   aboutOpenSource: "零号枢纽是一个开源项目，开源地址：",
   aboutStarCallout: "⭐ 如果这个项目对你有帮助，请给我们一个 Star！⭐",
   aboutRepository: "开源仓库",
+  sponsor: sponsorChinese,
   pageLabels: Object.freeze({
     connections: "连接",
     appearance: "通用",

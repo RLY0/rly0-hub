@@ -8,6 +8,7 @@ import ChevronRight from "lucide/dist/esm/icons/chevron-right.mjs";
 import ChevronUp from "lucide/dist/esm/icons/chevron-up.mjs";
 import CircleArrowUp from "lucide/dist/esm/icons/circle-arrow-up.mjs";
 import CircleOff from "lucide/dist/esm/icons/circle-off.mjs";
+import Coffee from "lucide/dist/esm/icons/coffee.mjs";
 import Copy from "lucide/dist/esm/icons/copy.mjs";
 import Download from "lucide/dist/esm/icons/download.mjs";
 import ExternalLink from "lucide/dist/esm/icons/external-link.mjs";
@@ -71,6 +72,7 @@ export const RENDERER_SETTINGS_ICON_NAMES = [
   "search",
   "help",
   "ellipsis",
+  "coffee",
 ] as const;
 
 export type RendererSettingsIconName = (typeof RENDERER_SETTINGS_ICON_NAMES)[number];
@@ -120,6 +122,7 @@ const iconNodes = {
   search: Search,
   help: CircleHelp,
   ellipsis: Ellipsis,
+  coffee: Coffee,
 } satisfies Record<RendererSettingsIconName, IconNode>;
 
 export function isRendererSettingsIconName(value: string): value is RendererSettingsIconName {

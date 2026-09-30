@@ -1456,6 +1456,70 @@
   white-space: nowrap;
 }
 
+.settings-about-sponsor {
+  display: flex;
+  padding-top: 18px;
+  border-top: 1px solid var(--settings-divider);
+}
+
+.settings-sponsor-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-sponsor-dialog {
+  width: min(560px, calc(100vw - 40px));
+}
+
+.settings-sponsor-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.settings-account-dialog .settings-sponsor-dialog__header h2 {
+  margin: 0;
+}
+
+.settings-account-dialog .settings-sponsor-dialog__description {
+  margin: 0 0 18px;
+  font-size: 13px;
+}
+
+.settings-account-dialog .settings-sponsor-dialog__relay {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--settings-divider);
+}
+
+.settings-sponsor-dialog__relay-link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--settings-focus);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.settings-sponsor-dialog__relay-link:hover {
+  text-decoration: underline;
+}
+
+.settings-sponsor-dialog__relay-link code {
+  color: var(--settings-muted);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  font-weight: 400;
+}
+
 .settings-page-error {
   padding: 16px;
   color: var(--settings-text);

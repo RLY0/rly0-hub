@@ -33,6 +33,7 @@ import { createAppearanceSettingsPage } from "./appearance-page.js";
 import type { LoadedSessionsClient } from "./loaded-sessions-table.js";
 import { createReleaseNotesElement } from "./release-notes.js";
 import { createAccountsSettingsPage, type RendererCodexAccountClient } from "./accounts-page.js";
+import { createSponsorEntry } from "./sponsor-dialog.js";
 
 export type {
   RendererConnectionAgentSnapshot,
@@ -206,7 +207,12 @@ function aboutPage(messages: RendererSettingsMessages): RendererSettingsPageDefi
         repositoryUrl,
       );
       repositorySection.append(openSource, repository);
-      panel.append(product, tagline, introduction, starCallout, repositorySection);
+      const sponsorSection = document.createElement("div");
+      sponsorSection.className = "settings-about-sponsor";
+      sponsorSection.append(
+        createSponsorEntry(document, context.content, messages.sponsor, context.signal),
+      );
+      panel.append(product, tagline, introduction, starCallout, repositorySection, sponsorSection);
       context.content.append(heading, panel);
       return undefined;
     },

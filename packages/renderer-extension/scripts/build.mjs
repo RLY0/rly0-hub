@@ -19,7 +19,7 @@ for (const { entry, format, outfile } of entries) {
     platform: "browser",
     format,
     target: "es2024",
-    loader: { ".png": "dataurl", ".svg": "dataurl", ".css": "text" },
+    loader: { ".png": "dataurl", ".jpg": "dataurl", ".svg": "dataurl", ".css": "text" },
     plugins: [tailwindEsbuildPlugin()],
     outfile,
   });
