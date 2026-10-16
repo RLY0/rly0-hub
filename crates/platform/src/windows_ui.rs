@@ -22,6 +22,41 @@ const IDYES: i32 = 6;
 const IDNO: i32 = 7;
 const RESTART_BUTTON_ID: i32 = 1001;
 const RETRY_BUTTON_ID: i32 = 1002;
+const OPEN_STOCK_BUTTON_ID: i32 = 1003;
+const CLOSE_BUTTON_ID: i32 = 1004;
+
+/// What to do after RLY/0 Hub could not start Codex.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchFailureChoice {
+    /// Open the official Codex without RLY/0 Hub.
+    OpenStock,
+    Close,
+}
+
+#[derive(Clone, Copy)]
+struct LaunchFailureText {
+    instruction: &'static str,
+    content: &'static str,
+    open_stock: &'static str,
+    close: &'static str,
+    fallback: &'static str,
+}
+
+const ENGLISH_LAUNCH_FAILURE_TEXT: LaunchFailureText = LaunchFailureText {
+    instruction: "RLY/0 Hub could not start Codex",
+    content: "This often happens right after Codex updates, before RLY/0 Hub supports the new version. You can keep working in the official Codex now; your accounts and settings are not changed.\n\nDetails: {details}",
+    open_stock: "Open the official Codex without RLY/0 Hub (Recommended)",
+    close: "Close",
+    fallback: "RLY/0 Hub could not start Codex. This often happens right after Codex updates.\n\nDetails: {details}\n\nYes: open the official Codex without RLY/0 Hub.\nNo: close.",
+};
+
+const CHINESE_LAUNCH_FAILURE_TEXT: LaunchFailureText = LaunchFailureText {
+    instruction: "RLY/0 Hub 没能启动 Codex",
+    content: "这通常发生在 Codex 刚更新、RLY/0 Hub 还没适配新版本的时候。你可以先用原版 Codex 继续工作，账号和设置都不会改动。\n\n详细信息：{details}",
+    open_stock: "不经过 RLY/0 Hub，直接打开原版 Codex（推荐）",
+    close: "关闭",
+    fallback: "RLY/0 Hub 没能启动 Codex。这通常发生在 Codex 刚更新之后。\n\n详细信息：{details}\n\n是：不经过 RLY/0 Hub，直接打开原版 Codex。\n否：关闭。",
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunningDesktopChoice {
@@ -127,6 +162,42 @@ fn running_desktop_text_for_locale(locale: &str) -> RunningDesktopText {
         CHINESE_RUNNING_DESKTOP_TEXT
     } else {
         ENGLISH_RUNNING_DESKTOP_TEXT
+    }
+}
+
+fn launch_failure_text_for_locale(locale: &str) -> LaunchFailureText {
+    let locale = locale.to_ascii_lowercase();
+    if locale == "zh-cn" || locale == "zh-sg" || locale.starts_with("zh-hans") {
+        CHINESE_LAUNCH_FAILURE_TEXT
+    } else {
+        ENGLISH_LAUNCH_FAILURE_TEXT
+    }
+}
+
+/// Asks whether to fall back to the official Codex after a failed RLY/0 Hub start.
+pub fn prompt_launch_failure(details: &str) -> LaunchFailureChoice {
+    let text = launch_failure_text_for_locale(&user_locale_name());
+    let details: String = details.chars().take(600).collect();
+    let content = text.content.replace("{details}", &details);
+    let result = choice_dialog(
+        text.instruction,
+        &content,
+        &[
+            (OPEN_STOCK_BUTTON_ID, text.open_stock),
+            (CLOSE_BUTTON_ID, text.close),
+        ],
+        OPEN_STOCK_BUTTON_ID,
+    );
+    match result {
+        Ok(OPEN_STOCK_BUTTON_ID) => LaunchFailureChoice::OpenStock,
+        Ok(_) => LaunchFailureChoice::Close,
+        Err(_) => match message_box(
+            &text.fallback.replace("{details}", &details),
+            MB_YESNO | MB_ICONERROR,
+        ) {
+            IDYES => LaunchFailureChoice::OpenStock,
+            _ => LaunchFailureChoice::Close,
+        },
     }
 }
 
@@ -247,9 +318,28 @@ pub fn show_error_dialog(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        IDCANCEL, RESTART_BUTTON_ID, RETRY_BUTTON_ID, running_desktop_text_for_locale,
-        shell_execute_result,
+        CLOSE_BUTTON_ID, IDCANCEL, OPEN_STOCK_BUTTON_ID, RESTART_BUTTON_ID, RETRY_BUTTON_ID,
+        launch_failure_text_for_locale, running_desktop_text_for_locale, shell_execute_result,
     };
+
+    #[test]
+    fn launch_failure_offers_the_official_codex_in_both_languages() {
+        assert_ne!(OPEN_STOCK_BUTTON_ID, CLOSE_BUTTON_ID);
+        assert_ne!(OPEN_STOCK_BUTTON_ID, IDCANCEL);
+        assert_ne!(OPEN_STOCK_BUTTON_ID, RESTART_BUTTON_ID);
+        assert_ne!(OPEN_STOCK_BUTTON_ID, RETRY_BUTTON_ID);
+        let chinese = launch_failure_text_for_locale("zh-CN");
+        assert!(chinese.open_stock.contains("原版 Codex"));
+        assert!(chinese.content.contains("{details}") && chinese.fallback.contains("{details}"));
+        let english = launch_failure_text_for_locale("en-US");
+        assert!(english.open_stock.contains("official Codex"));
+        assert!(english.content.contains("{details}") && english.fallback.contains("{details}"));
+        assert!(
+            launch_failure_text_for_locale("zh-TW")
+                .open_stock
+                .contains("official Codex")
+        );
+    }
 
     #[test]
     fn shell_execute_requires_a_result_above_the_documented_error_range() {

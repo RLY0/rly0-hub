@@ -210,11 +210,13 @@ fn emit_ready_line(output: &mut impl Write) -> std::io::Result<()> {
 /// controlling terminal so this Launcher keeps supervising the Desktop after
 /// the command returns. Startup failures must not reach this point: they exit
 /// non-zero on stderr exactly like before.
+/// Set once Codex has started with RLY/0 Hub attached; errors after that are not start failures.
+static READY_NOTIFIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn notify_ready_and_detach() -> Result<(), Box<dyn Error>> {
     // A restart request relaunches the Desktop inside the same Launcher; the caller was already
     // told "ready" and the terminal is already detached by then.
-    static NOTIFIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if NOTIFIED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    if READY_NOTIFIED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Ok(());
     }
     startup_trace("publishing ready");
@@ -1274,6 +1276,28 @@ fn run(arguments: &[String]) -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// After RLY/0 Hub failed to start Codex, offer the official Codex so the person can keep working.
+#[cfg(target_os = "windows")]
+fn offer_stock_desktop(details: &str) {
+    if codexhost_platform::prompt_launch_failure(details)
+        != codexhost_platform::LaunchFailureChoice::OpenStock
+    {
+        return;
+    }
+    let opened = discover_desktop(None)
+        .map_err(|error| error.to_string())
+        .and_then(|installation| {
+            codexhost_platform::launch_stock_desktop(&installation)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        });
+    if let Err(error) = opened {
+        show_error_dialog(&format!(
+            "codexhost launcher: could not open Codex: {error}"
+        ));
+    }
+}
+
 fn main() -> ExitCode {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     #[cfg(target_os = "windows")]
@@ -1293,7 +1317,11 @@ fn main() -> ExitCode {
             eprintln!("{message}");
             #[cfg(target_os = "windows")]
             if start_menu_launch {
-                show_error_dialog(&message);
+                if READY_NOTIFIED.load(std::sync::atomic::Ordering::SeqCst) {
+                    show_error_dialog(&message);
+                } else {
+                    offer_stock_desktop(&error.to_string());
+                }
             }
             ExitCode::FAILURE
         }

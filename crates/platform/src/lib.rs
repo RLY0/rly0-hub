@@ -94,7 +94,8 @@ pub use system_proxy::{SystemProxySettings, system_proxy_settings};
 pub use windows_desktop::resume_packaged_application;
 #[cfg(target_os = "windows")]
 pub use windows_ui::{
-    RunningDesktopChoice, hide_console_window, prompt_running_desktop, show_error_dialog,
+    LaunchFailureChoice, RunningDesktopChoice, hide_console_window, prompt_launch_failure,
+    prompt_running_desktop, show_error_dialog,
 };
 
 pub const CRATE_NAME: &str = "codexhost-platform";
