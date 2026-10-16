@@ -84,13 +84,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, rethrow = false): Promi
  *   changed. The proxy is started first when it is not running.
  * - Everything else passes through untouched.
  */
+/**
+ * Codex is the official agent for OpenAI's models only. Relay models of other families (Claude,
+ * Gemini, DeepSeek, ...) belong in their own vendor's agent, so they are never offered in Codex.
+ */
+export function isCodexFamilyModel(model: string): boolean {
+  return /^(?:gpt-|chatgpt-|codex-|o\d)/iu.test(model.trim());
+}
+
 /** Shown before relay models in Codex's model picker. */
 export const RLY0_RELAY_MODEL_MARK = "⇄";
 
 export class Rly0RelayModelRouter {
   readonly #core: Rly0RelayRoutingCore;
-  #cache: { at: number; models: readonly Rly0RelayModel[]; patterns: readonly string[] } | null =
-    null;
+  #cache: {
+    at: number;
+    models: readonly Rly0RelayModel[];
+    patterns: readonly string[];
+    delegated: readonly string[];
+  } | null = null;
   readonly #loadOfficialModels: (() => Promise<Rly0OfficialCatalogRead>) | undefined;
   readonly #now: () => number;
   /** Entries on earlier pages of the `model/list` currently being paged through. */
@@ -139,7 +151,7 @@ export class Rly0RelayModelRouter {
   /** What the model picker is built from; `refresh` reads the official catalog again first. */
   async catalogStatus(refresh = false): Promise<Rly0RelayModelCatalogStatusResult> {
     if (refresh) await this.#readOfficial();
-    const { models } = await this.#relayModels(refresh);
+    const { models, delegated } = await this.#relayModels(refresh);
     const appended: string[] = [];
     const shadowed: string[] = [];
     for (const { model } of models) {
@@ -150,6 +162,7 @@ export class Rly0RelayModelRouter {
       ...(this.#lastOfficialError ? { lastError: this.#lastOfficialError } : {}),
       appended,
       shadowed,
+      delegated: [...delegated],
     };
   }
 
@@ -170,13 +183,15 @@ export class Rly0RelayModelRouter {
   async #relayModels(fresh = false): Promise<{
     models: readonly Rly0RelayModel[];
     patterns: readonly string[];
+    delegated: readonly string[];
   }> {
     const now = Date.now();
     if (!fresh && this.#cache && now - this.#cache.at < CACHE_TTL_MS) return this.#cache;
     const listed = await withTimeout(this.#core.listRelays(), LIST_TIMEOUT_MS);
-    if (!listed) return this.#cache ?? { models: [], patterns: [] };
+    if (!listed) return this.#cache ?? { models: [], patterns: [], delegated: [] };
     const models: Rly0RelayModel[] = [];
     const patterns: string[] = [];
+    const delegated: string[] = [];
     const seen = new Set<string>();
     if (listed.available) {
       for (const relay of listed.relays) {
@@ -185,16 +200,18 @@ export class Rly0RelayModelRouter {
           const model = raw.trim();
           if (!model) continue;
           if (model.endsWith("*")) {
-            if (model.length > 1) patterns.push(model.slice(0, -1));
+            const prefix = model.slice(0, -1);
+            if (prefix && isCodexFamilyModel(prefix)) patterns.push(prefix);
             continue;
           }
           if (seen.has(model)) continue;
           seen.add(model);
-          models.push({ model, relayName: relay.name });
+          if (isCodexFamilyModel(model)) models.push({ model, relayName: relay.name });
+          else delegated.push(model);
         }
       }
     }
-    this.#cache = { at: now, models, patterns };
+    this.#cache = { at: now, models, patterns, delegated };
     return this.#cache;
   }
 

@@ -459,6 +459,18 @@ export function createRelaySettingsPage(
               : messages.catalogAppendedNone,
           ),
         );
+        if (catalog.delegated.length) {
+          models.append(
+            el(
+              "p",
+              "settings-rly0-mcp__detail",
+              messages.catalogDelegated.replace("{models}", catalog.delegated.join(separator)),
+            ),
+          );
+          if (catalog.delegated.some((model) => /^claude/iu.test(model))) {
+            models.append(el("p", "settings-rly0-mcp__detail", messages.catalogDelegatedClaude));
+          }
+        }
         if (catalog.shadowed.length) {
           models.append(
             el(

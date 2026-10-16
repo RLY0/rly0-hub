@@ -1,7 +1,7 @@
 export const relayEnglish = {
   pageTitle: "Relays",
   description:
-    "Add your own OpenAI-compatible relay and its models show up in the model picker; start a new chat and pick one to use it. API keys are handed to RLY/0 Core once and never shown again; only a masked hint is displayed.",
+    "Add your relay (for example RLY/0). GPT models appear in Codex's model picker; Claude and other models run in their own vendor's agent (for example Claude Code). API keys are handed to RLY/0 Core once and never shown again; only a masked hint is displayed.",
   unavailable: "Relays need the RLY/0 Core bridge (rly0-core).",
   loadFailed: "Could not load relay information.",
   refresh: "Refresh",
@@ -97,7 +97,7 @@ export const relayEnglish = {
   catalogLive: "Official live list",
   catalogNotRead: "Not read yet",
   catalogDescription:
-    "Codex reads its model list from the official service itself. RLY/0 Hub never saves or replaces that list; it only adds your enabled relay models at the end.",
+    "Codex reads its model list from the official service itself. RLY/0 Hub never saves or replaces that list; it only adds your relays' GPT models at the end. Other models run in their own vendor's agent.",
   catalogOfficialCount: "Official models",
   catalogFetched: "Last read",
   catalogVia: "Read by",
@@ -107,6 +107,9 @@ export const relayEnglish = {
     "Codex has not read the official list since RLY/0 Hub started. Open the model picker, or check now.",
   catalogAppended: "Relay models added at the end: {models}",
   catalogAppendedNone: "No relay models are added.",
+  catalogDelegated: "Not added to Codex, use them in their own vendor's agent: {models}",
+  catalogDelegatedClaude:
+    'Claude models: turn on "Native agents through a relay" above to let Claude Code use this relay.',
   catalogShadowed: "Same name as an official model, so they stay official: {models}",
   catalogError:
     "The last check could not read the official list ({time}). Relay models still work; the picker keeps whatever Codex last read.",
@@ -147,7 +150,7 @@ export type RelayMessages = typeof relayEnglish;
 export const relayChinese: RelayMessages = {
   pageTitle: "中转站",
   description:
-    "添加你自己的 OpenAI 兼容中转站后，它的模型会直接出现在模型选择器里，新建对话并选中即可使用。API Key 只交给 RLY/0 Core 一次，之后不会再显示，界面只展示脱敏提示。",
+    "添加你的中转站（如零号中转）后：GPT 系列模型会出现在 Codex 的模型菜单里；Claude 等其他模型交给它们自家的官方 Agent（如 Claude Code）使用。API Key 只交给 RLY/0 Core 一次，之后不会再显示，界面只展示脱敏提示。",
   unavailable: "中转站功能需要 RLY/0 Core（rly0-core）。",
   loadFailed: "加载中转信息失败。",
   refresh: "刷新",
@@ -243,7 +246,7 @@ export const relayChinese: RelayMessages = {
   catalogLive: "官方实时列表",
   catalogNotRead: "尚未读取",
   catalogDescription:
-    "Codex 的模型菜单由 Codex 自己向官方实时读取。RLY/0 Hub 不保存、也不替换这份列表，只把已启用中转的模型追加在末尾。",
+    "Codex 的模型菜单由 Codex 自己向官方实时读取。RLY/0 Hub 不保存、也不替换这份列表，只把中转站的 GPT 系列模型追加在末尾；其他模型交给它们自家的官方 Agent。",
   catalogOfficialCount: "官方模型",
   catalogFetched: "最近读取",
   catalogVia: "读取方",
@@ -252,6 +255,9 @@ export const relayChinese: RelayMessages = {
   catalogNone: "本次启动后 Codex 还没读取官方列表。打开一次模型菜单，或点“重新检查”。",
   catalogAppended: "追加在末尾的中转模型：{models}",
   catalogAppendedNone: "没有追加中转模型。",
+  catalogDelegated: "以下模型不放进 Codex 菜单，请在它们自家的官方 Agent 里使用：{models}",
+  catalogDelegatedClaude:
+    "Claude 模型：在上方“原生 Agent 使用中转”里让 Claude Code 走这个中转即可使用。",
   catalogShadowed: "与官方模型同名，按官方处理：{models}",
   catalogError:
     "最近一次检查没能读到官方列表（{time}）。中转模型仍可使用，菜单保持 Codex 上次读到的内容。",

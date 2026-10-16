@@ -248,6 +248,11 @@ export const rly0RelayModelCatalogStatusResultSchema = z
     appended: rly0RelayModelsSchema,
     /** Relay models not added because the official catalog already has that name. */
     shadowed: rly0RelayModelsSchema,
+    /**
+     * Relay models of other model families. They are not added to Codex: each is meant to run in
+     * its own vendor's agent (e.g. Claude models in Claude Code through a relay).
+     */
+    delegated: rly0RelayModelsSchema,
   })
   .strict();
 export type Rly0RelayModelCatalogStatusResult = z.infer<

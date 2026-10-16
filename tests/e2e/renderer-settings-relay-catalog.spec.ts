@@ -31,14 +31,14 @@ const { outputFiles } = await build({
           rly0RelayCodexConfigStatus: async () => ({ configPath:"C:/Users/me/.codex/config.toml", configExists:true, providerPresent:false, applied:false }),
           rly0RelayModelCatalogStatus: async (input = {}) => {
             calls.push(input);
-            if (scenario === "unread" && !input.refresh) return { official:null, appended:["claude-opus-5"], shadowed:["gpt-5.5"] };
+            if (scenario === "unread" && !input.refresh) return { official:null, appended: ["gpt-relay-1"], shadowed:["gpt-5.5"], delegated:["claude-opus-4-7"] };
             if (input.refresh && failCheck) {
               return { official: scenario === "failing" ? { fetchedAt: now - 42*60000, count: 11, via:"codex" } : null,
-                lastError:{ at: Date.now(), message:"OFFICIAL_CATALOG_FAILED" }, appended:["claude-opus-5"], shadowed:["gpt-5.5"] };
+                lastError:{ at: Date.now(), message:"OFFICIAL_CATALOG_FAILED" }, appended: ["gpt-relay-1"], shadowed:["gpt-5.5"], delegated:["claude-opus-4-7"] };
             }
             return {
               official: input.refresh ? { fetchedAt: Date.now(), count: 12, via:"hub" } : { fetchedAt: now - 3*60000, count: 11, via:"codex" },
-              appended:["claude-opus-5"], shadowed:["gpt-5.5"],
+              appended: ["gpt-relay-1"], shadowed:["gpt-5.5"], delegated:["claude-opus-4-7"],
             };
           },
         };
@@ -91,7 +91,7 @@ for (const theme of ["dark", "light"] as const) {
     await expect(catalog).toContainText("官方实时列表");
     await expect(catalog).toContainText("11");
     await expect(catalog).toContainText("3 分钟前");
-    await expect(catalog).toContainText("追加在末尾的中转模型：claude-opus-5");
+    await expect(catalog).toContainText("追加在末尾的中转模型：gpt-relay-1");
     await expect(catalog).toContainText("与官方模型同名，按官方处理：gpt-5.5");
     await catalog.scrollIntoViewIfNeeded();
     await catalog.screenshot({ path: testInfo.outputPath(`catalog-${theme}.png`) });

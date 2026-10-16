@@ -36,14 +36,14 @@ const { outputFiles } = await build({
           rly0MaintenanceRestartCodex: async () => ({ supported: true, ok: true }),
           rly0RelayModelCatalogStatus: async (input = {}) => {
             calls.push(input);
-            if (scenario === "unread" && !input.refresh) return { official:null, appended:["claude-opus-5"], shadowed:["gpt-5.5"] };
+            if (scenario === "unread" && !input.refresh) return { official:null, appended: ["gpt-relay-1"], shadowed:["gpt-5.5"], delegated:["claude-opus-4-7"] };
             if (input.refresh && failCheck) {
               return { official: scenario === "failing" ? { fetchedAt: now - 42*60000, count: 11, via:"codex" } : null,
-                lastError:{ at: Date.now(), message:"OFFICIAL_CATALOG_FAILED" }, appended:["claude-opus-5"], shadowed:["gpt-5.5"] };
+                lastError:{ at: Date.now(), message:"OFFICIAL_CATALOG_FAILED" }, appended: ["gpt-relay-1"], shadowed:["gpt-5.5"], delegated:["claude-opus-4-7"] };
             }
             return {
               official: input.refresh ? { fetchedAt: Date.now(), count: 12, via:"hub" } : { fetchedAt: now - 3*60000, count: 11, via:"codex" },
-              appended:["claude-opus-5"], shadowed:["gpt-5.5"],
+              appended: ["gpt-relay-1"], shadowed:["gpt-5.5"], delegated:["claude-opus-4-7"],
             };
           },
         };

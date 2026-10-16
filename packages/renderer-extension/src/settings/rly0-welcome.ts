@@ -34,7 +34,8 @@ const english: Rly0WelcomeMessages = {
   accountBody: "Only needed if you use more than one account. Your login itself is not changed.",
   accountAction: "Go to Accounts",
   relayTitle: "Use a relay (optional)",
-  relayBody: "Add a relay and its models show up directly in Codex's model picker.",
+  relayBody:
+    "GPT models from a relay appear in Codex's model picker; Claude models can run in Claude Code through the relay.",
   relayAction: "Go to Relays",
   backupTitle: "Your Codex settings are backed up",
   backupBody:
@@ -55,7 +56,8 @@ const chinese: Rly0WelcomeMessages = {
   accountBody: "只有使用多个账号时才需要。不会改动你当前的登录。",
   accountAction: "去账号页",
   relayTitle: "使用中转站（可选）",
-  relayBody: "添加中转站后，它的模型会直接出现在 Codex 的模型菜单里。",
+  relayBody:
+    "中转站的 GPT 模型会出现在 Codex 的模型菜单里；Claude 模型可以让 Claude Code 走中转使用。",
   relayAction: "去中转站",
   backupTitle: "已为你备份 Codex 设置",
   backupBody: "RLY/0 Hub 第一次运行时保存了一份，随时可以在“维护工具”里还原。",

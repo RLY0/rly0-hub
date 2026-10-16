@@ -31,7 +31,7 @@ function fakeCore(options: { running?: boolean } = {}) {
               name: "My relay",
               baseUrl: "https://relay.example/v1",
               protocol: "responses",
-              models: ["claude-opus-5", "gpt-5.5", "deepseek-*"],
+              models: ["gpt-relay-1", "gpt-5.5", "o9-*", "claude-opus-5", "deepseek-*"],
               enabled: true,
               hasKey: true,
             },
@@ -87,11 +87,11 @@ describe("RLY/0 relay model routing", () => {
     await router.prepareModelList();
     const rewritten = router.rewriteModelListResponse(officialList) as typeof officialList;
     const models = rewritten.result.data.map((entry) => entry.model);
-    expect(models).toEqual(["gpt-5.5", "claude-opus-5"]);
+    expect(models).toEqual(["gpt-5.5", "gpt-relay-1"]);
     const added = rewritten.result.data[1] as Record<string, unknown>;
     expect(added).toMatchObject({
-      id: "claude-opus-5",
-      displayName: "⇄ My relay · claude-opus-5",
+      id: "gpt-relay-1",
+      displayName: "⇄ My relay · gpt-relay-1",
       description: "My relay · RLY/0",
       isDefault: false,
       hidden: false,
@@ -100,17 +100,20 @@ describe("RLY/0 relay model routing", () => {
     expect(added.upgrade).toBeUndefined();
     // Official names stay official even though the relay lists them too.
     expect(await router.isRelayModel("gpt-5.5")).toBe(false);
-    expect(await router.isRelayModel("deepseek-v4")).toBe(true);
+    expect(await router.isRelayModel("o9-mini")).toBe(true);
+    // Other model families never run in Codex, even when a relay offers them.
+    expect(await router.isRelayModel("deepseek-v4")).toBe(false);
+    expect(await router.isRelayModel("claude-opus-5")).toBe(false);
     expect(await router.isRelayModel("hidden-model")).toBe(false);
   });
 
   it("moves relay-model threads onto the local proxy and starts it when needed", async () => {
     const { core, calls } = fakeCore();
     const router = new Rly0RelayModelRouter(core);
-    const next = await router.rewriteThreadParams({ model: "claude-opus-5", cwd: "x" });
+    const next = await router.rewriteThreadParams({ model: "gpt-relay-1", cwd: "x" });
     expect(calls).toContain("start");
     expect(next).toMatchObject({
-      model: "claude-opus-5",
+      model: "gpt-relay-1",
       cwd: "x",
       modelProvider: "rly0",
       config: {
@@ -147,7 +150,7 @@ describe("RLY/0 relay model routing", () => {
         data: [
           { id: "gpt-6-luna", model: "gpt-6-luna", displayName: "Luna", isDefault: true, extra: 1 },
           { id: "gpt-5.5", model: "gpt-5.5", displayName: "GPT-5.5", hidden: true },
-          { id: "claude-opus-5", model: "claude-opus-5", displayName: "Official Opus" },
+          { id: "gpt-relay-1", model: "gpt-relay-1", displayName: "Official Opus" },
         ],
         nextCursor: null,
       },
@@ -156,7 +159,7 @@ describe("RLY/0 relay model routing", () => {
     // Every relay name here is official, so nothing is added at all.
     expect(router.rewriteModelListResponse(official)).toBeNull();
     expect(official).toEqual(snapshot);
-    expect(await router.isRelayModel("claude-opus-5")).toBe(false);
+    expect(await router.isRelayModel("gpt-relay-1")).toBe(false);
   });
 
   it("forwards an official model/list error untouched instead of a substitute catalog", async () => {
@@ -173,7 +176,7 @@ describe("RLY/0 relay model routing", () => {
     await router.prepareModelList();
     const page1 = {
       id: 1,
-      result: { data: [{ id: "claude-opus-5", model: "claude-opus-5" }], nextCursor: "p2" },
+      result: { data: [{ id: "gpt-relay-1", model: "gpt-relay-1" }], nextCursor: "p2" },
     };
     expect(router.rewriteModelListResponse(page1)).toBeNull();
     const page2 = {
@@ -198,7 +201,7 @@ describe("RLY/0 relay model routing", () => {
     // The relay lists gpt-5.5 too, but it is official: the thread must stay on the account.
     expect(await router.rewriteThreadParams({ model: "gpt-5.5" })).toBeNull();
     expect(calls).not.toContain("start");
-    expect(await router.isRelayModel("claude-opus-5")).toBe(true);
+    expect(await router.isRelayModel("gpt-relay-1")).toBe(true);
     expect(reads).toBe(1);
     // Unlisted names never trigger an official read.
     expect(await router.isRelayModel("not-a-relay-model")).toBe(false);
@@ -214,9 +217,9 @@ describe("RLY/0 relay model routing", () => {
         throw new Error("official runtime down");
       },
     });
-    expect(await router.isRelayModel("claude-opus-5")).toBe(true);
+    expect(await router.isRelayModel("gpt-relay-1")).toBe(true);
     // A failed read is not retried on every turn.
-    expect(await router.isRelayModel("claude-opus-5")).toBe(true);
+    expect(await router.isRelayModel("gpt-relay-1")).toBe(true);
     expect(reads).toBe(1);
   });
 
@@ -228,13 +231,14 @@ describe("RLY/0 relay model routing", () => {
       now: () => now,
       loadOfficialModels: async () => {
         if (fail) throw new Error("OFFICIAL_CATALOG_FAILED");
-        return { names: ["gpt-6", "claude-opus-5"], count: 2 };
+        return { names: ["gpt-6", "gpt-relay-1"], count: 2 };
       },
     });
     expect(await router.catalogStatus()).toEqual({
       official: null,
-      appended: ["claude-opus-5", "gpt-5.5"],
+      appended: ["gpt-relay-1", "gpt-5.5"],
       shadowed: [],
+      delegated: ["claude-opus-5"],
     });
 
     await router.prepareModelList();
@@ -252,7 +256,7 @@ describe("RLY/0 relay model routing", () => {
     router.rewriteModelListResponse(officialList);
     expect(await router.catalogStatus()).toMatchObject({
       official: { fetchedAt: 2_000, count: 3, via: "codex" },
-      appended: ["claude-opus-5"],
+      appended: ["gpt-relay-1"],
       shadowed: ["gpt-5.5"],
     });
 
@@ -261,7 +265,7 @@ describe("RLY/0 relay model routing", () => {
     expect(refreshed).toMatchObject({
       official: { fetchedAt: 3_000, count: 2, via: "hub" },
       appended: [],
-      shadowed: ["claude-opus-5", "gpt-5.5"],
+      shadowed: ["gpt-relay-1", "gpt-5.5"],
     });
     expect(refreshed).not.toHaveProperty("lastError");
 
@@ -313,7 +317,7 @@ describe("RLY/0 relay model routing", () => {
       },
     });
     expect(await router.rewriteThreadParams({ threadId: "t1" })).toBeNull();
-    await expect(router.rewriteThreadParams({ model: "claude-opus-5" })).rejects.toThrow(
+    await expect(router.rewriteThreadParams({ model: "gpt-relay-1" })).rejects.toThrow(
       "RLY0_PROXY_UNAVAILABLE",
     );
   });

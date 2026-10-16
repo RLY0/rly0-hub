@@ -515,11 +515,13 @@ describe("Relay settings page", () => {
             official: { fetchedAt: Date.now(), count: 12, via: "hub" as const },
             appended: ["claude-opus-5"],
             shadowed: ["gpt-5.5"],
+            delegated: ["claude-opus-4-7"],
           }
         : {
             official: { fetchedAt, count: 11, via: "codex" as const },
             appended: ["claude-opus-5"],
             shadowed: [],
+            delegated: [],
           },
     );
     const { root } = mountPage(fullClient({ rly0RelayModelCatalogStatus: catalogStatus }));
@@ -543,6 +545,8 @@ describe("Relay settings page", () => {
     expect(after).toContain("12");
     expect(after).toContain(messages.catalogViaHub);
     expect(after).toContain(messages.catalogShadowed.replace("{models}", "gpt-5.5"));
+    expect(after).toContain(messages.catalogDelegated.replace("{models}", "claude-opus-4-7"));
+    expect(after).toContain(messages.catalogDelegatedClaude);
   });
 
   it("says when the official list was never read or the last check failed", async () => {
@@ -553,6 +557,7 @@ describe("Relay settings page", () => {
           lastError: { at: Date.now(), message: "OFFICIAL_CATALOG_FAILED" },
           appended: [],
           shadowed: [],
+          delegated: [],
         }),
       }),
     );
