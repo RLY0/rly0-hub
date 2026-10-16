@@ -134,6 +134,7 @@ export interface ClaudeQuickStartOptions {
 type View =
   | { kind: "checking" }
   | { kind: "hidden" }
+  | { kind: "notFound" }
   | { kind: "ready"; via: string }
   | { kind: "restart"; relayName: string }
   | { kind: "setup"; relay: Rly0Relay | null; error?: string }
@@ -192,6 +193,20 @@ export function createClaudeQuickStart(
       case "checking":
         root.append(el("p", undefined, t("Checking Claude Code…", "正在检查 Claude Code…")));
         return;
+      case "notFound": {
+        root.append(
+          el(
+            "p",
+            undefined,
+            t(
+              "Claude Code is installed, but Codex needs a restart to finish setting it up.",
+              "Claude Code 已经装好，需要重启一次 Codex 才能完成配置。",
+            ),
+          ),
+          button(t("Restart Codex", "重启 Codex"), true, () => void restartOnly()),
+        );
+        return;
+      }
       case "working":
         root.append(el("p", "settings-rly0-quick-start__status", view.text));
         return;
@@ -359,7 +374,9 @@ export function createClaudeQuickStart(
       ]);
       const relays = listed?.available ? listed.relays : [];
       const nameOf = (id: string): string => relays.find((relay) => relay.id === id)?.name ?? id;
-      if (!auth.installed) view = { kind: "hidden" };
+      // Codex already lists Claude Code here, so a missing command means this Codex session started
+      // before the install: a restart picks it up.
+      if (!auth.installed) view = { kind: "notFound" };
       else if (agents?.claudeCode && agents.restartRequired)
         view = { kind: "restart", relayName: nameOf(agents.claudeCode) };
       else if (agents?.active?.claudeCode)
@@ -429,6 +446,22 @@ export function createClaudeQuickStart(
         kind: "setup",
         relay: null,
         error: t("Could not start the sign-in.", "无法开始登录。"),
+      };
+      render();
+    }
+  };
+
+  const restartOnly = async (): Promise<void> => {
+    const restart = getClient()?.rly0MaintenanceRestartCodex;
+    view = { kind: "working", text: t("Restarting Codex…", "正在重启 Codex…") };
+    render();
+    try {
+      const result = await restart?.();
+      if (!result?.supported || !result.ok) throw new Error("restart");
+    } catch {
+      view = {
+        kind: "working",
+        text: t("Close and reopen Codex to finish.", "请关闭并重新打开 Codex 完成配置。"),
       };
       render();
     }

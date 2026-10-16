@@ -14,6 +14,36 @@ export interface ClaudeCodeAuthOptions {
   readonly fileExists?: (file: string) => boolean;
 }
 
+/**
+ * PATH plus the folders Claude Code's own installers use. A freshly installed Claude Code is often
+ * missing from the PATH Codex started with, though its installer already updated the user's PATH.
+ */
+export function withClaudeCodeInstallPaths(
+  environment: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  const windows = platform === "win32";
+  const pathApi = windows ? path.win32 : path.posix;
+  const home = environment.USERPROFILE ?? environment.HOME ?? "";
+  const extra = windows
+    ? [
+        home ? pathApi.join(home, ".local", "bin") : "",
+        environment.APPDATA ? pathApi.join(environment.APPDATA, "npm") : "",
+      ]
+    : [
+        home ? pathApi.join(home, ".local", "bin") : "",
+        home ? pathApi.join(home, ".claude", "local") : "",
+        home ? pathApi.join(home, ".npm-global", "bin") : "",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+      ];
+  const current = environment.PATH ?? environment.Path ?? "";
+  const next: NodeJS.ProcessEnv = { ...environment };
+  delete next.Path;
+  next.PATH = [current, ...extra.filter(Boolean)].filter(Boolean).join(pathApi.delimiter);
+  return next;
+}
+
 /** Whether `command` names an existing file, directly or through PATH (and PATHEXT on Windows). */
 export function commandExists(
   command: string,
@@ -106,17 +136,24 @@ export class ClaudeCodeAuth {
     // npm installs `claude` as a .cmd shim on Windows, which needs a shell. The arguments are fixed
     // literals here and the command comes from PATH or the person's own saved setting.
     return spawnProcess(windows ? `"${command}"` : command, [...args], {
-      env: this.#options.environment,
+      env: this.#environment(),
       shell: windows,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
   }
 
+  #environment(): NodeJS.ProcessEnv {
+    return withClaudeCodeInstallPaths(
+      this.#options.environment,
+      this.#options.platform ?? process.platform,
+    );
+  }
+
   #installed(command: string): boolean {
     return commandExists(
       command,
-      this.#options.environment,
+      this.#environment(),
       this.#options.platform ?? process.platform,
       this.#options.fileExists,
     );

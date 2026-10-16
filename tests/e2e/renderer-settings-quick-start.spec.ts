@@ -18,7 +18,7 @@ const { outputFiles } = await build({
       import { consumePendingNewChat, openNewChatWith } from "./packages/renderer-extension/src/settings/rly0-quick-start.ts";
 
       globalThis.quickStartHelpers = { consumePendingNewChat, openNewChatWith };
-      globalThis.setupQuickStart = ({ theme = "dark", loggedIn = false } = {}) => {
+      globalThis.setupQuickStart = ({ theme = "dark", loggedIn = false, installed = true } = {}) => {
         document.documentElement.style.colorScheme = theme;
         const newChat = document.createElement("button");
         newChat.setAttribute("aria-label", "新聊天");
@@ -29,7 +29,9 @@ const { outputFiles } = await build({
         let relays = [];
         let agent = null;
         const client = {
-          rly0ClaudeCodeAuthStatus: async () => loggedIn
+          rly0ClaudeCodeAuthStatus: async () => !installed
+            ? { installed: false, loggedIn: false }
+            : loggedIn
             ? { installed: true, loggedIn: true, email: "me@example.com", plan: "max" }
             : { installed: true, loggedIn: false },
           rly0ClaudeCodeLogin: async () => { calls.push("login"); return { started: true, url: "https://claude.ai/oauth/authorize" }; },
@@ -136,4 +138,17 @@ test("signing in with a Claude subscription waits for the browser", async ({ pag
   await block.getByRole("button", { name: "用 Claude 账号登录" }).click();
   await expect(block).toContainText("请在浏览器里完成登录");
   await expect(block.getByRole("link", { name: "打开登录页 ↗" })).toBeVisible();
+});
+
+test("asks for a Codex restart when Claude Code was installed after Codex started", async ({
+  page,
+}) => {
+  await setup(page, { installed: false });
+  const block = page.locator(".settings-rly0-quick-start");
+  await expect(block).toContainText("Claude Code 已经装好，需要重启一次 Codex 才能完成配置");
+  await block.getByRole("button", { name: "重启 Codex" }).click();
+  await expect(block).toContainText("正在重启 Codex");
+  expect(await page.evaluate(() => Reflect.get(globalThis, "quickStartCalls"))).toEqual([
+    "restart",
+  ]);
 });

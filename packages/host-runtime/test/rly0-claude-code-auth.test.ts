@@ -7,6 +7,7 @@ import {
   ClaudeCodeAuth,
   commandExists,
   parseClaudeAuthStatus,
+  withClaudeCodeInstallPaths,
 } from "../src/rly0-agents/claude-code-auth.js";
 
 function fakeSpawn(script: (args: readonly string[]) => { output?: string; code?: number }) {
@@ -116,5 +117,21 @@ describe("Claude Code sign-in through its CLI", () => {
     expect(await missing.status()).toEqual({ installed: false, loggedIn: false });
     expect(await missing.login("claudeai")).toEqual({ started: false });
     expect(calls).toEqual([]);
+  });
+
+  it("finds a freshly installed Claude Code outside the PATH Codex started with", async () => {
+    const { calls, spawnProcess } = fakeSpawn(() => ({ output: '{"loggedIn":false}' }));
+    const nativeInstall = "C:\\Users\\me\\.local\\bin\\claude.exe";
+    const auth = new ClaudeCodeAuth({
+      environment: { PATH: "C:\\Windows", USERPROFILE: "C:\\Users\\me", PATHEXT: ".EXE;.CMD" },
+      spawnProcess,
+      platform: "win32",
+      fileExists: (file) => file.toLowerCase() === nativeInstall.toLowerCase(),
+    });
+    expect(await auth.status()).toEqual({ installed: true, loggedIn: false });
+    expect(calls).toHaveLength(1);
+    expect(
+      withClaudeCodeInstallPaths({ PATH: "C:\\Windows", USERPROFILE: "C:\\Users\\me" }, "win32").PATH,
+    ).toBe("C:\\Windows;C:\\Users\\me\\.local\\bin");
   });
 });
