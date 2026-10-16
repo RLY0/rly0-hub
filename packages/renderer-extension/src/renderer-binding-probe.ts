@@ -2437,6 +2437,9 @@ export function installRendererBindingProbe(
       if (!client?.rly0AgentInstallStatus) throw new Error("One-click install is unavailable");
       return client.rly0AgentInstallStatus({ agent: externalHarnessIds[agent] });
     },
+    quickStartClient() {
+      return modelControl;
+    },
     async openAgentLogin(hostId: string, agent: ExternalRendererAgent) {
       const client = hostId === "local" ? modelClientForHost(hostId) : null;
       if (!client?.rly0AgentOpenLogin) return false;

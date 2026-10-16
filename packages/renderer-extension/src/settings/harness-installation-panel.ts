@@ -18,6 +18,8 @@ export interface HarnessInstallationPanelOptions {
   readonly autoStart?: boolean;
   /** Switches the settings page, e.g. to sign Claude Code in. */
   readonly navigate?: (pageId: string) => void;
+  /** "Start using" block shown right after a successful install (Claude Code). */
+  readonly quickStart?: () => HTMLElement;
 }
 
 const POLL_MS = 1_500;
@@ -188,7 +190,9 @@ export function createHarnessInstallationPanel(
       done.className = "settings-harness-installation-auto__done";
       const next = document.createElement("div");
       next.className = "settings-harness-installation-auto__actions";
-      if (agent === "claude-code" && options.navigate) {
+      if (options.quickStart) {
+        auto.append(options.quickStart());
+      } else if (agent === "claude-code" && options.navigate) {
         const navigate = options.navigate;
         const signIn = document.createElement("button");
         signIn.type = "button";

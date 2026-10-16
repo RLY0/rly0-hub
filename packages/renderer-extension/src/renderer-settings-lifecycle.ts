@@ -1,3 +1,4 @@
+import { consumePendingNewChat, openNewChatWith } from "./settings/rly0-quick-start.js";
 import type { LoadedSessionsClient } from "./settings/loaded-sessions-table.js";
 import { RLY0_WELCOME_DISMISSED_STORAGE_KEY } from "./settings/rly0-welcome.js";
 import { readCodexLocaleSettings, type CodexLocaleSettings } from "./codex-locale-adapter.js";
@@ -256,6 +257,13 @@ export function installRendererSettingsLifecycle(
   const maybeShowWelcome = (): void => {
     if (welcomeChecked || disposed || !shell?.supported || !trigger?.root?.isConnected) return;
     welcomeChecked = true;
+    // A setup step restarted Codex to finish (e.g. Claude Code through a relay): open the chat it
+    // was heading for instead of the dashboard.
+    const pendingAgent = consumePendingNewChat(ownerWindow.document);
+    if (pendingAgent) {
+      openNewChatWith(ownerWindow.document, pendingAgent);
+      return;
+    }
     try {
       if (ownerWindow.localStorage.getItem(RLY0_WELCOME_DISMISSED_STORAGE_KEY) === "1") return;
       ownerWindow.localStorage.setItem(RLY0_WELCOME_STORAGE_KEY, new Date().toISOString());

@@ -192,3 +192,79 @@
 .settings-harness-installation-manual[open] > summary {
   margin-bottom: 6px;
 }
+
+/* "Start using Claude Code" */
+.settings-rly0-quick-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--settings-accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--settings-accent) 7%, var(--settings-surface));
+}
+.settings-rly0-quick-start p {
+  margin: 0;
+  color: var(--settings-text);
+  line-height: 1.6;
+}
+.settings-rly0-quick-start__title {
+  font-size: 14px;
+}
+.settings-rly0-quick-start .settings-rly0-quick-start__ok {
+  color: var(--settings-success);
+  font-weight: 600;
+}
+.settings-rly0-quick-start .settings-rly0-quick-start__status {
+  font-weight: 600;
+}
+.settings-rly0-quick-start .settings-rly0-quick-start__error {
+  color: var(--settings-danger);
+}
+.settings-rly0-quick-start__choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.settings-rly0-quick-start__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--settings-border);
+  border-radius: 8px;
+  background: var(--settings-surface);
+}
+.settings-rly0-quick-start__choice > span {
+  color: var(--settings-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.settings-rly0-quick-start__key-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+.settings-rly0-quick-start__key {
+  flex: 1 1 140px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--settings-border);
+  border-radius: 6px;
+  background: var(--settings-surface);
+  color: var(--settings-text);
+  font: inherit;
+  font-size: 12px;
+}
+.settings-rly0-quick-start__signup {
+  color: var(--settings-accent);
+  font-size: 12px;
+}

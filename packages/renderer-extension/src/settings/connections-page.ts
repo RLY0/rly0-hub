@@ -1,3 +1,4 @@
+import { createClaudeQuickStart, type ClaudeQuickStartClient } from "./rly0-quick-start.js";
 import type { Rly0AgentInstallStatus } from "@codexhost/shared-contracts";
 import {
   RLY0_GITHUB_ISSUES_NEW_URL,
@@ -54,6 +55,8 @@ export interface RendererConnectionDiagnostics {
   installAgent?(hostId: string, agent: ExternalRendererAgent): Promise<Rly0AgentInstallStatus>;
   installStatus?(hostId: string, agent: ExternalRendererAgent): Promise<Rly0AgentInstallStatus>;
   openAgentLogin?(hostId: string, agent: ExternalRendererAgent): Promise<boolean>;
+  /** Client for "start using Claude Code" (sign-in, relay, restart). */
+  quickStartClient?(): ClaudeQuickStartClient | null;
 }
 
 /** Agents whose row "Install" button was clicked; their panel starts installing on open. */
@@ -426,6 +429,21 @@ function renderConnectionInspector(
     body.append(compatibility);
   }
 
+  const quickStartClient =
+    hostId === "local" && item.agentSnapshot?.agent === "claude-code"
+      ? diagnostics?.quickStartClient?.bind(diagnostics)
+      : undefined;
+  const quickStart = quickStartClient
+    ? () =>
+        createClaudeQuickStart(document, quickStartClient, {
+          zh: messages.locale === "zh-CN",
+          closeLabel: messages.close,
+        })
+    : undefined;
+  if (quickStart && item.agentSnapshot?.availability !== "notInstalled") {
+    body.append(quickStart());
+  }
+
   if (item.agentSnapshot?.availability === "notInstalled") {
     const callout = document.createElement("div");
     callout.className = "settings-connection-install-callout";
@@ -465,6 +483,7 @@ function renderConnectionInspector(
           : {}),
         autoStart: pendingAutoInstall.delete(agent),
         ...(navigate ? { navigate } : {}),
+        ...(quickStart ? { quickStart } : {}),
       },
     );
     body.append(callout, install);
