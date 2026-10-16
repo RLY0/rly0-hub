@@ -1,3 +1,4 @@
+import type { Rly0AgentInstallStatus } from "@codexhost/shared-contracts";
 import {
   RLY0_GITHUB_ISSUES_NEW_URL,
   type CodexhostError,
@@ -49,7 +50,14 @@ export interface RendererConnectionDiagnostics {
     path: string | null,
   ): Promise<HarnessLaunchSettings>;
   subscribe(listener: () => void): () => void;
+  /** RLY/0 Hub one-click installation (local host). */
+  installAgent?(hostId: string, agent: ExternalRendererAgent): Promise<Rly0AgentInstallStatus>;
+  installStatus?(hostId: string, agent: ExternalRendererAgent): Promise<Rly0AgentInstallStatus>;
+  openAgentLogin?(hostId: string, agent: ExternalRendererAgent): Promise<boolean>;
 }
+
+/** Agents whose row "Install" button was clicked; their panel starts installing on open. */
+const pendingAutoInstall = new Set<ExternalRendererAgent>();
 
 type ConnectionAvailability = RendererAgentAvailability | RendererAdapterStatus["state"];
 type ConnectionTone = "ready" | "checking" | "setup" | "failed";
@@ -312,16 +320,20 @@ function createConnectionRow(
   action.className = "settings-connection-row__action";
   action.setAttribute("role", "cell");
   if (item.agentSnapshot?.availability === "notInstalled") {
+    const agent = item.agentSnapshot.agent;
     const install = document.createElement("button");
     install.type = "button";
-    install.className = "settings-connection-install-link";
+    install.className = "settings-connection-install-link settings-connection-install-link--label";
     install.addEventListener("click", (event) => {
       event.stopPropagation();
+      // A real install, not just the instructions: the panel starts it as soon as it opens.
+      pendingAutoInstall.add(agent);
       select();
     });
-    install.setAttribute("aria-label", `${messages.connectionOpenInstallation}: ${item.name}`);
-    install.title = messages.connectionOpenInstallation;
-    install.append(createRendererSettingsIcon("download", 17));
+    const label = messages.locale === "zh-CN" ? "一键安装" : "Install";
+    install.setAttribute("aria-label", `${label}: ${item.name}`);
+    install.title = label;
+    install.append(createRendererSettingsIcon("download", 15), label);
     action.append(install);
   } else if (item.error) {
     const viewError = document.createElement("button");
@@ -402,6 +414,7 @@ function renderConnectionInspector(
   diagnostics: RendererConnectionDiagnostics | null,
   existingLaunchControls: HTMLElement | null,
   refresh: () => void,
+  navigate?: (pageId: string) => void,
 ): HTMLElement | null {
   inspector.replaceChildren(createInspectorHeader(document, item, messages));
   const body = document.createElement("div");
@@ -426,14 +439,33 @@ function renderConnectionInspector(
     description.textContent = messages.connectionInstallDescription;
     copy.append(title, description);
     callout.append(icon, copy);
+    const agent = item.agentSnapshot.agent;
+    const installAgent = diagnostics?.installAgent?.bind(diagnostics);
+    const installStatus = diagnostics?.installStatus?.bind(diagnostics);
+    const openAgentLogin = diagnostics?.openAgentLogin?.bind(diagnostics);
     const install = createHarnessInstallationPanel(
       document,
-      item.agentSnapshot.agent,
+      agent,
       hostId,
       messages,
       (button, command, label) =>
         copyDiagnosticsToClipboard(document, button, command, messages, label),
       refresh,
+      {
+        ...(installAgent && installStatus
+          ? {
+              installer: {
+                start: (target) => installAgent(hostId, target),
+                status: (target) => installStatus(hostId, target),
+                ...(openAgentLogin
+                  ? { openLogin: (target: ExternalRendererAgent) => openAgentLogin(hostId, target) }
+                  : {}),
+              },
+            }
+          : {}),
+        autoStart: pendingAutoInstall.delete(agent),
+        ...(navigate ? { navigate } : {}),
+      },
     );
     body.append(callout, install);
   } else if (item.error) {
@@ -836,6 +868,7 @@ export function createConnectionsSettingsPage(
             getDiagnostics(),
             existing,
             runRefresh,
+            context.navigate,
           );
           launchControls = { hostId: selectedHost.hostId, itemKey: item.key, element };
         };

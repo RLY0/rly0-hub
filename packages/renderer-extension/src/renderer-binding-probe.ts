@@ -2427,6 +2427,21 @@ export function installRendererBindingProbe(
       connectionListeners.add(listener);
       return () => connectionListeners.delete(listener);
     },
+    async installAgent(hostId: string, agent: ExternalRendererAgent) {
+      const client = hostId === "local" ? modelClientForHost(hostId) : null;
+      if (!client?.rly0AgentInstallStart) throw new Error("One-click install is unavailable");
+      return client.rly0AgentInstallStart({ agent: externalHarnessIds[agent] });
+    },
+    async installStatus(hostId: string, agent: ExternalRendererAgent) {
+      const client = hostId === "local" ? modelClientForHost(hostId) : null;
+      if (!client?.rly0AgentInstallStatus) throw new Error("One-click install is unavailable");
+      return client.rly0AgentInstallStatus({ agent: externalHarnessIds[agent] });
+    },
+    async openAgentLogin(hostId: string, agent: ExternalRendererAgent) {
+      const client = hostId === "local" ? modelClientForHost(hostId) : null;
+      if (!client?.rly0AgentOpenLogin) return false;
+      return (await client.rly0AgentOpenLogin({ agent: externalHarnessIds[agent] })).ok;
+    },
   };
 
   const mount = (composer: Element): void => {

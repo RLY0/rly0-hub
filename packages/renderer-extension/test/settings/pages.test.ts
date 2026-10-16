@@ -30,6 +30,7 @@ import {
 import { credentialImportChinese } from "../../src/settings/credential-import-messages.js";
 import { createHarnessAccounts } from "../../src/settings/harness-accounts.js";
 import { rendererSettingsMessages } from "../../src/settings/localization.js";
+import { resetHarnessInstallationStateForTests } from "../../src/settings/harness-installation-panel.js";
 import { createRendererModelClient } from "../../src/renderer-model-client.js";
 import { RendererSessionImportUnavailableError } from "../../src/renderer-session-import-client.js";
 const HARNESS_SESSION_LIST_METHOD = "codexhost/harness/session-import/list";
@@ -823,6 +824,85 @@ describe("Renderer Connections page", () => {
     cleanup?.();
     scope.dispose();
   });
+
+  it.each([
+    ["claude-code", "下一步：登录 Claude Code"],
+    ["opencode", "下一步：打开终端完成登录"],
+  ] as const)(
+    "installs %s with one click on this computer and offers the next step",
+    async (agent, next) => {
+      resetHarnessInstallationStateForTests();
+      const refresh = vi.fn(async () => undefined);
+      let polls = 0;
+      const installAgent = vi.fn(async () => ({
+        state: "running" as const,
+        automatic: true,
+        step: "officialInstaller" as const,
+        startedAt: Date.now(),
+      }));
+      const installStatus = vi.fn(async () =>
+        ++polls < 2
+          ? {
+              state: "running" as const,
+              automatic: true,
+              step: "npm" as const,
+              startedAt: Date.now(),
+            }
+          : { state: "succeeded" as const, automatic: true, canOpenLogin: true },
+      );
+      const openAgentLogin = vi.fn(async () => true);
+      const navigate = vi.fn();
+      const diagnostics: RendererConnectionDiagnostics = {
+        snapshot: () => ({
+          adapter: { state: "ready", reason: "ready", modelUpdates: 1, hook: "request-bridge" },
+          hosts: [
+            {
+              hostId: "local",
+              active: true,
+              agents: [{ agent, availability: "notInstalled", error: null }],
+            },
+          ],
+        }),
+        refresh,
+        subscribe: () => () => undefined,
+        installAgent,
+        installStatus,
+        openAgentLogin,
+      };
+      const page = createDefaultRendererSettingsPages(
+        rendererSettingsMessages("zh-CN"),
+        () => null,
+        () => diagnostics,
+      ).find(({ id }) => id === "connections");
+      if (!page) throw new Error("Expected connections page");
+      const document = new FakeDocument("Win32");
+      const content = document.createElement("main");
+      const scope = new RendererSettingsPageScope();
+      const cleanup = page.mount({
+        content: content as unknown as HTMLElement,
+        signal: scope.signal,
+        runLatest: (op, handlers) => scope.runLatest(op, handlers),
+        navigate,
+      });
+      const install = elementWithClass(content, "settings-connection-install-link");
+      expect(install.title).toBe("一键安装");
+      install.dispatch("click", { stopPropagation() {} });
+      await vi.waitFor(() => expect(installAgent).toHaveBeenCalledWith("local", agent));
+      await vi.waitFor(() => expect(visibleText(content)).toContain("正在运行官方安装程序"));
+      // The manual commands stay available, folded away.
+      expect(visibleText(content)).toContain("手动安装（备用）");
+      await vi.waitFor(() => expect(visibleText(content)).toContain(next), { timeout: 6_000 });
+      expect(refresh).toHaveBeenCalled();
+      const nextButton = descendants(content).find(
+        ({ tagName, textContent }) => tagName === "button" && textContent === next,
+      );
+      nextButton?.dispatch("click");
+      if (agent === "claude-code") expect(navigate).toHaveBeenCalledWith("relay");
+      else await vi.waitFor(() => expect(openAgentLogin).toHaveBeenCalledWith("local", agent));
+      cleanup?.();
+      scope.dispose();
+    },
+  );
 
   it.each(["workbuddy"] as const)(
     "edits %s launch settings in the local right-side inspector",

@@ -28,6 +28,9 @@ export const RLY0_RELAY_AGENTS_SET_METHOD = "codexhost/rly0/relay/agents/set";
 export const RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD = "codexhost/rly0/agents/claudeCode/authStatus";
 export const RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD = "codexhost/rly0/agents/claudeCode/login";
 export const RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD = "codexhost/rly0/agents/claudeCode/logout";
+export const RLY0_AGENTS_INSTALL_START_METHOD = "codexhost/rly0/agents/install/start";
+export const RLY0_AGENTS_INSTALL_STATUS_METHOD = "codexhost/rly0/agents/install/status";
+export const RLY0_AGENTS_OPEN_LOGIN_METHOD = "codexhost/rly0/agents/openLogin";
 
 /** Not 25817: AiMaMi's router proxy uses that port, and the two are often installed together. */
 export const RLY0_PROXY_DEFAULT_PORT = 25917;
@@ -377,3 +380,42 @@ export type Rly0AgentAuthLoginResult = z.infer<typeof rly0AgentAuthLoginResultSc
 export const rly0AgentAuthLogoutParamsSchema = z.object({}).strict();
 export const rly0AgentAuthLogoutResultSchema = z.object({ ok: z.boolean() }).strict();
 export type Rly0AgentAuthLogoutResult = z.infer<typeof rly0AgentAuthLogoutResultSchema>;
+
+/** One-click installation of a native agent (see host `AgentInstaller`). */
+export const rly0AgentIdParamsSchema = z
+  .object({ agent: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/u) })
+  .strict();
+export type Rly0AgentIdParams = z.infer<typeof rly0AgentIdParamsSchema>;
+export const rly0AgentInstallStatusSchema = z
+  .object({
+    state: z.enum(["idle", "running", "succeeded", "failed"]),
+    /** False for agents that can only be installed by hand (desktop apps). */
+    automatic: z.boolean(),
+    canOpenLogin: z.boolean().optional(),
+    step: z
+      .enum(["installingNode", "installingGit", "officialInstaller", "npm", "npmMirror"])
+      .optional(),
+    error: z
+      .enum([
+        "NETWORK",
+        "PERMISSION",
+        "FAILED",
+        "NODE_MISSING",
+        "GIT_MISSING",
+        "MANUAL",
+        "UNSUPPORTED",
+      ])
+      .optional(),
+    log: z.string().max(12_000).optional(),
+    startedAt: z.number().int().nonnegative().optional(),
+    finishedAt: z.number().int().nonnegative().optional(),
+    manualUrl: z
+      .string()
+      .max(2048)
+      .regex(/^https:\/\//u)
+      .optional(),
+  })
+  .strict();
+export type Rly0AgentInstallStatus = z.infer<typeof rly0AgentInstallStatusSchema>;
+export const rly0AgentOpenLoginResultSchema = z.object({ ok: z.boolean() }).strict();
+export type Rly0AgentOpenLoginResult = z.infer<typeof rly0AgentOpenLoginResultSchema>;

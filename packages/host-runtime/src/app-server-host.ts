@@ -48,6 +48,10 @@ import {
   RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD,
   RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD,
   RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD,
+  RLY0_AGENTS_INSTALL_START_METHOD,
+  RLY0_AGENTS_INSTALL_STATUS_METHOD,
+  RLY0_AGENTS_OPEN_LOGIN_METHOD,
+  rly0AgentIdParamsSchema,
   rly0AgentAuthStatusParamsSchema,
   rly0AgentAuthLoginParamsSchema,
   rly0AgentAuthLogoutParamsSchema,
@@ -151,6 +155,8 @@ import {
 import { createLauncherProcessControl } from "./rly0-maintenance/launcher-process-control.js";
 import { Rly0FirstRunBackup } from "./rly0-maintenance/first-run-backup.js";
 import { ClaudeCodeAuth } from "./rly0-agents/claude-code-auth.js";
+import { AgentInstaller } from "./rly0-agents/agent-installer.js";
+import { applyProxyEnvironment } from "./rly0-core/proxy-settings.js";
 import { Rly0AgentRelaySettings, claudeCodeRelayEnvironment } from "./rly0-relay/agent-relays.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
 import {
@@ -357,6 +363,9 @@ const RLY0_EXTENDED_METHODS: ReadonlySet<string> = new Set([
   RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD,
   RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD,
   RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD,
+  RLY0_AGENTS_INSTALL_START_METHOD,
+  RLY0_AGENTS_INSTALL_STATUS_METHOD,
+  RLY0_AGENTS_OPEN_LOGIN_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -722,6 +731,7 @@ export class AppServerHost {
   readonly #rly0FirstRunBackup: Rly0FirstRunBackup;
   readonly #rly0AgentRelays: Rly0AgentRelaySettings;
   readonly #claudeCodeAuth: ClaudeCodeAuth;
+  readonly #agentInstaller: AgentInstaller;
   /** Relay Claude Code was loaded with; undefined until agents are loaded. */
   #claudeCodeRelayApplied: string | null | undefined;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
@@ -846,6 +856,12 @@ export class AppServerHost {
     const processControl = createLauncherProcessControl({ environment });
     this.#rly0FirstRunBackup = new Rly0FirstRunBackup({ environment });
     this.#rly0AgentRelays = new Rly0AgentRelaySettings({ environment });
+    this.#agentInstaller = new AgentInstaller({
+      environment,
+      // Downloads follow RLY/0 Hub's proxy setting (system / direct / custom).
+      downloadEnvironment: () =>
+        applyProxyEnvironment(environment, this.#rly0Core.getProxySettings()),
+    });
     this.#claudeCodeAuth = new ClaudeCodeAuth({
       environment,
       command: () => this.#launchSettings.initialCommand("claude-code"),
@@ -2364,6 +2380,15 @@ export class AppServerHost {
       [RLY0_PROXY_START_METHOD]: route(rly0ProxyStartParamsSchema, (p) => core.proxyStart(p)),
       [RLY0_PROXY_STOP_METHOD]: route(rly0ProxyStopParamsSchema, () => core.proxyStop()),
       [RLY0_PROXY_STATUS_METHOD]: route(rly0ProxyStatusParamsSchema, () => core.proxyStatus()),
+      [RLY0_AGENTS_INSTALL_START_METHOD]: route(rly0AgentIdParamsSchema, async (p) =>
+        this.#agentInstaller.start(p.agent),
+      ),
+      [RLY0_AGENTS_INSTALL_STATUS_METHOD]: route(rly0AgentIdParamsSchema, async (p) =>
+        this.#agentInstaller.status(p.agent),
+      ),
+      [RLY0_AGENTS_OPEN_LOGIN_METHOD]: route(rly0AgentIdParamsSchema, async (p) => ({
+        ok: await this.#agentInstaller.openLogin(p.agent),
+      })),
       [RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD]: route(rly0AgentAuthStatusParamsSchema, () =>
         this.#claudeCodeAuth.status(),
       ),

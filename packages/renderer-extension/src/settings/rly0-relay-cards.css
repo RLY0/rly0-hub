@@ -116,3 +116,79 @@
   border-top: 0;
   padding: 2px 0 0;
 }
+
+/* Connections: real one-click install */
+.settings-connection-install-link.settings-connection-install-link--label {
+  gap: 4px;
+  width: auto;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--settings-accent);
+  border-radius: 6px;
+  color: var(--settings-accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.settings-connection-install-link.settings-connection-install-link--label:hover {
+  background: color-mix(in srgb, var(--settings-accent) 12%, transparent);
+}
+.settings-harness-installation-auto {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--settings-border);
+}
+.settings-harness-installation-auto > p {
+  margin: 0;
+}
+.settings-harness-installation .settings-harness-installation-auto__progress {
+  color: var(--settings-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.settings-harness-installation .settings-harness-installation-auto__done {
+  color: var(--settings-success, #22c55e);
+  font-weight: 600;
+}
+.settings-harness-installation .settings-harness-installation-auto__failed {
+  color: var(--settings-text);
+  padding: 8px 10px;
+  border: 1px solid var(--settings-warning-border);
+  border-radius: 8px;
+  background: var(--settings-warning-bg);
+}
+.settings-harness-installation-auto__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-harness-installation-auto__log {
+  width: 100%;
+}
+.settings-harness-installation-auto__log > summary,
+.settings-harness-installation-manual > summary {
+  cursor: pointer;
+  color: var(--settings-muted);
+  font-size: 12px;
+}
+.settings-harness-installation-auto__log pre {
+  max-height: 180px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--settings-surface);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.settings-harness-installation-manual {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.settings-harness-installation-manual[open] > summary {
+  margin-bottom: 6px;
+}

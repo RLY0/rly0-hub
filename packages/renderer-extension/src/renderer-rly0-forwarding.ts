@@ -59,6 +59,9 @@ export const RENDERER_RLY0_FORWARDED_METHODS = [
   "rly0RelayAgentsGet",
   "rly0RelayAgentsSet",
   "rly0ClaudeCodeAuthStatus",
+  "rly0AgentInstallStart",
+  "rly0AgentInstallStatus",
+  "rly0AgentOpenLogin",
   "rly0ClaudeCodeLogin",
   "rly0ClaudeCodeLogout",
 ] as const;

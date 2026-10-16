@@ -198,6 +198,15 @@ import {
   RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD,
   RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD,
   RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD,
+  RLY0_AGENTS_INSTALL_START_METHOD,
+  RLY0_AGENTS_INSTALL_STATUS_METHOD,
+  RLY0_AGENTS_OPEN_LOGIN_METHOD,
+  rly0AgentIdParamsSchema,
+  rly0AgentInstallStatusSchema,
+  rly0AgentOpenLoginResultSchema,
+  type Rly0AgentIdParams,
+  type Rly0AgentInstallStatus,
+  type Rly0AgentOpenLoginResult,
   rly0AgentAuthStatusSchema,
   rly0AgentAuthLoginParamsSchema,
   rly0AgentAuthLoginResultSchema,
@@ -457,6 +466,9 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0RelayCodexConfigStatus?(): Promise<Rly0RelayCodexConfigStatusResult>;
   rly0RelayAgentsGet?(): Promise<Rly0RelayAgentsResult>;
   rly0ClaudeCodeAuthStatus?(): Promise<Rly0AgentAuthStatus>;
+  rly0AgentInstallStart?(input: Rly0AgentIdParams): Promise<Rly0AgentInstallStatus>;
+  rly0AgentInstallStatus?(input: Rly0AgentIdParams): Promise<Rly0AgentInstallStatus>;
+  rly0AgentOpenLogin?(input: Rly0AgentIdParams): Promise<Rly0AgentOpenLoginResult>;
   rly0ClaudeCodeLogin?(input: Rly0AgentAuthLoginParams): Promise<Rly0AgentAuthLoginResult>;
   rly0ClaudeCodeLogout?(): Promise<Rly0AgentAuthLogoutResult>;
   rly0RelayAgentsSet?(input: Rly0RelayAgentsSetParams): Promise<Rly0RelayAgentsResult>;
@@ -1105,6 +1117,30 @@ export function createRendererModelClient(
     async rly0ProxyStatus(): Promise<Rly0ProxyStatusResult> {
       return rly0ProxyStatusResultSchema.parse(
         await manager.sendRequest(RLY0_PROXY_STATUS_METHOD, {}),
+      );
+    },
+    async rly0AgentInstallStart(input: Rly0AgentIdParams): Promise<Rly0AgentInstallStatus> {
+      return rly0AgentInstallStatusSchema.parse(
+        await manager.sendRequest(
+          RLY0_AGENTS_INSTALL_START_METHOD,
+          rly0AgentIdParamsSchema.parse(input),
+        ),
+      );
+    },
+    async rly0AgentInstallStatus(input: Rly0AgentIdParams): Promise<Rly0AgentInstallStatus> {
+      return rly0AgentInstallStatusSchema.parse(
+        await manager.sendRequest(
+          RLY0_AGENTS_INSTALL_STATUS_METHOD,
+          rly0AgentIdParamsSchema.parse(input),
+        ),
+      );
+    },
+    async rly0AgentOpenLogin(input: Rly0AgentIdParams): Promise<Rly0AgentOpenLoginResult> {
+      return rly0AgentOpenLoginResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_AGENTS_OPEN_LOGIN_METHOD,
+          rly0AgentIdParamsSchema.parse(input),
+        ),
       );
     },
     async rly0ClaudeCodeAuthStatus(): Promise<Rly0AgentAuthStatus> {
