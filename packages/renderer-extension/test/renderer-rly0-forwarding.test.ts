@@ -11,7 +11,9 @@ describe("RLY/0 forwarding through the adapter facade", () => {
     const client = createRendererModelClient([{ sendRequest: vi.fn() }]);
     if (!client) throw new Error("expected a model client");
     const offered = Object.keys(client).filter(
-      (key) => /rly0/i.test(key) && typeof (client as Record<string, unknown>)[key] === "function",
+      (key) =>
+        /rly0/i.test(key) &&
+        typeof (client as unknown as Record<string, unknown>)[key] === "function",
     );
     expect(offered.length).toBeGreaterThan(0);
     expect([...RENDERER_RLY0_FORWARDED_METHODS].sort()).toEqual(offered.sort());
