@@ -157,68 +157,153 @@ describe("Renderer Settings lifecycle", () => {
     lifecycle.dispose();
   });
 
-  it("opens the dashboard on launch until the welcome card is dismissed, waiting for the rail button", async () => {
-    const store = new Map<string, string>();
-    const localStorage = {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => void store.set(key, value),
+  function hubFixture(available: boolean) {
+    const openSettings = vi.fn(() => true);
+    const button = { isConnected: true, setAttribute: vi.fn() };
+    const listeners = new Map<string, (e: { preventDefault(): void }) => void>();
+    const root = {
+      isConnected: true,
+      querySelector: () => button,
+      addEventListener: (name: string, callback: (e: { preventDefault(): void }) => void) =>
+        listeners.set(name, callback),
     };
-    const button = { tagName: "BUTTON" };
-    const root = { isConnected: false, querySelector: () => button };
-    const openSettings = vi.fn();
-    const shellMock = {
+    const shell = {
       supported: true,
       open: false,
-      activePageId: undefined,
       openSettings,
       close: shellClose,
       dispose: vi.fn(),
     };
-    const triggerMock = {
+    vi.mocked(installRendererSettingsShell).mockReturnValue(shell as never);
+    vi.mocked(installRendererSettingsRailTrigger).mockReturnValue({
       root,
       refresh: triggerRefresh,
       setUpdateAvailable: triggerSetUpdateAvailable,
       dispose: vi.fn(),
-    };
-    vi.mocked(installRendererSettingsShell).mockReturnValue(shellMock as never);
-    vi.mocked(installRendererSettingsRailTrigger).mockReturnValue(triggerMock as never);
+    } as never);
+    vi.mocked(createDefaultRendererSettingsPages).mockReturnValue(
+      [
+        "dashboard",
+        "connections",
+        "accounts",
+        "session-import",
+        "appearance",
+        "mcp",
+        "skills",
+        "threads",
+        "maintenance",
+        "updates",
+      ].map((id) => ({ id })) as never,
+    );
+    const store = new Map([[RLY0_WELCOME_DISMISSED_STORAGE_KEY, "1"]]);
     const ownerWindow = {
       navigator: { languages: ["en"] },
       document: {},
-      localStorage,
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => store.set(key, value),
+      },
       setTimeout,
       clearTimeout,
+      alert: vi.fn(),
     } as unknown as Window;
-    const settle = async (): Promise<void> => {
-      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    const client = {
+      rly0HubStatus: vi.fn(async () => ({ available })),
+      rly0OpenHub: vi.fn(async () => ({ available, ok: available })),
     };
+    return { ownerWindow, client, openSettings, shell, button, listeners, store };
+  }
 
-    // The rail button is not on the page yet: nothing opens, and a later refresh retries.
-    const first = installRendererSettingsLifecycle(ownerWindow);
-    await settle();
-    expect(openSettings).not.toHaveBeenCalled();
-    root.isConnected = true;
-    first.refresh();
-    await vi.waitFor(() => expect(openSettings).toHaveBeenCalledWith(button, "dashboard"));
-    // Only once per launch.
-    openSettings.mockClear();
-    first.refresh();
-    await settle();
-    expect(openSettings).not.toHaveBeenCalled();
-    first.dispose();
+  it("opens the Hub on rail activation and keeps only Codex-dependent tools", async () => {
+    const f = hubFixture(true);
+    const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
+      getHubClient: () => f.client,
+    });
+    await vi.waitFor(() => expect(installRendererSettingsShell).toHaveBeenCalled());
+    const definitions = vi.mocked(installRendererSettingsShell).mock.calls.at(-1)?.[0];
+    expect(definitions?.map((p) => p.id)).toEqual([
+      "connections",
+      "accounts",
+      "session-import",
+      "appearance",
+    ]);
+    const onOpen = vi.mocked(installRendererSettingsRailTrigger).mock.calls.at(-1)?.[0].onOpen;
+    onOpen?.(f.button as unknown as HTMLButtonElement);
+    await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(1));
+    expect(f.openSettings).not.toHaveBeenCalled();
+    const preventDefault = vi.fn();
+    f.listeners.get("contextmenu")?.({ preventDefault });
+    expect(preventDefault).toHaveBeenCalled();
+    expect(f.openSettings).toHaveBeenCalledWith(f.button, "connections");
+    lifecycle.dispose();
+  });
 
-    // Next launch, still not dismissed: it opens again.
-    const second = installRendererSettingsLifecycle(ownerWindow);
-    await vi.waitFor(() => expect(openSettings).toHaveBeenCalledWith(button, "dashboard"));
+  it("uses embedded settings only when the Host confirms the Hub is absent", async () => {
+    const f = hubFixture(false);
+    const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
+      getHubClient: () => f.client,
+    });
+    await vi.waitFor(() => expect(installRendererSettingsShell).toHaveBeenCalled());
+    vi.mocked(installRendererSettingsRailTrigger)
+      .mock.calls.at(-1)?.[0]
+      .onOpen(f.button as unknown as HTMLButtonElement);
+    await vi.waitFor(() => expect(f.openSettings).toHaveBeenCalled());
+    expect(f.client.rly0OpenHub).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(installRendererSettingsShell)
+        .mock.calls.at(-1)?.[0]
+        ?.some((p) => p.id === "mcp"),
+    ).toBe(true);
+    lifecycle.dispose();
+  });
+
+  it("does not show the old dialog on Hub launch errors or on availability errors", async () => {
+    const f = hubFixture(true);
+    f.client.rly0OpenHub.mockRejectedValue(new Error("unavailable"));
+    const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
+      getHubClient: () => f.client,
+    });
+    await vi.waitFor(() => expect(installRendererSettingsShell).toHaveBeenCalled());
+    vi.mocked(installRendererSettingsRailTrigger)
+      .mock.calls.at(-1)?.[0]
+      .onOpen(f.button as unknown as HTMLButtonElement);
+    await vi.waitFor(() => expect(f.ownerWindow.alert).toHaveBeenCalled());
+    expect(f.openSettings).not.toHaveBeenCalled();
+    lifecycle.dispose();
+    vi.mocked(installRendererSettingsShell).mockClear();
+    f.client.rly0HubStatus.mockRejectedValue(new Error("offline"));
+    const second = installRendererSettingsLifecycle(f.ownerWindow, {
+      getHubClient: () => f.client,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(installRendererSettingsShell).not.toHaveBeenCalled();
     second.dispose();
+  });
 
-    // Once the welcome card was dismissed, it never opens by itself again.
-    store.set(RLY0_WELCOME_DISMISSED_STORAGE_KEY, "1");
-    openSettings.mockClear();
-    const third = installRendererSettingsLifecycle(ownerWindow);
-    third.refresh();
-    await settle();
-    expect(openSettings).not.toHaveBeenCalled();
-    third.dispose();
+  it("welcome opens only the independent Hub once per launch", async () => {
+    const f = hubFixture(true);
+    f.store.clear();
+    const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
+      getHubClient: () => f.client,
+    });
+    await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(1));
+    lifecycle.refresh();
+    lifecycle.refresh();
+    await Promise.resolve();
+    expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(1);
+    expect(f.openSettings).not.toHaveBeenCalled();
+    lifecycle.dispose();
+    const source = hubFixture(false);
+    source.store.clear();
+    const fallback = installRendererSettingsLifecycle(source.ownerWindow, {
+      getHubClient: () => source.client,
+    });
+    await vi.waitFor(() => expect(source.client.rly0HubStatus).toHaveBeenCalled());
+    fallback.refresh();
+    await Promise.resolve();
+    expect(source.openSettings).not.toHaveBeenCalled();
+    fallback.dispose();
   });
 });

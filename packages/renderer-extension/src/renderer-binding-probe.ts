@@ -757,6 +757,7 @@ export function installRendererBindingProbe(
   });
   let connectionDiagnostics: RendererConnectionDiagnostics | null = null;
   const settingsLifecycle = installRendererSettingsLifecycle(window, {
+    getHubClient: () => modelControl,
     getUpdateClient: () => modelControl,
     getAccountClient: () => modelControl,
     getConnectionDiagnostics: () => connectionDiagnostics,

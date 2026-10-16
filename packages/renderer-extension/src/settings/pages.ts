@@ -657,18 +657,19 @@ export function createDefaultRendererSettingsPages(
   getMaintenanceClient: () => RendererMaintenanceClient | null = () => null,
   getAppearanceClient: () => RendererAppearanceClient | null = () => null,
   getRelayClient: () => RendererRelayClient | null = () => null,
+  codexOnly = false,
 ): readonly RendererSettingsPageDefinition[] {
   return Object.freeze([
     createDashboardSettingsPage(messages, getDashboardClient),
     createConnectionsSettingsPage(messages, getDiagnostics),
-    createAccountsSettingsPage(messages, getAccountClient),
+    createAccountsSettingsPage(messages, getAccountClient, codexOnly),
     createRelaySettingsPage(messages, getRelayClient),
     createSessionImportSettingsPage(messages, getSessionImportClient, openImportedThread),
     createThreadsSettingsPage(messages, getThreadsClient),
     createMcpSettingsPage(messages, getMcpClient),
     createSkillsSettingsPage(messages, getSkillsClient),
     createMaintenanceSettingsPage(messages, getMaintenanceClient),
-    createAppearanceSettingsPage(messages, getLoadedSessionsClient, getAppearanceClient),
+    createAppearanceSettingsPage(messages, getLoadedSessionsClient, getAppearanceClient, codexOnly),
     updatesPage(messages, getUpdateClient),
     aboutPage(messages),
   ]);

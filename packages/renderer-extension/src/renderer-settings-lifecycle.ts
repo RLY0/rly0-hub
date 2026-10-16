@@ -38,7 +38,20 @@ const UPDATE_CHECK_TIMEOUT_MS = 5_000;
 const UPDATE_RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000] as const;
 export const RLY0_WELCOME_STORAGE_KEY = "rly0-hub:welcome-shown";
 
+export interface RendererHubClient {
+  rly0HubStatus?(): Promise<{ available: boolean }>;
+  rly0OpenHub?(): Promise<{ available: boolean; ok: boolean }>;
+}
+
+export const CODEX_ONLY_SETTINGS_PAGES = [
+  "connections",
+  "accounts",
+  "session-import",
+  "appearance",
+] as const;
+
 export interface RendererSettingsLifecycleOptions {
+  getHubClient?(): RendererHubClient | null;
   getUpdateClient?(): RendererUpdateClient | null;
   getConnectionDiagnostics?(): RendererConnectionDiagnostics | null;
   getAccountClient?(): RendererCodexAccountClient | null;
@@ -78,9 +91,45 @@ export function installRendererSettingsLifecycle(
   let updateAvailable = false;
   let openGeneration = 0;
   let disposed = false;
+  let hubAvailable: boolean | null = options.getHubClient ? null : false;
+  let checkedHubClient: RendererHubClient | null = null;
+  let hubRequest: Promise<void> | null = null;
+  const toolRoots = new WeakSet<HTMLElement>();
+
+  const openHub = async (): Promise<void> => {
+    const client = options.getHubClient?.();
+    if (!client?.rly0OpenHub) throw new Error("HUB_UNAVAILABLE");
+    const result = await client.rly0OpenHub();
+    if (!result.ok) throw new Error("HUB_OPEN_FAILED");
+  };
+
+  const bindCodexTools = (): void => {
+    const root = trigger?.root;
+    if (!root || !hubAvailable || toolRoots.has(root)) return;
+    toolRoots.add(root);
+    root
+      .querySelector("button")
+      ?.setAttribute(
+        "aria-description",
+        locale === "zh-CN"
+          ? "右键打开 Codex 内工具：连接、账号登录、会话导入、界面偏好"
+          : "Right-click for Codex tools: connections, sign-in, session import and preferences",
+      );
+    root.addEventListener(
+      "contextmenu",
+      (event) => {
+        event.preventDefault();
+        shell?.openSettings(
+          root.querySelector<HTMLButtonElement>("button") ?? undefined,
+          "connections",
+        );
+      },
+      { signal: lifecycleController.signal },
+    );
+  };
 
   const mount = (): {
-    shell: RendererSettingsShell;
+    shell: RendererSettingsShell | null;
     trigger: RendererSettingsRailTriggerControl;
   } => {
     const messages = rendererSettingsMessages(locale);
@@ -105,27 +154,93 @@ export function installRendererSettingsLifecycle(
       options.getMaintenanceClient ?? (() => null),
       options.getAppearanceClient ?? (() => null),
       options.getRelayClient ?? (() => null),
+      hubAvailable === true,
     );
-    const nextShell = installRendererSettingsShell(definitions, messages, ownerWindow.document);
+    const selectedPages = hubAvailable
+      ? definitions.filter((page) =>
+          (CODEX_ONLY_SETTINGS_PAGES as readonly string[]).includes(page.id),
+        )
+      : definitions;
+    const nextShell =
+      hubAvailable === null
+        ? null
+        : installRendererSettingsShell(selectedPages, messages, ownerWindow.document);
+    if (nextShell && hubAvailable) {
+      const openTools = nextShell.openSettings.bind(nextShell);
+      nextShell.openSettings = (opener, pageId) => {
+        if (pageId && (CODEX_ONLY_SETTINGS_PAGES as readonly string[]).includes(pageId))
+          return openTools(opener, pageId);
+        void openHub().catch(() => undefined);
+        return true;
+      };
+    }
     const nextTrigger = installRendererSettingsRailTrigger({
-      available: nextShell.supported,
+      available: nextShell?.supported ?? true,
       messages,
       ownerDocument: ownerWindow.document,
       onOpen(opener, pageId) {
         const generation = ++openGeneration;
-        void refreshLocale().then(() => {
+        void refreshLocale().then(async () => {
           if (disposed || generation !== openGeneration) return;
           const currentOpener = opener.isConnected
             ? opener
             : (trigger?.root?.querySelector<HTMLButtonElement>("button") ?? undefined);
-          shell?.openSettings(currentOpener, pageId);
+          await refreshHubAvailability();
+          if (disposed || generation !== openGeneration) return;
+          if (hubAvailable) {
+            try {
+              await openHub();
+            } catch {
+              ownerWindow.alert(
+                locale === "zh-CN"
+                  ? "没能打开 RLY/0 Hub，请从托盘或开始菜单打开。"
+                  : "Could not open RLY/0 Hub. Open it from the tray or Start menu.",
+              );
+            }
+          } else if (hubAvailable === false) shell?.openSettings(currentOpener, pageId);
+          else
+            ownerWindow.alert(
+              locale === "zh-CN"
+                ? "无法连接 RLY/0 服务，请稍后重试。"
+                : "RLY/0 service is unavailable. Try again later.",
+            );
         });
       },
     });
     nextTrigger.setUpdateAvailable(updateAvailable);
     shell = nextShell;
     trigger = nextTrigger;
+    bindCodexTools();
     return { shell: nextShell, trigger: nextTrigger };
+  };
+
+  const refreshHubAvailability = (): Promise<void> => {
+    const client = options.getHubClient?.();
+    if (!client?.rly0HubStatus || checkedHubClient === client)
+      return hubRequest ?? Promise.resolve();
+    if (hubRequest) return hubRequest;
+    checkedHubClient = client;
+    const request = client
+      .rly0HubStatus()
+      .then((result) => {
+        if (disposed || options.getHubClient?.() !== client) return;
+        if (hubAvailable !== result.available) {
+          hubAvailable = result.available;
+          trigger?.dispose();
+          shell?.dispose();
+          trigger = null;
+          shell = null;
+          mount();
+        }
+      })
+      .catch(() => {
+        checkedHubClient = null;
+      })
+      .finally(() => {
+        if (hubRequest === request) hubRequest = null;
+      });
+    hubRequest = request;
+    return request;
   };
 
   const applyLanguageState = (nextLocale: RendererSettingsLocale, preserveOpen: boolean): void => {
@@ -144,7 +259,7 @@ export function installRendererSettingsLifecycle(
 
     if (reopen) {
       const opener = mounted.trigger.root?.querySelector<HTMLButtonElement>("button") ?? undefined;
-      mounted.shell.openSettings(opener, activePageId);
+      mounted.shell?.openSettings(opener, activePageId);
     }
   };
 
@@ -249,13 +364,12 @@ export function installRendererSettingsLifecycle(
   mount();
   void refreshLocale();
   refreshUpdateIndicator();
+  void refreshHubAvailability();
 
-  // Until the welcome card is dismissed, open the RLY/0 Hub dashboard once per launch so new users
-  // see it without hunting for the rail entry. The rail button can appear after this installs, so
-  // every refresh retries until it is there.
+  // Welcome opens only the standalone Hub. A late rail or Host connection is retried on refresh.
   let welcomeChecked = false;
   const maybeShowWelcome = (): void => {
-    if (welcomeChecked || disposed || !shell?.supported || !trigger?.root?.isConnected) return;
+    if (welcomeChecked || disposed || hubAvailable === null || !trigger?.root?.isConnected) return;
     welcomeChecked = true;
     // A setup step restarted Codex to finish (e.g. Claude Code through a relay): open the chat it
     // was heading for instead of the dashboard.
@@ -270,11 +384,10 @@ export function installRendererSettingsLifecycle(
     } catch {
       return;
     }
-    const opener = trigger.root.querySelector<HTMLButtonElement>("button") ?? undefined;
-    void refreshLocale().then(() => {
-      if (!disposed && shell && !shell.open) shell.openSettings(opener, "dashboard");
-    });
+    // The welcome experience belongs to the independent Hub. Source builds only open settings on demand.
+    if (hubAvailable) void openHub().catch(() => undefined);
   };
+  void refreshHubAvailability().then(maybeShowWelcome);
   maybeShowWelcome();
 
   return {
@@ -284,6 +397,8 @@ export function installRendererSettingsLifecycle(
     refresh() {
       const refreshed = trigger?.refresh() ?? false;
       refreshUpdateIndicator();
+      void refreshHubAvailability().then(maybeShowWelcome);
+      bindCodexTools();
       maybeShowWelcome();
       if (refreshed) maybeShowWelcome();
       return refreshed;

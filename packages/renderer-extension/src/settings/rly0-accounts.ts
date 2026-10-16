@@ -95,6 +95,7 @@ export function mountRly0Accounts(
   getClient: () => RendererRly0AccountClient | null,
   settingsMessages: RendererSettingsMessages,
   changed: () => void,
+  loginOnly = false,
 ) {
   const messages = settingsMessages.rly0Accounts;
   const document = root.ownerDocument;
@@ -112,7 +113,7 @@ export function mountRly0Accounts(
   const header = document.createElement("div");
   header.className = "settings-rly0-accounts__header";
   const title = document.createElement("strong");
-  title.textContent = messages.sectionTitle;
+  title.textContent = loginOnly ? messages.addTitle : messages.sectionTitle;
   header.append(title);
   const saveButton = document.createElement("button");
   saveButton.type = "button";
@@ -396,11 +397,11 @@ export function mountRly0Accounts(
 
   const render = (): void => {
     saveButton.disabled = busy || !available;
-    saveButton.hidden = !available;
+    saveButton.hidden = loginOnly || !available;
     const canAdd = Boolean(addLoginClient());
     addButton.disabled = busy || !available || !canAdd;
     addButton.hidden = !available || !canAdd;
-    refreshAllButton.hidden = !available || accounts.length === 0;
+    refreshAllButton.hidden = loginOnly || !available || accounts.length === 0;
     refreshAllButton.disabled =
       refreshingAll || !getClient()?.rly0AccountUsageAll || accounts.length === 0;
     refreshAllButton.textContent = refreshingAll
@@ -420,7 +421,7 @@ export function mountRly0Accounts(
       noticeElement.hidden = true;
     }
     rows.clear();
-    if (!available) {
+    if (loginOnly || !available) {
       card.replaceChildren();
       return;
     }

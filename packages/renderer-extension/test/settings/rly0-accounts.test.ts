@@ -86,12 +86,19 @@ async function flush(): Promise<void> {
 const settingsMessages = rendererSettingsMessages("zh-CN");
 const messages = settingsMessages.rly0Accounts;
 
-function mount(getClient: () => RendererRly0AccountClient | null) {
+function mount(getClient: () => RendererRly0AccountClient | null, loginOnly = false) {
   const root = new FakeElement("div") as unknown as HTMLElement;
   Object.assign(root, { ownerDocument: fakeDocument });
   const controller = new AbortController();
   const changed = vi.fn();
-  const mounted = mountRly0Accounts(root, controller.signal, getClient, settingsMessages, changed);
+  const mounted = mountRly0Accounts(
+    root,
+    controller.signal,
+    getClient,
+    settingsMessages,
+    changed,
+    loginOnly,
+  );
   return { mounted, changed, root: mounted.section as unknown as FakeElement };
 }
 
@@ -114,6 +121,27 @@ function usage(fivePercent: number, weeklyPercent: number, fetchedAt: number): R
 }
 
 describe("mountRly0Accounts", () => {
+  it("keeps browser sign-in but hides saved-account management when Hub owns it", async () => {
+    const { mounted, root } = mount(
+      () => ({
+        rly0CoreStatus: available,
+        listRly0Accounts: async () => ({
+          available: true,
+          accounts: [{ id: "abcdef012345", alias: "saved-account", current: true }],
+        }),
+        startRly0AddAccountLogin: vi.fn(),
+        rly0AddAccountLoginStatus: vi.fn(),
+        cancelRly0AddAccountLogin: vi.fn(),
+      }),
+      true,
+    );
+    await mounted.refresh();
+    expect(text(root)).not.toContain("saved-account");
+    expect(buttonWithText(root, messages.save)?.hidden).toBe(true);
+    expect(buttonWithText(root, messages.usageRefreshAll)?.hidden).toBe(true);
+    expect(buttonWithText(root, messages.add)?.hidden).toBe(false);
+  });
+
   it("shows the unavailable hint and hides the header buttons when the bridge is missing", async () => {
     const { mounted, root } = mount(() => ({
       rly0CoreStatus: async () => ({ available: false }),

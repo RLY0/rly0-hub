@@ -29,6 +29,19 @@ export function resolveRly0HubAutostartCommand(
   return `"${executable}" ${RLY0_HUB_BACKGROUND_ARGUMENT}`;
 }
 
+/** No launch side effects: packaged builds route settings to this window. */
+export function rly0HubStatus(
+  installRoot: string = resolveRly0InstallRoot(),
+  fileExists: (file: string) => boolean = existsSync,
+  platform: NodeJS.Platform = process.platform,
+): { available: boolean } {
+  return {
+    available:
+      platform === "win32" &&
+      fileExists(path.win32.join(installRoot, "bin", RLY0_HUB_EXECUTABLE_NAME)),
+  };
+}
+
 /**
  * Starts the Hub window. A Hub already running in the tray receives this second start and brings
  * its window up instead (single instance), so this is also "show the Hub".
@@ -39,8 +52,7 @@ export function openRly0Hub(
   start: (executable: string) => void = startDetached,
 ): { available: boolean; ok: boolean } {
   const executable = path.win32.join(installRoot, "bin", RLY0_HUB_EXECUTABLE_NAME);
-  if (process.platform !== "win32" || !fileExists(executable))
-    return { available: false, ok: false };
+  if (!rly0HubStatus(installRoot, fileExists).available) return { available: false, ok: false };
   try {
     start(executable);
     return { available: true, ok: true };

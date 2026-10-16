@@ -91,7 +91,10 @@ describe("one-click agent installation", () => {
     const installer = new AgentInstaller({
       ...windowsBase,
       runner,
-      fileExists: (file) => file === "C:\\Program Files\\nodejs\\npm.cmd",
+      fileExists: (file) =>
+        ["C:\\Program Files\\nodejs\\npm.cmd", "C:\\Program Files\\nodejs\\node.exe"].includes(
+          file,
+        ),
     });
     installer.start("claude-code");
     expect(await settle(installer, "claude-code")).toMatchObject({ state: "succeeded" });
@@ -113,7 +116,10 @@ describe("one-click agent installation", () => {
       runner,
       fileExists: (file) =>
         file.toLowerCase().endsWith("winget.exe") ||
-        (nodeInstalled && file === "C:\\Program Files\\nodejs\\npm.cmd"),
+        (nodeInstalled &&
+          ["C:\\Program Files\\nodejs\\npm.cmd", "C:\\Program Files\\nodejs\\node.exe"].includes(
+            file,
+          )),
     });
     installer.start("opencode");
     expect(await settle(installer, "opencode")).toMatchObject({ state: "succeeded" });
@@ -131,6 +137,7 @@ describe("one-click agent installation", () => {
     expect(await settle(noWinget, "grok")).toMatchObject({
       state: "failed",
       error: "NODE_MISSING",
+      requirementReason: "WINGET_UNAVAILABLE",
     });
 
     const offline = new AgentInstaller({
@@ -179,6 +186,76 @@ describe("one-click agent installation", () => {
     expect(await installer.openLogin("pi")).toBe(true);
     expect(runner.openTerminal).toHaveBeenCalledWith("pi", expect.any(Object));
     expect(await installer.openLogin("workbuddy")).toBe(false);
+  });
+
+  it("finds winget in WindowsApps and refreshes PATH for nonstandard Node installations", async () => {
+    let installed = false;
+    const { runner, calls, environments } = fakeRunner((command) => {
+      if (command === "winget") {
+        installed = true;
+        return { code: 0 };
+      }
+      if (command === "powershell.exe") return { code: 0, output: "D:\\Tools\\Node" };
+      return { code: 0 };
+    });
+    const installer = new AgentInstaller({
+      ...windowsBase,
+      environment: { ...windowsBase.environment, LOCALAPPDATA: "C:\\Users\\me\\AppData\\Local" },
+      runner,
+      fileExists: (file) =>
+        file.toLowerCase().endsWith("\\windowsapps\\winget.exe") ||
+        (installed &&
+          ["d:\\tools\\node\\npm.cmd", "d:\\tools\\node\\node.exe"].includes(file.toLowerCase())),
+    });
+    installer.start("grok");
+    expect(await settle(installer, "grok")).toMatchObject({ state: "succeeded" });
+    expect(calls[0]).toContain("winget install");
+    expect(calls[1]).toContain("GetEnvironmentVariable('Path','Machine')");
+    expect(environments.at(-1)?.PATH).toContain("D:\\Tools\\Node");
+    expect(calls.at(-1)).toBe('"npm" install -g @xai-official/grok');
+  });
+
+  it.each([
+    [0, "", "NOT_DETECTED"],
+    [1, "ETIMEDOUT", "NETWORK"],
+    [1, "Access is denied", "PERMISSION"],
+    [1, "installer failed", "INSTALL_FAILED"],
+  ])(
+    "never continues to npm when winget exits %s but Node remains unavailable",
+    async (code, output, reason) => {
+      const { runner, calls } = fakeRunner((command) =>
+        command === "winget"
+          ? { code: Number(code), output: String(output) }
+          : { code: 0, output: "" },
+      );
+      const installer = new AgentInstaller({
+        ...windowsBase,
+        runner,
+        fileExists: (file) => file.toLowerCase().endsWith("winget.exe"),
+      });
+      installer.start("grok");
+      expect(await settle(installer, "grok")).toMatchObject({
+        state: "failed",
+        error: "NODE_MISSING",
+        requirementReason: reason,
+      });
+      expect(calls.some((c) => c.includes("install -g"))).toBe(false);
+    },
+  );
+
+  it("detects an existing Node and npm outside the inherited PATH", async () => {
+    const { runner, calls } = fakeRunner(() => ({ code: 0 }));
+    const installer = new AgentInstaller({
+      ...windowsBase,
+      runner,
+      fileExists: (file) =>
+        ["c:\\program files\\nodejs\\node.exe", "c:\\program files\\nodejs\\npm.cmd"].includes(
+          file.toLowerCase(),
+        ),
+    });
+    installer.start("grok");
+    expect(await settle(installer, "grok")).toMatchObject({ state: "succeeded" });
+    expect(calls).toEqual(['"npm" install -g @xai-official/grok']);
   });
 
   it("classifies installer output", () => {

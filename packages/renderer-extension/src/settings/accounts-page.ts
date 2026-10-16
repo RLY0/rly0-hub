@@ -43,6 +43,7 @@ function errorMessage(error: unknown, fallback: string): string {
 export function createAccountsSettingsPage(
   messages: RendererSettingsMessages,
   getClient: () => RendererCodexAccountClient | null,
+  codexOnly = false,
 ): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "accounts",
@@ -127,6 +128,7 @@ export function createAccountsSettingsPage(
         getClient,
         messages,
         () => render(),
+        codexOnly,
       );
       const quotaAlert = mountRly0QuotaAlert(context.content, context.signal, getClient, messages, {
         onUsage: (results) => rly0Accounts.applyUsage(results),

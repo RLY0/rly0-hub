@@ -414,6 +414,9 @@ export const rly0AgentInstallStatusSchema = z
     state: z.enum(["idle", "running", "succeeded", "failed"]),
     /** False for agents that can only be installed by hand (desktop apps). */
     automatic: z.boolean(),
+    requirementReason: z
+      .enum(["WINGET_UNAVAILABLE", "NETWORK", "PERMISSION", "INSTALL_FAILED", "NOT_DETECTED"])
+      .optional(),
     canOpenLogin: z.boolean().optional(),
     step: z
       .enum(["installingNode", "installingGit", "officialInstaller", "npm", "npmMirror"])

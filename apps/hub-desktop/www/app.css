@@ -57,7 +57,8 @@ p {
 }
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -72,9 +73,13 @@ button {
 .app {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
 }
 .rail {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
   background: var(--ink-950);
   display: flex;
   flex-direction: column;
@@ -93,6 +98,7 @@ button {
   background: transparent;
   width: 44px;
   height: 44px;
+  flex: none;
   border-radius: var(--r-md);
   display: grid;
   place-items: center;
@@ -130,6 +136,8 @@ button {
 }
 
 .stage {
+  min-height: 0;
+  overflow: hidden;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -137,6 +145,7 @@ button {
   border-radius: var(--r-lg) 0 0 0;
 }
 .top {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 24px;
@@ -178,6 +187,7 @@ button {
   background: var(--ink-700);
 }
 #page {
+  min-height: 0;
   flex: 1;
   overflow: auto;
   padding: 8px 32px 32px;
@@ -819,4 +829,55 @@ body.guided .ad {
 }
 .rly0-connect[hidden] {
   display: none;
+}
+
+/* Independent management pages use the same modules and type. */
+[hidden] {
+  display: none !important;
+}
+.page-note {
+  margin-bottom: 16px;
+}
+.wrap,
+.release-copy {
+  overflow-wrap: anywhere;
+}
+.release-copy {
+  white-space: pre-wrap;
+  max-height: 360px;
+  overflow: auto;
+}
+textarea.input {
+  resize: vertical;
+}
+.install-help {
+  flex-wrap: wrap;
+}
+.install-fallback {
+  flex-basis: 100%;
+  display: grid;
+  gap: 8px;
+}
+.install-fallback .btn {
+  justify-self: start;
+}
+
+.form > .span-6 {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 680px) {
+  .agent {
+    flex-wrap: wrap;
+  }
+  .agent > .who {
+    flex-basis: calc(100% - 60px);
+  }
+  .row > .who {
+    flex-basis: 140px;
+  }
+  .agent > .btn,
+  .agent > .tag {
+    margin-left: 60px;
+  }
 }

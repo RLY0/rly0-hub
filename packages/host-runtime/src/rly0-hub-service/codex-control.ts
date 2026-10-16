@@ -113,7 +113,15 @@ export class Rly0CodexControl {
     return { ok: true };
   }
 
+  async forceQuit(): Promise<{ ok: boolean }> {
+    return this.#request("quit");
+  }
+
   async restart(): Promise<{ ok: boolean }> {
+    return this.#request("restart");
+  }
+
+  async #request(action: "quit" | "restart"): Promise<{ ok: boolean }> {
     const descriptor = await this.#descriptor();
     const descriptorPath = this.#descriptorPath();
     if (!descriptor || !descriptorPath) return { ok: false };
@@ -126,6 +134,8 @@ export class Rly0CodexControl {
       ...(this.#options.platform ? { platform: this.#options.platform } : {}),
       requestDelayMs: 0,
     });
-    return { ok: control ? await control.restart() : false };
+    return {
+      ok: control ? await (action === "quit" ? control.forceQuit() : control.restart()) : false,
+    };
   }
 }

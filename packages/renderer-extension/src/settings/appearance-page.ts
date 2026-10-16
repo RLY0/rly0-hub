@@ -78,6 +78,7 @@ export function createAppearanceSettingsPage(
   messages: RendererSettingsMessages,
   getLoadedSessionsClient: () => LoadedSessionsClient | null = () => null,
   getAppearanceClient: () => RendererAppearanceClient | null = () => null,
+  codexOnly = false,
 ): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "appearance",
@@ -190,7 +191,7 @@ export function createAppearanceSettingsPage(
       autostartToggle.disabled = true;
       autostartRow.item.append(autostartToggle);
       autostartCard.append(autostartRow.item);
-      context.content.append(autostartGroup);
+      if (!codexOnly) context.content.append(autostartGroup);
 
       const refreshAutostart = (): void => {
         void context.runLatest(
@@ -242,7 +243,7 @@ export function createAppearanceSettingsPage(
           },
         );
       });
-      refreshAutostart();
+      if (!codexOnly) refreshAutostart();
 
       // Data refresh frequency + low-quota alert.
       const { group: quotaGroup, card: quotaCard } = createPreferenceGroup(
@@ -385,7 +386,7 @@ export function createAppearanceSettingsPage(
       proxyUrlControls.append(proxyUrlInput, proxySave);
       proxyUrlRow.item.append(proxyUrlControls);
       proxyCard.append(proxyModeRow.item, proxyUrlRow.item);
-      context.content.append(proxyGroup);
+      if (!codexOnly) context.content.append(proxyGroup);
 
       const proxyClient = (): RendererAppearanceClient | null => getAppearanceClient();
       const syncProxyVisibility = (): void => {
@@ -441,7 +442,7 @@ export function createAppearanceSettingsPage(
       proxySave.addEventListener("click", saveProxy);
       syncProxyVisibility();
       const getProxy = proxyClient()?.rly0ProxySettingsGet;
-      if (getProxy) {
+      if (getProxy && !codexOnly) {
         void getProxy()
           .then((result) => {
             if (context.signal.aborted) return;

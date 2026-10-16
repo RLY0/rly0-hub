@@ -381,6 +381,7 @@ describe("Renderer fixed Model request client", () => {
       "rly0CoreStatus",
       "rly0DashboardHealth",
       "rly0DashboardThreadStats",
+      "rly0HubStatus",
       "rly0MaintenanceBackupStatus",
       "rly0MaintenanceCacheInfo",
       "rly0MaintenanceClearCache",

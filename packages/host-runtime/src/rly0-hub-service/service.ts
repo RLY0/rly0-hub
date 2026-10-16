@@ -9,6 +9,7 @@ import {
   rly0AgentAuthLoginParamsSchema,
   rly0AgentIdParamsSchema,
   rly0AppearanceAutostartSetParamsSchema,
+  rly0ProxySettingsSetParamsSchema,
   rly0RelayAddParamsSchema,
   rly0RelayAgentsSetParamsSchema,
   rly0RelayBalanceParamsSchema,
@@ -17,6 +18,7 @@ import {
   rly0RelayTestParamsSchema,
   rly0RelayUpdateParamsSchema,
   RLY0_GITHUB_REPOSITORY_URL,
+  RLY0_GITHUB_RELEASES_LATEST_URL,
   type Rly0Relay,
 } from "@codexhost/shared-contracts";
 import { z } from "zod";
@@ -29,6 +31,8 @@ import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
 import { Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
+import { createHubManagementRoutes } from "./management-routes.js";
+import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { listRly0HubAgents } from "./agents.js";
 import { evaluateRly0HubAlerts } from "./alerts.js";
 import { Rly0CodexControl } from "./codex-control.js";
@@ -41,10 +45,14 @@ export const RLY0_HUB_LINKS = {
   site: "https://rly0.com",
   recharge: "https://rly0.com/purchase?tab=recharge",
   github: RLY0_GITHUB_REPOSITORY_URL,
+  nodejs: "https://nodejs.org",
+  releases: RLY0_GITHUB_RELEASES_LATEST_URL,
 } as const;
 
 const empty = z.object({}).strict();
-const linkParams = z.object({ target: z.enum(["site", "recharge", "github"]) }).strict();
+const linkParams = z
+  .object({ target: z.enum(["site", "recharge", "github", "nodejs", "releases"]) })
+  .strict();
 
 type Handler = (params: unknown) => Promise<unknown>;
 
@@ -55,6 +63,7 @@ export interface Rly0HubServiceOptions {
   readonly autostartCommand?: string;
   readonly platform?: NodeJS.Platform;
   readonly core?: Rly0CoreBridge;
+  readonly updates?: Pick<HostUpdateCoordinator, "check">;
   readonly codex?: Rly0CodexControl;
   readonly appearance?: Rly0AppearanceManager;
   readonly openUrl?: (url: string) => void;
@@ -135,9 +144,13 @@ export class Rly0HubService {
     this.#agentRelays = new Rly0AgentRelaySettings({ environment });
     this.#installer = new AgentInstaller({
       environment,
+      ...(options.platform ? { platform: options.platform } : {}),
       downloadEnvironment: () => applyProxyEnvironment(environment, this.#core.getProxySettings()),
     });
-    this.#claudeCode = new ClaudeCodeAuth({ environment });
+    this.#claudeCode = new ClaudeCodeAuth({
+      environment,
+      ...(options.platform ? { platform: options.platform } : {}),
+    });
     this.#state = new Rly0HubStateStore(environment);
     this.#routes = this.#buildRoutes();
   }
@@ -225,6 +238,13 @@ export class Rly0HubService {
         return run(parsed.data);
       };
     return {
+      ...createHubManagementRoutes({
+        environment: this.#options.environment,
+        installRoot: this.#options.installRoot,
+        core,
+        codex: this.#codex,
+        ...(this.#options.updates ? { updates: this.#options.updates } : {}),
+      }),
       "home.summary": route(empty, async () => {
         const [codex, proxy, zero, live] = await Promise.all([
           this.#codex.status(),
@@ -287,6 +307,10 @@ export class Rly0HubService {
         return relay && isRly0Relay(relay) ? rly0Dollars(result) : result;
       }),
 
+      "proxy.settingsGet": route(empty, () => ({ settings: core.getProxySettings() })),
+      "proxy.settingsSet": route(rly0ProxySettingsSetParamsSchema, (p) =>
+        core.setProxySettings(p.settings),
+      ),
       "proxy.status": route(empty, () => core.proxyStatus()),
       "proxy.start": route(empty, async () => {
         await this.#router.ensureProxy();

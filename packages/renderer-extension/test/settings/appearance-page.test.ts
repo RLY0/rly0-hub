@@ -212,8 +212,9 @@ function mountPage(
   window: Window,
   document: Document,
   getAppearanceClient: () => RendererAppearanceClient | null = () => null,
+  codexOnly = false,
 ) {
-  const page = createAppearanceSettingsPage(messages, () => null, getAppearanceClient);
+  const page = createAppearanceSettingsPage(messages, () => null, getAppearanceClient, codexOnly);
   const root = new FakeElement("div") as unknown as HTMLElement;
   Object.assign(root, { ownerDocument: document });
   const scope = new RendererSettingsPageScope();
@@ -230,6 +231,27 @@ async function flush(): Promise<void> {
 }
 
 describe("Appearance settings page", () => {
+  it("keeps local preferences and omits Hub autostart and proxy controls", async () => {
+    const { window } = createFakeWindow(false);
+    const { document } = createFakeDocument(window);
+    const readAutostart = vi.fn();
+    const readProxy = vi.fn();
+    const { root, scope, unmount } = mountPage(
+      window,
+      document,
+      () => ({ rly0AppearanceAutostartStatus: readAutostart, rly0ProxySettingsGet: readProxy }),
+      true,
+    );
+    await flush();
+    expect(text(root)).not.toContain(extra.autostartTitle);
+    expect(text(root)).not.toContain(extra.proxyTitle);
+    expect(selectByIdPrefix(root, "codexhost-theme-")).toBeDefined();
+    expect(readAutostart).not.toHaveBeenCalled();
+    expect(readProxy).not.toHaveBeenCalled();
+    scope.dispose();
+    unmount?.();
+  });
+
   it("does not access preferences when its document has no Window", () => {
     const page = createAppearanceSettingsPage(rendererSettingsMessages("en"));
     const context = {

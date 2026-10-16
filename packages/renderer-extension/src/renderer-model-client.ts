@@ -107,6 +107,8 @@ import {
   type Rly0MaintenanceRestoreBackupResult,
   RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
   RLY0_HUB_OPEN_METHOD,
+  RLY0_HUB_STATUS_METHOD,
+  rly0HubStatusResultSchema,
   rly0HubOpenResultSchema,
   type Rly0HubOpenResult,
   RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
@@ -449,6 +451,8 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0MaintenanceRestartCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
   rly0MaintenanceBackupStatus?(): Promise<Rly0MaintenanceBackupStatusResult>;
   rly0MaintenanceRestoreBackup?(): Promise<Rly0MaintenanceRestoreBackupResult>;
+  rly0OpenHub?(): Promise<Rly0HubOpenResult>;
+  rly0HubStatus?(): Promise<{ available: boolean }>;
   rly0AppearanceAutostartStatus?(): Promise<Rly0AppearanceAutostartResult>;
   rly0AppearanceAutostartSet?(
     input: Rly0AppearanceAutostartSetParams,
@@ -1029,6 +1033,10 @@ export function createRendererModelClient(
         await manager.sendRequest(RLY0_MAINTENANCE_RESTART_CODEX_METHOD, {}),
       );
     },
+    async rly0HubStatus(): Promise<{ available: boolean }> {
+      return rly0HubStatusResultSchema.parse(await manager.sendRequest(RLY0_HUB_STATUS_METHOD, {}));
+    },
+
     async rly0OpenHub(): Promise<Rly0HubOpenResult> {
       return rly0HubOpenResultSchema.parse(await manager.sendRequest(RLY0_HUB_OPEN_METHOD, {}));
     },

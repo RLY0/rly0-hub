@@ -132,6 +132,7 @@ import {
 import {
   RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
   RLY0_HUB_OPEN_METHOD,
+  RLY0_HUB_STATUS_METHOD,
   rly0HubOpenParamsSchema,
   RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
   rly0AppearanceAutostartGetParamsSchema,
@@ -145,7 +146,11 @@ import { Rly0ThreadsManager, rly0ThreadsRpcError } from "./rly0-threads/index.js
 import { Rly0DashboardManager, rly0DashboardRpcError } from "./rly0-dashboard/index.js";
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "./rly0-maintenance/index.js";
 import { Rly0AppearanceManager, rly0AppearanceRpcError } from "./rly0-appearance/index.js";
-import { openRly0Hub, resolveRly0HubAutostartCommand } from "./rly0-appearance/hub-autostart.js";
+import {
+  rly0HubStatus,
+  openRly0Hub,
+  resolveRly0HubAutostartCommand,
+} from "./rly0-appearance/hub-autostart.js";
 import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
 import {
   Rly0RelayCodexConfigManager,
@@ -1464,7 +1469,8 @@ export class AppServerHost {
     if (
       request.method === RLY0_APPEARANCE_AUTOSTART_GET_METHOD ||
       request.method === RLY0_APPEARANCE_AUTOSTART_SET_METHOD ||
-      request.method === RLY0_HUB_OPEN_METHOD
+      request.method === RLY0_HUB_OPEN_METHOD ||
+      request.method === RLY0_HUB_STATUS_METHOD
     ) {
       this.#dispatchDesktopRequest(() => this.#handleRly0AppearanceRequest(request));
       return;
@@ -2742,12 +2748,16 @@ export class AppServerHost {
   /** Appearance: Windows-only autostart toggle (HKCU Run key), `{ supported: false }` elsewhere. */
   async #handleRly0AppearanceRequest(request: JsonRpcRequest): Promise<void> {
     try {
-      if (request.method === RLY0_HUB_OPEN_METHOD) {
+      if (request.method === RLY0_HUB_OPEN_METHOD || request.method === RLY0_HUB_STATUS_METHOD) {
         if (!rly0HubOpenParamsSchema.safeParse(request.params ?? {}).success) {
           await this.#writer.json(rpcError(request, -32602, "Invalid Hub open params"));
           return;
         }
-        await this.#writer.json(rpcEnvelope(request, { result: openRly0Hub() }));
+        await this.#writer.json(
+          rpcEnvelope(request, {
+            result: request.method === RLY0_HUB_STATUS_METHOD ? rly0HubStatus() : openRly0Hub(),
+          }),
+        );
         return;
       }
       if (request.method === RLY0_APPEARANCE_AUTOSTART_GET_METHOD) {

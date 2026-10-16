@@ -331,6 +331,8 @@ export {
   rly0AppearanceAutostartResultSchema,
   rly0AppearanceAutostartSetParamsSchema,
   RLY0_HUB_OPEN_METHOD,
+  RLY0_HUB_STATUS_METHOD,
+  rly0HubStatusResultSchema,
   rly0HubOpenParamsSchema,
   rly0HubOpenResultSchema,
 } from "./rly0-appearance.js";

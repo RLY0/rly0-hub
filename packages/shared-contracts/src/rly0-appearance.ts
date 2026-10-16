@@ -38,3 +38,7 @@ export const rly0HubOpenResultSchema = z
   .object({ available: z.boolean(), ok: z.boolean() })
   .strict();
 export type Rly0HubOpenResult = z.infer<typeof rly0HubOpenResultSchema>;
+
+/** Detect the independent window without opening it. */
+export const RLY0_HUB_STATUS_METHOD = "codexhost/rly0/hub/status";
+export const rly0HubStatusResultSchema = z.object({ available: z.boolean() }).strict();

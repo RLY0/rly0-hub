@@ -124,9 +124,11 @@ describe("RLY/0 Hub service", () => {
     });
     await service.handle("links.open", { target: "recharge" });
     await service.handle("links.open", { target: "github" });
+    await service.handle("links.open", { target: "nodejs" });
     expect(opened).toEqual([
       "https://rly0.com/purchase?tab=recharge",
       "https://github.com/a1039861261-stack/rly0-hub",
+      "https://nodejs.org",
     ]);
   });
 
@@ -186,6 +188,10 @@ describe("Codex control from the Hub", () => {
       await fs.readFile(path.join(runtime, "desktop-control-request.json"), "utf8"),
     ) as unknown;
     expect(request).toEqual({ schemaVersion: 1, launcherPid: 4242, nonce, action: "restart" });
+    expect(await control.forceQuit()).toEqual({ ok: true });
+    expect(
+      JSON.parse(await fs.readFile(path.join(runtime, "desktop-control-request.json"), "utf8")),
+    ).toMatchObject({ action: "quit", launcherPid: 4242, nonce });
   });
 
   it("starts Codex through the Launcher's Start entry", async () => {

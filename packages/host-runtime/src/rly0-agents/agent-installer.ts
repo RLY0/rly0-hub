@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import path from "node:path";
 
 import type { Rly0AgentInstallStatus } from "@codexhost/shared-contracts";
 
 import { commandExists } from "./claude-code-auth.js";
+import { withAgentInstallPaths } from "./install-paths.js";
 
 /**
  * One-click installation of native agents. Each agent has a recipe: the vendor's official
@@ -24,6 +24,8 @@ interface Recipe {
   readonly manualUrl?: string;
   /** Command that starts the agent in a terminal for its own sign-in or setup. */
   readonly loginCommand?: string;
+  /** Installation detection is independent of interactive login support. */
+  readonly detectionCommand?: string;
 }
 
 const script = (windows: string, posix: string): Attempt => ({ kind: "script", windows, posix });
@@ -36,6 +38,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       script("irm https://pi.dev/install.ps1 | iex", "curl -fsSL https://pi.dev/install.sh | sh"),
     ],
     loginCommand: "pi",
+    detectionCommand: "pi",
   },
   "claude-code": {
     attempts: [
@@ -48,15 +51,31 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
     ],
     requires: [],
     loginCommand: "claude",
+    detectionCommand: "claude",
   },
-  "deepseek-harness": { requires: ["node"], attempts: [npm("@deepseek-ai/dsh@0.1.5-rc.1")] },
-  opencode: { requires: ["node"], attempts: [npm("opencode-ai")], loginCommand: "opencode" },
-  grok: { requires: ["node"], attempts: [npm("@xai-official/grok")], loginCommand: "grok" },
+  "deepseek-harness": {
+    requires: ["node"],
+    attempts: [npm("@deepseek-ai/dsh@0.1.5-rc.1")],
+    detectionCommand: "dsh",
+  },
+  opencode: {
+    requires: ["node"],
+    attempts: [npm("opencode-ai")],
+    loginCommand: "opencode",
+    detectionCommand: "opencode",
+  },
+  grok: {
+    requires: ["node"],
+    attempts: [npm("@xai-official/grok")],
+    loginCommand: "grok",
+    detectionCommand: "grok",
+  },
   omp: {
     attempts: [
       script("irm https://omp.sh/install.ps1 | iex", "curl -fsSL https://omp.sh/install | sh"),
     ],
     loginCommand: "omp",
+    detectionCommand: "omp",
   },
   antigravity: {
     attempts: [
@@ -66,6 +85,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       ),
     ],
     loginCommand: "agy",
+    detectionCommand: "agy",
   },
   "kiro-cli": {
     attempts: [
@@ -75,11 +95,13 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       ),
     ],
     loginCommand: "kiro-cli",
+    detectionCommand: "kiro-cli",
   },
   codebuddy: {
     requires: ["node"],
     attempts: [npm("@tencent-ai/codebuddy-code")],
     loginCommand: "codebuddy",
+    detectionCommand: "codebuddy",
   },
   workbuddy: {
     attempts: [],
@@ -94,6 +116,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       ),
     ],
     loginCommand: "agent",
+    detectionCommand: "agent",
   },
   hermes: {
     attempts: [
@@ -103,6 +126,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       ),
     ],
     loginCommand: "hermes",
+    detectionCommand: "hermes",
   },
   qoder: {
     attempts: [
@@ -112,6 +136,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       ),
     ],
     loginCommand: "qodercli",
+    detectionCommand: "qodercli",
   },
   "qoder-cn": {
     attempts: [
@@ -121,6 +146,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       ),
     ],
     loginCommand: "qoderclicn",
+    detectionCommand: "qoderclicn",
   },
   "kimi-code": {
     requires: ["git"],
@@ -131,6 +157,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
       ),
     ],
     loginCommand: "kimi",
+    detectionCommand: "kimi",
   },
 };
 
@@ -244,6 +271,7 @@ interface MutableStatus {
   state: Rly0AgentInstallStatus["state"];
   step?: Rly0AgentInstallStatus["step"];
   error?: Rly0AgentInstallStatus["error"];
+  requirementReason?: Rly0AgentInstallStatus["requirementReason"];
   log: string;
   startedAt?: number;
   finishedAt?: number;
@@ -253,6 +281,7 @@ interface MutableStatus {
 export class AgentInstaller {
   readonly #options: AgentInstallerOptions;
   readonly #status = new Map<string, MutableStatus>();
+  #refreshedPath = "";
 
   constructor(options: AgentInstallerOptions) {
     this.#options = options;
@@ -283,6 +312,7 @@ export class AgentInstaller {
       ...(recipe?.loginCommand ? { canOpenLogin: true } : {}),
       ...(current?.step ? { step: current.step } : {}),
       ...(current?.error ? { error: current.error } : {}),
+      ...(current?.requirementReason ? { requirementReason: current.requirementReason } : {}),
       ...(current?.log ? { log: current.log.slice(-LOG_LIMIT) } : {}),
       ...(current?.startedAt ? { startedAt: current.startedAt } : {}),
       ...(current?.finishedAt ? { finishedAt: current.finishedAt } : {}),
@@ -359,20 +389,8 @@ export class AgentInstaller {
 
   /** PATH plus the usual install folders, so freshly installed tools are found right away. */
   #withKnownPaths(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    if (this.#platform !== "win32") return environment;
-    const extra = [
-      "C:\\Program Files\\nodejs",
-      "C:\\Program Files\\Git\\cmd",
-      environment.APPDATA ? path.win32.join(environment.APPDATA, "npm") : undefined,
-      environment.USERPROFILE
-        ? path.win32.join(environment.USERPROFILE, ".local", "bin")
-        : undefined,
-    ].filter((entry): entry is string => Boolean(entry));
-    const current = environment.PATH ?? environment.Path ?? "";
-    const next: NodeJS.ProcessEnv = { ...environment };
-    // Windows treats the name case-insensitively; keep a single entry.
-    delete next.Path;
-    next.PATH = [current, ...extra].filter(Boolean).join(";");
+    const next = withAgentInstallPaths(environment, this.#platform);
+    if (this.#refreshedPath) next.PATH = `${next.PATH ?? ""};${this.#refreshedPath}`;
     return next;
   }
 
@@ -387,7 +405,8 @@ export class AgentInstaller {
     const environment = this.#withKnownPaths(this.#environment());
     const present =
       requirement === "node"
-        ? this.#npmCommand(environment) !== null
+        ? this.#npmCommand(environment) !== null &&
+          commandExists("node", environment, this.#platform, this.#options.fileExists)
         : commandExists("git", environment, this.#platform, this.#options.fileExists);
     if (present) return true;
     status.step = requirement === "node" ? "installingNode" : "installingGit";
@@ -396,7 +415,8 @@ export class AgentInstaller {
       !commandExists("winget", environment, this.#platform, this.#options.fileExists)
     ) {
       status.error = requirement === "node" ? "NODE_MISSING" : "GIT_MISSING";
-      this.#append(status, `${requirement} is required and could not be installed automatically.`);
+      status.requirementReason = "WINGET_UNAVAILABLE";
+      this.#append(status, "系统没有可用的 winget，无法自动安装依赖。请手动安装后重试。");
       return false;
     }
     const result = await this.#runner.run(
@@ -414,16 +434,46 @@ export class AgentInstaller {
       { environment, shell: false, timeoutMs: STEP_TIMEOUT_MS },
     );
     this.#append(status, result.output);
+    // Refresh only PATH (not credentials or other environment values) when winget used a
+    // nonstandard destination. Existing processes do not inherit registry PATH updates.
+    const known = this.#withKnownPaths(this.#environment());
+    if (!commandExists(requirement, known, this.#platform, this.#options.fileExists)) {
+      const refreshed = await this.#runner.run(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "([Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'))",
+        ],
+        { environment: known, shell: false, timeoutMs: 10_000 },
+      );
+      if (refreshed.code === 0) this.#refreshedPath = refreshed.output.trim();
+    }
     const installed =
       requirement === "node"
-        ? this.#npmCommand(this.#withKnownPaths(this.#environment())) !== null
+        ? this.#npmCommand(this.#withKnownPaths(this.#environment())) !== null &&
+          commandExists(
+            "node",
+            this.#withKnownPaths(this.#environment()),
+            this.#platform,
+            this.#options.fileExists,
+          )
         : commandExists(
             "git",
             this.#withKnownPaths(this.#environment()),
             this.#platform,
             this.#options.fileExists,
           );
-    if (result.code === 0 || installed) return true;
+    if (installed) return true;
+    status.requirementReason =
+      result.code === 0
+        ? "NOT_DETECTED"
+        : classifyInstallFailure(result.output) === "NETWORK"
+          ? "NETWORK"
+          : classifyInstallFailure(result.output) === "PERMISSION"
+            ? "PERMISSION"
+            : "INSTALL_FAILED";
     status.error = requirement === "node" ? "NODE_MISSING" : "GIT_MISSING";
     return false;
   }
@@ -461,6 +511,8 @@ export class AgentInstaller {
     attempt: Extract<Attempt, { kind: "npm" }>,
     status: MutableStatus,
   ): Promise<CommandResult> {
+    if (!(await this.#ensureRequirement("node", status)))
+      return { code: null, output: "NODE_MISSING" };
     const environment = this.#withKnownPaths(this.#environment());
     const npmCommand = this.#npmCommand(environment);
     if (!npmCommand) {

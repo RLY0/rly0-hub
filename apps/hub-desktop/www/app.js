@@ -99,6 +99,16 @@
     RELAY_BASEURL_REJECTED: "地址格式不对",
     RELAY_NAME_REJECTED: "名称需要 1–40 个字",
     RELAY_KEY_REJECTED: "密钥里不能有空格",
+    MCP_OPERATION_FAILED: "MCP 操作失败，请检查文件权限",
+    MCP_SERVER_ALREADY_EXISTS: "这个 MCP 名称已存在",
+    MCP_SERVER_NOT_FOUND: "这个 MCP 服务已不存在，请刷新",
+    SKILL_OPERATION_FAILED: "Skills 操作失败，请检查文件权限",
+    SKILL_SOURCE_INVALID: "文件夹里没有 SKILL.md",
+    SKILL_ALREADY_EXISTS: "同名 Skill 已存在",
+    SKILL_NOT_FOUND: "这个 Skill 已不存在，请刷新",
+    THREAD_OPERATION_FAILED: "线程操作失败，请稍后重试",
+    MAINTENANCE_OPERATION_FAILED: "维护操作失败，请检查文件权限",
+    UPDATE_CHECK_FAILED: "检查更新失败，请稍后重试",
   };
   const explain = (code) => ERRORS[code] || "操作没有成功";
   const failed = (error) => toast(explain(error && error.message));
@@ -132,7 +142,13 @@
     backup: "备份",
     support: "支持",
     settings: "设置",
+    network: "网络代理",
     wizard: "开始使用",
+    mcp: "MCP 管理",
+    skills: "Skills 管理",
+    threads: "线程管理",
+    maintenance: "维护工具",
+    updates: "更新",
   };
   const pageEl = document.getElementById("page");
   const titleEl = document.getElementById("title");
@@ -176,6 +192,10 @@
 
   /* ---------- Pages ---------- */
   const pages = {};
+
+  const pageApi = { pages, h, call, toast, failed };
+  Object.assign(pageApi, window.registerHubResources(pageApi));
+  window.registerHubSystem(pageApi);
 
   pages.home = (root, alive) => {
     const codexModule = h("section", { class: "m codex span-4 rows-2" });
@@ -548,6 +568,14 @@
     UNSUPPORTED: "暂不支持自动安装",
   };
 
+  const REQUIREMENT_REASONS = {
+    WINGET_UNAVAILABLE: "系统没有可用的 winget，请手动安装 Node.js 后重试",
+    NETWORK: "下载 Node.js 失败，请检查网络后重试",
+    PERMISSION: "安装 Node.js 没有获得权限，请手动安装后重试",
+    INSTALL_FAILED: "winget 没能装好 Node.js，请手动安装后重试",
+    NOT_DETECTED: "安装后仍找不到 npm，请安装含 npm 的 Node.js 后重试",
+  };
+
   pages.agents = (root, alive) => {
     const claudeModule = h(
       "section",
@@ -739,6 +767,27 @@
           action,
         );
         if (agent.id === "claude-code") card.classList.add("tone");
+        progress.replaceChildren();
+        if (status && status.error === "NODE_MISSING") {
+          card.classList.add("install-help");
+          progress.className = "install-fallback";
+          progress.append(
+            h(
+              "p",
+              { class: "sub" },
+              REQUIREMENT_REASONS[status.requirementReason] || "请安装含 npm 的 Node.js 后重试",
+            ),
+            h(
+              "button",
+              {
+                class: "btn sm",
+                type: "button",
+                onclick: () => call("links.open", { target: "nodejs" }).catch(failed),
+              },
+              "下载 Node.js",
+            ),
+          );
+        } else card.classList.remove("install-help");
         card.append(progress);
       }
       async function install() {
@@ -767,7 +816,7 @@
       draw(null);
       call("agents.installStatus", { agent: agent.id }).then(
         (status) => {
-          if (alive() && status.state === "running") {
+          if (alive() && status.state !== "idle") {
             draw(status);
           }
         },
@@ -1311,7 +1360,29 @@
         "rly0.com",
       ),
     );
-    root.append(h("div", { class: "grid compact" }, autostart, about));
+    root.append(
+      h(
+        "div",
+        { class: "grid compact" },
+        autostart,
+        about,
+        h(
+          "section",
+          { class: "m span-6" },
+          h("h3", null, "网络与 Codex 内工具"),
+          h(
+            "div",
+            { class: "row" },
+            h("button", { class: "btn", type: "button", onclick: () => go("network") }, "网络代理"),
+          ),
+          h(
+            "p",
+            { class: "sub" },
+            "在 Codex 中右键 RLY/0 按钮，可设置自定义启动命令、浏览器添加账号、导入会话，以及调整界面和额度提示。也可从 AI 助手选择器的管理入口打开。",
+          ),
+        ),
+      ),
+    );
     async function load() {
       const status = await call("autostart.get").catch(() => null);
       if (!alive()) return;
@@ -1652,35 +1723,35 @@
       },
       "agents.list": {
         agents: [
-          {
-            id: "claude-code",
-            name: "Claude Code",
-            installed: true,
-            automatic: true,
-            canOpenLogin: true,
-          },
-          {
-            id: "kimi-code",
-            name: "Kimi Code",
-            installed: false,
-            automatic: true,
-            canOpenLogin: true,
-          },
-          {
-            id: "qoder-cn",
-            name: "Qoder 国内版",
-            installed: true,
-            automatic: true,
-            canOpenLogin: true,
-          },
-          {
-            id: "workbuddy",
-            name: "WorkBuddy",
-            installed: null,
-            automatic: false,
-            canOpenLogin: false,
-          },
-        ],
+          "claude-code",
+          "kimi-code",
+          "qoder-cn",
+          "codebuddy",
+          "deepseek-harness",
+          "opencode",
+          "cursor-cli",
+          "qoder",
+          "antigravity",
+          "grok",
+          "kiro-cli",
+          "hermes",
+          "pi",
+          "omp",
+          "workbuddy",
+        ].map((id) => ({
+          id,
+          name:
+            {
+              "claude-code": "Claude Code",
+              "kiro-cli": "Kiro",
+              hermes: "Hermes",
+              grok: "Grok",
+              "deepseek-harness": "DeepSeek",
+            }[id] || id,
+          installed: id === "workbuddy" ? null : id === "claude-code",
+          automatic: id !== "workbuddy",
+          canOpenLogin: !["deepseek-harness", "workbuddy"].includes(id),
+        })),
       },
       "balance.get": {
         configured: true,
@@ -1763,7 +1834,11 @@
       "hub.state": { onboarded: !/[?&]wizard/.test(location.search) },
     };
     setTimeout(
-      () => onMessage({ id: message.id, result: data[message.method] || { ok: true } }),
+      () =>
+        onMessage({
+          id: message.id,
+          result: window.hubManagementMock(message) || data[message.method] || { ok: true },
+        }),
       120,
     );
   }

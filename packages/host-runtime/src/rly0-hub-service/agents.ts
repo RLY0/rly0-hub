@@ -1,5 +1,6 @@
 import { RLY0_AGENT_RECIPES } from "../rly0-agents/agent-installer.js";
-import { commandExists, withClaudeCodeInstallPaths } from "../rly0-agents/claude-code-auth.js";
+import { commandExists } from "../rly0-agents/claude-code-auth.js";
+import { withAgentInstallPaths } from "../rly0-agents/install-paths.js";
 
 /** Display order and names for the Hub's "AI 助手" page; ids match the installer recipes. */
 export const RLY0_HUB_AGENTS: readonly { readonly id: string; readonly name: string }[] = [
@@ -34,18 +35,18 @@ export function listRly0HubAgents(
   platform: NodeJS.Platform = process.platform,
   fileExists?: (file: string) => boolean,
 ): Rly0HubAgent[] {
-  const searchEnvironment = withClaudeCodeInstallPaths(environment, platform);
+  const searchEnvironment = withAgentInstallPaths(environment, platform);
   return RLY0_HUB_AGENTS.flatMap(({ id, name }) => {
     const recipe = RLY0_AGENT_RECIPES[id];
     if (!recipe) return [];
-    const command = recipe.loginCommand;
+    const command = recipe.detectionCommand;
     return [
       {
         id,
         name,
         installed: command ? commandExists(command, searchEnvironment, platform, fileExists) : null,
         automatic: recipe.attempts.length > 0,
-        canOpenLogin: Boolean(command),
+        canOpenLogin: Boolean(recipe.loginCommand),
       },
     ];
   });
