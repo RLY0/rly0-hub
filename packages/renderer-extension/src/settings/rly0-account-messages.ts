@@ -32,6 +32,10 @@ export const rly0AccountEnglish = {
   switchConfirmBody:
     "Switch the active Codex login to {name}? The Codex window stays open; a reply that is still generating finishes first.",
   switchConfirm: "Confirm switch",
+  termsTitle: "Before you add another account",
+  termsBody:
+    "RLY/0 Hub helps you manage several accounts of your own. Please follow OpenAI's terms of use: rotating accounts to get around usage limits may break them, and any restriction or ban applies to your own accounts. You use multiple accounts at your own risk.",
+  termsAcknowledge: "I understand, continue",
   switchAlreadyCurrent: "{name} is already the active account.",
   switchRequiresRestart: "Switched to {name}. Restart Codex for this to take effect.",
   switchReloaded:
@@ -113,6 +117,10 @@ export const rly0AccountChinese: Rly0AccountMessages = {
   switchConfirmBody:
     "确定要将当前 Codex 登录切换为 {name} 吗？Codex 窗口不会关闭，正在生成的回复会先完成。",
   switchConfirm: "确认切换",
+  termsTitle: "添加更多账号前请注意",
+  termsBody:
+    "RLY/0 Hub 用于管理你本人的多个账号。请遵守 OpenAI 使用条款：轮换多个账号来绕开额度限制可能违反条款，由此产生的限制或封号由账号本人承担。多账号使用的风险由你自行承担。",
+  termsAcknowledge: "我知道了，继续",
   switchAlreadyCurrent: "{name} 已经是当前账号。",
   switchRequiresRestart: "已切换到 {name}。请重启 Codex 以使其生效。",
   switchReloaded: "已切换到 {name}，已无缝生效，下一条消息就用这个账号。",

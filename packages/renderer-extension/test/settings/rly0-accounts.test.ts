@@ -6,6 +6,7 @@ vi.mock("../../src/settings/icons.js", () => ({
 }));
 
 import {
+  RLY0_MULTI_ACCOUNT_TERMS_STORAGE_KEY,
   mountRly0Accounts,
   type RendererRly0AccountClient,
 } from "../../src/settings/rly0-accounts.js";
@@ -45,6 +46,17 @@ class FakeElement {
   }
   focus(): void {
     // Not asserted in these tests.
+  }
+  open = false;
+  showModal(): void {
+    this.open = true;
+  }
+  close(): void {
+    this.open = false;
+    this.listeners.get("close")?.();
+  }
+  remove(): void {
+    this.open = false;
   }
 }
 
@@ -248,5 +260,69 @@ describe("mountRly0Accounts", () => {
       { id: "abcdef012345", usage: usage(95, 10, Math.floor(Date.now() / 1000)) },
     ]);
     expect(text(root)).toContain("5%");
+  });
+
+  it("shows the multi-account notice once before saving a second account", async () => {
+    const storage = new Map<string, string>();
+    const document = {
+      createElement: (tagName: string) => new FakeElement(tagName),
+      defaultView: {
+        localStorage: {
+          getItem: (key: string) => storage.get(key) ?? null,
+          setItem: (key: string, value: string) => void storage.set(key, value),
+        },
+      },
+    } as unknown as Document;
+    const root = new FakeElement("div");
+    Object.assign(root, { ownerDocument: document });
+    let accounts: Rly0Account[] = [];
+    const importCurrent = vi.fn(async () => ({ available: true as const, id: "x" }));
+    const mounted = mountRly0Accounts(
+      root as unknown as HTMLElement,
+      new AbortController().signal,
+      () =>
+        ({
+          rly0CoreStatus: available,
+          listRly0Accounts: async () => ({ available: true, accounts }),
+          importCurrentRly0Account: importCurrent,
+        }) as unknown as RendererRly0AccountClient,
+      settingsMessages,
+      vi.fn(),
+    );
+    const section = mounted.section as unknown as FakeElement;
+    const openDialog = () =>
+      root.children.find(
+        (child): child is FakeElement => child instanceof FakeElement && child.open,
+      );
+    await mounted.refresh();
+
+    // The first account needs no notice.
+    buttonWithText(section, messages.save)?.listeners.get("click")?.();
+    expect(text(openDialog() as FakeElement)).not.toContain(messages.termsTitle);
+    openDialog()?.close();
+
+    accounts = [{ id: "abcdef012345", alias: "work", current: true }];
+    await mounted.refresh();
+    buttonWithText(section, messages.save)?.listeners.get("click")?.();
+    const notice = openDialog() as FakeElement;
+    expect(text(notice)).toContain(messages.termsTitle);
+    expect(text(notice)).toContain("OpenAI 使用条款");
+    // Cancelling keeps it unacknowledged.
+    buttonWithText(notice, messages.cancel)?.listeners.get("click")?.();
+    expect(storage.has(RLY0_MULTI_ACCOUNT_TERMS_STORAGE_KEY)).toBe(false);
+
+    buttonWithText(section, messages.save)?.listeners.get("click")?.();
+    buttonWithText(openDialog() as FakeElement, messages.termsAcknowledge)?.listeners.get(
+      "click",
+    )?.();
+    await flush();
+    expect(storage.get(RLY0_MULTI_ACCOUNT_TERMS_STORAGE_KEY)).toBe("1");
+    // It continues straight into the save dialog, and never shows again.
+    expect(text(openDialog() as FakeElement)).not.toContain(messages.termsTitle);
+    expect(buttonWithText(openDialog() as FakeElement, messages.save)).toBeDefined();
+    openDialog()?.close();
+    buttonWithText(section, messages.add)?.listeners.get("click")?.();
+    expect(text(openDialog() as FakeElement)).toContain(messages.addTitle);
+    expect(text(openDialog() as FakeElement)).not.toContain(messages.termsTitle);
   });
 });

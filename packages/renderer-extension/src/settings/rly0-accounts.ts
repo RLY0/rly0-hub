@@ -73,7 +73,10 @@ interface Rly0UsageState {
   loading: boolean;
 }
 
-type DialogMode = "save" | "add" | "switch" | "rename" | "remove";
+type DialogMode = "save" | "add" | "switch" | "rename" | "remove" | "terms";
+
+/** Set once the person acknowledged the multi-account notice; it is shown only once. */
+export const RLY0_MULTI_ACCOUNT_TERMS_STORAGE_KEY = "codexhost.rly0-multi-account-terms.v1";
 
 export function rly0AccountDisplayName(account: Rly0Account): string {
   return account.alias?.trim() || account.email || account.id;
@@ -115,12 +118,12 @@ export function mountRly0Accounts(
   saveButton.type = "button";
   saveButton.className = "settings-command-button settings-command-button--secondary";
   saveButton.textContent = messages.save;
-  saveButton.addEventListener("click", () => openDialog("save", null));
+  saveButton.addEventListener("click", () => requestAccountDialog("save"));
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.className = "settings-command-button";
   addButton.textContent = messages.add;
-  addButton.addEventListener("click", () => openDialog("add", null));
+  addButton.addEventListener("click", () => requestAccountDialog("add"));
   const refreshAllButton = document.createElement("button");
   refreshAllButton.type = "button";
   refreshAllButton.className = "settings-command-button settings-command-button--secondary";
@@ -431,7 +434,26 @@ export function mountRly0Accounts(
     card.replaceChildren(...accounts.map(renderRow));
   };
 
-  const openDialog = (mode: DialogMode, account: Rly0Account | null): void => {
+  const termsAcknowledged = (): boolean => {
+    try {
+      return (
+        document.defaultView?.localStorage.getItem(RLY0_MULTI_ACCOUNT_TERMS_STORAGE_KEY) === "1"
+      );
+    } catch {
+      return false;
+    }
+  };
+  /** Saving or adding a second account first shows the terms notice once. */
+  const requestAccountDialog = (mode: "save" | "add"): void => {
+    if (accounts.length >= 1 && !termsAcknowledged()) openDialog("terms", null, mode);
+    else openDialog(mode, null);
+  };
+
+  const openDialog = (
+    mode: DialogMode,
+    account: Rly0Account | null,
+    next?: "save" | "add",
+  ): void => {
     if (busy || dialog || signal.aborted) return;
     const modal = document.createElement("dialog");
     dialog = modal;
@@ -476,7 +498,26 @@ export function mountRly0Accounts(
 
     const name = account ? rly0AccountDisplayName(account) : "";
 
-    if (mode === "add") {
+    if (mode === "terms") {
+      heading.textContent = messages.termsTitle;
+      body.append(note(messages.termsBody));
+      controls.append(
+        command(messages.cancel, close),
+        command(
+          messages.termsAcknowledge,
+          () => {
+            try {
+              document.defaultView?.localStorage.setItem(RLY0_MULTI_ACCOUNT_TERMS_STORAGE_KEY, "1");
+            } catch {
+              // Storage unavailable: the notice simply shows again next time.
+            }
+            if (next) onDialogClose = () => queueMicrotask(() => openDialog(next, null));
+            close();
+          },
+          "primary",
+        ),
+      );
+    } else if (mode === "add") {
       heading.textContent = messages.addTitle;
       const label = document.createElement("label");
       label.className = "settings-credential-dialog__field";
