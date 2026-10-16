@@ -136,8 +136,8 @@ type View =
   | { kind: "hidden" }
   | { kind: "notFound" }
   | { kind: "ready"; via: string }
-  | { kind: "restart"; relayName: string }
-  | { kind: "setup"; relay: Rly0Relay | null; error?: string }
+  | { kind: "restart"; target: string }
+  | { kind: "setup"; relay: Rly0Relay | null; error?: string; switching?: boolean }
   | { kind: "waitingLogin"; url?: string }
   | { kind: "working"; text: string };
 
@@ -152,6 +152,9 @@ export function createClaudeQuickStart(
   root.className = "settings-rly0-quick-start";
   root.setAttribute("aria-label", t("Start using Claude Code", "开始使用 Claude Code"));
   let view: View = { kind: "checking" };
+  /** Last known relays and agent choice, for "change how Claude Code runs". */
+  let knownRelays: readonly Rly0Relay[] = [];
+  let savedRelay: string | null = null;
   let disposed = false;
 
   const el = <K extends keyof HTMLElementTagNameMap>(
@@ -235,7 +238,13 @@ export function createClaudeQuickStart(
             }
           },
         );
-        root.append(start);
+        const change = button(t("Change how it runs", "更换方式"), false, () => {
+          view = { kind: "setup", relay: usableRelay(knownRelays), switching: true };
+          render();
+        });
+        const actions = el("div", "settings-rly0-quick-start__actions");
+        actions.append(start, change);
+        root.append(actions);
         return;
       }
       case "restart": {
@@ -244,8 +253,8 @@ export function createClaudeQuickStart(
             "p",
             undefined,
             t(
-              `Claude Code will run through ${view.relayName} after Codex restarts.`,
-              `重启 Codex 后，Claude Code 会走“${view.relayName}”。`,
+              `After Codex restarts, Claude Code uses ${view.target}.`,
+              `重启 Codex 后，Claude Code 改用${view.target}。`,
             ),
           ),
           button(
@@ -307,7 +316,15 @@ export function createClaudeQuickStart(
             ),
           ),
         );
-        if (view.relay) {
+        if (view.relay && view.relay.id === savedRelay) {
+          relay.append(
+            el(
+              "span",
+              "settings-rly0-quick-start__current",
+              t("This is what it uses now.", "当前正在使用这个。"),
+            ),
+          );
+        } else if (view.relay) {
           const existing = view.relay;
           relay.append(
             button(
@@ -344,6 +361,9 @@ export function createClaudeQuickStart(
         }
         choices.append(own, relay);
         root.append(choices);
+        if (view.switching) {
+          root.append(button(t("Cancel", "取消"), false, () => void check()));
+        }
         if (view.error) {
           const failure = el("p", "settings-rly0-quick-start__error", view.error);
           failure.setAttribute("role", "alert");
@@ -373,12 +393,19 @@ export function createClaudeQuickStart(
         client.listRly0Relays?.() ?? Promise.resolve(null),
       ]);
       const relays = listed?.available ? listed.relays : [];
+      knownRelays = relays;
+      savedRelay = agents?.claudeCode ?? null;
       const nameOf = (id: string): string => relays.find((relay) => relay.id === id)?.name ?? id;
       // Codex already lists Claude Code here, so a missing command means this Codex session started
       // before the install: a restart picks it up.
       if (!auth.installed) view = { kind: "notFound" };
-      else if (agents?.claudeCode && agents.restartRequired)
-        view = { kind: "restart", relayName: nameOf(agents.claudeCode) };
+      else if (agents?.restartRequired)
+        view = {
+          kind: "restart",
+          target: agents.claudeCode
+            ? t(`the relay ${nameOf(agents.claudeCode)}`, `“${nameOf(agents.claudeCode)}”中转`)
+            : t("your own Claude login", "你自己的 Claude 账号"),
+        };
       else if (agents?.active?.claudeCode)
         view = {
           kind: "ready",
@@ -409,6 +436,11 @@ export function createClaudeQuickStart(
     const client = getClient();
     if (!client?.rly0ClaudeCodeLogin) return;
     try {
+      // Moving from a relay back to the person's own login: drop the relay choice first.
+      if (savedRelay && client.rly0RelayAgentsSet) {
+        await client.rly0RelayAgentsSet({ claudeCode: null });
+        savedRelay = null;
+      }
       const result = await client.rly0ClaudeCodeLogin({ mode: "claudeai" });
       if (!result.started) throw new Error("not started");
       view = { kind: "waitingLogin", ...(result.url ? { url: result.url } : {}) };
@@ -453,7 +485,13 @@ export function createClaudeQuickStart(
 
   const restartOnly = async (): Promise<void> => {
     const restart = getClient()?.rly0MaintenanceRestartCodex;
-    view = { kind: "working", text: t("Restarting Codex…", "正在重启 Codex…") };
+    view = {
+      kind: "working",
+      text: t(
+        "Restarting Codex: it closes and reopens in a few seconds (this is expected).",
+        "正在重启 Codex：窗口会关闭并在几秒后自动重新打开（这是正常的，不是闪退）。",
+      ),
+    };
     render();
     try {
       const result = await restart?.();
@@ -481,8 +519,8 @@ export function createClaudeQuickStart(
     view = {
       kind: "working",
       text: t(
-        "Restarting Codex… it opens a Claude Code chat when it is back.",
-        "正在重启 Codex，重新打开后会自动进入 Claude Code 对话…",
+        "Restarting Codex: it closes and reopens in a few seconds (this is expected), then opens a Claude Code chat.",
+        "正在重启 Codex：窗口会关闭并在几秒后自动重新打开（这是正常的，不是闪退），之后直接进入 Claude Code 对话。",
       ),
     };
     render();

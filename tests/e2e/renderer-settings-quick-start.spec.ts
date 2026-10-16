@@ -18,7 +18,7 @@ const { outputFiles } = await build({
       import { consumePendingNewChat, openNewChatWith } from "./packages/renderer-extension/src/settings/rly0-quick-start.ts";
 
       globalThis.quickStartHelpers = { consumePendingNewChat, openNewChatWith };
-      globalThis.setupQuickStart = ({ theme = "dark", loggedIn = false, installed = true } = {}) => {
+      globalThis.setupQuickStart = ({ theme = "dark", loggedIn = false, installed = true, activeRelay = false } = {}) => {
         document.documentElement.style.colorScheme = theme;
         const newChat = document.createElement("button");
         newChat.setAttribute("aria-label", "新聊天");
@@ -26,8 +26,10 @@ const { outputFiles } = await build({
         newChat.addEventListener("click", () => { globalThis.newChatClicks = (globalThis.newChatClicks ?? 0) + 1; });
         document.body.append(newChat);
         const calls = [];
-        let relays = [];
-        let agent = null;
+        let relays = activeRelay
+          ? [{ id: "relay-9", name: "零号", baseUrl: "https://api.rly0.com", protocol: "responses", models: [], enabled: true, hasKey: true }]
+          : [];
+        let agent = activeRelay ? "relay-9" : null;
         const client = {
           rly0ClaudeCodeAuthStatus: async () => !installed
             ? { installed: false, loggedIn: false }
@@ -35,7 +37,7 @@ const { outputFiles } = await build({
             ? { installed: true, loggedIn: true, email: "me@example.com", plan: "max" }
             : { installed: true, loggedIn: false },
           rly0ClaudeCodeLogin: async () => { calls.push("login"); return { started: true, url: "https://claude.ai/oauth/authorize" }; },
-          rly0RelayAgentsGet: async () => ({ claudeCode: agent, active: { claudeCode: null }, restartRequired: false }),
+          rly0RelayAgentsGet: async () => ({ claudeCode: agent, active: { claudeCode: activeRelay ? "relay-9" : null }, restartRequired: activeRelay ? agent !== "relay-9" : false }),
           rly0RelayAgentsSet: async ({ claudeCode }) => { calls.push("agents:" + claudeCode); agent = claudeCode; return { claudeCode, active: { claudeCode: null }, restartRequired: true }; },
           listRly0Relays: async () => ({ available: true, relays }),
           addRly0Relay: async (input) => {
@@ -150,5 +152,20 @@ test("asks for a Codex restart when Claude Code was installed after Codex starte
   await expect(block).toContainText("正在重启 Codex");
   expect(await page.evaluate(() => Reflect.get(globalThis, "quickStartCalls"))).toEqual([
     "restart",
+  ]);
+});
+
+test("a relay user can switch Claude Code to their own login", async ({ page }, testInfo) => {
+  await setup(page, { activeRelay: true });
+  const block = page.locator(".settings-rly0-quick-start");
+  await expect(block).toContainText("已可以使用，走“零号”");
+  await block.getByRole("button", { name: "更换方式" }).click();
+  await expect(block).toContainText("当前正在使用这个");
+  await page.screenshot({ path: testInfo.outputPath("quick-start-switch.png") });
+  await block.getByRole("button", { name: "用 Claude 账号登录" }).click();
+  await expect(block).toContainText("请在浏览器里完成登录");
+  expect(await page.evaluate(() => Reflect.get(globalThis, "quickStartCalls"))).toEqual([
+    "agents:null",
+    "login",
   ]);
 });

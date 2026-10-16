@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import type { HarnessAdapter } from "@codexhost/harness-adapter";
 import { rly0RelayIdSchema } from "@codexhost/shared-contracts";
 
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
@@ -80,4 +81,31 @@ export function claudeCodeRelayEnvironment(
   environment.ANTHROPIC_BASE_URL = `${root}/r/${relayId}`;
   environment.ANTHROPIC_AUTH_TOKEN = CLAUDE_CODE_RELAY_TOKEN;
   return environment;
+}
+
+/**
+ * The Host hands every session its own environment (`open({ environment })`), which replaces the
+ * one the adapter was loaded with. This wrapper applies `transform` to that per-session
+ * environment, so a relay chosen for an agent also reaches new, resumed, forked and rolled-back
+ * sessions. Everything else passes straight through to the adapter.
+ */
+export function withSessionEnvironment(
+  adapter: HarnessAdapter,
+  transform: (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv,
+): HarnessAdapter {
+  return new Proxy(adapter, {
+    get(target, property) {
+      if (property === "open") {
+        return (input: Parameters<HarnessAdapter["open"]>[0]) =>
+          target.open(
+            input.environment ? { ...input, environment: transform(input.environment) } : input,
+          );
+      }
+      // Read with the adapter itself as receiver: getters may use its private fields.
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(target)
+        : value;
+    },
+  });
 }

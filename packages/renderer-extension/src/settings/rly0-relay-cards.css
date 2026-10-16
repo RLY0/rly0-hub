@@ -268,3 +268,13 @@
   color: var(--settings-accent);
   font-size: 12px;
 }
+.settings-rly0-quick-start__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-rly0-quick-start__choice > .settings-rly0-quick-start__current {
+  color: var(--settings-success);
+  font-size: 12px;
+  font-weight: 600;
+}

@@ -157,7 +157,11 @@ import { Rly0FirstRunBackup } from "./rly0-maintenance/first-run-backup.js";
 import { ClaudeCodeAuth } from "./rly0-agents/claude-code-auth.js";
 import { AgentInstaller } from "./rly0-agents/agent-installer.js";
 import { applyProxyEnvironment } from "./rly0-core/proxy-settings.js";
-import { Rly0AgentRelaySettings, claudeCodeRelayEnvironment } from "./rly0-relay/agent-relays.js";
+import {
+  Rly0AgentRelaySettings,
+  claudeCodeRelayEnvironment,
+  withSessionEnvironment,
+} from "./rly0-relay/agent-relays.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
 import {
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -734,6 +738,9 @@ export class AppServerHost {
   readonly #agentInstaller: AgentInstaller;
   /** Relay Claude Code was loaded with; undefined until agents are loaded. */
   #claudeCodeRelayApplied: string | null | undefined;
+  /** Puts the relay settings into each Claude Code session's own environment. */
+  #claudeCodeSessionEnvironment:
+    ((environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv) | undefined;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
@@ -1039,7 +1046,10 @@ export class AppServerHost {
       return;
     }
     this.#pluginDescriptors = plugins.list();
-    for (const [id, adapter] of plugins.adapters) this.#externalAdapters.set(id, adapter);
+    for (const [id, adapter] of plugins.adapters) {
+      const overlay = id === "claude-code" ? this.#claudeCodeSessionEnvironment : undefined;
+      this.#externalAdapters.set(id, overlay ? withSessionEnvironment(adapter, overlay) : adapter);
+    }
   }
 
   /**
@@ -1062,6 +1072,8 @@ export class AppServerHost {
       }
       const proxyBaseUrl = await this.#rly0RelayModels.ensureProxy();
       this.#claudeCodeRelayApplied = claudeCode;
+      this.#claudeCodeSessionEnvironment = (environment) =>
+        claudeCodeRelayEnvironment(environment, proxyBaseUrl, claudeCode);
       const base =
         this.#options.pluginContext?.environment ?? this.#options.environment ?? process.env;
       return claudeCodeRelayEnvironment(base, proxyBaseUrl, claudeCode);
