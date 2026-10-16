@@ -27,6 +27,8 @@ const { outputFiles } = await build({
         };
         const client = {
           listRly0Relays: async () => ({ available:true, relays:[relay] }),
+          addRly0Relay: async () => ({ available:true, id:"relay-2", relay }),
+          testRly0Relay: async () => ({ available:true, ok:true, latencyMs:120, modelCount:2, models:["claude-opus-4-7","claude-sonnet-5"] }),
           rly0ProxyStatus: async () => ({ available:true, running:true, port:25817, baseUrl:"http://127.0.0.1:25817/v1", requests:0, routed:0, unrouted:0, failed:0, recent:[] }),
           rly0RelayCodexConfigStatus: async () => ({ configPath:"C:/Users/me/.codex/config.toml", configExists:true, providerPresent:false, applied:false }),
           rly0RelayAgentsGet: async () => ({ claudeCode: globalThis.__agent ?? null, active: { claudeCode: null }, restartRequired: false }),
@@ -99,3 +101,20 @@ for (const theme of ["dark", "light"] as const) {
     await expect(card.getByRole("button", { name: "正在重启 Codex…" })).toBeDisabled();
   });
 }
+
+test("add-relay dialog keeps rare options folded and the checkbox real", async ({
+  page,
+}, testInfo) => {
+  await setup(page, { theme: "dark" });
+  await page.getByRole("button", { name: "添加中转" }).click();
+  const dialog = page.locator("dialog.settings-credential-dialog");
+  await expect(dialog.getByText("高级选项")).toBeVisible();
+  await expect(dialog.locator('input[name="relay-route-locked"]')).toBeHidden();
+  await dialog.screenshot({ path: testInfo.outputPath("add-relay-folded.png") });
+  await dialog.getByText("高级选项").click();
+  const checkbox = dialog.locator('input[name="relay-route-locked"]');
+  await expect(checkbox).toBeVisible();
+  const box = await checkbox.boundingBox();
+  expect(box?.width).toBeLessThanOrEqual(20);
+  await dialog.screenshot({ path: testInfo.outputPath("add-relay-advanced.png") });
+});

@@ -996,12 +996,15 @@ export function createRelaySettingsPage(
               ),
               field(messages.formModels, models, messages.formModelsHint),
               (() => {
-                const wrap = el("div", "settings-credential-dialog__field");
-                wrap.append(
+                // Rarely needed, so it stays folded away unless it is already on.
+                const advanced = el("details", "settings-rly0-relay__advanced");
+                advanced.open = routeLocked.checked;
+                advanced.append(
+                  el("summary", undefined, messages.formAdvanced),
                   routeLockedLabel,
                   el("small", "settings-rly0-mcp__detail", messages.formRouteLockedHint),
                 );
-                return wrap;
+                return advanced;
               })(),
               testLine,
               fillHost,
@@ -1047,7 +1050,11 @@ export function createRelaySettingsPage(
                     .replace("{count}", String(result.modelCount ?? result.models?.length ?? 0))
                 : [messages.testFailed, result.error, result.status].filter(Boolean).join(" · ");
               const found = result.ok ? (result.models ?? []) : [];
-              if (found.length > 0) {
+              if (found.length > 0 && models.value.trim() === "") {
+                // Nothing typed yet: take what the relay offers right away.
+                models.value = found.join("\n");
+                testLine.textContent = `${testLine.textContent} · ${messages.formTestFilled.replace("{n}", String(found.length))}`;
+              } else if (found.length > 0) {
                 fillHost.append(
                   button(
                     messages.formTestFill.replace("{n}", String(found.length)),

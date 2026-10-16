@@ -84,6 +84,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number, rethrow = false): Promi
  *   changed. The proxy is started first when it is not running.
  * - Everything else passes through untouched.
  */
+/** Shown before relay models in Codex's model picker. */
+export const RLY0_RELAY_MODEL_MARK = "⇄";
+
 export class Rly0RelayModelRouter {
   readonly #core: Rly0RelayRoutingCore;
   #cache: { at: number; models: readonly Rly0RelayModel[]; patterns: readonly string[] } | null =
@@ -236,9 +239,10 @@ export class Rly0RelayModelRouter {
         ...entry,
         id: model,
         model,
-        // The relay's own name stays visible next to the model, so two relays offering the same
-        // model, or a relay model and an official one with a similar name, are easy to tell apart.
-        displayName: `${model} · ${relayName}`,
+        // Relay first, behind a relay mark, so relay models stand out from official ones and two
+        // relays offering the same model are easy to tell apart. Plain text: it survives Codex
+        // updates, unlike decorating Codex's own menu.
+        displayName: `${RLY0_RELAY_MODEL_MARK} ${relayName} · ${model}`,
         description: `${relayName} · RLY/0`,
         hidden: false,
         isDefault: false,

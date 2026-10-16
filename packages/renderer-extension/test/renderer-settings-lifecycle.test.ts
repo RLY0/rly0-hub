@@ -1,4 +1,5 @@
 import { harnessIdSchema } from "@codexhost/shared-contracts";
+import { RLY0_WELCOME_DISMISSED_STORAGE_KEY } from "../src/settings/rly0-welcome.js";
 import { hostThreadIdSchema, type UpdateCheckResult } from "@codexhost/shared-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -156,14 +157,14 @@ describe("Renderer Settings lifecycle", () => {
     lifecycle.dispose();
   });
 
-  it("opens the dashboard once on first launch, then remembers it", async () => {
+  it("opens the dashboard on launch until the welcome card is dismissed, waiting for the rail button", async () => {
     const store = new Map<string, string>();
     const localStorage = {
       getItem: (key: string) => store.get(key) ?? null,
       setItem: (key: string, value: string) => void store.set(key, value),
     };
     const button = { tagName: "BUTTON" };
-    const root = { isConnected: true, querySelector: () => button };
+    const root = { isConnected: false, querySelector: () => button };
     const openSettings = vi.fn();
     const shellMock = {
       supported: true,
@@ -188,18 +189,36 @@ describe("Renderer Settings lifecycle", () => {
       setTimeout,
       clearTimeout,
     } as unknown as Window;
+    const settle = async (): Promise<void> => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    };
 
+    // The rail button is not on the page yet: nothing opens, and a later refresh retries.
     const first = installRendererSettingsLifecycle(ownerWindow);
+    await settle();
+    expect(openSettings).not.toHaveBeenCalled();
+    root.isConnected = true;
+    first.refresh();
     await vi.waitFor(() => expect(openSettings).toHaveBeenCalledWith(button, "dashboard"));
-    expect(store.get("rly0-hub:welcome-shown")).toBeTruthy();
+    // Only once per launch.
+    openSettings.mockClear();
+    first.refresh();
+    await settle();
+    expect(openSettings).not.toHaveBeenCalled();
     first.dispose();
 
-    openSettings.mockClear();
+    // Next launch, still not dismissed: it opens again.
     const second = installRendererSettingsLifecycle(ownerWindow);
-    second.refresh();
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(openSettings).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(openSettings).toHaveBeenCalledWith(button, "dashboard"));
     second.dispose();
+
+    // Once the welcome card was dismissed, it never opens by itself again.
+    store.set(RLY0_WELCOME_DISMISSED_STORAGE_KEY, "1");
+    openSettings.mockClear();
+    const third = installRendererSettingsLifecycle(ownerWindow);
+    third.refresh();
+    await settle();
+    expect(openSettings).not.toHaveBeenCalled();
+    third.dispose();
   });
 });

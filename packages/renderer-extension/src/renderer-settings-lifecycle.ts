@@ -1,4 +1,5 @@
 import type { LoadedSessionsClient } from "./settings/loaded-sessions-table.js";
+import { RLY0_WELCOME_DISMISSED_STORAGE_KEY } from "./settings/rly0-welcome.js";
 import { readCodexLocaleSettings, type CodexLocaleSettings } from "./codex-locale-adapter.js";
 import {
   applyRendererAccentColor,
@@ -248,13 +249,15 @@ export function installRendererSettingsLifecycle(
   void refreshLocale();
   refreshUpdateIndicator();
 
-  // First launch: open the RLY/0 Hub main view (dashboard) once so users find the rail entry.
+  // Until the welcome card is dismissed, open the RLY/0 Hub dashboard once per launch so new users
+  // see it without hunting for the rail entry. The rail button can appear after this installs, so
+  // every refresh retries until it is there.
   let welcomeChecked = false;
   const maybeShowWelcome = (): void => {
     if (welcomeChecked || disposed || !shell?.supported || !trigger?.root?.isConnected) return;
     welcomeChecked = true;
     try {
-      if (ownerWindow.localStorage.getItem(RLY0_WELCOME_STORAGE_KEY)) return;
+      if (ownerWindow.localStorage.getItem(RLY0_WELCOME_DISMISSED_STORAGE_KEY) === "1") return;
       ownerWindow.localStorage.setItem(RLY0_WELCOME_STORAGE_KEY, new Date().toISOString());
     } catch {
       return;
@@ -273,6 +276,7 @@ export function installRendererSettingsLifecycle(
     refresh() {
       const refreshed = trigger?.refresh() ?? false;
       refreshUpdateIndicator();
+      maybeShowWelcome();
       if (refreshed) maybeShowWelcome();
       return refreshed;
     },

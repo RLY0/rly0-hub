@@ -398,6 +398,27 @@ describe("Relay settings page", () => {
     });
   });
 
+  it("fills an empty model list straight from the test, without an extra click", async () => {
+    const client = fullClient();
+    const { root } = mountPage(client);
+    await flush();
+    buttonByText(root, messages.add).listeners.get("click")?.();
+    const dialog = openDialog(root);
+    inputByName(dialog, "relay-name").value = "Fresh";
+    inputByName(dialog, "relay-base-url").value = "https://relay.example.org/v1";
+    inputByName(dialog, "relay-api-key").value = SECRET;
+    buttonByText(dialog, messages.formTest).listeners.get("click")?.();
+    await flush();
+    expect(inputByName(dialog, "relay-models").value).toBe(["gpt-5", "o4-mini"].join("\n"));
+    expect(allText(dialog)).toContain(messages.formTestFilled.replace("{n}", "2"));
+    expect(
+      descendants(dialog).some(
+        (el) =>
+          el.tagName === "button" && el.textContent === messages.formTestFill.replace("{n}", "2"),
+      ),
+    ).toBe(false);
+  });
+
   it("deletes only after confirmation", async () => {
     const client = fullClient();
     const { root } = mountPage(client);

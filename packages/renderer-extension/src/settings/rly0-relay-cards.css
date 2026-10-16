@@ -52,3 +52,38 @@
   justify-content: space-between;
   gap: 12px;
 }
+
+/* Add/edit relay dialog: advanced options and a real checkbox */
+.settings-rly0-relay__advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0;
+  border-top: 1px solid var(--settings-border);
+}
+.settings-rly0-relay__advanced > summary {
+  cursor: pointer;
+  color: var(--settings-muted);
+  font-size: 12px;
+  user-select: none;
+}
+.settings-rly0-relay__advanced[open] > summary {
+  margin-bottom: 4px;
+}
+.settings-rly0-relay__toggle input[type="checkbox"] {
+  appearance: auto;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--settings-accent);
+}
+.settings-rly0-relay__advanced > label,
+.settings-rly0-relay__advanced > small {
+  display: flex;
+  margin-top: 6px;
+}
+.settings-rly0-relay__advanced > small {
+  color: var(--settings-muted);
+  line-height: 1.5;
+}
