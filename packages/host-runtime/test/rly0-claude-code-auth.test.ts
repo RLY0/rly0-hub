@@ -131,7 +131,8 @@ describe("Claude Code sign-in through its CLI", () => {
     expect(await auth.status()).toEqual({ installed: true, loggedIn: false });
     expect(calls).toHaveLength(1);
     expect(
-      withClaudeCodeInstallPaths({ PATH: "C:\\Windows", USERPROFILE: "C:\\Users\\me" }, "win32").PATH,
+      withClaudeCodeInstallPaths({ PATH: "C:\\Windows", USERPROFILE: "C:\\Users\\me" }, "win32")
+        .PATH,
     ).toBe("C:\\Windows;C:\\Users\\me\\.local\\bin");
   });
 });
