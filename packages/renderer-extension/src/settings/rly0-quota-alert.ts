@@ -33,6 +33,8 @@ export interface Rly0QuotaAlertEvaluation {
   readonly period: Rly0UsagePeriod | null;
   readonly remainingPercent: number;
   readonly thresholdPercent: number;
+  /** When the tightest window resets (Unix seconds), if known. */
+  readonly resetsAt?: number;
   /** The other saved account whose tightest window has the most left, if it beats the current. */
   readonly best: { readonly account: Rly0Account; readonly remainingPercent: number } | null;
 }
@@ -67,6 +69,7 @@ export function evaluateRly0QuotaAlert(
     period: lowest.period,
     remainingPercent: lowest.remainingPercent,
     thresholdPercent,
+    ...(lowest.resetsAt === undefined ? {} : { resetsAt: lowest.resetsAt }),
     best,
   };
 }
@@ -77,15 +80,30 @@ function windowLabel(period: Rly0UsagePeriod | null, messages: Rly0AccountMessag
   return messages.alertWindowOther;
 }
 
+/** Local reset time: "21:21" today, "10/17 21:21" on another day. */
+export function formatRly0ResetClock(unixSeconds: number, now = Date.now()): string | null {
+  const date = new Date(unixSeconds * 1000);
+  if (!Number.isFinite(date.getTime())) return null;
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  const clock = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return date.toDateString() === new Date(now).toDateString()
+    ? clock
+    : `${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${clock}`;
+}
+
 export function rly0QuotaAlertText(
   evaluation: Rly0QuotaAlertEvaluation,
   messages: Rly0AccountMessages,
+  now = Date.now(),
 ): { body: string; suggestion: string } {
-  const body = messages.alertBody
+  let body = messages.alertBody
     .replace("{name}", rly0AccountDisplayName(evaluation.current))
     .replace("{window}", windowLabel(evaluation.period, messages))
     .replace("{percent}", formatRendererCreditsPercent(evaluation.remainingPercent))
     .replace("{threshold}", String(evaluation.thresholdPercent));
+  const reset =
+    evaluation.resetsAt === undefined ? null : formatRly0ResetClock(evaluation.resetsAt, now);
+  if (reset) body += messages.alertResets.replace("{time}", reset);
   const suggestion = evaluation.best
     ? messages.alertBest
         .replace("{name}", rly0AccountDisplayName(evaluation.best.account))

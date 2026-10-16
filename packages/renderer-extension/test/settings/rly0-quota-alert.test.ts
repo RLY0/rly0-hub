@@ -150,6 +150,24 @@ describe("evaluateRly0QuotaAlert", () => {
     if (!evaluation) throw new Error("expected an alert");
     expect(rly0QuotaAlertText(evaluation, messages).suggestion).toBe(messages.alertNoCandidate);
   });
+
+  it("states when the exhausted window resets, without suggesting an automatic switch", () => {
+    const resetsAt = 1_800_003_600;
+    const usageById = new Map([["aaaaaaaaaaaa", usage(100, 16)]]);
+    const evaluation = evaluateRly0QuotaAlert(accounts, usageById, 10);
+    expect(evaluation).toMatchObject({ period: "five_hour", remainingPercent: 0, resetsAt });
+    if (!evaluation) throw new Error("expected an alert");
+    const sameDay = rly0QuotaAlertText(evaluation, messages, resetsAt * 1000 - 60_000);
+    const clock = new Date(resetsAt * 1000);
+    const pad = (value: number): string => String(value).padStart(2, "0");
+    expect(sameDay.body).toContain(`${pad(clock.getHours())}:${pad(clock.getMinutes())} 重置`);
+    const otherDay = rly0QuotaAlertText(evaluation, messages, resetsAt * 1000 - 3 * 86_400_000);
+    expect(otherDay.body).toContain(`${pad(clock.getMonth() + 1)}/${pad(clock.getDate())} `);
+    // Without a reported reset time nothing is guessed.
+    const noReset = { ...evaluation };
+    delete noReset.resetsAt;
+    expect(rly0QuotaAlertText(noReset, messages).body).not.toContain("重置");
+  });
 });
 
 class FakeElement {

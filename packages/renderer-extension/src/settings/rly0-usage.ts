@@ -83,6 +83,8 @@ export function rly0UsageToCredits(usage: Rly0AccountUsage): AccountCreditsSnaps
 export interface Rly0UsageLowestWindow {
   readonly period: Rly0UsagePeriod | null;
   readonly remainingPercent: number;
+  /** When that window resets, in Unix seconds, if the core reported it. */
+  readonly resetsAt?: number;
 }
 
 /** The tightest window (lowest remaining percentage), or null when the core reported none. */
@@ -91,7 +93,11 @@ export function rly0UsageLowestWindow(usage: Rly0AccountUsage): Rly0UsageLowestW
   for (const window of usage.windows) {
     const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent));
     if (!lowest || remainingPercent < lowest.remainingPercent) {
-      lowest = { period: rly0UsagePeriod(window), remainingPercent };
+      lowest = {
+        period: rly0UsagePeriod(window),
+        remainingPercent,
+        ...(window.resetsAt === undefined ? {} : { resetsAt: window.resetsAt }),
+      };
     }
   }
   return lowest;
