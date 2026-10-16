@@ -3,6 +3,7 @@ import accountsCss from "./accounts.css";
 import accountCardsCss from "./rly0-accounts-cards.css";
 import relayCardsCss from "./rly0-relay-cards.css";
 import showcaseCss from "./rly0-showcase.css";
+import welcomeCss from "./rly0-welcome.css";
 import tailwindCss from "./tailwind.css";
 import {
   RendererSettingsNavigationState,
@@ -73,7 +74,7 @@ export function mountRendererSettingsShell(
   const shadow = root.attachShadow({ mode: "open" });
   const style = ownerDocument.createElement("style");
   // Tailwind declares the cascade layer order, so it must precede the unlayered settings CSS.
-  style.textContent = `${tailwindCss}\n${settingsCss}\n${accountsCss}\n${accountCardsCss}\n${relayCardsCss}\n${showcaseCss}`;
+  style.textContent = `${tailwindCss}\n${settingsCss}\n${accountsCss}\n${accountCardsCss}\n${relayCardsCss}\n${showcaseCss}\n${welcomeCss}`;
 
   const dialog = ownerDocument.createElement("dialog");
   dialog.className = "codexhost-settings-dialog";

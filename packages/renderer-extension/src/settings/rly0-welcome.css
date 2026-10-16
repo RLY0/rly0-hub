@@ -1,0 +1,60 @@
+/* rly0-welcome: first-run welcome card on the dashboard. */
+.settings-rly0-welcome {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--settings-border);
+  border-left: 3px solid var(--settings-accent, currentColor);
+  border-radius: 10px;
+  background: var(--settings-surface);
+}
+.settings-rly0-welcome__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-rly0-welcome__intro {
+  margin: 0;
+  color: var(--settings-muted);
+}
+.settings-rly0-welcome__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: rly0-welcome;
+}
+.settings-rly0-welcome__step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-top: 1px solid var(--settings-border);
+  counter-increment: rly0-welcome;
+}
+.settings-rly0-welcome__step > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-rly0-welcome__step strong::before {
+  content: counter(rly0-welcome) ". ";
+  font-variant-numeric: tabular-nums;
+}
+.settings-rly0-welcome__step span {
+  color: var(--settings-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.settings-rly0-welcome__step > button {
+  flex: none;
+}
+.settings-rly0-welcome__dismiss {
+  align-self: flex-start;
+}
