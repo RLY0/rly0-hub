@@ -49,6 +49,8 @@ function fakeCore(relays: ReturnType<typeof relay>[]) {
     listAccounts: async () => ({ available: true, accounts: [{ id: "a", current: true }] }),
     getProxySettings: () => ({ mode: "system" }),
     dispose: async () => undefined,
+    currentAccount: async () => ({ loggedIn: true, saved: false, email: "me@example.com" }),
+    usageCurrent: async () => ({ available: false }),
   };
   return { core: core as unknown as Rly0CoreBridge, calls };
 }
@@ -298,6 +300,29 @@ describe("Opening the Hub from Codex", () => {
     ).toEqual({
       available: false,
       ok: false,
+    });
+  });
+});
+
+describe("零号中转 first", () => {
+  it("lists 零号 before other relays and shows its balance in dollars like rly0.com", async () => {
+    const root = await tempDir();
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      core: fakeCore([
+        relay("aaaaaaaaaaaa", "https://other.example/v1"),
+        relay("bbbbbbbbbbbb", "https://api.rly0.com/v1"),
+      ]).core,
+    });
+    const list = (await service.handle("relay.list", {})) as { relays: { id: string }[] };
+    expect(list.relays.map((r) => r.id)).toEqual(["bbbbbbbbbbbb", "aaaaaaaaaaaa"]);
+    expect(await service.handle("balance.get", {})).toMatchObject({ unit: "USD", balance: 86.4 });
+    expect(await service.handle("relay.balance", { id: "aaaaaaaaaaaa" })).toMatchObject({
+      unit: "CNY",
+    });
+    expect(await service.handle("home.summary", {})).toMatchObject({
+      currentAccount: { loggedIn: true, saved: false, email: "me@example.com" },
     });
   });
 });

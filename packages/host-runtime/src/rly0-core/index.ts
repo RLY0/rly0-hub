@@ -59,6 +59,16 @@ export {
   writeRly0ProxySettings,
 } from "./proxy-settings.js";
 
+export type Rly0LiveAccount =
+  | { readonly loggedIn: false }
+  | {
+      readonly loggedIn: true;
+      readonly saved: boolean;
+      readonly id?: string;
+      readonly email?: string;
+      readonly plan?: string;
+    };
+
 interface CoreHelloResult {
   readonly name: string;
   readonly version: string;
@@ -361,6 +371,39 @@ export class Rly0CoreBridge {
     const response = await this.#client.request<{ ok: boolean }>("accounts/remove", params);
     if (!response.available) return { available: false, ok: false };
     return { available: true, ok: response.result.ok };
+  }
+
+  /** Who is logged into Codex now, saved or not. Identity claims only. */
+  async currentAccount(): Promise<Rly0LiveAccount> {
+    const response = await this.#client.request<Record<string, unknown>>("accounts/current", {});
+    if (!response.available || !isRecord(response.result) || response.result.loggedIn !== true) {
+      return { loggedIn: false };
+    }
+    const raw = response.result;
+    const email = optionalString(raw.email, 320);
+    const plan = optionalString(raw.plan, 64);
+    return {
+      loggedIn: true,
+      saved: raw.saved === true,
+      ...(typeof raw.id === "string" && ACCOUNT_ID_PATTERN.test(raw.id) ? { id: raw.id } : {}),
+      ...(email ? { email } : {}),
+      ...(plan ? { plan } : {}),
+    };
+  }
+
+  /** Quota of the live Codex login, saved or not. */
+  async usageCurrent(): Promise<Rly0AccountsUsageResult> {
+    const response = await this.#client.request<unknown>(
+      "accounts/usageCurrent",
+      {},
+      {
+        timeoutMs: USAGE_TIMEOUT_MS,
+      },
+    );
+    if (!response.available) return { available: false };
+    const usage = sanitizeRly0Usage(response.result);
+    if (!usage) throw coreError("USAGE_BAD_RESPONSE");
+    return { available: true, usage };
   }
 
   async usage(params: Rly0AccountsUsageParams): Promise<Rly0AccountsUsageResult> {

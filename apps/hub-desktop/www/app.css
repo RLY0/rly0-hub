@@ -7,20 +7,12 @@
   font-weight: 100 900;
   font-display: swap;
 }
-@font-face {
-  font-family: "Geist Mono RLY0";
-  src: url("fonts/GeistMono-Variable.woff2") format("woff2");
-  font-weight: 100 900;
-  font-display: swap;
-}
 
 :root {
   --font-geist-sans: "Geist RLY0";
-  --font-geist-mono: "Geist Mono RLY0";
   --font-ui:
     var(--font-geist-sans), "Arial Nova", "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei",
     sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", Consolas, monospace;
   --ink-950: #0d0d0b;
   --ink-900: #11110e;
   --ink-800: #171714;
@@ -232,7 +224,8 @@ button {
   grid-row: span 2;
 }
 .label {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -241,7 +234,8 @@ button {
   color: var(--muted-dark);
 }
 .num {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   letter-spacing: -0.02em;
@@ -278,7 +272,8 @@ button {
   background: var(--warn);
 }
 .tag {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -458,7 +453,8 @@ button {
   opacity: 0.8;
 }
 .bal .meta {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 600;
   color: rgba(245, 245, 240, 0.74);
@@ -530,7 +526,8 @@ button {
   }
 }
 .mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
@@ -548,7 +545,8 @@ button {
   border-radius: var(--r-sm);
   display: grid;
   place-items: center;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
   font-weight: 700;
   font-size: 13px;
   letter-spacing: 0.04em;
@@ -589,7 +587,8 @@ button {
   border-radius: 3px;
 }
 .log {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--muted-dark);
   background: var(--ink-950);
@@ -800,4 +799,24 @@ body.guided .ad {
 }
 .steps i.on {
   background: var(--brand);
+}
+
+/* 零号中转 connect card on the relays page (the one brand-red module of that screen) */
+.rly0-connect h3 {
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.rly0-connect .row.wide {
+  flex-wrap: nowrap;
+}
+.input.on-red {
+  background: rgba(13, 13, 11, 0.32);
+  color: var(--paper-50);
+}
+.input.on-red::placeholder {
+  color: rgba(245, 245, 240, 0.7);
+}
+.rly0-connect[hidden] {
+  display: none;
 }

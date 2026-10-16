@@ -68,6 +68,23 @@ export function isRly0Relay(relay: Pick<Rly0Relay, "baseUrl">): boolean {
   }
 }
 
+/**
+ * rly0.com shows balances in US dollars, whatever unit its usage endpoint reports; the Hub shows
+ * 零号's balance the same way as the site so the two never disagree.
+ */
+function rly0Dollars<T extends { readonly available: boolean }>(result: T): T {
+  return result.available && "unit" in result ? { ...result, unit: "USD" } : result;
+}
+
+/** 零号中转 is listed first everywhere; other relays keep their own order. */
+function rly0First<
+  T extends { readonly available: boolean; readonly relays?: readonly Rly0Relay[] },
+>(result: T): T {
+  if (!result.available || !result.relays) return result;
+  const relays = [...result.relays].sort((a, b) => Number(isRly0Relay(b)) - Number(isRly0Relay(a)));
+  return { ...result, relays };
+}
+
 function openInBrowser(url: string): void {
   // explorer.exe hands a URL to the default browser; the URL is one of the fixed links above.
   const child = spawn("explorer.exe", [url], { detached: true, stdio: "ignore" });
@@ -149,7 +166,7 @@ export class Rly0HubService {
 
   /** Tray notices to show now; each is remembered so it is not repeated. */
   async #checkAlerts(): Promise<unknown> {
-    const [zero, accounts] = await Promise.all([this.#zeroRelay(), this.#core.listAccounts()]);
+    const zero = await this.#zeroRelay();
     let balance: { amount: number; unit: "USD" | "CNY" } | null = null;
     if (zero?.enabled && zero.hasKey) {
       const result = await this.#core.relayBalance({ id: zero.id }).catch(() => null);
@@ -158,12 +175,9 @@ export class Rly0HubService {
       }
     }
     let quota: { usedPercent: number; resetsAt?: number } | null = null;
-    const current = accounts.available ? accounts.accounts.find((a) => a.current) : undefined;
-    if (current) {
-      const usage = await this.#core.usage({ id: current.id }).catch(() => null);
-      const window = (usage?.available ? usage.usage : current.lastUsage)?.windows.find(
-        (w) => w.kind === "primary",
-      );
+    const usage = await this.#core.usageCurrent().catch(() => null);
+    if (usage?.available) {
+      const window = usage.usage.windows.find((w) => w.kind === "primary");
       if (window) {
         quota = {
           usedPercent: window.usedPercent,
@@ -212,20 +226,17 @@ export class Rly0HubService {
       };
     return {
       "home.summary": route(empty, async () => {
-        const [codex, proxy, zero, accounts] = await Promise.all([
+        const [codex, proxy, zero, live] = await Promise.all([
           this.#codex.status(),
           core.proxyStatus(),
           this.#zeroRelay(),
-          core.listAccounts(),
+          core.currentAccount().catch(() => ({ loggedIn: false as const })),
         ]);
-        const current = accounts.available
-          ? (accounts.accounts.find((account) => account.current) ?? null)
-          : null;
         return {
           codex,
           proxy,
           zeroRelay: zero ? { id: zero.id, name: zero.name, hasKey: zero.hasKey } : null,
-          currentAccount: current,
+          currentAccount: live.loggedIn ? live : null,
         };
       }),
       "balance.get": route(empty, async () => {
@@ -234,7 +245,7 @@ export class Rly0HubService {
         return {
           configured: true,
           relayId: zero.id,
-          ...(await core.relayBalance({ id: zero.id })),
+          ...rly0Dollars(await core.relayBalance({ id: zero.id })),
         };
       }),
       "hub.state": route(empty, async () => {
@@ -255,7 +266,7 @@ export class Rly0HubService {
       "codex.open": route(empty, () => this.#codex.open()),
       "codex.restart": route(empty, () => this.#codex.restart()),
 
-      "relay.list": route(empty, () => core.listRelays()),
+      "relay.list": route(empty, async () => rly0First(await core.listRelays())),
       "relay.add": route(rly0RelayAddParamsSchema, async (p) => {
         const result = await core.addRelay(p);
         await this.#ensureProxyForRelays().catch(() => undefined);
@@ -269,7 +280,12 @@ export class Rly0HubService {
       }),
       "relay.remove": route(rly0RelayRemoveParamsSchema, (p) => core.removeRelay(p)),
       "relay.test": route(rly0RelayTestParamsSchema, (p) => core.testRelay(p)),
-      "relay.balance": route(rly0RelayBalanceParamsSchema, (p) => core.relayBalance(p)),
+      "relay.balance": route(rly0RelayBalanceParamsSchema, async (p) => {
+        const relays = await core.listRelays();
+        const relay = relays.available ? relays.relays.find((r) => r.id === p.id) : undefined;
+        const result = await core.relayBalance(p);
+        return relay && isRly0Relay(relay) ? rly0Dollars(result) : result;
+      }),
 
       "proxy.status": route(empty, () => core.proxyStatus()),
       "proxy.start": route(empty, async () => {
@@ -280,6 +296,8 @@ export class Rly0HubService {
 
       "accounts.list": route(empty, () => core.listAccounts()),
       "accounts.usage": route(rly0AccountsUsageParamsSchema, (p) => core.usage(p)),
+      "accounts.current": route(empty, () => core.currentAccount()),
+      "accounts.usageCurrent": route(empty, () => core.usageCurrent()),
       "accounts.usageAll": route(empty, () => core.usageAll()),
       "accounts.switch": route(rly0AccountsSwitchParamsSchema, (p) => core.switchAccount(p)),
       "accounts.rename": route(rly0AccountsRenameParamsSchema, (p) => core.rename(p)),

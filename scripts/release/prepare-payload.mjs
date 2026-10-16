@@ -252,7 +252,6 @@ export const RLY0_HUB_WINDOWS_PAYLOAD_PATHS = Object.freeze([
   "app/hub-ui/brand/rly0-ip-on-dark.svg",
   "app/hub-ui/brand/rly0-lockup-on-dark.svg",
   "app/hub-ui/fonts/Geist-Variable.woff2",
-  "app/hub-ui/fonts/GeistMono-Variable.woff2",
   "app/hub-ui/fonts/OFL-LICENSE.txt",
   "app/hub-ui/support/sponsor-alipay.jpg",
   "app/hub-ui/support/sponsor-wechat.jpg",

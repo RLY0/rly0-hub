@@ -115,6 +115,13 @@
     return `${sameDay ? "" : `${date.getMonth() + 1}/${date.getDate()} `}${pad(date.getHours())}:${pad(date.getMinutes())} 重置`;
   }
   const accountName = (account) => account.alias || account.email || "Codex 账号";
+  const isRly0 = (relay) => {
+    try {
+      return /(^|\.)rly0\.com$/i.test(new URL(relay.baseUrl).hostname);
+    } catch {
+      return false;
+    }
+  };
 
   /* ---------- Navigation ---------- */
   const titles = {
@@ -322,16 +329,19 @@
               h("b", null, accountName(account)),
               h("span", null, account.plan ? account.plan.toUpperCase() : "当前 Codex 登录"),
             )
-          : h("div", { class: "sub" }, "还没有保存 Codex 账号"),
-        h(
-          "div",
-          { class: "row" },
-          h(
-            "button",
-            { class: "btn sm", type: "button", onclick: () => go("accounts") },
-            account ? "切换账号" : "去保存",
-          ),
-        ),
+          : h("div", { class: "sub" }, "Codex 还没登录"),
+        account
+          ? h(
+              "div",
+              { class: "row" },
+              h(
+                "button",
+                { class: "btn sm", type: "button", onclick: () => go("accounts") },
+                "切换账号",
+              ),
+              account.saved ? null : h("span", { class: "tag" }, "未保存"),
+            )
+          : null,
       );
     }
 
@@ -396,13 +406,13 @@
       if (!account) {
         quotaModule.replaceChildren(
           h("span", { class: "label" }, "Codex · 5H"),
-          h("div", { class: "sub" }, "保存账号后显示额度"),
+          h("div", { class: "sub" }, "登录 Codex 后显示额度"),
         );
         return;
       }
-      const result = await call("accounts.usage", { id: account.id }).catch(() => null);
+      const result = await call("accounts.usageCurrent").catch(() => null);
       if (!alive()) return;
-      const usage = result && result.available ? result.usage : account.lastUsage;
+      const usage = result && result.available ? result.usage : null;
       const window5h = usage && usage.windows.find((w) => w.kind === "primary");
       if (!window5h) {
         quotaModule.replaceChildren(
@@ -773,10 +783,11 @@
   pages.relays = (root, alive, options) => {
     const list = h("div", { class: "grid compact" });
     const proxyModule = h("section", { class: "m tone span-6 agent" });
-    const name = h("input", { class: "input", maxlength: "40", placeholder: "比如 零号中转" });
+    const rly0Module = h("section", { class: "m bal span-6 rly0-connect" });
+    const name = h("input", { class: "input", maxlength: "40", placeholder: "中转站名称" });
     const baseUrl = h("input", {
       class: "input",
-      placeholder: "https://api.rly0.com/v1",
+      placeholder: "https://…/v1",
       spellcheck: "false",
     });
     const apiKey = h("input", {
@@ -786,21 +797,64 @@
       autocomplete: "off",
       spellcheck: "false",
     });
-    const fillRly0 = () => {
-      name.value = "零号中转";
-      baseUrl.value = "https://api.rly0.com/v1";
-      apiKey.focus();
+    const rly0Key = h("input", {
+      class: "input on-red",
+      type: "password",
+      placeholder: "粘贴零号中转的 API 密钥 sk-…",
+      autocomplete: "off",
+      spellcheck: "false",
+    });
+    const connectRly0 = async () => {
+      const key = rly0Key.value.trim();
+      if (!key) {
+        toast("先粘贴密钥");
+        return;
+      }
+      try {
+        const added = await call("relay.add", {
+          name: "零号中转",
+          baseUrl: "https://api.rly0.com/v1",
+          apiKey: key,
+        });
+        if (!added.available) throw new Error("HUB_ERROR");
+        rly0Key.value = "";
+        toast("零号中转已接入");
+        load();
+      } catch (error) {
+        failed(error);
+      }
     };
+    function renderRly0(hasRly0) {
+      rly0Module.hidden = hasRly0;
+      if (hasRly0) return;
+      rly0Module.replaceChildren(
+        h("span", { class: "label" }, "RLY/0 零号中转 · 推荐"),
+        h("h3", null, "一个密钥，Claude、GPT 等模型都能用"),
+        h(
+          "div",
+          { class: "row wide" },
+          rly0Key,
+          h("button", { class: "btn", type: "button", onclick: connectRly0 }, "接入"),
+        ),
+        h(
+          "div",
+          { class: "row" },
+          h(
+            "button",
+            {
+              class: "btn ghost",
+              type: "button",
+              onclick: () => call("links.open", { target: "site" }).catch(failed),
+            },
+            "还没有账号？去注册",
+          ),
+        ),
+      );
+    }
     const form = h(
       "section",
       { class: "m span-6" },
-      h(
-        "div",
-        { class: "row" },
-        h("span", { class: "label" }, "Add relay"),
-        h("span", { class: "spacer" }),
-        h("button", { class: "btn sm", type: "button", onclick: fillRly0 }, "填入零号中转"),
-      ),
+      h("div", { class: "row" }, h("span", { class: "label" }, "Other relay")),
       h(
         "div",
         { class: "form" },
@@ -820,13 +874,13 @@
       ),
     );
     root.append(
-      h("div", { class: "grid compact" }, proxyModule),
+      h("div", { class: "grid compact" }, rly0Module, proxyModule),
       h("h2", { class: "section-title" }, "我的中转站"),
       list,
-      h("h2", { class: "section-title" }, "添加"),
+      h("h2", { class: "section-title" }, "添加其他中转站"),
       h("div", { class: "grid compact" }, form),
     );
-    if (options.preset === "rly0") fillRly0();
+    if (options.preset === "rly0") setTimeout(() => rly0Key.focus(), 0);
 
     async function add() {
       const params = { name: name.value.trim(), baseUrl: baseUrl.value.trim() };
@@ -878,6 +932,7 @@
         ),
       );
       const items = (relays && relays.relays) || [];
+      renderRly0(items.some((relay) => relay.hasKey && isRly0(relay)));
       list.replaceChildren(
         ...(items.length
           ? items.map(relayCard)
@@ -1012,11 +1067,54 @@
     root.append(head, h("div", { style: { height: "16px" } }), list);
 
     async function load() {
-      const result = await call("accounts.list").catch(() => null);
+      const [result, live] = await Promise.all([
+        call("accounts.list").catch(() => null),
+        call("accounts.current").catch(() => null),
+      ]);
       if (!alive()) return;
       const accounts = (result && result.available && result.accounts) || [];
+      const unsaved =
+        live && live.loggedIn && !live.saved
+          ? [
+              h(
+                "section",
+                { class: "m tone span-3" },
+                h(
+                  "div",
+                  { class: "row" },
+                  h("span", { class: "dot ok" }),
+                  h(
+                    "div",
+                    { class: "who" },
+                    h("b", null, live.email || "当前 Codex 登录"),
+                    h("span", null, live.plan ? live.plan.toUpperCase() : "当前登录"),
+                  ),
+                  h("span", { class: "tag ok" }, "Current"),
+                ),
+                h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。"),
+                h(
+                  "div",
+                  { class: "row" },
+                  h(
+                    "button",
+                    {
+                      class: "btn paper sm",
+                      type: "button",
+                      onclick: () =>
+                        call("accounts.importCurrent", {}).then(() => {
+                          toast("已保存");
+                          load();
+                        }, failed),
+                    },
+                    "保存",
+                  ),
+                ),
+              ),
+            ]
+          : [];
       list.replaceChildren(
-        ...(accounts.length
+        ...unsaved,
+        ...(accounts.length || unsaved.length
           ? accounts.map(card)
           : [
               h(
@@ -1321,13 +1419,6 @@
 
   /* ---------- First-run guide ---------- */
   const RLY0_BASE_URL = "https://api.rly0.com/v1";
-  const isRly0 = (relay) => {
-    try {
-      return /(^|\.)rly0\.com$/i.test(new URL(relay.baseUrl).hostname);
-    } catch {
-      return false;
-    }
-  };
 
   pages.wizard = (root, alive) => {
     let step = 0;
@@ -1597,7 +1688,7 @@
         ok: true,
         valid: true,
         balance: 86.4,
-        unit: "CNY",
+        unit: "USD",
         todayCost: 3.12,
         totalCost: 214.6,
       },
@@ -1649,6 +1740,16 @@
       "agents.claudeCode.status": { installed: true, loggedIn: false },
       "agents.relays.get": { claudeCode: "aaaaaaaaaaaa" },
       "agents.installStatus": { state: "idle", automatic: true },
+      "accounts.current": { loggedIn: true, saved: false, email: "me@example.com", plan: "plus" },
+      "accounts.usageCurrent": {
+        available: true,
+        usage: {
+          windows: [
+            { kind: "primary", usedPercent: 36, resetsAt: Math.floor(Date.now() / 1000) + 7200 },
+          ],
+          source: "live",
+        },
+      },
       "backup.status": {
         available: true,
         codexHome: "C:/Users/me/.codex",

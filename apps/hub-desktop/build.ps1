@@ -56,7 +56,7 @@ if ((Test-Path -LiteralPath $notices) -and -not (Select-String -LiteralPath $not
         "Microsoft.Web.WebView2 $sdkVersion (RLY/0 Hub window)",
         'License text: licenses/WebView2-SDK-LICENSE.txt',
         '',
-        'Geist and Geist Mono fonts (RLY/0 Hub window)',
+        'Geist font (RLY/0 Hub window)',
         'License: SIL Open Font License 1.1',
         'License text: app/hub-ui/fonts/OFL-LICENSE.txt')
 }
