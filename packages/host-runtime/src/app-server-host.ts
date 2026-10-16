@@ -133,6 +133,7 @@ import {
   type Rly0OfficialCatalogRead,
   Rly0RelayModelRouter,
 } from "./rly0-relay/model-routing.js";
+import { createLauncherProcessControl } from "./rly0-maintenance/launcher-process-control.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
 import {
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -812,13 +813,14 @@ export class AppServerHost {
     this.#rly0Skills = new Rly0SkillsManager({ environment });
     this.#rly0Threads = new Rly0ThreadsManager({ environment });
     this.#rly0Dashboard = new Rly0DashboardManager({ environment, threads: this.#rly0Threads });
-    // No safe force-quit/restart implementation exists yet: `processControl` is left unset as an
-    // injectable seam so the maintenance page can wire real process control later without
-    // another RPC change (it then reports `{ supported: false }`).
+    // Force quit / restart go through the Launcher that owns this Desktop (Windows). Without one
+    // (other platforms, or a Desktop not started by RLY/0 Hub) the page reports them unsupported.
+    const processControl = createLauncherProcessControl({ environment });
     this.#rly0Maintenance = new Rly0MaintenanceManager({
       environment,
       dashboard: this.#rly0Dashboard,
       core: this.#rly0Core,
+      ...(processControl ? { processControl } : {}),
     });
     this.#rly0Appearance = new Rly0AppearanceManager(
       process.platform === "win32" ? { registry: new WindowsRegistryAutostart() } : {},

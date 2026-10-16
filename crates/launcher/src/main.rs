@@ -3,6 +3,8 @@
 mod active_update;
 mod compatibility;
 mod desktop_attachment;
+#[cfg(target_os = "windows")]
+mod desktop_control_request;
 mod desktop_path_overrides;
 mod installation_layout;
 mod native_harness_broker;
@@ -209,6 +211,12 @@ fn emit_ready_line(output: &mut impl Write) -> std::io::Result<()> {
 /// the command returns. Startup failures must not reach this point: they exit
 /// non-zero on stderr exactly like before.
 fn notify_ready_and_detach() -> Result<(), Box<dyn Error>> {
+    // A restart request relaunches the Desktop inside the same Launcher; the caller was already
+    // told "ready" and the terminal is already detached by then.
+    static NOTIFIED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if NOTIFIED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Ok(());
+    }
     startup_trace("publishing ready");
     emit_ready_line(&mut std::io::stdout())?;
     codexhost_platform::detach_from_terminal()?;
@@ -772,6 +780,16 @@ fn supervise_desktop(
     }
 }
 
+/// How a Windows supervision run ended.
+#[cfg(target_os = "windows")]
+#[derive(Debug, PartialEq, Eq)]
+enum SupervisionEnd {
+    /// The Desktop exited (or was stopped for an update or a quit request).
+    Exited,
+    /// The Host asked for a restart; the Desktop has been stopped and should be launched again.
+    RestartRequested,
+}
+
 #[cfg(target_os = "windows")]
 fn supervise_desktop(
     installation: &DesktopInstallation,
@@ -780,7 +798,7 @@ fn supervise_desktop(
     environment: &[(OsString, OsString)],
     control: &RuntimeControl,
     descriptor_path: &Path,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<SupervisionEnd, Box<dyn Error>> {
     startup_trace("launching Codex Desktop");
     let desktop_arguments =
         desktop_path_overrides::launch_arguments(desktop_arguments, environment);
@@ -821,6 +839,7 @@ fn supervise_desktop(
     };
     startup_trace("runtime descriptor published");
     notify_ready_and_detach()?;
+    let control_request_path = desktop_control_request::request_path(descriptor_path);
     loop {
         if should_stop_desktop_for_update(false) {
             if let Err(error) = stop_managed_desktop_for_update(&mut desktop, &mut controller) {
@@ -828,7 +847,31 @@ fn supervise_desktop(
                     "codexhost launcher: managed Desktop could not be stopped for update: {error}"
                 );
             } else {
-                return Ok(());
+                return Ok(SupervisionEnd::Exited);
+            }
+        }
+        match desktop_control_request::take_request(
+            &control_request_path,
+            std::process::id(),
+            &control.nonce,
+        ) {
+            Ok(Some(action)) => {
+                startup_trace("Desktop control request received");
+                stop_managed_desktop_for_update(&mut desktop, &mut controller)?;
+                // Electron helpers can outlive the root briefly; make sure every process of this
+                // installation is gone (identity-checked) so a relaunch never meets a half-dead
+                // Desktop and never prompts.
+                force_stop_external_desktop(installation, Duration::from_secs(10))?;
+                return Ok(match action {
+                    desktop_control_request::DesktopControlAction::Restart => {
+                        SupervisionEnd::RestartRequested
+                    }
+                    desktop_control_request::DesktopControlAction::Quit => SupervisionEnd::Exited,
+                });
+            }
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("codexhost launcher: Desktop control request could not be read: {error}")
             }
         }
         if let Some(status) = controller.try_wait()? {
@@ -836,7 +879,7 @@ fn supervise_desktop(
                 wait_for_desktop_exit(&mut desktop, Duration::from_secs(1))?
             {
                 if desktop_status.success() {
-                    return Ok(());
+                    return Ok(SupervisionEnd::Exited);
                 }
                 return Err(
                     format!("Codex Desktop exited unsuccessfully: {desktop_status}").into(),
@@ -853,7 +896,7 @@ fn supervise_desktop(
             if !status.success() {
                 return Err(format!("Codex Desktop exited unsuccessfully: {status}").into());
             }
-            return Ok(());
+            return Ok(SupervisionEnd::Exited);
         }
         thread::sleep(Duration::from_millis(100));
     }
@@ -1093,6 +1136,11 @@ fn launch(
         );
         #[cfg(target_os = "windows")]
         match result {
+            Ok(SupervisionEnd::RestartRequested) => {
+                startup_trace("relaunching Codex Desktop after a restart request");
+                continue;
+            }
+            Ok(SupervisionEnd::Exited) => return Ok(()),
             Err(error)
                 if _interactive_running_desktop
                     && (error.downcast_ref::<UnmanagedDesktopConflict>().is_some()
@@ -1100,7 +1148,7 @@ fn launch(
             {
                 continue;
             }
-            result => return result,
+            Err(error) => return Err(error),
         }
         #[cfg(target_os = "macos")]
         return result;
