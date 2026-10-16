@@ -228,6 +228,12 @@ export const rly0RelayCodexConfigStatusResultSchema = z
     applied: z.boolean(),
     setDefault: z.boolean().optional(),
     parseError: z.string().max(300).optional(),
+    /**
+     * Top-level `model_catalog_json` found in config.toml (left by another tool such as AiMaMi).
+     * Codex then shows that file instead of the live official catalog, so new official models
+     * go missing. RLY/0 Hub never writes it; it only reports it.
+     */
+    modelCatalogJson: z.string().max(4096).optional(),
   })
   .strict();
 export type Rly0RelayCodexConfigStatusResult = z.infer<

@@ -80,6 +80,8 @@ export const relayEnglish = {
   codexCurrent: "Current model_provider: {provider} · model: {model}",
   codexNone: "(default)",
   codexParseError: "config.toml could not be parsed, so it will not be changed.",
+  codexCatalogOverride:
+    "config.toml sets model_catalog_json = {path} (left by another tool such as AiMaMi). Codex then shows that saved list instead of your account's live model list, so new official models may be missing. RLY/0 Hub does not need it; remove that line yourself if you no longer use the other tool.",
   codexSetDefault: "Also make RLY/0 the default provider and model",
   codexModel: "Model",
   codexModelNone: "Add a relay model first",
@@ -188,6 +190,8 @@ export const relayChinese: RelayMessages = {
   codexCurrent: "当前 model_provider：{provider} · model：{model}",
   codexNone: "（默认）",
   codexParseError: "config.toml 无法解析，因此不会修改它。",
+  codexCatalogOverride:
+    "config.toml 里设置了 model_catalog_json = {path}（由 AiMaMi 等其他工具留下）。Codex 会改用这份保存的列表，而不是你账号的实时模型列表，官方新模型可能不显示。RLY/0 Hub 不需要它；如果不再使用那个工具，请自行删除这一行。",
   codexSetDefault: "同时把 RLY/0 设为默认提供方和模型",
   codexModel: "模型",
   codexModelNone: "请先为中转添加模型",

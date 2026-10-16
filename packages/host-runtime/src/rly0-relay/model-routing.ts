@@ -13,6 +13,15 @@ export interface Rly0RelayRoutingCore {
   proxyStart(params: { port?: number }): Promise<Rly0ProxyStatusResult>;
 }
 
+export interface Rly0RelayModelRouterOptions {
+  /**
+   * Reads the model names of the official catalog straight from Codex (`model/list`), for when a
+   * relay model is chosen before any `model/list` response has passed through the Host. Never a
+   * local cache or snapshot: a stale catalog is exactly what hides new official models.
+   */
+  readonly loadOfficialModels?: () => Promise<readonly string[]>;
+}
+
 export interface Rly0RelayModel {
   readonly model: string;
   readonly relayName: string;
@@ -27,6 +36,8 @@ function isRecord(value: unknown): value is JsonRecord {
 const CACHE_TTL_MS = 5_000;
 const LIST_TIMEOUT_MS = 2_500;
 const MAX_TRACKED_THREADS = 2_000;
+/** After a failed official catalog read, relay decisions do not wait on another one for this long. */
+const OFFICIAL_RETRY_MS = 60_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
   return new Promise((resolve) => {
@@ -51,7 +62,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined>
  *
  * - `model/list` responses get one extra entry per relay model (exact names only; `prefix*`
  *   patterns cannot be listed). Names Codex already offers are never shadowed, so an official
- *   model is never silently re-routed to a relay.
+ *   model is never silently re-routed to a relay. The official entries themselves are forwarded
+ *   exactly as Codex returned them, and an official error is forwarded unchanged: the Host never
+ *   substitutes a local catalog (no `model_catalog_json`, no cached snapshot).
  * - A `thread/start|resume|fork` whose model is a relay model gets `modelProvider: "rly0"` plus a
  *   per-thread provider definition in `config`, so nothing in the user's `config.toml` has to be
  *   changed. The proxy is started first when it is not running.
@@ -61,11 +74,40 @@ export class Rly0RelayModelRouter {
   readonly #core: Rly0RelayRoutingCore;
   #cache: { at: number; models: readonly Rly0RelayModel[]; patterns: readonly string[] } | null =
     null;
+  readonly #loadOfficialModels: (() => Promise<readonly string[]>) | undefined;
   #officialModels = new Set<string>();
+  /** Whether the official catalog has been seen at least once (response or direct read). */
+  #officialKnown = false;
+  #officialLoad: Promise<void> | null = null;
+  #officialFailedAt = -Infinity;
   readonly #threadProviders = new Map<string, string>();
 
-  constructor(core: Rly0RelayRoutingCore) {
+  constructor(core: Rly0RelayRoutingCore, options: Rly0RelayModelRouterOptions = {}) {
     this.#core = core;
+    this.#loadOfficialModels = options.loadOfficialModels;
+  }
+
+  /**
+   * Makes sure official names are known before deciding a model is a relay model, so a relay
+   * that also lists an official name can never take it over. When the official catalog cannot be
+   * read the relay decision proceeds on the names already known (relay models stay usable).
+   */
+  async #ensureOfficialModels(): Promise<void> {
+    const load = this.#loadOfficialModels;
+    if (this.#officialKnown || !load) return;
+    if (!this.#officialLoad && Date.now() - this.#officialFailedAt < OFFICIAL_RETRY_MS) return;
+    this.#officialLoad ??= (async () => {
+      const names = await withTimeout(load(), LIST_TIMEOUT_MS);
+      if (names) {
+        for (const name of names) if (name) this.#officialModels.add(name);
+        this.#officialKnown = true;
+      } else {
+        this.#officialFailedAt = Date.now();
+      }
+    })().finally(() => {
+      this.#officialLoad = null;
+    });
+    await this.#officialLoad;
   }
 
   async #relayModels(fresh = false): Promise<{
@@ -113,6 +155,7 @@ export class Rly0RelayModelRouter {
       if (typeof entry.model === "string") this.#officialModels.add(entry.model);
       if (typeof entry.id === "string") this.#officialModels.add(entry.id);
     }
+    this.#officialKnown = true;
     // Only the last page carries the extra entries.
     if (typeof result.nextCursor === "string" && result.nextCursor) return null;
     const relayModels = (this.#cache?.models ?? []).filter(
@@ -143,10 +186,12 @@ export class Rly0RelayModelRouter {
   async isRelayModel(model: unknown): Promise<boolean> {
     if (typeof model !== "string" || !model || this.#officialModels.has(model)) return false;
     const { models, patterns } = await this.#relayModels();
-    return (
+    const listed =
       models.some((entry) => entry.model === model) ||
-      patterns.some((prefix) => model.startsWith(prefix))
-    );
+      patterns.some((prefix) => model.startsWith(prefix));
+    if (!listed) return false;
+    await this.#ensureOfficialModels();
+    return !this.#officialModels.has(model);
   }
 
   /** Starts the local proxy when needed and returns its OpenAI-compatible base URL. */

@@ -333,6 +333,29 @@ describe("Rly0RelayCodexConfigManager", () => {
     return configPath;
   }
 
+  it("reports a model_catalog_json override and never writes or removes one", async () => {
+    const original = [
+      'model_provider = "aimai1"',
+      'model_catalog_json = "C:/Users/x/.codex/codexmate/relay/codex_router_catalog.json"',
+      "",
+    ].join("\n");
+    const configPath = await writeConfig(original);
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    expect(await manager.status()).toMatchObject({
+      modelCatalogJson: "C:/Users/x/.codex/codexmate/relay/codex_router_catalog.json",
+    });
+    await manager.apply({ baseUrl: BASE_URL, setDefault: false });
+    const afterApply = await fs.readFile(configPath, "utf8");
+    expect(afterApply.match(/model_catalog_json/g)).toHaveLength(1);
+    await manager.restore();
+    expect(await fs.readFile(configPath, "utf8")).toBe(original);
+
+    await writeConfig('model = "gpt-5"\n');
+    expect(await manager.status()).not.toHaveProperty("modelCatalogJson");
+    await manager.apply({ baseUrl: BASE_URL, setDefault: true, model: "relay-5" });
+    expect(await fs.readFile(configPath, "utf8")).not.toContain("model_catalog_json");
+  });
+
   it("applies the provider with backup and restores the original values", async () => {
     const original = [
       "# keep me",

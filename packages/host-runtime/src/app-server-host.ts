@@ -788,7 +788,9 @@ export class AppServerHost {
     this.#rly0Core = new Rly0CoreBridge({ environment });
     this.#rly0Mcp = new Rly0McpManager({ environment });
     this.#rly0RelayConfig = new Rly0RelayCodexConfigManager({ environment });
-    this.#rly0RelayModels = new Rly0RelayModelRouter(this.#rly0Core);
+    this.#rly0RelayModels = new Rly0RelayModelRouter(this.#rly0Core, {
+      loadOfficialModels: () => this.#listOfficialModelNames(),
+    });
     this.#rly0AddAccount = new Rly0AddAccountLogins({
       coreAvailable: async () => (await this.#rly0Core.status()).available,
       importFrom: (params) => this.#rly0Core.importFrom(params),
@@ -2060,6 +2062,28 @@ export class AppServerHost {
     if (forwarded === parsed) await this.#writer.frame(input.frame);
     else await this.#writer.json(forwarded);
     this.#nativeAccountObserver?.observe(parsed);
+  }
+
+  /** Names in Codex's live official catalog, read page by page from the official `model/list`. */
+  async #listOfficialModelNames(): Promise<readonly string[]> {
+    const names: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 20; page += 1) {
+      const response = await this.#requestOfficial("model/list", cursor ? { cursor } : {});
+      if (isRecord(response.error) || !isRecord(response.result)) {
+        throw new Error("Official Model catalog could not be read");
+      }
+      const data = Array.isArray(response.result.data) ? response.result.data : [];
+      for (const entry of data) {
+        if (!isRecord(entry)) continue;
+        if (typeof entry.model === "string") names.push(entry.model);
+        if (typeof entry.id === "string") names.push(entry.id);
+      }
+      const next = response.result.nextCursor;
+      if (typeof next !== "string" || !next) return names;
+      cursor = next;
+    }
+    return names;
   }
 
   async #requestOfficial(method: string, params: JsonObject): Promise<JsonObject> {

@@ -135,4 +135,87 @@ describe("RLY/0 relay model routing", () => {
     router.observeResponse({ id: 1, result: { thread: { id: "t1" }, modelProvider: "rly0" } });
     expect(router.threadProvider("t1")).toBe("rly0");
   });
+
+  it("forwards every official entry unchanged and only appends relay models", async () => {
+    const { core } = fakeCore();
+    const router = new Rly0RelayModelRouter(core);
+    await router.prepareModelList();
+    const official = {
+      id: 9,
+      result: {
+        data: [
+          { id: "gpt-6-luna", model: "gpt-6-luna", displayName: "Luna", isDefault: true, extra: 1 },
+          { id: "gpt-5.5", model: "gpt-5.5", displayName: "GPT-5.5", hidden: true },
+          { id: "claude-opus-5", model: "claude-opus-5", displayName: "Official Opus" },
+        ],
+        nextCursor: null,
+      },
+    };
+    const snapshot = structuredClone(official);
+    // Every relay name here is official, so nothing is added at all.
+    expect(router.rewriteModelListResponse(official)).toBeNull();
+    expect(official).toEqual(snapshot);
+    expect(await router.isRelayModel("claude-opus-5")).toBe(false);
+  });
+
+  it("forwards an official model/list error untouched instead of a substitute catalog", async () => {
+    const { core } = fakeCore();
+    const router = new Rly0RelayModelRouter(core);
+    await router.prepareModelList();
+    const failed = { id: 3, error: { code: -32000, message: "upstream unavailable" } };
+    expect(router.rewriteModelListResponse(failed)).toBeNull();
+  });
+
+  it("only appends on the last page and keeps earlier pages' official names", async () => {
+    const { core } = fakeCore();
+    const router = new Rly0RelayModelRouter(core);
+    await router.prepareModelList();
+    const page1 = {
+      id: 1,
+      result: { data: [{ id: "claude-opus-5", model: "claude-opus-5" }], nextCursor: "p2" },
+    };
+    expect(router.rewriteModelListResponse(page1)).toBeNull();
+    const page2 = {
+      id: 2,
+      result: { data: [{ id: "gpt-6", model: "gpt-6" }], nextCursor: null },
+    };
+    const rewritten = router.rewriteModelListResponse(page2) as {
+      result: { data: { model: string }[] };
+    };
+    expect(rewritten.result.data.map((entry) => entry.model)).toEqual(["gpt-6", "gpt-5.5"]);
+  });
+
+  it("reads the live official catalog before routing when no model/list has been seen", async () => {
+    const { core, calls } = fakeCore();
+    let reads = 0;
+    const router = new Rly0RelayModelRouter(core, {
+      loadOfficialModels: async () => {
+        reads += 1;
+        return ["gpt-5.5"];
+      },
+    });
+    // The relay lists gpt-5.5 too, but it is official: the thread must stay on the account.
+    expect(await router.rewriteThreadParams({ model: "gpt-5.5" })).toBeNull();
+    expect(calls).not.toContain("start");
+    expect(await router.isRelayModel("claude-opus-5")).toBe(true);
+    expect(reads).toBe(1);
+    // Unlisted names never trigger an official read.
+    expect(await router.isRelayModel("not-a-relay-model")).toBe(false);
+    expect(reads).toBe(1);
+  });
+
+  it("keeps relay models usable when the official catalog cannot be read", async () => {
+    const { core } = fakeCore();
+    let reads = 0;
+    const router = new Rly0RelayModelRouter(core, {
+      loadOfficialModels: async () => {
+        reads += 1;
+        throw new Error("official runtime down");
+      },
+    });
+    expect(await router.isRelayModel("claude-opus-5")).toBe(true);
+    // A failed read is not retried on every turn.
+    expect(await router.isRelayModel("claude-opus-5")).toBe(true);
+    expect(reads).toBe(1);
+  });
 });

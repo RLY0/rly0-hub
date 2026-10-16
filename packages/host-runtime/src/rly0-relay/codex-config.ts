@@ -146,12 +146,14 @@ export class Rly0RelayCodexConfigManager {
     const modelProvider = stringOrNull(parsed.model_provider);
     const model = stringOrNull(parsed.model);
     const providerBaseUrl = isRecord(provider) ? stringOrNull(provider.base_url) : null;
+    const catalog = stringOrNull(parsed.model_catalog_json);
     return {
       ...base,
       providerPresent: isRecord(provider),
       ...(providerBaseUrl === null ? {} : { providerBaseUrl: providerBaseUrl.slice(0, 2048) }),
       ...(modelProvider === null ? {} : { modelProvider: modelProvider.slice(0, 128) }),
       ...(model === null ? {} : { model: model.slice(0, 256) }),
+      ...(catalog === null ? {} : { modelCatalogJson: catalog.slice(0, 4096) }),
     };
   }
 

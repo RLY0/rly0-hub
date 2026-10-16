@@ -292,6 +292,15 @@ export function createRelaySettingsPage(
           parse.setAttribute("role", "alert");
           codexCard.append(parse);
         }
+        if (codex.modelCatalogJson) {
+          const catalog = el(
+            "p",
+            "settings-credential-dialog__error",
+            messages.codexCatalogOverride.replace("{path}", codex.modelCatalogJson),
+          );
+          catalog.setAttribute("role", "status");
+          codexCard.append(catalog);
+        }
         const actions = el("div", "settings-rly0-relay__actions");
         if (client?.rly0RelayCodexConfigApply) {
           const apply = button(messages.codexApply, "", () => openApplyDialog());
