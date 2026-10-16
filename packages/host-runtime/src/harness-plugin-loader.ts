@@ -45,6 +45,8 @@ export interface LoadHarnessPluginsOptions {
   context: HarnessPluginContext;
   /** Local, persisted entrypoints; requested only for opted-in plugins. */
   launchCommandForPlugin?: (id: string) => Promise<string | undefined>;
+  /** Environment for one plugin instead of `context.environment` (e.g. Claude Code via a relay). */
+  environmentForPlugin?: (id: string) => Promise<NodeJS.ProcessEnv | undefined>;
   /** Prevent conflicts with explicitly injected Adapters, e.g. test fixtures. */
   reservedIds?: ReadonlySet<string>;
   /** Bound for one plugin's asynchronous import and factory. Defaults to 10s. */
@@ -305,9 +307,14 @@ export async function loadHarnessPlugins(
           const launchCommand = descriptor.launchCommand
             ? await options.launchCommandForPlugin?.(manifest.id)
             : undefined;
+          const environment = await options.environmentForPlugin?.(manifest.id);
           adapter = await loadAdapter(
             candidate,
-            { ...options.context, ...(launchCommand ? { launchCommand } : {}) },
+            {
+              ...options.context,
+              ...(environment ? { environment } : {}),
+              ...(launchCommand ? { launchCommand } : {}),
+            },
             timeoutMs,
             diagnose,
             options.warmup !== false,

@@ -545,6 +545,43 @@ describe("Relay settings page", () => {
     expect(text).not.toContain(messages.catalogLive);
   });
 
+  it("lets Claude Code run through a relay and offers a restart when the choice changes", async () => {
+    let saved: string | null = null;
+    const agentsSet = vi.fn(async ({ claudeCode }: { claudeCode: string | null }) => {
+      saved = claudeCode;
+      return { claudeCode, active: { claudeCode: null }, restartRequired: claudeCode !== null };
+    });
+    const restart = vi.fn(async () => ({ supported: true as const, ok: true }));
+    const { root } = mountPage(
+      fullClient({
+        rly0RelayAgentsGet: async () => ({
+          claudeCode: saved,
+          active: { claudeCode: null },
+          restartRequired: false,
+        }),
+        rly0RelayAgentsSet: agentsSet,
+        rly0MaintenanceRestartCodex: restart,
+      }),
+    );
+    await flush();
+    const card = root.querySelector(".settings-rly0-relay__agents");
+    if (!card) throw new Error("expected the agents card");
+    expect(card.hidden).toBe(false);
+    expect(allText(card)).toContain(messages.agentsOwnLogin);
+    expect(allText(card)).toContain(relay.name);
+    const select = descendants(card).find((el) => el.tagName === "select");
+    if (!select) throw new Error("expected the Claude Code select");
+    select.value = relay.id;
+    select.listeners.get("change")?.();
+    await flush();
+    expect(agentsSet).toHaveBeenCalledWith({ claudeCode: relay.id });
+    const updated = root.querySelector(".settings-rly0-relay__agents") as FakeElement;
+    expect(allText(updated)).toContain(messages.agentsRestart);
+    buttonByText(updated, messages.agentsRestartNow).listeners.get("click")?.();
+    await flush();
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
   it("hides the catalog card when the host does not offer it", async () => {
     const { root } = mountPage(fullClient());
     await flush();

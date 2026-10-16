@@ -388,6 +388,8 @@ describe("Renderer fixed Model request client", () => {
       "rly0ProxyStart",
       "rly0ProxyStatus",
       "rly0ProxyStop",
+      "rly0RelayAgentsGet",
+      "rly0RelayAgentsSet",
       "rly0RelayCodexConfigApply",
       "rly0RelayCodexConfigRestore",
       "rly0RelayCodexConfigStatus",

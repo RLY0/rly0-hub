@@ -23,3 +23,32 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+
+/* Native agents through a relay */
+.settings-rly0-relay__agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--settings-border);
+}
+.settings-rly0-relay__agent-name {
+  font-weight: 600;
+}
+.settings-rly0-relay__agent-select {
+  min-width: 0;
+  max-width: 60%;
+  padding: 4px 8px;
+  border: 1px solid var(--settings-border);
+  border-radius: 6px;
+  background: var(--settings-surface);
+  color: var(--settings-text);
+  font: inherit;
+}
+.settings-rly0-relay__callout:has(button) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

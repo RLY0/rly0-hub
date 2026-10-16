@@ -12,6 +12,9 @@ import {
   type Rly0RelayCodexConfigMutationResult,
   type Rly0RelayCodexConfigStatusResult,
   type Rly0RelayListResult,
+  type Rly0RelayAgentsResult,
+  type Rly0RelayAgentsSetParams,
+  type Rly0MaintenanceProcessActionResult,
   type Rly0RelayModelCatalogStatusParams,
   type Rly0RelayModelCatalogStatusResult,
   type Rly0RelayMutationResult,
@@ -46,6 +49,9 @@ export interface RendererRelayClient {
   rly0RelayModelCatalogStatus?(
     input?: Rly0RelayModelCatalogStatusParams,
   ): Promise<Rly0RelayModelCatalogStatusResult>;
+  rly0RelayAgentsGet?(): Promise<Rly0RelayAgentsResult>;
+  rly0RelayAgentsSet?(input: Rly0RelayAgentsSetParams): Promise<Rly0RelayAgentsResult>;
+  rly0MaintenanceRestartCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
 }
 
 export { RLY0_RELAY_PROMO_URL } from "./rly0-showcase.js";
@@ -130,6 +136,10 @@ export function createRelaySettingsPage(
       let codex: Rly0RelayCodexConfigStatusResult | null = null;
       let catalog: Rly0RelayModelCatalogStatusResult | null = null;
       let catalogChecking = false;
+      let agents: Rly0RelayAgentsResult | null = null;
+      let agentsBusy = false;
+      let agentsError: string | null = null;
+      let restarting = false;
       let notice: { text: string; error: boolean } | null = null;
       let busy = false;
       const tests = new Map<string, TestState>();
@@ -148,6 +158,7 @@ export function createRelaySettingsPage(
       status.setAttribute("aria-live", "polite");
       const proxyCard = el("section", "settings-rly0-relay__card settings-rly0-relay__proxy");
       const catalogCard = el("section", "settings-rly0-relay__card settings-rly0-relay__catalog");
+      const agentsCard = el("section", "settings-rly0-relay__card settings-rly0-relay__agents");
       const codexCard = el("section", "settings-rly0-relay__card settings-rly0-relay__codex");
       const relaysSection = el("section", "settings-rly0-relay__relays");
       context.content.append(
@@ -155,6 +166,7 @@ export function createRelaySettingsPage(
         promo,
         status,
         proxyCard,
+        agentsCard,
         catalogCard,
         codexCard,
         relaysSection,
@@ -265,6 +277,112 @@ export function createRelaySettingsPage(
           list.append(item);
         }
         proxyCard.append(list);
+      };
+
+      // ---- Native agents through a relay ----
+      const renderAgents = (): void => {
+        agentsCard.replaceChildren();
+        const client = getClient();
+        agentsCard.hidden =
+          unavailable || !client?.rly0RelayAgentsGet || !client.rly0RelayAgentsSet;
+        if (agentsCard.hidden) return;
+        const top = el("div", "settings-rly0-relay__card-head");
+        top.append(el("h2", "settings-rly0-relay__title", messages.agentsTitle));
+        agentsCard.append(top, el("p", "settings-rly0-mcp__detail", messages.agentsDescription));
+        const usable = relays.filter((relay) => relay.enabled && relay.hasKey);
+        const row = el("label", "settings-rly0-relay__agent-row");
+        row.append(el("span", "settings-rly0-relay__agent-name", messages.agentsClaudeCode));
+        const select = el("select", "settings-rly0-relay__agent-select");
+        select.setAttribute("aria-label", messages.agentsClaudeCode);
+        const option = (value: string, label: string): void => {
+          const node = el("option", undefined, label);
+          node.value = value;
+          select.append(node);
+        };
+        option("", messages.agentsOwnLogin);
+        for (const relay of usable) option(relay.id, relay.name);
+        const saved = agents?.claudeCode ?? null;
+        // A saved relay that was since removed still shows, so the choice is never silently lost.
+        if (saved && !usable.some((relay) => relay.id === saved)) option(saved, saved);
+        select.value = saved ?? "";
+        select.disabled = agentsBusy || !agents;
+        select.addEventListener("change", () => void saveAgents(select.value || null));
+        row.append(select);
+        agentsCard.append(row);
+        if (usable.length === 0) {
+          agentsCard.append(el("p", "settings-rly0-mcp__detail", messages.agentsNoRelay));
+        }
+        const nameOf = (id: string | null): string =>
+          id === null
+            ? messages.agentsOwnLogin
+            : (relays.find((relay) => relay.id === id)?.name ?? id);
+        if (agents?.active) {
+          agentsCard.append(
+            el(
+              "p",
+              "settings-rly0-mcp__detail",
+              messages.agentsActive.replace("{value}", nameOf(agents.active.claudeCode)),
+            ),
+          );
+        }
+        if (agents?.restartRequired) {
+          const notice = el("div", "settings-rly0-relay__callout");
+          notice.setAttribute("role", "status");
+          notice.append(el("span", undefined, messages.agentsRestart));
+          if (client?.rly0MaintenanceRestartCodex) {
+            const restart = button(
+              restarting ? messages.agentsRestarting : messages.agentsRestartNow,
+              "secondary",
+              () => void restartCodex(),
+            );
+            restart.disabled = restarting;
+            notice.append(restart);
+          }
+          agentsCard.append(notice);
+        }
+        if (agentsError) {
+          const failure = el("p", "settings-rly0-relay__callout", agentsError);
+          failure.setAttribute("role", "alert");
+          agentsCard.append(failure);
+        }
+      };
+      const loadAgents = async (): Promise<void> => {
+        const getter = getClient()?.rly0RelayAgentsGet;
+        if (!getter) return;
+        try {
+          const result = await getter();
+          if (!signal.aborted) agents = result;
+        } catch {
+          // Keep the last known choice.
+        }
+      };
+      const saveAgents = async (claudeCode: string | null): Promise<void> => {
+        const setter = getClient()?.rly0RelayAgentsSet;
+        if (!setter || agentsBusy || signal.aborted) return;
+        agentsBusy = true;
+        agentsError = null;
+        renderAgents();
+        try {
+          agents = await setter({ claudeCode });
+        } catch {
+          agentsError = messages.agentsSaveFailed;
+        } finally {
+          agentsBusy = false;
+          if (!signal.aborted) renderAgents();
+        }
+      };
+      const restartCodex = async (): Promise<void> => {
+        const restart = getClient()?.rly0MaintenanceRestartCodex;
+        if (!restart || restarting) return;
+        restarting = true;
+        renderAgents();
+        try {
+          const result = await restart();
+          if (!result.supported || !result.ok) restarting = false;
+        } catch {
+          restarting = false;
+        }
+        if (!signal.aborted) renderAgents();
       };
 
       // ---- Model picker (catalog) card ----
@@ -553,6 +671,7 @@ export function createRelaySettingsPage(
         renderPromo();
         renderStatus();
         renderProxy();
+        renderAgents();
         renderCatalog();
         renderCodex();
         renderRelays();
@@ -583,7 +702,7 @@ export function createRelaySettingsPage(
             else loadError = messages.loadFailed;
           }
         }
-        await Promise.all([loadCodex(), loadCatalog()]);
+        await Promise.all([loadCodex(), loadCatalog(), loadAgents()]);
         render();
       };
       const loadCatalog = async (refresh = false): Promise<void> => {

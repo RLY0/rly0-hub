@@ -23,6 +23,8 @@ export const RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD = "codexhost/rly0/relay/codex
 export const RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD = "codexhost/rly0/relay/codexConfig/apply";
 export const RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD = "codexhost/rly0/relay/codexConfig/restore";
 export const RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD = "codexhost/rly0/relay/modelCatalog/status";
+export const RLY0_RELAY_AGENTS_GET_METHOD = "codexhost/rly0/relay/agents/get";
+export const RLY0_RELAY_AGENTS_SET_METHOD = "codexhost/rly0/relay/agents/set";
 
 /** Not 25817: AiMaMi's router proxy uses that port, and the two are often installed together. */
 export const RLY0_PROXY_DEFAULT_PORT = 25917;
@@ -310,3 +312,26 @@ export const rly0RelayCodexConfigMutationResultSchema = z
 export type Rly0RelayCodexConfigMutationResult = z.infer<
   typeof rly0RelayCodexConfigMutationResultSchema
 >;
+
+/**
+ * Native agents driven by a relay. Claude Code gets RLY/0 Hub's local proxy as its Anthropic
+ * endpoint (pinned to one relay); the relay key stays in rly0-core. Applied when the agent is
+ * loaded, so a change needs a Codex restart once agents are running.
+ */
+export const rly0RelayAgentsGetParamsSchema = z.object({}).strict();
+export type Rly0RelayAgentsGetParams = z.infer<typeof rly0RelayAgentsGetParamsSchema>;
+export const rly0RelayAgentsSetParamsSchema = z
+  .object({ claudeCode: rly0RelayIdSchema.nullable() })
+  .strict();
+export type Rly0RelayAgentsSetParams = z.infer<typeof rly0RelayAgentsSetParamsSchema>;
+export const rly0RelayAgentsResultSchema = z
+  .object({
+    /** Saved choice: relay id, or null for the agent's own login. */
+    claudeCode: rly0RelayIdSchema.nullable(),
+    /** What the running agents use; null before agents are loaded. */
+    active: z.object({ claudeCode: rly0RelayIdSchema.nullable() }).strict().nullable(),
+    /** The saved choice differs from what is running: restart Codex to apply it. */
+    restartRequired: z.boolean(),
+  })
+  .strict();
+export type Rly0RelayAgentsResult = z.infer<typeof rly0RelayAgentsResultSchema>;

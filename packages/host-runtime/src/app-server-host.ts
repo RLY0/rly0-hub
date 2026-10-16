@@ -43,6 +43,11 @@ import {
   RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
   RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
   RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
+  RLY0_RELAY_AGENTS_GET_METHOD,
+  RLY0_RELAY_AGENTS_SET_METHOD,
+  rly0RelayAgentsGetParamsSchema,
+  rly0RelayAgentsSetParamsSchema,
+  type Rly0RelayAgentsResult,
   rly0RelayListParamsSchema,
   rly0RelayAddParamsSchema,
   rly0RelayUpdateParamsSchema,
@@ -139,6 +144,7 @@ import {
 } from "./rly0-relay/model-routing.js";
 import { createLauncherProcessControl } from "./rly0-maintenance/launcher-process-control.js";
 import { Rly0FirstRunBackup } from "./rly0-maintenance/first-run-backup.js";
+import { Rly0AgentRelaySettings, claudeCodeRelayEnvironment } from "./rly0-relay/agent-relays.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
 import {
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -339,6 +345,8 @@ const RLY0_EXTENDED_METHODS: ReadonlySet<string> = new Set([
   RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
   RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
   RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
+  RLY0_RELAY_AGENTS_GET_METHOD,
+  RLY0_RELAY_AGENTS_SET_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -702,6 +710,9 @@ export class AppServerHost {
   readonly #rly0RelayConfig: Rly0RelayCodexConfigManager;
   readonly #rly0RelayModels: Rly0RelayModelRouter;
   readonly #rly0FirstRunBackup: Rly0FirstRunBackup;
+  readonly #rly0AgentRelays: Rly0AgentRelaySettings;
+  /** Relay Claude Code was loaded with; undefined until agents are loaded. */
+  #claudeCodeRelayApplied: string | null | undefined;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
@@ -823,6 +834,7 @@ export class AppServerHost {
     // (other platforms, or a Desktop not started by RLY/0 Hub) the page reports them unsupported.
     const processControl = createLauncherProcessControl({ environment });
     this.#rly0FirstRunBackup = new Rly0FirstRunBackup({ environment });
+    this.#rly0AgentRelays = new Rly0AgentRelaySettings({ environment });
     // Only a Desktop started by the RLY/0 Hub Launcher takes the first-run backup, so tests and
     // embedded hosts never write into a real home directory.
     if (environment.CODEXHOST_LAUNCHER_PID) {
@@ -980,6 +992,8 @@ export class AppServerHost {
     const plugins = await loadHarnessPlugins({
       roots: this.#options.pluginRoots,
       launchCommandForPlugin: (id) => this.#launchSettings.initialCommand(id),
+      environmentForPlugin: (id) =>
+        id === "claude-code" ? this.#claudeCodeEnvironment() : Promise.resolve(undefined),
       context: this.#options.pluginContext ?? {
         environment: this.#options.environment ?? process.env,
         platform: process.platform,
@@ -995,6 +1009,45 @@ export class AppServerHost {
     }
     this.#pluginDescriptors = plugins.list();
     for (const [id, adapter] of plugins.adapters) this.#externalAdapters.set(id, adapter);
+  }
+
+  /**
+   * Claude Code's environment when it should run through a relay: RLY/0 Hub's own local proxy,
+   * pinned to that relay. Falls back to Claude Code's own login (undefined) when the relay is
+   * gone, disabled or keyless, or the proxy cannot start, and records what was applied.
+   */
+  async #claudeCodeEnvironment(): Promise<NodeJS.ProcessEnv | undefined> {
+    this.#claudeCodeRelayApplied = null;
+    const { claudeCode } = await this.#rly0AgentRelays.get();
+    if (!claudeCode) return undefined;
+    try {
+      const listed = await this.#rly0Core.listRelays();
+      const relay = listed.available
+        ? listed.relays.find((entry) => entry.id === claudeCode)
+        : undefined;
+      if (!relay?.enabled || !relay.hasKey) {
+        this.#diagnose("Claude Code relay is unavailable; using Claude Code's own login");
+        return undefined;
+      }
+      const proxyBaseUrl = await this.#rly0RelayModels.ensureProxy();
+      this.#claudeCodeRelayApplied = claudeCode;
+      const base =
+        this.#options.pluginContext?.environment ?? this.#options.environment ?? process.env;
+      return claudeCodeRelayEnvironment(base, proxyBaseUrl, claudeCode);
+    } catch (error) {
+      this.#diagnose(error);
+      return undefined;
+    }
+  }
+
+  async #agentRelayStatus(): Promise<Rly0RelayAgentsResult> {
+    const saved = await this.#rly0AgentRelays.get();
+    const applied = this.#claudeCodeRelayApplied;
+    return {
+      claudeCode: saved.claudeCode,
+      active: applied === undefined ? null : { claudeCode: applied },
+      restartRequired: applied !== undefined && applied !== saved.claudeCode,
+    };
   }
 
   async run(): Promise<number> {
@@ -2296,6 +2349,13 @@ export class AppServerHost {
       [RLY0_PROXY_START_METHOD]: route(rly0ProxyStartParamsSchema, (p) => core.proxyStart(p)),
       [RLY0_PROXY_STOP_METHOD]: route(rly0ProxyStopParamsSchema, () => core.proxyStop()),
       [RLY0_PROXY_STATUS_METHOD]: route(rly0ProxyStatusParamsSchema, () => core.proxyStatus()),
+      [RLY0_RELAY_AGENTS_GET_METHOD]: route(rly0RelayAgentsGetParamsSchema, () =>
+        this.#agentRelayStatus(),
+      ),
+      [RLY0_RELAY_AGENTS_SET_METHOD]: route(rly0RelayAgentsSetParamsSchema, async (p) => {
+        await this.#rly0AgentRelays.set({ claudeCode: p.claudeCode });
+        return this.#agentRelayStatus();
+      }),
       [RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD]: route(
         rly0RelayModelCatalogStatusParamsSchema,
         (p) => this.#rly0RelayModels.catalogStatus(p.refresh === true),

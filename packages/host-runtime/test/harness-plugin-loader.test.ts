@@ -188,6 +188,34 @@ describe("Harness plugin discovery and loading", () => {
       await expect(readPluginIcon(location, manifest.icon)).resolves.toMatch(/^data:image\//u);
   });
 
+  it("gives a plugin its own environment only when one is provided for it", async () => {
+    const directory = await root(["claude-code", "other-agent"]);
+    const writer = (id: string) => `
+      import { writeFileSync } from "node:fs";
+      import { FakeHarnessAdapter } from ${JSON.stringify(fakeModule)};
+      export function createHarnessAdapter(context) {
+        writeFileSync(${JSON.stringify(path.join(directory, `${id}.json`))}, JSON.stringify(context.environment));
+        return new FakeHarnessAdapter(${JSON.stringify(id)});
+      }
+    `;
+    await plugin(directory, "claude-code", { code: writer("claude-code") });
+    await plugin(directory, "other-agent", { code: writer("other-agent") });
+    const environmentForPlugin = vi.fn(async (id: string) =>
+      id === "claude-code" ? { ANTHROPIC_BASE_URL: "http://127.0.0.1:25917/r/relay-1" } : undefined,
+    );
+    const loaded = await loadHarnessPlugins({ roots: [directory], context, environmentForPlugin });
+    try {
+      expect(JSON.parse(await readFile(path.join(directory, "claude-code.json"), "utf8"))).toEqual({
+        ANTHROPIC_BASE_URL: "http://127.0.0.1:25917/r/relay-1",
+      });
+      expect(JSON.parse(await readFile(path.join(directory, "other-agent.json"), "utf8"))).toEqual(
+        context.environment,
+      );
+    } finally {
+      await loaded.close();
+    }
+  });
+
   it("invokes optional plugin warmup without blocking loading and can request cold instances", async () => {
     const directory = await root(["sample-agent"]);
     const location = await plugin(directory, "sample-agent", {

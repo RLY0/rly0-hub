@@ -193,6 +193,12 @@ import {
   RLY0_PROXY_STOP_METHOD,
   RLY0_PROXY_STATUS_METHOD,
   RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
+  RLY0_RELAY_AGENTS_GET_METHOD,
+  RLY0_RELAY_AGENTS_SET_METHOD,
+  rly0RelayAgentsResultSchema,
+  rly0RelayAgentsSetParamsSchema,
+  type Rly0RelayAgentsResult,
+  type Rly0RelayAgentsSetParams,
   RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
   RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
   RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
@@ -438,6 +444,8 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0ProxyStop?(): Promise<Rly0ProxyStopResult>;
   rly0ProxyStatus?(): Promise<Rly0ProxyStatusResult>;
   rly0RelayCodexConfigStatus?(): Promise<Rly0RelayCodexConfigStatusResult>;
+  rly0RelayAgentsGet?(): Promise<Rly0RelayAgentsResult>;
+  rly0RelayAgentsSet?(input: Rly0RelayAgentsSetParams): Promise<Rly0RelayAgentsResult>;
   rly0RelayModelCatalogStatus?(
     input?: Rly0RelayModelCatalogStatusParams,
   ): Promise<Rly0RelayModelCatalogStatusResult>;
@@ -1083,6 +1091,19 @@ export function createRendererModelClient(
     async rly0ProxyStatus(): Promise<Rly0ProxyStatusResult> {
       return rly0ProxyStatusResultSchema.parse(
         await manager.sendRequest(RLY0_PROXY_STATUS_METHOD, {}),
+      );
+    },
+    async rly0RelayAgentsGet(): Promise<Rly0RelayAgentsResult> {
+      return rly0RelayAgentsResultSchema.parse(
+        await manager.sendRequest(RLY0_RELAY_AGENTS_GET_METHOD, {}),
+      );
+    },
+    async rly0RelayAgentsSet(input: Rly0RelayAgentsSetParams): Promise<Rly0RelayAgentsResult> {
+      return rly0RelayAgentsResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_RELAY_AGENTS_SET_METHOD,
+          rly0RelayAgentsSetParamsSchema.parse(input),
+        ),
       );
     },
     async rly0RelayModelCatalogStatus(
