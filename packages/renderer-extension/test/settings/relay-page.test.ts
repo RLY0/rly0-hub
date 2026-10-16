@@ -608,6 +608,73 @@ describe("Relay settings page", () => {
     expect(restart).toHaveBeenCalledTimes(1);
   });
 
+  it("shows Claude Code's own sign-in and signs in or out from the agents card", async () => {
+    let loggedIn = false;
+    const login = vi.fn(async () => ({ started: true, url: "https://claude.ai/oauth/authorize" }));
+    const logout = vi.fn(async () => {
+      loggedIn = false;
+      return { ok: true };
+    });
+    const { root } = mountPage(
+      fullClient({
+        rly0RelayAgentsGet: async () => ({
+          claudeCode: null,
+          active: null,
+          restartRequired: false,
+        }),
+        rly0RelayAgentsSet: async ({ claudeCode }) => ({
+          claudeCode,
+          active: null,
+          restartRequired: false,
+        }),
+        rly0ClaudeCodeAuthStatus: async () =>
+          loggedIn
+            ? { installed: true, loggedIn: true, email: "me@example.com", plan: "max" }
+            : { installed: true, loggedIn: false },
+        rly0ClaudeCodeLogin: login,
+        rly0ClaudeCodeLogout: logout,
+      }),
+    );
+    await flush();
+    const card = () => root.querySelector(".settings-rly0-relay__agents") as FakeElement;
+    expect(allText(card())).toContain(messages.agentsLoggedOut);
+    expect(allText(card())).toContain(messages.agentsRunWith);
+    buttonByText(card(), messages.agentsLogin).listeners.get("click")?.();
+    await flush();
+    expect(login).toHaveBeenCalledWith({ mode: "claudeai" });
+    expect(allText(card())).toContain(messages.agentsLoginWaiting);
+    expect(allText(card())).toContain(messages.agentsLoginOpen);
+
+    loggedIn = true;
+    await vi.waitFor(
+      () =>
+        expect(allText(card())).toContain(
+          messages.agentsLoggedIn.replace("{account}", "me@example.com · max"),
+        ),
+      { timeout: 5_000, interval: 100 },
+    );
+    // Signing out needs a second click.
+    buttonByText(card(), messages.agentsLogout).listeners.get("click")?.();
+    await flush();
+    expect(logout).not.toHaveBeenCalled();
+    buttonByText(card(), messages.agentsLogoutConfirm).listeners.get("click")?.();
+    await flush();
+    expect(logout).toHaveBeenCalledTimes(1);
+    expect(allText(card())).toContain(messages.agentsLoggedOut);
+  });
+
+  it("tells people to install Claude Code first when it is missing", async () => {
+    const { root } = mountPage(
+      fullClient({
+        rly0ClaudeCodeAuthStatus: async () => ({ installed: false, loggedIn: false }),
+      }),
+    );
+    await flush();
+    const card = root.querySelector(".settings-rly0-relay__agents") as FakeElement;
+    expect(card.hidden).toBe(false);
+    expect(allText(card)).toContain(messages.agentsNotInstalled);
+  });
+
   it("hides the catalog card when the host does not offer it", async () => {
     const { root } = mountPage(fullClient());
     await flush();

@@ -195,6 +195,17 @@ import {
   RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
   RLY0_RELAY_AGENTS_GET_METHOD,
   RLY0_RELAY_AGENTS_SET_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD,
+  rly0AgentAuthStatusSchema,
+  rly0AgentAuthLoginParamsSchema,
+  rly0AgentAuthLoginResultSchema,
+  rly0AgentAuthLogoutResultSchema,
+  type Rly0AgentAuthStatus,
+  type Rly0AgentAuthLoginParams,
+  type Rly0AgentAuthLoginResult,
+  type Rly0AgentAuthLogoutResult,
   rly0RelayAgentsResultSchema,
   rly0RelayAgentsSetParamsSchema,
   type Rly0RelayAgentsResult,
@@ -445,6 +456,9 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0ProxyStatus?(): Promise<Rly0ProxyStatusResult>;
   rly0RelayCodexConfigStatus?(): Promise<Rly0RelayCodexConfigStatusResult>;
   rly0RelayAgentsGet?(): Promise<Rly0RelayAgentsResult>;
+  rly0ClaudeCodeAuthStatus?(): Promise<Rly0AgentAuthStatus>;
+  rly0ClaudeCodeLogin?(input: Rly0AgentAuthLoginParams): Promise<Rly0AgentAuthLoginResult>;
+  rly0ClaudeCodeLogout?(): Promise<Rly0AgentAuthLogoutResult>;
   rly0RelayAgentsSet?(input: Rly0RelayAgentsSetParams): Promise<Rly0RelayAgentsResult>;
   rly0RelayModelCatalogStatus?(
     input?: Rly0RelayModelCatalogStatusParams,
@@ -1091,6 +1105,24 @@ export function createRendererModelClient(
     async rly0ProxyStatus(): Promise<Rly0ProxyStatusResult> {
       return rly0ProxyStatusResultSchema.parse(
         await manager.sendRequest(RLY0_PROXY_STATUS_METHOD, {}),
+      );
+    },
+    async rly0ClaudeCodeAuthStatus(): Promise<Rly0AgentAuthStatus> {
+      return rly0AgentAuthStatusSchema.parse(
+        await manager.sendRequest(RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD, {}),
+      );
+    },
+    async rly0ClaudeCodeLogin(input: Rly0AgentAuthLoginParams): Promise<Rly0AgentAuthLoginResult> {
+      return rly0AgentAuthLoginResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD,
+          rly0AgentAuthLoginParamsSchema.parse(input),
+        ),
+      );
+    },
+    async rly0ClaudeCodeLogout(): Promise<Rly0AgentAuthLogoutResult> {
+      return rly0AgentAuthLogoutResultSchema.parse(
+        await manager.sendRequest(RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD, {}),
       );
     },
     async rly0RelayAgentsGet(): Promise<Rly0RelayAgentsResult> {

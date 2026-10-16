@@ -25,6 +25,9 @@ export const RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD = "codexhost/rly0/relay/code
 export const RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD = "codexhost/rly0/relay/modelCatalog/status";
 export const RLY0_RELAY_AGENTS_GET_METHOD = "codexhost/rly0/relay/agents/get";
 export const RLY0_RELAY_AGENTS_SET_METHOD = "codexhost/rly0/relay/agents/set";
+export const RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD = "codexhost/rly0/agents/claudeCode/authStatus";
+export const RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD = "codexhost/rly0/agents/claudeCode/login";
+export const RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD = "codexhost/rly0/agents/claudeCode/logout";
 
 /** Not 25817: AiMaMi's router proxy uses that port, and the two are often installed together. */
 export const RLY0_PROXY_DEFAULT_PORT = 25917;
@@ -340,3 +343,37 @@ export const rly0RelayAgentsResultSchema = z
   })
   .strict();
 export type Rly0RelayAgentsResult = z.infer<typeof rly0RelayAgentsResultSchema>;
+
+/** A native agent's own login, as the agent itself reports it (RLY/0 Hub never holds it). */
+export const rly0AgentAuthStatusSchema = z
+  .object({
+    installed: z.boolean(),
+    loggedIn: z.boolean(),
+    method: z.string().max(200).optional(),
+    email: z.string().max(200).optional(),
+    plan: z.string().max(200).optional(),
+    loginInProgress: z.boolean().optional(),
+    error: z.enum(["STATUS_UNREADABLE", "STATUS_TIMEOUT", "STATUS_FAILED"]).optional(),
+  })
+  .strict();
+export type Rly0AgentAuthStatus = z.infer<typeof rly0AgentAuthStatusSchema>;
+export const rly0AgentAuthStatusParamsSchema = z.object({}).strict();
+export const rly0AgentAuthLoginParamsSchema = z
+  .object({ mode: z.enum(["claudeai", "console"]) })
+  .strict();
+export type Rly0AgentAuthLoginParams = z.infer<typeof rly0AgentAuthLoginParamsSchema>;
+export const rly0AgentAuthLoginResultSchema = z
+  .object({
+    started: z.boolean(),
+    /** The sign-in page, when the agent printed it, for opening by hand. */
+    url: z
+      .string()
+      .max(2048)
+      .regex(/^https:\/\//u)
+      .optional(),
+  })
+  .strict();
+export type Rly0AgentAuthLoginResult = z.infer<typeof rly0AgentAuthLoginResultSchema>;
+export const rly0AgentAuthLogoutParamsSchema = z.object({}).strict();
+export const rly0AgentAuthLogoutResultSchema = z.object({ ok: z.boolean() }).strict();
+export type Rly0AgentAuthLogoutResult = z.infer<typeof rly0AgentAuthLogoutResultSchema>;

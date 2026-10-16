@@ -45,6 +45,12 @@ import {
   RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
   RLY0_RELAY_AGENTS_GET_METHOD,
   RLY0_RELAY_AGENTS_SET_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD,
+  rly0AgentAuthStatusParamsSchema,
+  rly0AgentAuthLoginParamsSchema,
+  rly0AgentAuthLogoutParamsSchema,
   rly0RelayAgentsGetParamsSchema,
   rly0RelayAgentsSetParamsSchema,
   type Rly0RelayAgentsResult,
@@ -144,6 +150,7 @@ import {
 } from "./rly0-relay/model-routing.js";
 import { createLauncherProcessControl } from "./rly0-maintenance/launcher-process-control.js";
 import { Rly0FirstRunBackup } from "./rly0-maintenance/first-run-backup.js";
+import { ClaudeCodeAuth } from "./rly0-agents/claude-code-auth.js";
 import { Rly0AgentRelaySettings, claudeCodeRelayEnvironment } from "./rly0-relay/agent-relays.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
 import {
@@ -347,6 +354,9 @@ const RLY0_EXTENDED_METHODS: ReadonlySet<string> = new Set([
   RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
   RLY0_RELAY_AGENTS_GET_METHOD,
   RLY0_RELAY_AGENTS_SET_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD,
+  RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -711,6 +721,7 @@ export class AppServerHost {
   readonly #rly0RelayModels: Rly0RelayModelRouter;
   readonly #rly0FirstRunBackup: Rly0FirstRunBackup;
   readonly #rly0AgentRelays: Rly0AgentRelaySettings;
+  readonly #claudeCodeAuth: ClaudeCodeAuth;
   /** Relay Claude Code was loaded with; undefined until agents are loaded. */
   #claudeCodeRelayApplied: string | null | undefined;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
@@ -835,6 +846,10 @@ export class AppServerHost {
     const processControl = createLauncherProcessControl({ environment });
     this.#rly0FirstRunBackup = new Rly0FirstRunBackup({ environment });
     this.#rly0AgentRelays = new Rly0AgentRelaySettings({ environment });
+    this.#claudeCodeAuth = new ClaudeCodeAuth({
+      environment,
+      command: () => this.#launchSettings.initialCommand("claude-code"),
+    });
     // Only a Desktop started by the RLY/0 Hub Launcher takes the first-run backup, so tests and
     // embedded hosts never write into a real home directory.
     if (environment.CODEXHOST_LAUNCHER_PID) {
@@ -2349,6 +2364,15 @@ export class AppServerHost {
       [RLY0_PROXY_START_METHOD]: route(rly0ProxyStartParamsSchema, (p) => core.proxyStart(p)),
       [RLY0_PROXY_STOP_METHOD]: route(rly0ProxyStopParamsSchema, () => core.proxyStop()),
       [RLY0_PROXY_STATUS_METHOD]: route(rly0ProxyStatusParamsSchema, () => core.proxyStatus()),
+      [RLY0_AGENTS_CLAUDE_AUTH_STATUS_METHOD]: route(rly0AgentAuthStatusParamsSchema, () =>
+        this.#claudeCodeAuth.status(),
+      ),
+      [RLY0_AGENTS_CLAUDE_AUTH_LOGIN_METHOD]: route(rly0AgentAuthLoginParamsSchema, (p) =>
+        this.#claudeCodeAuth.login(p.mode),
+      ),
+      [RLY0_AGENTS_CLAUDE_AUTH_LOGOUT_METHOD]: route(rly0AgentAuthLogoutParamsSchema, async () => ({
+        ok: await this.#claudeCodeAuth.logout(),
+      })),
       [RLY0_RELAY_AGENTS_GET_METHOD]: route(rly0RelayAgentsGetParamsSchema, () =>
         this.#agentRelayStatus(),
       ),

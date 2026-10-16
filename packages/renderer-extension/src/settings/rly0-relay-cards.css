@@ -87,3 +87,32 @@
   color: var(--settings-muted);
   line-height: 1.5;
 }
+
+/* Native agent block: name, own sign-in, and what it runs with */
+.settings-rly0-relay__agent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--settings-border);
+}
+.settings-rly0-relay__agent-auth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.settings-rly0-relay__agent-auth > .settings-rly0-mcp__detail {
+  flex-basis: 100%;
+  margin: 0;
+}
+.settings-rly0-relay__agent-link {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  gap: 8px;
+}
+.settings-rly0-relay__agent .settings-rly0-relay__agent-row {
+  border-top: 0;
+  padding: 2px 0 0;
+}

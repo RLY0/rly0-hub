@@ -13,6 +13,10 @@ import {
   type Rly0RelayCodexConfigStatusResult,
   type Rly0RelayListResult,
   type Rly0RelayAgentsResult,
+  type Rly0AgentAuthStatus,
+  type Rly0AgentAuthLoginParams,
+  type Rly0AgentAuthLoginResult,
+  type Rly0AgentAuthLogoutResult,
   type Rly0RelayAgentsSetParams,
   type Rly0MaintenanceProcessActionResult,
   type Rly0RelayModelCatalogStatusParams,
@@ -52,7 +56,13 @@ export interface RendererRelayClient {
   rly0RelayAgentsGet?(): Promise<Rly0RelayAgentsResult>;
   rly0RelayAgentsSet?(input: Rly0RelayAgentsSetParams): Promise<Rly0RelayAgentsResult>;
   rly0MaintenanceRestartCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
+  rly0ClaudeCodeAuthStatus?(): Promise<Rly0AgentAuthStatus>;
+  rly0ClaudeCodeLogin?(input: Rly0AgentAuthLoginParams): Promise<Rly0AgentAuthLoginResult>;
+  rly0ClaudeCodeLogout?(): Promise<Rly0AgentAuthLogoutResult>;
 }
+
+const LOGIN_POLL_MS = 3_000;
+const LOGIN_POLL_LIMIT_MS = 10 * 60_000;
 
 export { RLY0_RELAY_PROMO_URL } from "./rly0-showcase.js";
 
@@ -140,6 +150,16 @@ export function createRelaySettingsPage(
       let agentsBusy = false;
       let agentsError: string | null = null;
       let restarting = false;
+      let claudeAuth: Rly0AgentAuthStatus | null = null;
+      let claudeAuthFailed = false;
+      let loginWaiting = false;
+      let loginUrl: string | null = null;
+      let loginError = false;
+      let logoutArmed = false;
+      let loginPoll: ReturnType<typeof setTimeout> | null = null;
+      signal.addEventListener("abort", () => {
+        if (loginPoll) clearTimeout(loginPoll);
+      });
       let notice: { text: string; error: boolean } | null = null;
       let busy = false;
       const tests = new Map<string, TestState>();
@@ -283,15 +303,21 @@ export function createRelaySettingsPage(
       const renderAgents = (): void => {
         agentsCard.replaceChildren();
         const client = getClient();
-        agentsCard.hidden =
-          unavailable || !client?.rly0RelayAgentsGet || !client.rly0RelayAgentsSet;
+        const canChoose =
+          !unavailable && !!client?.rly0RelayAgentsGet && !!client.rly0RelayAgentsSet;
+        agentsCard.hidden = !canChoose && !client?.rly0ClaudeCodeAuthStatus;
         if (agentsCard.hidden) return;
         const top = el("div", "settings-rly0-relay__card-head");
         top.append(el("h2", "settings-rly0-relay__title", messages.agentsTitle));
         agentsCard.append(top, el("p", "settings-rly0-mcp__detail", messages.agentsDescription));
         const usable = relays.filter((relay) => relay.enabled && relay.hasKey);
+        const agent = el("div", "settings-rly0-relay__agent");
+        agent.append(el("strong", "settings-rly0-relay__agent-name", messages.agentsClaudeCode));
+        agentsCard.append(agent);
+        if (client?.rly0ClaudeCodeAuthStatus) agent.append(renderClaudeAuth());
+        if (!canChoose) return;
         const row = el("label", "settings-rly0-relay__agent-row");
-        row.append(el("span", "settings-rly0-relay__agent-name", messages.agentsClaudeCode));
+        row.append(el("span", undefined, messages.agentsRunWith));
         const select = el("select", "settings-rly0-relay__agent-select");
         select.setAttribute("aria-label", messages.agentsClaudeCode);
         const option = (value: string, label: string): void => {
@@ -308,9 +334,10 @@ export function createRelaySettingsPage(
         select.disabled = agentsBusy || !agents;
         select.addEventListener("change", () => void saveAgents(select.value || null));
         row.append(select);
-        agentsCard.append(row);
+        agent.append(row);
+        if (saved) agent.append(el("p", "settings-rly0-mcp__detail", messages.agentsRelayNote));
         if (usable.length === 0) {
-          agentsCard.append(el("p", "settings-rly0-mcp__detail", messages.agentsNoRelay));
+          agent.append(el("p", "settings-rly0-mcp__detail", messages.agentsNoRelay));
         }
         const nameOf = (id: string | null): string =>
           id === null
@@ -345,6 +372,150 @@ export function createRelaySettingsPage(
           failure.setAttribute("role", "alert");
           agentsCard.append(failure);
         }
+      };
+      // Claude Code's own sign-in: what Claude Code reports, plus sign-in / sign-out actions.
+      const renderClaudeAuth = (): HTMLElement => {
+        const box = el("div", "settings-rly0-relay__agent-auth");
+        const client = getClient();
+        const status = el("span", "settings-rly0-relay__state");
+        box.append(status);
+        if (!claudeAuth) {
+          status.textContent = claudeAuthFailed
+            ? messages.agentsAuthFailed
+            : messages.agentsAuthChecking;
+          return box;
+        }
+        if (!claudeAuth.installed) {
+          status.textContent = messages.agentsLoggedOut;
+          const hint = el("p", "settings-rly0-mcp__detail", messages.agentsNotInstalled);
+          box.append(hint);
+          const navigate = context.navigate;
+          if (navigate) {
+            box.append(
+              button(messages.agentsGoConnections, "secondary", () => navigate("connections")),
+            );
+          }
+          return box;
+        }
+        if (claudeAuth.loggedIn) {
+          const account = [claudeAuth.email, claudeAuth.plan].filter(Boolean).join(" · ");
+          status.textContent = account
+            ? messages.agentsLoggedIn.replace("{account}", account)
+            : messages.agentsLoggedInUnknown;
+          status.className += " settings-rly0-relay__state--on";
+          if (client?.rly0ClaudeCodeLogout) {
+            box.append(
+              button(
+                logoutArmed ? messages.agentsLogoutConfirm : messages.agentsLogout,
+                logoutArmed ? "danger" : "secondary",
+                () => void signOut(),
+              ),
+            );
+          }
+          return box;
+        }
+        status.textContent = loginWaiting ? messages.agentsLoginWaiting : messages.agentsLoggedOut;
+        if (client?.rly0ClaudeCodeLogin) {
+          const actions = el("div", "settings-rly0-relay__actions");
+          const subscription = button(messages.agentsLogin, "", () => void signIn("claudeai"));
+          const consoleLogin = button(
+            messages.agentsLoginConsole,
+            "secondary",
+            () => void signIn("console"),
+          );
+          subscription.disabled = loginWaiting;
+          consoleLogin.disabled = loginWaiting;
+          actions.append(subscription, consoleLogin);
+          box.append(actions);
+        }
+        if (loginWaiting && loginUrl) {
+          const linkRow = el("div", "settings-rly0-relay__agent-link");
+          linkRow.append(el("span", "settings-rly0-mcp__detail", messages.agentsLoginLink));
+          const link = el("a", "settings-command-button settings-command-button--secondary");
+          link.href = loginUrl;
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+          link.textContent = messages.agentsLoginOpen;
+          linkRow.append(link);
+          box.append(linkRow);
+        }
+        if (loginError) {
+          const failure = el("p", "settings-rly0-relay__callout", messages.agentsLoginFailed);
+          failure.setAttribute("role", "alert");
+          box.append(failure);
+        }
+        return box;
+      };
+      const loadClaudeAuth = async (): Promise<void> => {
+        const read = getClient()?.rly0ClaudeCodeAuthStatus;
+        if (!read) return;
+        try {
+          const result = await read();
+          if (signal.aborted) return;
+          claudeAuth = result;
+          claudeAuthFailed = false;
+          if (result.loggedIn) {
+            loginWaiting = false;
+            loginUrl = null;
+          }
+        } catch {
+          if (!signal.aborted) claudeAuthFailed = true;
+        }
+      };
+      const pollLogin = (startedAt: number): void => {
+        if (loginPoll) clearTimeout(loginPoll);
+        loginPoll = setTimeout(() => {
+          loginPoll = null;
+          void (async () => {
+            await loadClaudeAuth();
+            if (signal.aborted) return;
+            const expired = Date.now() - startedAt > LOGIN_POLL_LIMIT_MS;
+            if (claudeAuth?.loggedIn || expired) loginWaiting = false;
+            renderAgents();
+            if (loginWaiting) pollLogin(startedAt);
+          })();
+        }, LOGIN_POLL_MS);
+      };
+      const signIn = async (mode: "claudeai" | "console"): Promise<void> => {
+        const login = getClient()?.rly0ClaudeCodeLogin;
+        if (!login || loginWaiting) return;
+        loginWaiting = true;
+        loginError = false;
+        loginUrl = null;
+        renderAgents();
+        try {
+          const result = await login({ mode });
+          if (signal.aborted) return;
+          if (!result.started) {
+            loginWaiting = false;
+            loginError = true;
+          } else {
+            loginUrl = result.url ?? null;
+            pollLogin(Date.now());
+          }
+        } catch {
+          loginWaiting = false;
+          loginError = true;
+        }
+        if (!signal.aborted) renderAgents();
+      };
+      const signOut = async (): Promise<void> => {
+        const logout = getClient()?.rly0ClaudeCodeLogout;
+        if (!logout) return;
+        if (!logoutArmed) {
+          logoutArmed = true;
+          renderAgents();
+          return;
+        }
+        logoutArmed = false;
+        try {
+          const result = await logout();
+          if (!result.ok) agentsError = messages.agentsLogoutFailed;
+        } catch {
+          agentsError = messages.agentsLogoutFailed;
+        }
+        await loadClaudeAuth();
+        if (!signal.aborted) renderAgents();
       };
       const loadAgents = async (): Promise<void> => {
         const getter = getClient()?.rly0RelayAgentsGet;
@@ -714,7 +885,7 @@ export function createRelaySettingsPage(
             else loadError = messages.loadFailed;
           }
         }
-        await Promise.all([loadCodex(), loadCatalog(), loadAgents()]);
+        await Promise.all([loadCodex(), loadCatalog(), loadAgents(), loadClaudeAuth()]);
         render();
       };
       const loadCatalog = async (refresh = false): Promise<void> => {

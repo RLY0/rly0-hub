@@ -34,6 +34,9 @@ const { outputFiles } = await build({
           rly0RelayAgentsGet: async () => ({ claudeCode: globalThis.__agent ?? null, active: { claudeCode: null }, restartRequired: false }),
           rly0RelayAgentsSet: async ({ claudeCode }) => { globalThis.__agent = claudeCode; return { claudeCode, active: { claudeCode: null }, restartRequired: claudeCode !== null }; },
           rly0MaintenanceRestartCodex: async () => ({ supported: true, ok: true }),
+          rly0ClaudeCodeAuthStatus: async () => (globalThis.__claudeLoggedIn ? { installed: true, loggedIn: true, email: "me@example.com", plan: "max" } : { installed: true, loggedIn: false }),
+          rly0ClaudeCodeLogin: async () => { setTimeout(() => { globalThis.__claudeLoggedIn = true; }, 200); return { started: true, url: "https://claude.ai/oauth/authorize" }; },
+          rly0ClaudeCodeLogout: async () => { globalThis.__claudeLoggedIn = false; return { ok: true }; },
           rly0RelayModelCatalogStatus: async (input = {}) => {
             calls.push(input);
             if (scenario === "unread" && !input.refresh) return { official:null, appended: ["gpt-relay-1"], shadowed:["gpt-5.5"], delegated:["claude-opus-4-7"] };
@@ -90,7 +93,14 @@ for (const theme of ["dark", "light"] as const) {
   }, testInfo) => {
     await setup(page, { theme });
     const card = page.locator(".settings-rly0-relay__agents");
-    await expect(card.getByRole("heading", { name: "原生 Agent 使用中转" })).toBeVisible();
+    await expect(card.getByRole("heading", { name: "原生 Agent" })).toBeVisible();
+    await expect(card).toContainText("未登录");
+    await card.getByRole("button", { name: "用 Claude 订阅登录" }).click();
+    await expect(card).toContainText("请在浏览器里完成登录");
+    await card.screenshot({ path: testInfo.outputPath(`agents-login-waiting-${theme}.png`) });
+    await page.clock.runFor(4_000);
+    await expect(card).toContainText("已登录：me@example.com · max", { timeout: 10_000 });
+    await card.screenshot({ path: testInfo.outputPath(`agents-logged-in-${theme}.png`) });
     const select = card.getByRole("combobox", { name: "Claude Code" });
     await expect(select).toHaveValue("");
     await card.screenshot({ path: testInfo.outputPath(`agents-default-${theme}.png`) });
