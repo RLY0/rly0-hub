@@ -330,11 +330,16 @@ export {
   rly0AppearanceAutostartGetParamsSchema,
   rly0AppearanceAutostartResultSchema,
   rly0AppearanceAutostartSetParamsSchema,
+  RLY0_HUB_OPEN_METHOD,
+  rly0HubOpenParamsSchema,
+  rly0HubOpenResultSchema,
 } from "./rly0-appearance.js";
 export type {
   Rly0AppearanceAutostartGetParams,
   Rly0AppearanceAutostartResult,
   Rly0AppearanceAutostartSetParams,
+  Rly0HubOpenParams,
+  Rly0HubOpenResult,
 } from "./rly0-appearance.js";
 export {
   RLY0_RELAY_LIST_METHOD,

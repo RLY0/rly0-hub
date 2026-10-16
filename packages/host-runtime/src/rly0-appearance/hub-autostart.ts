@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -26,4 +27,32 @@ export function resolveRly0HubAutostartCommand(
   const executable = path.win32.join(installRoot, "bin", RLY0_HUB_EXECUTABLE_NAME);
   if (!fileExists(executable) || executable.includes('"')) return undefined;
   return `"${executable}" ${RLY0_HUB_BACKGROUND_ARGUMENT}`;
+}
+
+/**
+ * Starts the Hub window. A Hub already running in the tray receives this second start and brings
+ * its window up instead (single instance), so this is also "show the Hub".
+ */
+export function openRly0Hub(
+  installRoot: string = resolveRly0InstallRoot(),
+  fileExists: (file: string) => boolean = existsSync,
+  start: (executable: string) => void = startDetached,
+): { available: boolean; ok: boolean } {
+  const executable = path.win32.join(installRoot, "bin", RLY0_HUB_EXECUTABLE_NAME);
+  if (process.platform !== "win32" || !fileExists(executable))
+    return { available: false, ok: false };
+  try {
+    start(executable);
+    return { available: true, ok: true };
+  } catch {
+    return { available: true, ok: false };
+  }
+}
+
+// Started through Explorer so the Hub is not part of Codex's process tree: a Codex restart or
+// quit stops Codex's own helpers and must not take the tray app with it.
+function startDetached(executable: string): void {
+  const child = spawn("explorer.exe", [executable], { detached: true, stdio: "ignore" });
+  child.on("error", () => undefined);
+  child.unref();
 }

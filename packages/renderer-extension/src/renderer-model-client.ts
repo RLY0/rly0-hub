@@ -106,6 +106,9 @@ import {
   type Rly0MaintenanceBackupStatusResult,
   type Rly0MaintenanceRestoreBackupResult,
   RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
+  RLY0_HUB_OPEN_METHOD,
+  rly0HubOpenResultSchema,
+  type Rly0HubOpenResult,
   RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
   rly0MaintenanceDiagnosticsResultSchema,
   rly0MaintenanceExportDiagnosticsResultSchema,
@@ -1025,6 +1028,9 @@ export function createRendererModelClient(
       return rly0MaintenanceProcessActionResultSchema.parse(
         await manager.sendRequest(RLY0_MAINTENANCE_RESTART_CODEX_METHOD, {}),
       );
+    },
+    async rly0OpenHub(): Promise<Rly0HubOpenResult> {
+      return rly0HubOpenResultSchema.parse(await manager.sendRequest(RLY0_HUB_OPEN_METHOD, {}));
     },
     async rly0AppearanceAutostartStatus(): Promise<Rly0AppearanceAutostartResult> {
       return rly0AppearanceAutostartResultSchema.parse(

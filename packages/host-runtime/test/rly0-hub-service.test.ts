@@ -9,6 +9,7 @@ import { resolveRly0HubAutostartCommand } from "../src/rly0-appearance/hub-autos
 import { Rly0AppearanceManager } from "../src/rly0-appearance/index.js";
 import type { Rly0CoreBridge } from "../src/rly0-core/index.js";
 import { Rly0CodexControl } from "../src/rly0-hub-service/codex-control.js";
+import { evaluateRly0HubAlerts } from "../src/rly0-hub-service/alerts.js";
 import { isRly0Relay, Rly0HubService } from "../src/rly0-hub-service/service.js";
 import { serveRly0HubStdio } from "../src/rly0-hub-service/stdio-server.js";
 
@@ -120,7 +121,11 @@ describe("RLY/0 Hub service", () => {
       openUrl: (url) => opened.push(url),
     });
     await service.handle("links.open", { target: "recharge" });
-    expect(opened).toEqual(["https://rly0.com/purchase"]);
+    await service.handle("links.open", { target: "github" });
+    expect(opened).toEqual([
+      "https://rly0.com/purchase?tab=recharge",
+      "https://github.com/a1039861261-stack/rly0-hub",
+    ]);
   });
 
   it("turns autostart on the first time only", async () => {
@@ -225,5 +230,74 @@ describe("Hub stdio protocol", () => {
       { id: "r1", result: { fine: true } },
       { id: "r2", error: { code: -32000, message: "HUB_ERROR" } },
     ]);
+  });
+});
+
+describe("Hub tray notices", () => {
+  it("warns about a low balance once, and again only after it recovered", () => {
+    const low = { balance: { amount: 0.5, unit: "USD" as const } };
+    const first = evaluateRly0HubAlerts(low, {});
+    expect(first.alerts.map((a) => [a.id, a.action, a.body])).toEqual([
+      ["balance-low", "recharge", "还剩 $0.50，点这里充值。"],
+    ]);
+    expect(evaluateRly0HubAlerts(low, first.state).alerts).toEqual([]);
+    const recovered = evaluateRly0HubAlerts({ balance: { amount: 20, unit: "USD" } }, first.state);
+    expect(recovered.alerts).toEqual([]);
+    expect(evaluateRly0HubAlerts(low, recovered.state).alerts).toHaveLength(1);
+    expect(evaluateRly0HubAlerts({ balance: { amount: 5, unit: "CNY" } }, {}).alerts).toHaveLength(
+      1,
+    );
+  });
+
+  it("warns about the Codex quota once per window", () => {
+    const quota = { quota: { usedPercent: 93, resetsAt: 1_800_000_000 } };
+    const first = evaluateRly0HubAlerts(quota, {});
+    expect(first.alerts[0]).toMatchObject({ id: "quota-low", title: "Codex 额度只剩 7%" });
+    expect(evaluateRly0HubAlerts(quota, first.state).alerts).toEqual([]);
+    const nextWindow = { quota: { usedPercent: 95, resetsAt: 1_800_018_000 } };
+    expect(evaluateRly0HubAlerts(nextWindow, first.state).alerts).toHaveLength(1);
+    expect(evaluateRly0HubAlerts({ quota: { usedPercent: 50 } }, {}).alerts).toEqual([]);
+  });
+
+  it("remembers the first-run guide", async () => {
+    const root = await tempDir();
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      core: fakeCore([]).core,
+    });
+    expect(await service.handle("hub.state", {})).toEqual({ onboarded: false });
+    await service.handle("hub.finishOnboarding", {});
+    expect(await service.handle("hub.state", {})).toEqual({ onboarded: true });
+  });
+});
+
+describe("Opening the Hub from Codex", () => {
+  it("starts the Hub executable when this build has one", async () => {
+    const { openRly0Hub } = await import("../src/rly0-appearance/hub-autostart.js");
+    const started: string[] = [];
+    if (process.platform === "win32") {
+      expect(
+        openRly0Hub(
+          "C:/Hub",
+          () => true,
+          (file) => started.push(file),
+        ),
+      ).toEqual({
+        available: true,
+        ok: true,
+      });
+      expect(started).toEqual([path.win32.join("C:/Hub", "bin", "rly0-hub.exe")]);
+    }
+    expect(
+      openRly0Hub(
+        "C:\Hub",
+        () => false,
+        (file) => started.push(file),
+      ),
+    ).toEqual({
+      available: false,
+      ok: false,
+    });
   });
 });

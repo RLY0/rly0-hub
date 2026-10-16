@@ -123,7 +123,9 @@
     relays: "中转站",
     accounts: "Codex 账号",
     backup: "备份",
+    support: "支持",
     settings: "设置",
+    wizard: "开始使用",
   };
   const pageEl = document.getElementById("page");
   const titleEl = document.getElementById("title");
@@ -148,6 +150,7 @@
       else button.removeAttribute("aria-current");
     });
     titleEl.textContent = titles[name];
+    document.body.classList.toggle("guided", name === "wizard");
     pageEl.replaceChildren();
     const alive = () => mine === generation;
     pages[name](pageEl, alive, options || {});
@@ -160,6 +163,9 @@
   document
     .getElementById("ad")
     .addEventListener("click", () => call("links.open", { target: "site" }).catch(failed));
+  document
+    .getElementById("star")
+    .addEventListener("click", () => call("links.open", { target: "github" }).catch(failed));
 
   /* ---------- Pages ---------- */
   const pages = {};
@@ -1234,6 +1240,311 @@
     load();
   };
 
+  pages.support = (root) => {
+    const qr = (src, label) =>
+      h(
+        "figure",
+        { class: "qr" },
+        h("img", { src, alt: `${label}赞赏码`, width: "180", height: "180" }),
+        h("figcaption", null, label),
+      );
+    root.append(
+      h(
+        "div",
+        { class: "grid compact" },
+        h(
+          "section",
+          { class: "m tone span-3" },
+          h("div", { class: "row" }, githubMark(28), h("span", { class: "label" }, "Open source")),
+          h("h3", { class: "big" }, "Star 支持"),
+          h("p", { class: "sub" }, "RLY/0 Hub 免费开源。觉得有用，就去 GitHub 点个 Star。"),
+          h(
+            "div",
+            { class: "row" },
+            h(
+              "button",
+              {
+                class: "btn paper",
+                type: "button",
+                onclick: () => call("links.open", { target: "github" }).catch(failed),
+              },
+              "去 GitHub 点 Star",
+            ),
+          ),
+        ),
+        h(
+          "section",
+          { class: "m span-3" },
+          h("span", { class: "label" }, "Author-run relay"),
+          h("h3", { class: "big" }, "RLY/0 零号中转"),
+          h("p", { class: "sub" }, "作者自营。用零号中转，也是在支持这个项目。"),
+          h(
+            "div",
+            { class: "row" },
+            h(
+              "button",
+              {
+                class: "btn",
+                type: "button",
+                onclick: () => call("links.open", { target: "site" }).catch(failed),
+              },
+              "rly0.com",
+            ),
+          ),
+        ),
+        h(
+          "section",
+          { class: "m span-6" },
+          h("span", { class: "label" }, "Buy me a coffee"),
+          h("h3", { class: "big" }, "请作者喝杯咖啡"),
+          h("p", { class: "sub" }, "自愿赞助，不影响任何功能。"),
+          h(
+            "div",
+            { class: "row qrs" },
+            qr("support/sponsor-wechat.jpg", "微信"),
+            qr("support/sponsor-alipay.jpg", "支付宝"),
+          ),
+        ),
+      ),
+    );
+  };
+
+  function githubMark(size) {
+    const mark = svg(
+      '<path fill="currentColor" d="M12 .297C5.37.297 0 5.67 0 12.297c0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.043-1.61-4.043-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729 1.205.084 1.838 1.237 1.838 1.237 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.467-1.334-5.467-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23a11.5 11.5 0 0 1 3-.405c1.02.005 2.045.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>',
+    );
+    mark.setAttribute("viewBox", "0 0 24 24");
+    mark.setAttribute("width", String(size));
+    mark.setAttribute("height", String(size));
+    return mark;
+  }
+
+  /* ---------- First-run guide ---------- */
+  const RLY0_BASE_URL = "https://api.rly0.com/v1";
+  const isRly0 = (relay) => {
+    try {
+      return /(^|\.)rly0\.com$/i.test(new URL(relay.baseUrl).hostname);
+    } catch {
+      return false;
+    }
+  };
+
+  pages.wizard = (root, alive) => {
+    let step = 0;
+    const state = { relayId: null };
+    const body = h("section", { class: "m wizard-card" });
+    const dots = h("div", { class: "steps", "aria-hidden": "true" });
+    root.append(h("div", { class: "wizard" }, dots, body));
+
+    const finish = async (openCodex) => {
+      await call("hub.finishOnboarding").catch(() => undefined);
+      if (openCodex) call("codex.open").catch(() => undefined);
+      go("home");
+    };
+    const skip = () =>
+      h("button", { class: "btn quiet", type: "button", onclick: () => finish(false) }, "跳过引导");
+    const next = () => {
+      step += 1;
+      render();
+    };
+
+    function frame(label, title, text, ...content) {
+      dots.replaceChildren(
+        ...[0, 1, 2, 3].map((i) => h("i", { class: i === step ? "on" : i < step ? "done" : "" })),
+      );
+      body.replaceChildren(
+        h("span", { class: "label" }, label),
+        h("h2", { class: "big" }, title),
+        text ? h("p", { class: "sub" }, text) : null,
+        ...content,
+      );
+    }
+
+    async function relayStep() {
+      const relays = await call("relay.list").catch(() => null);
+      if (!alive()) return;
+      const existing = ((relays && relays.relays) || []).find((r) => r.hasKey && isRly0(r));
+      if (existing) {
+        state.relayId = existing.id;
+        frame(
+          "RLY/0 零号中转",
+          "零号中转已接入",
+          `已在用「${existing.name}」。`,
+          h(
+            "div",
+            { class: "row" },
+            h("button", { class: "btn paper", type: "button", onclick: next }, "下一步"),
+          ),
+        );
+        return;
+      }
+      const key = h("input", {
+        class: "input",
+        type: "password",
+        placeholder: "粘贴零号中转的 API 密钥 sk-…",
+        autocomplete: "off",
+        spellcheck: "false",
+      });
+      const connect = h("button", { class: "btn red", type: "button" }, "接入");
+      connect.addEventListener("click", async () => {
+        const apiKey = key.value.trim();
+        if (!apiKey) {
+          toast("先粘贴密钥");
+          return;
+        }
+        connect.disabled = true;
+        connect.textContent = "接入中…";
+        try {
+          const added = await call("relay.add", {
+            name: "零号中转",
+            baseUrl: RLY0_BASE_URL,
+            apiKey,
+          });
+          if (!added.available) throw new Error("HUB_ERROR");
+          const test = await call("relay.test", { id: added.id }).catch(() => null);
+          if (test && test.available && !test.ok)
+            toast(`已保存，但测试没通过：${explain(test.error)}`);
+          state.relayId = added.id;
+          next();
+        } catch (error) {
+          failed(error);
+          connect.disabled = false;
+          connect.textContent = "接入";
+        }
+      });
+      frame(
+        "RLY/0 零号中转",
+        "接入零号中转",
+        "一个密钥，Claude、GPT 等模型都能用。没有账号可以先注册。",
+        h("div", { class: "row wide" }, key, connect),
+        h(
+          "div",
+          { class: "row" },
+          h(
+            "button",
+            {
+              class: "btn",
+              type: "button",
+              onclick: () => call("links.open", { target: "site" }).catch(failed),
+            },
+            "注册零号中转",
+          ),
+          h("button", { class: "btn quiet", type: "button", onclick: next }, "暂时不用"),
+        ),
+      );
+    }
+
+    async function claudeStep() {
+      const agents = await call("agents.list").catch(() => null);
+      if (!alive()) return;
+      const claude = agents && agents.agents.find((a) => a.id === "claude-code");
+      if (claude && claude.installed) {
+        const useRelay = async () => {
+          await call("agents.relays.set", { claudeCode: state.relayId }).catch(() => undefined);
+          toast("Claude Code 会通过零号中转运行");
+          next();
+        };
+        frame(
+          "Claude Code",
+          "Claude Code 已安装",
+          state.relayId
+            ? "让它用零号中转，不用另外登录 Claude 账号。"
+            : "之后可以在 AI 助手里登录。",
+          h(
+            "div",
+            { class: "row" },
+            state.relayId
+              ? h(
+                  "button",
+                  { class: "btn paper", type: "button", onclick: useRelay },
+                  "用零号中转运行",
+                )
+              : null,
+            h(
+              "button",
+              { class: state.relayId ? "btn quiet" : "btn paper", type: "button", onclick: next },
+              state.relayId ? "我用自己的账号" : "下一步",
+            ),
+          ),
+        );
+        return;
+      }
+      const status = h("p", { class: "sub" });
+      const install = h("button", { class: "btn paper", type: "button" }, "一键安装 Claude Code");
+      install.addEventListener("click", async () => {
+        install.disabled = true;
+        install.textContent = "安装中…";
+        await call("agents.installStart", { agent: "claude-code" }).catch(() => undefined);
+        const timer = setInterval(async () => {
+          const s = await call("agents.installStatus", { agent: "claude-code" }).catch(() => null);
+          if (!alive() || !s) return;
+          if (s.state === "running") {
+            status.textContent = STEP[s.step] || "安装中…";
+            return;
+          }
+          clearInterval(timer);
+          pollers.delete(timer);
+          if (s.state === "succeeded") {
+            toast("Claude Code 装好了");
+            claudeStep();
+          } else {
+            status.textContent = INSTALL_ERRORS[s.error] || "安装没有成功，稍后可在 AI 助手里重试";
+            install.disabled = false;
+            install.textContent = "重试";
+          }
+        }, 1500);
+        pollers.add(timer);
+      });
+      frame(
+        "Claude Code",
+        "装上 Claude Code",
+        "Anthropic 官方编程助手，装好就能在 Codex 里用。需要几分钟。",
+        status,
+        h(
+          "div",
+          { class: "row" },
+          install,
+          h("button", { class: "btn quiet", type: "button", onclick: next }, "暂时不装"),
+        ),
+      );
+    }
+
+    function render() {
+      if (!alive()) return;
+      if (step === 0) {
+        frame(
+          "Welcome",
+          "一个窗口，管好所有 AI",
+          "Codex、Claude Code 和国产 AI 助手，接入、登录、额度都在这里。",
+          h(
+            "div",
+            { class: "row" },
+            h("button", { class: "btn paper", type: "button", onclick: next }, "开始"),
+            skip(),
+          ),
+        );
+      } else if (step === 1) relayStep();
+      else if (step === 2) claudeStep();
+      else
+        frame(
+          "Done",
+          "准备好了",
+          "关掉窗口后它在托盘里待命，从托盘图标随时打开。",
+          h(
+            "div",
+            { class: "row" },
+            h(
+              "button",
+              { class: "btn paper", type: "button", onclick: () => finish(true) },
+              "打开 Codex",
+            ),
+            h("button", { class: "btn", type: "button", onclick: () => finish(false) }, "进入首页"),
+          ),
+        );
+    }
+    render();
+  };
+
   /* ---------- Preview without the shell ---------- */
   function mockReply(message) {
     const data = {
@@ -1348,6 +1659,7 @@
         ],
       },
       "autostart.get": { supported: true, enabled: true },
+      "hub.state": { onboarded: !/[?&]wizard/.test(location.search) },
     };
     setTimeout(
       () => onMessage({ id: message.id, result: data[message.method] || { ok: true } }),
@@ -1357,4 +1669,9 @@
 
   if (!webview) onMessage({ event: "ready" });
   go("home");
+  call("hub.state")
+    .then((state) => {
+      if (!state.onboarded) go("wizard");
+    })
+    .catch(() => undefined);
 })();

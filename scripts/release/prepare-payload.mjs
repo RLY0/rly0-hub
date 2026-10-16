@@ -238,6 +238,27 @@ export async function writeThirdPartyNotices(root, payloadRoot) {
   );
 }
 
+/** The standalone RLY/0 Hub window (apps/hub-desktop/build.ps1), Windows only. */
+export const RLY0_HUB_WINDOWS_PAYLOAD_PATHS = Object.freeze([
+  "bin/rly0-hub.exe",
+  "bin/rly0-hub.ico",
+  "bin/Microsoft.Web.WebView2.Core.dll",
+  "bin/Microsoft.Web.WebView2.WinForms.dll",
+  "bin/WebView2Loader.dll",
+  "app/hub-service.mjs",
+  "app/hub-ui/index.html",
+  "app/hub-ui/app.css",
+  "app/hub-ui/app.js",
+  "app/hub-ui/brand/rly0-ip-on-dark.svg",
+  "app/hub-ui/brand/rly0-lockup-on-dark.svg",
+  "app/hub-ui/fonts/Geist-Variable.woff2",
+  "app/hub-ui/fonts/GeistMono-Variable.woff2",
+  "app/hub-ui/fonts/OFL-LICENSE.txt",
+  "app/hub-ui/support/sponsor-alipay.jpg",
+  "app/hub-ui/support/sponsor-wechat.jpg",
+  "licenses/WebView2-SDK-LICENSE.txt",
+]);
+
 export function expectedPayloadPaths(target) {
   const paths = [
     `bin/codexhost${target.executableSuffix}`,
@@ -268,7 +289,7 @@ export function expectedPayloadPaths(target) {
     "THIRD_PARTY_NOTICES.txt",
   ];
   if (target.hostPlatform === "win32") {
-    paths.push(`bin/codexhost-start${target.executableSuffix}`);
+    paths.push(`bin/codexhost-start${target.executableSuffix}`, ...RLY0_HUB_WINDOWS_PAYLOAD_PATHS);
   }
   return paths.sort();
 }
@@ -411,6 +432,22 @@ export async function prepareReleasePayload({ target, root = repositoryRoot }) {
   });
   await extractNodeRuntime({ target, archivePath, payloadRoot });
   await writeThirdPartyNotices(root, payloadRoot);
+  if (target.hostPlatform === "win32") {
+    await runCommand(
+      {
+        label: "RLY/0 Hub window build",
+        command: "pwsh",
+        args: [
+          "-NoProfile",
+          "-File",
+          path.join(root, "apps", "hub-desktop", "build.ps1"),
+          "-PayloadRoot",
+          payloadRoot,
+        ],
+      },
+      root,
+    );
+  }
   await validatePayload({ payloadRoot, target, root });
   return { version, installerVersion, outputRoot, payloadRoot };
 }

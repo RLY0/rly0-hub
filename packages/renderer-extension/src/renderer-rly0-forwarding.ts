@@ -40,6 +40,7 @@ export const RENDERER_RLY0_FORWARDED_METHODS = [
   "rly0MaintenanceBackupStatus",
   "rly0MaintenanceRestoreBackup",
   "rly0AppearanceAutostartStatus",
+  "rly0OpenHub",
   "rly0AppearanceAutostartSet",
   "rly0ProxySettingsGet",
   "rly0ProxySettingsSet",

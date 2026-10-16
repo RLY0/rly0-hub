@@ -46,4 +46,18 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'www') -Destination $ui -Recurse
 
 & node (Join-Path $repo 'packages/host-runtime/scripts/build-hub-service.mjs') --output (Join-Path $payload 'app/hub-service.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'Hub service bundle failed' }
+$licenses = Join-Path $payload 'licenses'
+$null = New-Item -ItemType Directory -Path $licenses -Force
+Copy-Item -LiteralPath (Join-Path $sdk 'LICENSE.txt') -Destination (Join-Path $licenses 'WebView2-SDK-LICENSE.txt') -Force
+$notices = Join-Path $payload 'THIRD_PARTY_NOTICES.txt'
+if ((Test-Path -LiteralPath $notices) -and -not (Select-String -LiteralPath $notices -SimpleMatch 'Microsoft.Web.WebView2' -Quiet)) {
+    Add-Content -LiteralPath $notices -Encoding utf8NoBOM -Value @(
+        '',
+        "Microsoft.Web.WebView2 $sdkVersion (RLY/0 Hub window)",
+        'License text: licenses/WebView2-SDK-LICENSE.txt',
+        '',
+        'Geist and Geist Mono fonts (RLY/0 Hub window)',
+        'License: SIL Open Font License 1.1',
+        'License text: app/hub-ui/fonts/OFL-LICENSE.txt')
+}
 Write-Output "RLY/0 Hub window built: $exe"

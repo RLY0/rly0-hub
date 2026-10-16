@@ -389,6 +389,7 @@ describe("Renderer fixed Model request client", () => {
       "rly0MaintenanceForceQuitCodex",
       "rly0MaintenanceRestartCodex",
       "rly0MaintenanceRestoreBackup",
+      "rly0OpenHub",
       "rly0ProxySettingsGet",
       "rly0ProxySettingsSet",
       "rly0ProxyStart",

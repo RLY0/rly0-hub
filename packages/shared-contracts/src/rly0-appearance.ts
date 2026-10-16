@@ -28,3 +28,13 @@ export const rly0AppearanceAutostartSetParamsSchema = z.object({ enabled: z.bool
 export type Rly0AppearanceAutostartSetParams = z.infer<
   typeof rly0AppearanceAutostartSetParamsSchema
 >;
+
+/** Opens the standalone RLY/0 Hub window (bin/rly0-hub.exe) from inside Codex. */
+export const RLY0_HUB_OPEN_METHOD = "codexhost/rly0/hub/open";
+export const rly0HubOpenParamsSchema = z.object({}).strict();
+export type Rly0HubOpenParams = z.infer<typeof rly0HubOpenParamsSchema>;
+/** `available` is false when this build has no Hub window (source checkout, other platforms). */
+export const rly0HubOpenResultSchema = z
+  .object({ available: z.boolean(), ok: z.boolean() })
+  .strict();
+export type Rly0HubOpenResult = z.infer<typeof rly0HubOpenResultSchema>;

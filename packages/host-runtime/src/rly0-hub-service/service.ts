@@ -1,6 +1,4 @@
 import { spawn } from "node:child_process";
-import { promises as fs } from "node:fs";
-import path from "node:path";
 
 import {
   rly0AccountsImportCurrentParamsSchema,
@@ -18,6 +16,7 @@ import {
   rly0RelaySetEnabledParamsSchema,
   rly0RelayTestParamsSchema,
   rly0RelayUpdateParamsSchema,
+  RLY0_GITHUB_REPOSITORY_URL,
   type Rly0Relay,
 } from "@codexhost/shared-contracts";
 import { z } from "zod";
@@ -28,23 +27,24 @@ import { Rly0AppearanceManager } from "../rly0-appearance/index.js";
 import { WindowsRegistryAutostart } from "../rly0-appearance/windows-autostart.js";
 import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
-import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { listRly0HubAgents } from "./agents.js";
+import { evaluateRly0HubAlerts } from "./alerts.js";
 import { Rly0CodexControl } from "./codex-control.js";
+import { Rly0HubStateStore } from "./hub-state.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
 /** Fixed pages the Hub may open in the browser; nothing the page sends becomes a URL. */
 export const RLY0_HUB_LINKS = {
   site: "https://rly0.com",
-  recharge: "https://rly0.com/purchase",
+  recharge: "https://rly0.com/purchase?tab=recharge",
+  github: RLY0_GITHUB_REPOSITORY_URL,
 } as const;
-const HUB_STATE_FILE = "hub-desktop.json";
 
 const empty = z.object({}).strict();
-const linkParams = z.object({ target: z.enum(["site", "recharge"]) }).strict();
+const linkParams = z.object({ target: z.enum(["site", "recharge", "github"]) }).strict();
 
 type Handler = (params: unknown) => Promise<unknown>;
 
@@ -91,6 +91,7 @@ export class Rly0HubService {
   readonly #agentRelays: Rly0AgentRelaySettings;
   readonly #installer: AgentInstaller;
   readonly #claudeCode: ClaudeCodeAuth;
+  readonly #state: Rly0HubStateStore;
   readonly #routes: Readonly<Record<string, Handler>>;
 
   constructor(options: Rly0HubServiceOptions) {
@@ -120,6 +121,7 @@ export class Rly0HubService {
       downloadEnvironment: () => applyProxyEnvironment(environment, this.#core.getProxySettings()),
     });
     this.#claudeCode = new ClaudeCodeAuth({ environment });
+    this.#state = new Rly0HubStateStore(environment);
     this.#routes = this.#buildRoutes();
   }
 
@@ -135,24 +137,44 @@ export class Rly0HubService {
 
   /** First run turns autostart on (the confirmed default); later runs respect the toggle. */
   async start(): Promise<void> {
-    const statePath = path.join(resolveRly0DataDir(this.#options.environment), HUB_STATE_FILE);
-    let firstRun = false;
-    try {
-      await fs.access(statePath);
-    } catch {
-      firstRun = true;
-    }
+    const state = await this.#state.read();
     // Without a Hub executable to register (source checkout) the default waits for a real build.
-    if (firstRun && this.#appearance.supported) {
+    if (!state.autostartDefaulted && this.#appearance.supported) {
       await this.#appearance.setAutostart(true).catch(() => undefined);
-      await fs.mkdir(path.dirname(statePath), { recursive: true });
-      await fs.writeFile(
-        statePath,
-        `${JSON.stringify({ version: 1, autostartDefaulted: true })}\n`,
-      );
+      await this.#state.update({ autostartDefaulted: true });
     }
     await this.#backup.ensure().catch(() => false);
     await this.#ensureProxyForRelays().catch(() => undefined);
+  }
+
+  /** Tray notices to show now; each is remembered so it is not repeated. */
+  async #checkAlerts(): Promise<unknown> {
+    const [zero, accounts] = await Promise.all([this.#zeroRelay(), this.#core.listAccounts()]);
+    let balance: { amount: number; unit: "USD" | "CNY" } | null = null;
+    if (zero?.enabled && zero.hasKey) {
+      const result = await this.#core.relayBalance({ id: zero.id }).catch(() => null);
+      if (result?.available && result.ok && typeof result.balance === "number" && result.unit) {
+        balance = { amount: result.balance, unit: result.unit };
+      }
+    }
+    let quota: { usedPercent: number; resetsAt?: number } | null = null;
+    const current = accounts.available ? accounts.accounts.find((a) => a.current) : undefined;
+    if (current) {
+      const usage = await this.#core.usage({ id: current.id }).catch(() => null);
+      const window = (usage?.available ? usage.usage : current.lastUsage)?.windows.find(
+        (w) => w.kind === "primary",
+      );
+      if (window) {
+        quota = {
+          usedPercent: window.usedPercent,
+          ...(window.resetsAt ? { resetsAt: window.resetsAt } : {}),
+        };
+      }
+    }
+    const before = await this.#state.read();
+    const { alerts, state } = evaluateRly0HubAlerts({ balance, quota }, before);
+    if (JSON.stringify(state) !== JSON.stringify(before)) await this.#state.update(state);
+    return { alerts };
   }
 
   async dispose(): Promise<void> {
@@ -215,6 +237,15 @@ export class Rly0HubService {
           ...(await core.relayBalance({ id: zero.id })),
         };
       }),
+      "hub.state": route(empty, async () => {
+        const state = await this.#state.read();
+        return { onboarded: state.onboarded === true };
+      }),
+      "hub.finishOnboarding": route(empty, async () => {
+        await this.#state.update({ onboarded: true });
+        return { ok: true };
+      }),
+      "alerts.check": route(empty, () => this.#checkAlerts()),
       "links.open": route(linkParams, (p) => {
         (this.#options.openUrl ?? openInBrowser)(RLY0_HUB_LINKS[p.target]);
         return { ok: true };

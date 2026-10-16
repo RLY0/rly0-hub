@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   expectedPayloadPaths,
+  RLY0_HUB_WINDOWS_PAYLOAD_PATHS,
   npmReleaseCommand,
   numericPackageVersion,
   resolveRuntimeLicenseSource,
@@ -94,8 +95,10 @@ describe("release Payload", () => {
       expect(paths).toEqual(expectedPayloadPaths(target));
       expect(paths).toHaveLength(24 + preinstalledHarnessPluginPaths().length);
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toHaveLength(
-        26 + preinstalledHarnessPluginPaths().length,
+        26 + RLY0_HUB_WINDOWS_PAYLOAD_PATHS.length + preinstalledHarnessPluginPaths().length,
       );
+      expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toContain("bin/rly0-hub.exe");
+      expect(paths).not.toContain("bin/rly0-hub.exe");
       expect(paths).toContain("licenses/tailwindcss-LICENSE.txt");
       expect(paths).toContain("licenses/smol-toml-LICENSE.txt");
       expect(paths).toContain("app/plugins/enabled.json");

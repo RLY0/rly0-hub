@@ -9,6 +9,7 @@ import type {
   Rly0DashboardThreadStatsResult,
   Rly0McpListResult,
   Rly0SkillsListResult,
+  Rly0HubOpenResult,
 } from "@codexhost/shared-contracts";
 
 import { codexAccountDisplayName } from "../renderer-codex-account-options.js";
@@ -23,6 +24,7 @@ import type { DashboardMessages } from "./dashboard-messages.js";
 import type { RendererSettingsMessages } from "./localization.js";
 import { mountRly0QuotaAlert, type RendererRly0QuotaAlertClient } from "./rly0-quota-alert.js";
 import { createRly0Showcase } from "./rly0-showcase.js";
+import { createRly0HubEntry } from "./rly0-hub-entry.js";
 import { createRly0Welcome } from "./rly0-welcome.js";
 import { formatByteSize } from "./threads-page.js";
 
@@ -35,6 +37,7 @@ export interface RendererDashboardClient extends RendererRly0QuotaAlertClient {
   rly0DashboardThreadStats?(): Promise<Rly0DashboardThreadStatsResult>;
   listCodexAccounts?(): Promise<CodexAccountListResult>;
   inspectCodexAccountUsage?(input: CodexAccountUsageParams): Promise<CodexAccountUsageResult>;
+  rly0OpenHub?(): Promise<Rly0HubOpenResult>;
 }
 
 /** `undefined` while loading, `null` when the source failed or is unavailable. */
@@ -137,10 +140,17 @@ export function createDashboardSettingsPage(
       });
       const showcase = createRly0Showcase(document, messages.relay, { compact: true });
       const welcome = createRly0Welcome(document, messages.locale, context.navigate);
+      const openHub = getClient()?.rly0OpenHub;
+      const hubClient = getClient();
+      const hubEntry =
+        openHub && hubClient
+          ? createRly0HubEntry(document, messages.locale, () => openHub.call(hubClient))
+          : null;
       context.content.append(
         quotaAlert.element,
         header,
         description,
+        ...(hubEntry ? [hubEntry] : []),
         ...(welcome ? [welcome] : []),
         showcase,
         stats,

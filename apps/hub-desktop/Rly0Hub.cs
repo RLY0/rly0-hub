@@ -89,6 +89,8 @@ internal sealed class HubContext : ApplicationContext {
     private readonly ControlWindow control;
     private readonly Control dispatch = new Control();
     private readonly System.Windows.Forms.Timer balanceTimer = new System.Windows.Forms.Timer();
+    private readonly System.Windows.Forms.Timer alertTimer = new System.Windows.Forms.Timer();
+    private string balloonAction;
     private readonly string webviewData;
     private ChildJob job;
     private Process worker;
@@ -117,6 +119,7 @@ internal sealed class HubContext : ApplicationContext {
             SendInternal("autostart.set", new Dictionary<string, object> { { "enabled", next } }, ApplyAutostart);
         };
         menu.Items.Add(autostartItem);
+        menu.Items.Add("Star 支持", null, delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "github" } }, null); });
         menu.Items.Add("退出", null, delegate { Quit(); });
         menu.Opening += delegate { SendInternal("autostart.get", null, ApplyAutostart); };
         tray.ContextMenuStrip = menu;
@@ -125,6 +128,15 @@ internal sealed class HubContext : ApplicationContext {
         balanceTimer.Interval = 10 * 60 * 1000;
         balanceTimer.Tick += delegate { RefreshBalance(); };
         balanceTimer.Start();
+        // Low balance / low Codex quota notices; the service remembers what it already said.
+        alertTimer.Interval = 60 * 1000;
+        alertTimer.Tick += delegate { alertTimer.Interval = 5 * 60 * 1000; CheckAlerts(); };
+        alertTimer.Start();
+        tray.BalloonTipClicked += delegate {
+            if (balloonAction == "recharge") SendInternal("links.open", new Dictionary<string, object> { { "target", "recharge" } }, null);
+            else if (balloonAction == "open") ShowPanel();
+            balloonAction = null;
+        };
         if (!background) ShowPanel();
     }
 
@@ -145,6 +157,27 @@ internal sealed class HubContext : ApplicationContext {
                 text = "RLY/0 Hub · 零号余额 " + symbol + value.ToString("0.00");
             }
             tray.Text = text.Length > 63 ? text.Substring(0, 63) : text;
+        });
+    }
+
+    private void CheckAlerts() {
+        SendInternal("alerts.check", null, delegate (Dictionary<string, object> result) {
+            object list;
+            if (result == null || !result.TryGetValue("alerts", out list) || !(list is System.Collections.ArrayList)) return;
+            var titles = new List<string>(); var bodies = new List<string>(); string first = null;
+            foreach (object item in (System.Collections.ArrayList)list) {
+                var alert = item as Dictionary<string, object>;
+                if (alert == null) continue;
+                object title, body, action;
+                alert.TryGetValue("title", out title); alert.TryGetValue("body", out body); alert.TryGetValue("action", out action);
+                if (first == null) first = Convert.ToString(action);
+                titles.Add(Convert.ToString(title)); bodies.Add(Convert.ToString(title) + "：" + Convert.ToString(body));
+            }
+            if (titles.Count == 0) return;
+            // Every notice is shown now: the service already remembered them as said.
+            balloonAction = first;
+            if (titles.Count == 1) tray.ShowBalloonTip(8000, titles[0], bodies[0].Substring(titles[0].Length + 1), ToolTipIcon.None);
+            else tray.ShowBalloonTip(8000, "RLY/0 Hub 提醒", string.Join(Environment.NewLine, bodies), ToolTipIcon.None);
         });
     }
 
@@ -274,11 +307,12 @@ internal sealed class HubContext : ApplicationContext {
         if (exiting) return;
         exiting = true;
         balanceTimer.Stop();
+        alertTimer.Stop();
         if (panel != null) { panel.Close(); panel = null; }
         tray.Visible = false;
         try { worker.StandardInput.Close(); if (!worker.WaitForExit(5000)) job.Dispose(); } catch { }
         job.Dispose();
-        control.Dispose(); tray.Dispose(); balanceTimer.Dispose(); dispatch.Dispose();
+        control.Dispose(); tray.Dispose(); balanceTimer.Dispose(); alertTimer.Dispose(); dispatch.Dispose();
         ExitThread();
     }
 }

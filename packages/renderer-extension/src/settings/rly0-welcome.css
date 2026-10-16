@@ -58,3 +58,43 @@
 .settings-rly0-welcome__dismiss {
   align-self: flex-start;
 }
+
+/* Entry to the standalone Hub window: one brand-red action, no outline box */
+.settings-rly0-hub-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 12px 0 16px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+.settings-rly0-hub-entry > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.settings-rly0-hub-entry strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+.settings-rly0-hub-entry span {
+  font-size: 13px;
+  opacity: 0.72;
+  line-height: 1.5;
+}
+.settings-rly0-hub-entry__open.settings-command-button {
+  background: #b83220;
+  color: #f5f5f0;
+  border-color: transparent;
+}
+.settings-rly0-hub-entry__open.settings-command-button:hover {
+  background: #8e2517;
+}
+.settings-rly0-hub-entry__note {
+  grid-column: 1 / -1;
+}
+.settings-rly0-hub-entry__note:empty {
+  display: none;
+}

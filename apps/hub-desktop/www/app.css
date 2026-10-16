@@ -162,7 +162,7 @@ button {
   color: var(--muted-dark);
 }
 .ad {
-  margin-left: auto;
+  margin-left: 8px;
   appearance: none;
   border: 0;
   background: var(--ink-800);
@@ -716,4 +716,88 @@ select.input {
   .form {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Top bar chips: Star first, then the author-run relay */
+.top .ad.star {
+  margin-left: auto;
+}
+.ad.star svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Support */
+.big {
+  font-size: 28px;
+  font-weight: 680;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.qrs {
+  gap: 24px;
+  align-items: flex-start;
+}
+.qr {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+.qr img {
+  width: 180px;
+  height: 180px;
+  border-radius: var(--r-md);
+  background: var(--paper-50);
+  padding: 8px;
+  object-fit: contain;
+}
+.qr figcaption {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--muted-dark);
+}
+
+/* First-run guide: the rail and chips step aside, one card in the middle */
+body.guided .rail button,
+body.guided .ad {
+  visibility: hidden;
+}
+.wizard {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 24px;
+  padding: 24px 0 48px;
+}
+.wizard-card {
+  width: min(560px, 100%);
+  padding: 32px;
+  gap: 16px;
+}
+.wizard-card .big {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.055em;
+}
+.wizard-card .row.wide {
+  flex-wrap: nowrap;
+}
+.steps {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.steps i {
+  width: 24px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ink-600);
+}
+.steps i.done {
+  background: var(--muted-light);
+}
+.steps i.on {
+  background: var(--brand);
 }
