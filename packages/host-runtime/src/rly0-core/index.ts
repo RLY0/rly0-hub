@@ -34,6 +34,8 @@ import {
   type Rly0RelayRemoveResult,
   type Rly0RelaySetEnabledParams,
   type Rly0RelayTestParams,
+  type Rly0RelayBalanceParams,
+  type Rly0RelayBalanceResult,
   type Rly0RelayTestResult,
   type Rly0RelayUpdateParams,
 } from "@codexhost/shared-contracts";
@@ -431,6 +433,41 @@ export class Rly0CoreBridge {
     const response = await this.#client.request<{ ok?: unknown }>("relay/remove", params);
     if (!response.available) return { available: false };
     return { available: true, ok: response.result?.ok === true };
+  }
+
+  async relayBalance(params: Rly0RelayBalanceParams): Promise<Rly0RelayBalanceResult> {
+    const response = await this.#client.request<Record<string, unknown>>("relay/balance", params, {
+      timeoutMs: RELAY_TEST_TIMEOUT_MS,
+    });
+    if (!response.available) return { available: false };
+    const raw = isRecord(response.result) ? response.result : {};
+    const money = (value: unknown): number | undefined =>
+      typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 1e12
+        ? value
+        : undefined;
+    const status = optionalInt(raw.status);
+    const error = optionalString(raw.error, 200);
+    return compact({
+      available: true as const,
+      ok: raw.ok === true,
+      valid: optionalBool(raw.valid),
+      balance: raw.balance === null ? null : money(raw.balance),
+      unit:
+        raw.unit === "USD" || raw.unit === "CNY"
+          ? (raw.unit as "USD" | "CNY")
+          : raw.unit === null
+            ? null
+            : undefined,
+      todayCost: money(raw.todayCost),
+      totalCost: money(raw.totalCost),
+      status: status !== undefined && status <= 999 ? status : undefined,
+      error:
+        error === undefined
+          ? undefined
+          : ERROR_CODE_PATTERN.test(error)
+            ? error
+            : "RELAY_BALANCE_FAILED",
+    });
   }
 
   async testRelay(params: Rly0RelayTestParams): Promise<Rly0RelayTestResult> {

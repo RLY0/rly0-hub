@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <title>RLY/0 Hub</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <div class="app">
+      <nav class="rail" aria-label="主菜单">
+        <img class="rail-ip" src="brand/rly0-ip-on-dark.svg" alt="RLY/0" />
+        <button type="button" data-page="home" title="首页" aria-label="首页">
+          <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z" /></svg>
+        </button>
+        <button type="button" data-page="agents" title="AI 助手" aria-label="AI 助手">
+          <svg viewBox="0 0 24 24">
+            <rect x="4" y="4" width="16" height="4" rx="2" />
+            <rect x="4" y="10" width="13" height="4" rx="2" />
+            <rect x="4" y="16" width="10" height="4" rx="2" />
+          </svg>
+        </button>
+        <button type="button" data-page="relays" title="中转站" aria-label="中转站">
+          <svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3" /></svg>
+        </button>
+        <button type="button" data-page="accounts" title="Codex 账号" aria-label="Codex 账号">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c1.6-3.6 4.4-5.4 8-5.4s6.4 1.8 8 5.4" />
+          </svg>
+        </button>
+        <button type="button" data-page="backup" title="备份" aria-label="备份">
+          <svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14" /></svg>
+        </button>
+        <span class="rail-gap"></span>
+        <button type="button" data-page="settings" title="设置" aria-label="设置">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"
+            />
+          </svg>
+        </button>
+      </nav>
+      <div class="stage">
+        <header class="top">
+          <img class="lockup" src="brand/rly0-lockup-on-dark.svg" alt="RLY/0 零号中转" />
+          <h1 id="title"></h1>
+          <button
+            type="button"
+            class="ad"
+            id="ad"
+            title="作者自营的中转站，在浏览器中打开 rly0.com"
+          >
+            <b></b>作者自营 · RLY/0 零号中转
+          </button>
+        </header>
+        <main id="page" tabindex="-1"></main>
+      </div>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>

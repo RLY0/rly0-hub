@@ -16,6 +16,7 @@ export const RLY0_RELAY_UPDATE_METHOD = "codexhost/rly0/relay/update";
 export const RLY0_RELAY_REMOVE_METHOD = "codexhost/rly0/relay/remove";
 export const RLY0_RELAY_SET_ENABLED_METHOD = "codexhost/rly0/relay/setEnabled";
 export const RLY0_RELAY_TEST_METHOD = "codexhost/rly0/relay/test";
+export const RLY0_RELAY_BALANCE_METHOD = "codexhost/rly0/relay/balance";
 export const RLY0_PROXY_START_METHOD = "codexhost/rly0/proxy/start";
 export const RLY0_PROXY_STOP_METHOD = "codexhost/rly0/proxy/stop";
 export const RLY0_PROXY_STATUS_METHOD = "codexhost/rly0/proxy/status";
@@ -150,6 +151,28 @@ export const rly0RelayTestResultSchema = z.discriminatedUnion("available", [
     .strict(),
 ]);
 export type Rly0RelayTestResult = z.infer<typeof rly0RelayTestResultSchema>;
+
+/** Balance of the relay key's account (Sub2API `/v1/usage`); the key itself never leaves rly0-core. */
+export const rly0RelayBalanceParamsSchema = z.object({ id: rly0RelayIdSchema }).strict();
+export type Rly0RelayBalanceParams = z.infer<typeof rly0RelayBalanceParamsSchema>;
+const money = z.number().finite().min(-1e12).max(1e12);
+export const rly0RelayBalanceResultSchema = z.discriminatedUnion("available", [
+  unavailable,
+  z
+    .object({
+      available: z.literal(true),
+      ok: z.boolean(),
+      valid: z.boolean().optional(),
+      balance: money.nullable().optional(),
+      unit: z.enum(["USD", "CNY"]).nullable().optional(),
+      todayCost: money.optional(),
+      totalCost: money.optional(),
+      status: z.number().int().min(0).max(999).optional(),
+      error: z.string().max(200).optional(),
+    })
+    .strict(),
+]);
+export type Rly0RelayBalanceResult = z.infer<typeof rly0RelayBalanceResultSchema>;
 
 export const rly0ProxyRequestSchema = z
   .object({

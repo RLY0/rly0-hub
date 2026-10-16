@@ -36,6 +36,7 @@ import {
   RLY0_RELAY_REMOVE_METHOD,
   RLY0_RELAY_SET_ENABLED_METHOD,
   RLY0_RELAY_TEST_METHOD,
+  RLY0_RELAY_BALANCE_METHOD,
   RLY0_PROXY_START_METHOD,
   RLY0_PROXY_STOP_METHOD,
   RLY0_PROXY_STATUS_METHOD,
@@ -64,6 +65,7 @@ import {
   rly0RelayRemoveParamsSchema,
   rly0RelaySetEnabledParamsSchema,
   rly0RelayTestParamsSchema,
+  rly0RelayBalanceParamsSchema,
   rly0ProxyStartParamsSchema,
   rly0ProxyStopParamsSchema,
   rly0ProxyStatusParamsSchema,
@@ -141,6 +143,7 @@ import { Rly0ThreadsManager, rly0ThreadsRpcError } from "./rly0-threads/index.js
 import { Rly0DashboardManager, rly0DashboardRpcError } from "./rly0-dashboard/index.js";
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "./rly0-maintenance/index.js";
 import { Rly0AppearanceManager, rly0AppearanceRpcError } from "./rly0-appearance/index.js";
+import { resolveRly0HubAutostartCommand } from "./rly0-appearance/hub-autostart.js";
 import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
 import {
   Rly0RelayCodexConfigManager,
@@ -355,6 +358,7 @@ const RLY0_EXTENDED_METHODS: ReadonlySet<string> = new Set([
   RLY0_RELAY_REMOVE_METHOD,
   RLY0_RELAY_SET_ENABLED_METHOD,
   RLY0_RELAY_TEST_METHOD,
+  RLY0_RELAY_BALANCE_METHOD,
   RLY0_PROXY_START_METHOD,
   RLY0_PROXY_STOP_METHOD,
   RLY0_PROXY_STATUS_METHOD,
@@ -884,8 +888,13 @@ export class AppServerHost {
       core: this.#rly0Core,
       ...(processControl ? { processControl } : {}),
     });
+    // "开机自启" starts the standalone Hub in the tray; a build without it has nothing to register.
+    const hubAutostartCommand =
+      process.platform === "win32" ? resolveRly0HubAutostartCommand() : undefined;
     this.#rly0Appearance = new Rly0AppearanceManager(
-      process.platform === "win32" ? { registry: new WindowsRegistryAutostart() } : {},
+      hubAutostartCommand
+        ? { registry: new WindowsRegistryAutostart(), launcherCommand: hubAutostartCommand }
+        : {},
     );
     this.#officialRuntime = new OfficialRuntimeClient({
       scope: this.#officialRuntimeScope,
@@ -2389,6 +2398,7 @@ export class AppServerHost {
         core.setRelayEnabled(p),
       ),
       [RLY0_RELAY_TEST_METHOD]: route(rly0RelayTestParamsSchema, (p) => core.testRelay(p)),
+      [RLY0_RELAY_BALANCE_METHOD]: route(rly0RelayBalanceParamsSchema, (p) => core.relayBalance(p)),
       [RLY0_PROXY_START_METHOD]: route(rly0ProxyStartParamsSchema, (p) => core.proxyStart(p)),
       [RLY0_PROXY_STOP_METHOD]: route(rly0ProxyStopParamsSchema, () => core.proxyStop()),
       [RLY0_PROXY_STATUS_METHOD]: route(rly0ProxyStatusParamsSchema, () => core.proxyStatus()),
