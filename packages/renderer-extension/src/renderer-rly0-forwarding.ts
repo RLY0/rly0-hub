@@ -37,6 +37,8 @@ export const RENDERER_RLY0_FORWARDED_METHODS = [
   "rly0MaintenanceClearCache",
   "rly0MaintenanceForceQuitCodex",
   "rly0MaintenanceRestartCodex",
+  "rly0MaintenanceBackupStatus",
+  "rly0MaintenanceRestoreBackup",
   "rly0AppearanceAutostartStatus",
   "rly0AppearanceAutostartSet",
   "rly0ProxySettingsGet",

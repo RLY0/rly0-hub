@@ -99,6 +99,12 @@ import {
   RLY0_MAINTENANCE_CLEAR_CACHE_METHOD,
   RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD,
   RLY0_MAINTENANCE_RESTART_CODEX_METHOD,
+  RLY0_MAINTENANCE_BACKUP_STATUS_METHOD,
+  RLY0_MAINTENANCE_RESTORE_BACKUP_METHOD,
+  rly0MaintenanceBackupStatusResultSchema,
+  rly0MaintenanceRestoreBackupResultSchema,
+  type Rly0MaintenanceBackupStatusResult,
+  type Rly0MaintenanceRestoreBackupResult,
   RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
   RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
   rly0MaintenanceDiagnosticsResultSchema,
@@ -412,6 +418,8 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0MaintenanceClearCache?(): Promise<Rly0MaintenanceClearCacheResult>;
   rly0MaintenanceForceQuitCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
   rly0MaintenanceRestartCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
+  rly0MaintenanceBackupStatus?(): Promise<Rly0MaintenanceBackupStatusResult>;
+  rly0MaintenanceRestoreBackup?(): Promise<Rly0MaintenanceRestoreBackupResult>;
   rly0AppearanceAutostartStatus?(): Promise<Rly0AppearanceAutostartResult>;
   rly0AppearanceAutostartSet?(
     input: Rly0AppearanceAutostartSetParams,
@@ -967,6 +975,16 @@ export function createRendererModelClient(
     async rly0MaintenanceForceQuitCodex(): Promise<Rly0MaintenanceProcessActionResult> {
       return rly0MaintenanceProcessActionResultSchema.parse(
         await manager.sendRequest(RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceBackupStatus(): Promise<Rly0MaintenanceBackupStatusResult> {
+      return rly0MaintenanceBackupStatusResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_BACKUP_STATUS_METHOD, {}),
+      );
+    },
+    async rly0MaintenanceRestoreBackup(): Promise<Rly0MaintenanceRestoreBackupResult> {
+      return rly0MaintenanceRestoreBackupResultSchema.parse(
+        await manager.sendRequest(RLY0_MAINTENANCE_RESTORE_BACKUP_METHOD, {}),
       );
     },
     async rly0MaintenanceRestartCodex(): Promise<Rly0MaintenanceProcessActionResult> {

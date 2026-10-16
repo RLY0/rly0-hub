@@ -1,4 +1,6 @@
 import type {
+  Rly0MaintenanceBackupStatusResult,
+  Rly0MaintenanceRestoreBackupResult,
   Rly0MaintenanceAdviceCode,
   Rly0MaintenanceCacheInfoResult,
   Rly0MaintenanceClearCacheResult,
@@ -20,6 +22,19 @@ export interface RendererMaintenanceClient {
   rly0MaintenanceClearCache?(): Promise<Rly0MaintenanceClearCacheResult>;
   rly0MaintenanceForceQuitCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
   rly0MaintenanceRestartCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
+  rly0MaintenanceBackupStatus?(): Promise<Rly0MaintenanceBackupStatusResult>;
+  rly0MaintenanceRestoreBackup?(): Promise<Rly0MaintenanceRestoreBackupResult>;
+}
+
+function formatSavedAt(seconds: number, locale: string): string {
+  return new Date(seconds * 1000).toLocaleString(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function requireClient(
@@ -330,6 +345,68 @@ export function createMaintenanceSettingsPage(
       };
       processSection.append(processTitle, processDescription, processActions, processNotice);
 
+      // --- Restore saved Codex settings --------------------------------------
+      let backup: Rly0MaintenanceBackupStatusResult | null = null;
+      let restoreBusy = false;
+      const restoreSection = document.createElement("section");
+      restoreSection.className =
+        "settings-rly0-dashboard__panel settings-rly0-maintenance__restore";
+      const restoreTitle = document.createElement("h2");
+      restoreTitle.className = "settings-rly0-dashboard__panel-title";
+      restoreTitle.textContent = text.restoreTitle;
+      const restoreDescription = document.createElement("p");
+      restoreDescription.className = "settings-rly0-mcp__description";
+      restoreDescription.textContent = text.restoreDescription;
+      const restoreState = document.createElement("p");
+      restoreState.className = "settings-rly0-mcp__notice";
+      const restoreButton = document.createElement("button");
+      restoreButton.type = "button";
+      restoreButton.className = "settings-command-button settings-command-button--secondary";
+      restoreButton.textContent = text.restoreAction;
+      restoreButton.addEventListener("click", () => openRestoreDialog());
+      const restoreNotice = document.createElement("p");
+      restoreNotice.className = "settings-rly0-mcp__notice";
+      restoreNotice.setAttribute("role", "status");
+      restoreNotice.hidden = true;
+      const savedAt = (): string =>
+        backup?.createdAt === undefined ? "" : formatSavedAt(backup.createdAt, messages.locale);
+      const renderRestore = (): void => {
+        restoreSection.hidden = !getClient()?.rly0MaintenanceBackupStatus;
+        if (!backup) {
+          restoreState.textContent = "…";
+        } else if (!backup.available) {
+          restoreState.textContent = text.restoreNone;
+        } else {
+          const files = (backup.files ?? [])
+            .map((file) =>
+              file.existed ? file.name : text.restoreNoFile.replace("{name}", file.name),
+            )
+            .join(messages.locale === "zh-CN" ? "、" : ", ");
+          restoreState.textContent = text.restoreSavedAt
+            .replace("{time}", savedAt())
+            .replace("{files}", files);
+        }
+        restoreButton.hidden = !getClient()?.rly0MaintenanceRestoreBackup;
+        restoreButton.disabled = restoreBusy || !backup?.available;
+      };
+      const loadBackup = async (): Promise<void> => {
+        const status = getClient()?.rly0MaintenanceBackupStatus;
+        if (!status) return renderRestore();
+        try {
+          backup = await status();
+        } catch {
+          backup = null;
+        }
+        renderRestore();
+      };
+      restoreSection.append(
+        restoreTitle,
+        restoreDescription,
+        restoreState,
+        restoreButton,
+        restoreNotice,
+      );
+
       // --- Closed-source filter placeholders ----------------------------------
       const filtersSection = document.createElement("section");
       filtersSection.className = "settings-rly0-dashboard__panel";
@@ -369,6 +446,7 @@ export function createMaintenanceSettingsPage(
         exportSection,
         cacheSection,
         processSection,
+        restoreSection,
         filtersSection,
       );
 
@@ -510,6 +588,73 @@ export function createMaintenanceSettingsPage(
         modal.showModal();
       };
 
+      const openRestoreDialog = (): void => {
+        if (dialog || !backup?.available) return;
+        const modal = document.createElement("dialog");
+        dialog = modal;
+        modal.className = "settings-account-dialog settings-credential-dialog";
+        const title = document.createElement("h2");
+        title.textContent = text.restoreConfirmTitle;
+        const body = document.createElement("div");
+        body.className = "settings-credential-dialog__body";
+        const note = document.createElement("p");
+        note.textContent = text.restoreConfirmBody.replace("{time}", savedAt());
+        body.append(note);
+        const error = document.createElement("p");
+        error.className = "settings-credential-dialog__error";
+        error.setAttribute("role", "alert");
+        const controls = document.createElement("div");
+        controls.className = "settings-credential-dialog__actions";
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.className = "settings-command-button settings-command-button--secondary";
+        cancel.textContent = text.processCancel;
+        cancel.addEventListener("click", closeDialog);
+        const confirm = document.createElement("button");
+        confirm.type = "button";
+        confirm.className = "settings-command-button";
+        confirm.textContent = text.restoreConfirm;
+        confirm.addEventListener("click", () => {
+          void (async () => {
+            restoreBusy = true;
+            confirm.disabled = true;
+            cancel.disabled = true;
+            renderRestore();
+            try {
+              const restore = requireClient(getClient).rly0MaintenanceRestoreBackup;
+              if (!restore) throw new Error("unavailable");
+              const result = await restore();
+              if (!result.ok) throw new Error(result.error ?? "failed");
+              closeDialog();
+              const path = result.safetyBackupDir ?? "";
+              restoreNotice.hidden = false;
+              restoreNotice.textContent = (
+                result.backendReload === "reloaded"
+                  ? text.restoreReloaded
+                  : result.backendReload === "deferred"
+                    ? text.restoreDeferred
+                    : text.restoreDone
+              ).replace("{path}", path);
+            } catch {
+              error.textContent = text.restoreFailed;
+              confirm.disabled = false;
+              cancel.disabled = false;
+            } finally {
+              restoreBusy = false;
+              renderRestore();
+            }
+          })();
+        });
+        controls.append(cancel, confirm);
+        modal.append(title, body, error, controls);
+        modal.addEventListener("close", () => {
+          modal.remove();
+          dialog = undefined;
+        });
+        context.content.append(modal);
+        modal.showModal();
+      };
+
       // The page has a single shared request scope, so the initial diagnostics
       // and cache fetches must run as one `runLatest` call (Promise.all) rather
       // than two separate calls -- otherwise the second call would abort the
@@ -549,6 +694,8 @@ export function createMaintenanceSettingsPage(
       );
       renderExport();
       renderProcess();
+      renderRestore();
+      void loadBackup();
       return undefined;
     },
   });

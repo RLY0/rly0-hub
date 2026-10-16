@@ -216,6 +216,59 @@ describe("Maintenance settings page", () => {
     expect(text(root)).toContain(messages.maintenance.processSucceeded);
   });
 
+  it("shows the saved settings copy and restores it only after confirmation", async () => {
+    const restore = vi.fn().mockResolvedValue({
+      ok: true,
+      restored: ["config.toml"],
+      removed: ["AGENTS.md"],
+      safetyBackupDir: "/home/fake/.rly0-hub/backups/before-restore-x",
+      backendReload: "reloaded",
+    });
+    const client: RendererMaintenanceClient = {
+      rly0MaintenanceBackupStatus: vi.fn().mockResolvedValue({
+        available: true,
+        codexHome: "/home/fake/.codex",
+        createdAt: 1_790_000_000,
+        files: [
+          { name: "config.toml", existed: true },
+          { name: "AGENTS.md", existed: false },
+        ],
+      }),
+      rly0MaintenanceRestoreBackup: restore,
+    };
+    const { root } = mountPage(() => client);
+    await flush();
+    const rendered = text(root);
+    expect(rendered).toContain(messages.maintenance.restoreTitle);
+    expect(rendered).toContain("config.toml");
+    expect(rendered).toContain(messages.maintenance.restoreNoFile.replace("{name}", "AGENTS.md"));
+
+    button(root, messages.maintenance.restoreAction).listeners.get("click")?.();
+    expect(restore).not.toHaveBeenCalled();
+    button(root, messages.maintenance.restoreConfirm).listeners.get("click")?.();
+    await flush();
+    expect(restore).toHaveBeenCalledTimes(1);
+    expect(text(root)).toContain(
+      messages.maintenance.restoreReloaded.replace(
+        "{path}",
+        "/home/fake/.rly0-hub/backups/before-restore-x",
+      ),
+    );
+  });
+
+  it("disables restoring before any copy was saved", async () => {
+    const client: RendererMaintenanceClient = {
+      rly0MaintenanceBackupStatus: vi
+        .fn()
+        .mockResolvedValue({ available: false, codexHome: "/home/fake/.codex" }),
+      rly0MaintenanceRestoreBackup: vi.fn(),
+    };
+    const { root } = mountPage(() => client);
+    await flush();
+    expect(text(root)).toContain(messages.maintenance.restoreNone);
+    expect(button(root, messages.maintenance.restoreAction).disabled).toBe(true);
+  });
+
   it("renders the image and Claude WebSearch filters as disabled placeholders requiring the closed-source core", async () => {
     const client: RendererMaintenanceClient = {};
     const { root } = mountPage(() => client);

@@ -99,6 +99,10 @@ import {
   RLY0_MAINTENANCE_EXPORT_DIAGNOSTICS_METHOD,
   RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD,
   RLY0_MAINTENANCE_RESTART_CODEX_METHOD,
+  RLY0_MAINTENANCE_BACKUP_STATUS_METHOD,
+  RLY0_MAINTENANCE_RESTORE_BACKUP_METHOD,
+  rly0MaintenanceBackupStatusParamsSchema,
+  rly0MaintenanceRestoreBackupParamsSchema,
   rly0MaintenanceCacheInfoParamsSchema,
   rly0MaintenanceClearCacheParamsSchema,
   rly0MaintenanceDiagnosticsParamsSchema,
@@ -134,6 +138,7 @@ import {
   Rly0RelayModelRouter,
 } from "./rly0-relay/model-routing.js";
 import { createLauncherProcessControl } from "./rly0-maintenance/launcher-process-control.js";
+import { Rly0FirstRunBackup } from "./rly0-maintenance/first-run-backup.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
 import {
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -696,6 +701,7 @@ export class AppServerHost {
   readonly #rly0Appearance: Rly0AppearanceManager;
   readonly #rly0RelayConfig: Rly0RelayCodexConfigManager;
   readonly #rly0RelayModels: Rly0RelayModelRouter;
+  readonly #rly0FirstRunBackup: Rly0FirstRunBackup;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
@@ -816,6 +822,12 @@ export class AppServerHost {
     // Force quit / restart go through the Launcher that owns this Desktop (Windows). Without one
     // (other platforms, or a Desktop not started by RLY/0 Hub) the page reports them unsupported.
     const processControl = createLauncherProcessControl({ environment });
+    this.#rly0FirstRunBackup = new Rly0FirstRunBackup({ environment });
+    // Only a Desktop started by the RLY/0 Hub Launcher takes the first-run backup, so tests and
+    // embedded hosts never write into a real home directory.
+    if (environment.CODEXHOST_LAUNCHER_PID) {
+      void this.#rly0FirstRunBackup.ensure().catch((error: unknown) => this.#diagnose(error));
+    }
     this.#rly0Maintenance = new Rly0MaintenanceManager({
       environment,
       dashboard: this.#rly0Dashboard,
@@ -1324,7 +1336,9 @@ export class AppServerHost {
       request.method === RLY0_MAINTENANCE_CACHE_INFO_METHOD ||
       request.method === RLY0_MAINTENANCE_CLEAR_CACHE_METHOD ||
       request.method === RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD ||
-      request.method === RLY0_MAINTENANCE_RESTART_CODEX_METHOD
+      request.method === RLY0_MAINTENANCE_RESTART_CODEX_METHOD ||
+      request.method === RLY0_MAINTENANCE_BACKUP_STATUS_METHOD ||
+      request.method === RLY0_MAINTENANCE_RESTORE_BACKUP_METHOD
     ) {
       this.#dispatchDesktopRequest(() => this.#handleRly0MaintenanceRequest(request));
       return;
@@ -2564,6 +2578,24 @@ export class AppServerHost {
           return;
         }
         const result = await this.#rly0Maintenance.restartCodex();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MAINTENANCE_BACKUP_STATUS_METHOD) {
+        if (!rly0MaintenanceBackupStatusParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Maintenance backup params"));
+          return;
+        }
+        const result = await this.#rly0FirstRunBackup.status();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+        return;
+      }
+      if (request.method === RLY0_MAINTENANCE_RESTORE_BACKUP_METHOD) {
+        if (!rly0MaintenanceRestoreBackupParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid Maintenance restore params"));
+          return;
+        }
+        const result = await this.#withBackendReload(await this.#rly0FirstRunBackup.restore());
         await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
         return;
       }

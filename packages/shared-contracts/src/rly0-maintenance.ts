@@ -16,6 +16,8 @@ export const RLY0_MAINTENANCE_CACHE_INFO_METHOD = "codexhost/rly0/maintenance/ca
 export const RLY0_MAINTENANCE_CLEAR_CACHE_METHOD = "codexhost/rly0/maintenance/clearCache";
 export const RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD = "codexhost/rly0/maintenance/forceQuitCodex";
 export const RLY0_MAINTENANCE_RESTART_CODEX_METHOD = "codexhost/rly0/maintenance/restartCodex";
+export const RLY0_MAINTENANCE_BACKUP_STATUS_METHOD = "codexhost/rly0/maintenance/backupStatus";
+export const RLY0_MAINTENANCE_RESTORE_BACKUP_METHOD = "codexhost/rly0/maintenance/restoreBackup";
 /**
  * Hot-reloads the official app-server behind the Desktop window so a switched account or a
  * changed relay provider takes effect without closing Codex. Never touches the Desktop process.
@@ -130,3 +132,51 @@ export const rly0CodexReloadBackendResultSchema = z
   .object({ status: z.enum(["reloaded", "deferred", "failed"]) })
   .strict();
 export type Rly0CodexReloadBackendResult = z.infer<typeof rly0CodexReloadBackendResultSchema>;
+
+/**
+ * The copy of Codex files RLY/0 Hub took the first time it ran (`config.toml`, `AGENTS.md`), and
+ * restoring it. `auth.json` is never part of it: login tokens rotate, so an old copy would sign
+ * the person out.
+ */
+export const rly0MaintenanceBackupFileSchema = z.enum(["config.toml", "AGENTS.md"]);
+export type Rly0MaintenanceBackupFile = z.infer<typeof rly0MaintenanceBackupFileSchema>;
+
+export const rly0MaintenanceBackupStatusParamsSchema = z.object({}).strict();
+export type Rly0MaintenanceBackupStatusParams = z.infer<
+  typeof rly0MaintenanceBackupStatusParamsSchema
+>;
+export const rly0MaintenanceBackupStatusResultSchema = z
+  .object({
+    available: z.boolean(),
+    codexHome: z.string().max(4096),
+    /** Unix seconds. */
+    createdAt: z.number().int().nonnegative().optional(),
+    files: z
+      .array(z.object({ name: rly0MaintenanceBackupFileSchema, existed: z.boolean() }).strict())
+      .max(8)
+      .optional(),
+  })
+  .strict();
+export type Rly0MaintenanceBackupStatusResult = z.infer<
+  typeof rly0MaintenanceBackupStatusResultSchema
+>;
+
+export const rly0MaintenanceRestoreBackupParamsSchema = z.object({}).strict();
+export type Rly0MaintenanceRestoreBackupParams = z.infer<
+  typeof rly0MaintenanceRestoreBackupParamsSchema
+>;
+export const rly0MaintenanceRestoreBackupResultSchema = z
+  .object({
+    ok: z.boolean(),
+    error: z.enum(["NO_BACKUP", "BACKUP_INCOMPLETE"]).optional(),
+    restored: z.array(rly0MaintenanceBackupFileSchema).max(8),
+    /** Files that did not exist before RLY/0 Hub and were removed. */
+    removed: z.array(rly0MaintenanceBackupFileSchema).max(8),
+    /** Where the files from just before the restore were saved. */
+    safetyBackupDir: z.string().max(4096).optional(),
+    backendReload: z.enum(["reloaded", "deferred", "failed"]).optional(),
+  })
+  .strict();
+export type Rly0MaintenanceRestoreBackupResult = z.infer<
+  typeof rly0MaintenanceRestoreBackupResultSchema
+>;

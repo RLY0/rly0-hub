@@ -282,6 +282,13 @@ export {
   RLY0_MAINTENANCE_CLEAR_CACHE_METHOD,
   RLY0_MAINTENANCE_FORCE_QUIT_CODEX_METHOD,
   RLY0_MAINTENANCE_RESTART_CODEX_METHOD,
+  RLY0_MAINTENANCE_BACKUP_STATUS_METHOD,
+  RLY0_MAINTENANCE_RESTORE_BACKUP_METHOD,
+  rly0MaintenanceBackupFileSchema,
+  rly0MaintenanceBackupStatusParamsSchema,
+  rly0MaintenanceBackupStatusResultSchema,
+  rly0MaintenanceRestoreBackupParamsSchema,
+  rly0MaintenanceRestoreBackupResultSchema,
   RLY0_CODEX_RELOAD_BACKEND_METHOD,
   rly0CodexReloadBackendParamsSchema,
   rly0CodexReloadBackendResultSchema,
@@ -299,6 +306,9 @@ export {
   rly0MaintenanceProcessActionResultSchema,
 } from "./rly0-maintenance.js";
 export type {
+  Rly0MaintenanceBackupFile,
+  Rly0MaintenanceBackupStatusResult,
+  Rly0MaintenanceRestoreBackupResult,
   Rly0MaintenanceAdviceCode,
   Rly0MaintenanceDiagnosticsParams,
   Rly0MaintenanceDiagnosticsResult,

@@ -55,9 +55,29 @@ export const maintenanceEnglish = {
   restartConfirmTitle: "Restart Codex?",
   processConfirm: "Continue",
   processCancel: "Cancel",
-  processUnsupported: "No safe process-control implementation is wired up on this Host yet.",
+  processUnsupported:
+    "Only available on Windows when Codex was opened through RLY/0 Hub. Open Codex from the RLY/0 Hub shortcut and try again.",
   processSucceeded: "Done.",
   processFailed: "The operation failed.",
+  restoreTitle: "Restore Codex settings",
+  restoreDescription:
+    "RLY/0 Hub saved a copy of your Codex settings (config.toml, AGENTS.md) the first time it ran. Restoring puts them back, for example before you stop using RLY/0 Hub. Saved accounts, relays and keys are not touched, and neither is your login.",
+  restoreSavedAt: "Copy saved {time}: {files}",
+  restoreNoFile: "{name} (did not exist; will be removed)",
+  restoreNone:
+    "No copy has been saved yet. It is taken automatically the next time Codex is opened through RLY/0 Hub.",
+  restoreAction: "Restore saved settings",
+  restoreConfirmTitle: "Restore Codex settings?",
+  restoreConfirmBody:
+    "Your Codex settings will go back to the copy saved {time}. Relay and MCP entries added since then disappear from config.toml. The current files are saved first, so this can be undone by hand. To go back to a different login, switch accounts on the Accounts page or sign in again.",
+  restoreConfirm: "Restore",
+  restoreReloaded:
+    "Restored. Codex already uses the restored settings. Current files were saved to: {path}",
+  restoreDeferred:
+    "Restored. Codex picks up the restored settings when the current reply finishes. Current files were saved to: {path}",
+  restoreDone:
+    "Restored. Restart Codex to use the restored settings. Current files were saved to: {path}",
+  restoreFailed: "Could not restore the settings. Nothing was changed.",
   filtersTitle: "Content filters",
   filtersDescription: "These filters are provided by the closed-source RLY/0 core.",
   imageFilterLabel: "Image declaration filter",
@@ -118,9 +138,25 @@ export const maintenanceChinese: MaintenanceMessages = {
   restartConfirmTitle: "确定重启 Codex？",
   processConfirm: "继续",
   processCancel: "取消",
-  processUnsupported: "当前 Host 尚未接入安全的进程控制实现。",
+  processUnsupported:
+    "仅在 Windows 上、且 Codex 是通过 RLY/0 Hub 打开时可用。请从 RLY/0 Hub 的快捷方式打开 Codex 后再试。",
   processSucceeded: "操作完成。",
   processFailed: "操作失败。",
+  restoreTitle: "还原 Codex 设置",
+  restoreDescription:
+    "RLY/0 Hub 第一次运行时保存了一份 Codex 设置（config.toml、AGENTS.md）。需要时可以还原回去，比如不再使用 RLY/0 Hub 之前。已保存的账号、中转站和密钥不会改动，当前登录也不会改动。",
+  restoreSavedAt: "保存于 {time}：{files}",
+  restoreNoFile: "{name}（当时不存在，还原时会删除）",
+  restoreNone: "还没有保存过。下次通过 RLY/0 Hub 打开 Codex 时会自动保存。",
+  restoreAction: "还原已保存的设置",
+  restoreConfirmTitle: "确定还原 Codex 设置？",
+  restoreConfirmBody:
+    "Codex 设置将回到 {time} 保存的状态，之后添加的中转、MCP 等配置会从 config.toml 中消失。还原前会先另存一份当前文件，必要时可以手动找回。如需换回其他登录，请在账号页切换或重新登录。",
+  restoreConfirm: "还原",
+  restoreReloaded: "已还原，Codex 已在使用还原后的设置。当前文件已另存到：{path}",
+  restoreDeferred: "已还原，当前回复结束后自动生效。当前文件已另存到：{path}",
+  restoreDone: "已还原，重启 Codex 后生效。当前文件已另存到：{path}",
+  restoreFailed: "还原失败，没有做任何改动。",
   filtersTitle: "内容过滤",
   filtersDescription: "以下过滤功能由闭源的 RLY/0 Core 提供。",
   imageFilterLabel: "Image 声明过滤",
