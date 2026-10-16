@@ -101,6 +101,8 @@ export const relayEnglish = {
   catalogChecking: "Checking…",
   catalogCheckHint:
     "Reads the official list once to confirm it is reachable. Codex updates its own picker the next time it reads the list.",
+  codexForeignProvider:
+    "Codex's default model provider is \"{provider}\", set by another tool (for example AiMaMi's router). Official models then go through that tool first, and two tools managing Codex at once can interfere. If you switched to RLY/0 Hub, quit the other tool and turn off its routing.",
   codexCatalogOverride:
     "config.toml sets model_catalog_json = {path} (left by another tool such as AiMaMi). Codex then shows that saved list instead of your account's live model list, so new official models may be missing. RLY/0 Hub does not need it; remove that line yourself if you no longer use the other tool.",
   codexSetDefault: "Also make RLY/0 the default provider and model",
@@ -230,6 +232,8 @@ export const relayChinese: RelayMessages = {
   catalogCheck: "重新检查",
   catalogChecking: "检查中…",
   catalogCheckHint: "立即向官方读取一次列表，确认能否读到。Codex 的菜单会在它下次读取时更新。",
+  codexForeignProvider:
+    "Codex 当前的默认模型提供方是“{provider}”，由其他工具设置（例如 AiMaMi 的智能路由）。官方模型的请求会先经过那个工具，两个工具同时管理 Codex 可能互相干扰。如果你已改用 RLY/0 Hub，请退出那个工具并关闭它的路由。",
   codexCatalogOverride:
     "config.toml 里设置了 model_catalog_json = {path}（由 AiMaMi 等其他工具留下）。Codex 会改用这份保存的列表，而不是你账号的实时模型列表，官方新模型可能不显示。RLY/0 Hub 不需要它；如果不再使用那个工具，请自行删除这一行。",
   codexSetDefault: "同时把 RLY/0 设为默认提供方和模型",

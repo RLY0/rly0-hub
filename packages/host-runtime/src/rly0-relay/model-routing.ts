@@ -46,6 +46,8 @@ function isRecord(value: unknown): value is JsonRecord {
 const CACHE_TTL_MS = 5_000;
 const LIST_TIMEOUT_MS = 2_500;
 const MAX_TRACKED_THREADS = 2_000;
+/** The preferred proxy port and the next few are tried when a port is already taken. */
+const PROXY_PORT_ATTEMPTS = 10;
 /** After a failed official catalog read, relay decisions do not wait on another one for this long. */
 const OFFICIAL_RETRY_MS = 60_000;
 
@@ -234,7 +236,9 @@ export class Rly0RelayModelRouter {
         ...entry,
         id: model,
         model,
-        displayName: model,
+        // The relay's own name stays visible next to the model, so two relays offering the same
+        // model, or a relay model and an official one with a similar name, are easy to tell apart.
+        displayName: `${model} · ${relayName}`,
         description: `${relayName} · RLY/0`,
         hidden: false,
         isDefault: false,
@@ -255,16 +259,31 @@ export class Rly0RelayModelRouter {
     return !this.#officialModels.has(model);
   }
 
-  /** Starts the local proxy when needed and returns its OpenAI-compatible base URL. */
+  /**
+   * Starts the local proxy when needed and returns its OpenAI-compatible base URL. When the
+   * preferred port is taken (for example by another relay tool such as AiMaMi), the next free one
+   * of a few nearby ports is used; the returned URL is always the proxy RLY/0 Hub itself started.
+   */
   async ensureProxy(): Promise<string> {
     const status = await this.#core.proxyStatus();
     if (status.available && status.running) return status.baseUrl;
-    const port =
+    const preferred =
       status.available && !status.running && status.defaultPort
         ? status.defaultPort
         : RLY0_PROXY_DEFAULT_PORT;
-    const started = await this.#core.proxyStart({ port });
-    if (started.available && started.running) return started.baseUrl;
+    for (let offset = 0; offset < PROXY_PORT_ATTEMPTS; offset += 1) {
+      const port = preferred + offset;
+      if (port > 65_535) break;
+      let started: Rly0ProxyStatusResult;
+      try {
+        started = await this.#core.proxyStart({ port });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("PORT_IN_USE")) continue;
+        throw error;
+      }
+      if (started.available && started.running) return started.baseUrl;
+      throw new Error("RLY0_PROXY_UNAVAILABLE");
+    }
     throw new Error("RLY0_PROXY_UNAVAILABLE");
   }
 
@@ -279,11 +298,14 @@ export class Rly0RelayModelRouter {
       if (typeof params.model === "string" && params.model) return null;
       const { models, patterns } = await this.#relayModels();
       if (models.length === 0 && patterns.length === 0) return null;
-      const status = await withTimeout(this.#core.proxyStatus(), LIST_TIMEOUT_MS);
-      const baseUrl =
-        status?.available && status.running
-          ? status.baseUrl
-          : `http://127.0.0.1:${RLY0_PROXY_DEFAULT_PORT}/v1`;
+      // Never guess a port: whatever else listens there (another relay tool) would receive the
+      // conversation and Codex's login. Without RLY/0 Hub's own proxy the provider stays undefined.
+      let baseUrl: string;
+      try {
+        baseUrl = await this.ensureProxy();
+      } catch {
+        return null;
+      }
       return this.#withProviderDefinition(params, baseUrl);
     }
     const baseUrl = await this.ensureProxy();

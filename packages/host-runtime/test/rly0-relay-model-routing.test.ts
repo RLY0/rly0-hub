@@ -91,7 +91,7 @@ describe("RLY/0 relay model routing", () => {
     const added = rewritten.result.data[1] as Record<string, unknown>;
     expect(added).toMatchObject({
       id: "claude-opus-5",
-      displayName: "claude-opus-5",
+      displayName: "claude-opus-5 · My relay",
       description: "My relay · RLY/0",
       isDefault: false,
       hidden: false,
@@ -131,7 +131,8 @@ describe("RLY/0 relay model routing", () => {
     const resumed = await router.rewriteThreadParams({ threadId: "t1" });
     expect(resumed).not.toHaveProperty("modelProvider");
     expect(resumed).toHaveProperty(["config", "model_providers.rly0"]);
-    expect(calls).not.toContain("start");
+    // The provider always points at RLY/0 Hub's own proxy, started if needed, never a guessed port.
+    expect(calls).toContain("start");
     router.observeResponse({ id: 1, result: { thread: { id: "t1" }, modelProvider: "rly0" } });
     expect(router.threadProvider("t1")).toBe("rly0");
   });
@@ -272,5 +273,48 @@ describe("RLY/0 relay model routing", () => {
       official: { fetchedAt: 3_000, via: "hub" },
       lastError: { at: 4_000, message: "OFFICIAL_CATALOG_FAILED" },
     });
+  });
+
+  it("moves to the next free port when another tool holds the preferred one", async () => {
+    const tried: number[] = [];
+    const router = new Rly0RelayModelRouter({
+      ...fakeCore().core,
+      async proxyStatus() {
+        return { available: true, running: false, defaultPort: 25917 };
+      },
+      async proxyStart({ port }: { port?: number }) {
+        tried.push(port ?? 0);
+        if (port === 25917 || port === 25918) throw new Error("PROXY_PORT_IN_USE");
+        return {
+          available: true,
+          running: true,
+          port: port ?? 0,
+          baseUrl: `http://127.0.0.1:${port}/v1`,
+          requests: 0,
+          routed: 0,
+          unrouted: 0,
+          failed: 0,
+          recent: [],
+        };
+      },
+    });
+    expect(await router.ensureProxy()).toBe("http://127.0.0.1:25919/v1");
+    expect(tried).toEqual([25917, 25918, 25919]);
+  });
+
+  it("does not route a model-less resume anywhere when its own proxy cannot start", async () => {
+    const router = new Rly0RelayModelRouter({
+      ...fakeCore().core,
+      async proxyStatus() {
+        return { available: true, running: false, defaultPort: 25917 };
+      },
+      async proxyStart() {
+        throw new Error("PROXY_PORT_IN_USE");
+      },
+    });
+    expect(await router.rewriteThreadParams({ threadId: "t1" })).toBeNull();
+    await expect(router.rewriteThreadParams({ model: "claude-opus-5" })).rejects.toThrow(
+      "RLY0_PROXY_UNAVAILABLE",
+    );
   });
 });

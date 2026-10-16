@@ -429,6 +429,27 @@ describe("Relay settings page", () => {
     expect(client.rly0ProxyStop).toHaveBeenCalled();
   });
 
+  it("warns when another tool owns Codex's default provider, but not for official or RLY/0", async () => {
+    const notice = (provider: string) =>
+      messages.codexForeignProvider.replace("{provider}", provider);
+    const foreign = mountPage(
+      fullClient({
+        rly0RelayCodexConfigStatus: async () => ({ ...codexStatus, modelProvider: "aimai1" }),
+      }),
+    );
+    await flush();
+    expect(allText(foreign.root)).toContain(notice("aimai1"));
+    for (const provider of ["openai", "rly0"]) {
+      const own = mountPage(
+        fullClient({
+          rly0RelayCodexConfigStatus: async () => ({ ...codexStatus, modelProvider: provider }),
+        }),
+      );
+      await flush();
+      expect(allText(own.root)).not.toContain(notice(provider));
+    }
+  });
+
   it("writes the Codex config only after a confirmation that mentions backup and the in-place reload", async () => {
     const client = fullClient();
     const { root } = mountPage(client);

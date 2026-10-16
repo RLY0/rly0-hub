@@ -1,4 +1,5 @@
 import {
+  RLY0_CODEX_PROVIDER_ID,
   rly0RelayBaseUrlSchema,
   rly0RelayModelSchema,
   rly0RelayNameSchema,
@@ -393,6 +394,19 @@ export function createRelaySettingsPage(
           const parse = el("p", "settings-credential-dialog__error", messages.codexParseError);
           parse.setAttribute("role", "alert");
           codexCard.append(parse);
+        }
+        if (
+          codex.modelProvider &&
+          codex.modelProvider !== "openai" &&
+          codex.modelProvider !== RLY0_CODEX_PROVIDER_ID
+        ) {
+          const foreign = el(
+            "p",
+            "settings-rly0-relay__callout",
+            messages.codexForeignProvider.replace("{provider}", codex.modelProvider),
+          );
+          foreign.setAttribute("role", "status");
+          codexCard.append(foreign);
         }
         if (codex.modelCatalogJson) {
           const catalog = el(

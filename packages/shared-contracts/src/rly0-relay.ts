@@ -24,7 +24,8 @@ export const RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD = "codexhost/rly0/relay/codexC
 export const RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD = "codexhost/rly0/relay/codexConfig/restore";
 export const RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD = "codexhost/rly0/relay/modelCatalog/status";
 
-export const RLY0_PROXY_DEFAULT_PORT = 25817;
+/** Not 25817: AiMaMi's router proxy uses that port, and the two are often installed together. */
+export const RLY0_PROXY_DEFAULT_PORT = 25917;
 /** Provider table name written into Codex's config.toml. */
 export const RLY0_CODEX_PROVIDER_ID = "rly0";
 export const RLY0_CODEX_PROVIDER_NAME = "RLY/0 Hub 本地代理";

@@ -191,14 +191,14 @@ describe("Rly0CoreBridge relays and proxy", () => {
     await expect(bridge.proxyStatus()).resolves.toEqual({
       available: true,
       running: false,
-      defaultPort: 25817,
+      defaultPort: 25917,
     });
     const started = await bridge.proxyStart({});
     expect(started).toMatchObject({
       available: true,
       running: true,
-      port: 25817,
-      baseUrl: "http://127.0.0.1:25817/v1",
+      port: 25917,
+      baseUrl: "http://127.0.0.1:25917/v1",
     });
     expect(JSON.stringify(started)).not.toContain("sk-leak");
     await expect(bridge.proxyStart({})).resolves.toMatchObject({ alreadyRunning: true });

@@ -165,7 +165,7 @@ rl.on("line", (line) => {
     return;
   }
   if (method === "proxy/start") {
-    const port = (params && params.port) || 25817;
+    const port = (params && params.port) || 25917;
     if (port === 1) return fail(id, "PROXY_PORT_IN_USE");
     const alreadyRunning = proxy !== null;
     proxy ??= {
@@ -209,7 +209,7 @@ rl.on("line", (line) => {
     return;
   }
   if (method === "proxy/status") {
-    ok(proxy ?? { running: false, defaultPort: 25817 });
+    ok(proxy ?? { running: false, defaultPort: 25917 });
     return;
   }
   if (method === "slow/echo") {
