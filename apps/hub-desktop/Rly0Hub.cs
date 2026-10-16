@@ -101,7 +101,10 @@ internal sealed class HubContext : ApplicationContext {
 
     internal HubContext(string root, bool background) {
         this.root = root;
-        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        // Same per-user folder the Launcher and service use; never a path relative to the install.
+        string local = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        if (string.IsNullOrEmpty(local) || !Path.IsPathRooted(local)) local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrEmpty(local) || !Path.IsPathRooted(local)) local = Path.GetTempPath();
         webviewData = Path.Combine(local, "rly0-hub", "hub-webview");
         Directory.CreateDirectory(webviewData);
         dispatch.CreateControl();
