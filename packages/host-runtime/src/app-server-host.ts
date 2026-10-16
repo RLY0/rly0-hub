@@ -42,6 +42,7 @@ import {
   RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
   RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
   RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
+  RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
   rly0RelayListParamsSchema,
   rly0RelayAddParamsSchema,
   rly0RelayUpdateParamsSchema,
@@ -51,6 +52,7 @@ import {
   rly0ProxyStartParamsSchema,
   rly0ProxyStopParamsSchema,
   rly0ProxyStatusParamsSchema,
+  rly0RelayModelCatalogStatusParamsSchema,
   rly0RelayCodexConfigStatusParamsSchema,
   rly0RelayCodexConfigApplyParamsSchema,
   rly0RelayCodexConfigRestoreParamsSchema,
@@ -128,6 +130,7 @@ import {
 import {
   RLY0_RELAY_PROXY_FAILED_MESSAGE,
   RLY0_RELAY_THREAD_MISMATCH_MESSAGE,
+  type Rly0OfficialCatalogRead,
   Rly0RelayModelRouter,
 } from "./rly0-relay/model-routing.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
@@ -329,6 +332,7 @@ const RLY0_EXTENDED_METHODS: ReadonlySet<string> = new Set([
   RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
   RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
   RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
+  RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_START_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_STATUS_METHOD,
   RLY0_ACCOUNTS_ADD_LOGIN_CANCEL_METHOD,
@@ -2065,25 +2069,27 @@ export class AppServerHost {
   }
 
   /** Names in Codex's live official catalog, read page by page from the official `model/list`. */
-  async #listOfficialModelNames(): Promise<readonly string[]> {
+  async #listOfficialModelNames(): Promise<Rly0OfficialCatalogRead> {
     const names: string[] = [];
+    let count = 0;
     let cursor: string | undefined;
     for (let page = 0; page < 20; page += 1) {
       const response = await this.#requestOfficial("model/list", cursor ? { cursor } : {});
       if (isRecord(response.error) || !isRecord(response.result)) {
-        throw new Error("Official Model catalog could not be read");
+        throw new Error("OFFICIAL_CATALOG_FAILED");
       }
       const data = Array.isArray(response.result.data) ? response.result.data : [];
       for (const entry of data) {
         if (!isRecord(entry)) continue;
+        count += 1;
         if (typeof entry.model === "string") names.push(entry.model);
         if (typeof entry.id === "string") names.push(entry.id);
       }
       const next = response.result.nextCursor;
-      if (typeof next !== "string" || !next) return names;
+      if (typeof next !== "string" || !next) return { names, count };
       cursor = next;
     }
-    return names;
+    return { names, count };
   }
 
   async #requestOfficial(method: string, params: JsonObject): Promise<JsonObject> {
@@ -2274,6 +2280,10 @@ export class AppServerHost {
       [RLY0_PROXY_START_METHOD]: route(rly0ProxyStartParamsSchema, (p) => core.proxyStart(p)),
       [RLY0_PROXY_STOP_METHOD]: route(rly0ProxyStopParamsSchema, () => core.proxyStop()),
       [RLY0_PROXY_STATUS_METHOD]: route(rly0ProxyStatusParamsSchema, () => core.proxyStatus()),
+      [RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD]: route(
+        rly0RelayModelCatalogStatusParamsSchema,
+        (p) => this.#rly0RelayModels.catalogStatus(p.refresh === true),
+      ),
       [RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD]: route(
         rly0RelayCodexConfigStatusParamsSchema,
         () => config.status(),

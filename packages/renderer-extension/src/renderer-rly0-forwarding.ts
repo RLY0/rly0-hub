@@ -53,6 +53,7 @@ export const RENDERER_RLY0_FORWARDED_METHODS = [
   "rly0RelayCodexConfigStatus",
   "rly0RelayCodexConfigApply",
   "rly0RelayCodexConfigRestore",
+  "rly0RelayModelCatalogStatus",
 ] as const;
 
 export type RendererRly0ForwardedMethod = (typeof RENDERER_RLY0_FORWARDED_METHODS)[number];

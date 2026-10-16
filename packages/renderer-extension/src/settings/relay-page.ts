@@ -11,6 +11,8 @@ import {
   type Rly0RelayCodexConfigMutationResult,
   type Rly0RelayCodexConfigStatusResult,
   type Rly0RelayListResult,
+  type Rly0RelayModelCatalogStatusParams,
+  type Rly0RelayModelCatalogStatusResult,
   type Rly0RelayMutationResult,
   type Rly0RelayRemoveParams,
   type Rly0RelayRemoveResult,
@@ -40,6 +42,9 @@ export interface RendererRelayClient {
     input: Rly0RelayCodexConfigApplyParams,
   ): Promise<Rly0RelayCodexConfigMutationResult>;
   rly0RelayCodexConfigRestore?(): Promise<Rly0RelayCodexConfigMutationResult>;
+  rly0RelayModelCatalogStatus?(
+    input?: Rly0RelayModelCatalogStatusParams,
+  ): Promise<Rly0RelayModelCatalogStatusResult>;
 }
 
 export { RLY0_RELAY_PROMO_URL } from "./rly0-showcase.js";
@@ -122,6 +127,8 @@ export function createRelaySettingsPage(
       let loadError: string | null = null;
       let proxy: ProxyState | null = null;
       let codex: Rly0RelayCodexConfigStatusResult | null = null;
+      let catalog: Rly0RelayModelCatalogStatusResult | null = null;
+      let catalogChecking = false;
       let notice: { text: string; error: boolean } | null = null;
       let busy = false;
       const tests = new Map<string, TestState>();
@@ -139,9 +146,18 @@ export function createRelaySettingsPage(
       const status = el("p", "settings-rly0-mcp__notice");
       status.setAttribute("aria-live", "polite");
       const proxyCard = el("section", "settings-rly0-relay__card settings-rly0-relay__proxy");
+      const catalogCard = el("section", "settings-rly0-relay__card settings-rly0-relay__catalog");
       const codexCard = el("section", "settings-rly0-relay__card settings-rly0-relay__codex");
       const relaysSection = el("section", "settings-rly0-relay__relays");
-      context.content.append(header, promo, status, proxyCard, codexCard, relaysSection);
+      context.content.append(
+        header,
+        promo,
+        status,
+        proxyCard,
+        catalogCard,
+        codexCard,
+        relaysSection,
+      );
 
       const setNotice = (text: string | null, error = false): void => {
         notice = text ? { text, error } : null;
@@ -250,6 +266,92 @@ export function createRelaySettingsPage(
         proxyCard.append(list);
       };
 
+      // ---- Model picker (catalog) card ----
+      const renderCatalog = (): void => {
+        catalogCard.replaceChildren();
+        const client = getClient();
+        catalogCard.hidden = !client?.rly0RelayModelCatalogStatus;
+        if (catalogCard.hidden) return;
+        const official = catalog?.official ?? null;
+        const top = el("div", "settings-rly0-relay__card-head");
+        top.append(
+          el("h2", "settings-rly0-relay__title", messages.catalogTitle),
+          el(
+            "span",
+            `settings-rly0-relay__state${official ? " settings-rly0-relay__state--on" : ""}`,
+            official ? messages.catalogLive : messages.catalogNotRead,
+          ),
+        );
+        const actions = el("div", "settings-rly0-relay__actions");
+        const check = button(
+          catalogChecking ? messages.catalogChecking : messages.catalogCheck,
+          "secondary",
+          () => void checkCatalog(),
+        );
+        check.disabled = catalogChecking;
+        check.title = messages.catalogCheckHint;
+        actions.append(check);
+        top.append(actions);
+        catalogCard.append(top, el("p", "settings-rly0-mcp__detail", messages.catalogDescription));
+        if (official) {
+          const stats = el("dl", "settings-rly0-relay__stats");
+          const stat = (label: string, value: string, title?: string): void => {
+            const wrap = el("div");
+            const dd = el("dd", undefined, value);
+            if (title) dd.title = title;
+            wrap.append(el("dt", undefined, label), dd);
+            stats.append(wrap);
+          };
+          stat(messages.catalogOfficialCount, String(official.count));
+          stat(
+            messages.catalogFetched,
+            formatRly0RelativeTime(official.fetchedAt / 1000, settingsMessages.rly0Accounts),
+            new Date(official.fetchedAt).toLocaleString(settingsMessages.locale),
+          );
+          stat(
+            messages.catalogVia,
+            official.via === "codex" ? messages.catalogViaCodex : messages.catalogViaHub,
+          );
+          catalogCard.append(stats);
+        } else if (catalog) {
+          catalogCard.append(el("p", "settings-rly0-mcp__detail", messages.catalogNone));
+        }
+        if (catalog?.lastError) {
+          const failure = el(
+            "p",
+            "settings-rly0-relay__callout",
+            messages.catalogError.replace(
+              "{time}",
+              formatRly0RelativeTime(catalog.lastError.at / 1000, settingsMessages.rly0Accounts),
+            ),
+          );
+          failure.setAttribute("role", "alert");
+          catalogCard.append(failure);
+        }
+        if (!catalog) return;
+        const separator = settingsMessages.locale === "zh-CN" ? "、" : ", ";
+        const models = el("div", "settings-rly0-relay__catalog-models");
+        models.append(
+          el(
+            "p",
+            "settings-rly0-mcp__detail",
+            catalog.appended.length
+              ? messages.catalogAppended.replace("{models}", catalog.appended.join(separator))
+              : messages.catalogAppendedNone,
+          ),
+        );
+        if (catalog.shadowed.length) {
+          models.append(
+            el(
+              "p",
+              "settings-rly0-mcp__detail",
+              messages.catalogShadowed.replace("{models}", catalog.shadowed.join(separator)),
+            ),
+          );
+        }
+        catalogCard.append(models);
+      };
+
       // ---- Codex config card ----
       const runningProxy = (): RunningProxy | null => (proxy?.running ? proxy : null);
       const renderCodex = (): void => {
@@ -295,7 +397,7 @@ export function createRelaySettingsPage(
         if (codex.modelCatalogJson) {
           const catalog = el(
             "p",
-            "settings-credential-dialog__error",
+            "settings-rly0-relay__callout",
             messages.codexCatalogOverride.replace("{path}", codex.modelCatalogJson),
           );
           catalog.setAttribute("role", "status");
@@ -437,6 +539,7 @@ export function createRelaySettingsPage(
         renderPromo();
         renderStatus();
         renderProxy();
+        renderCatalog();
         renderCodex();
         renderRelays();
       };
@@ -466,8 +569,29 @@ export function createRelaySettingsPage(
             else loadError = messages.loadFailed;
           }
         }
-        await loadCodex();
+        await Promise.all([loadCodex(), loadCatalog()]);
         render();
+      };
+      const loadCatalog = async (refresh = false): Promise<void> => {
+        const getter = getClient()?.rly0RelayModelCatalogStatus;
+        if (!getter) return;
+        try {
+          const result = await getter(refresh ? { refresh: true } : {});
+          if (!signal.aborted) catalog = result;
+        } catch {
+          // Keep the last status; a failed status call says nothing new about the official list.
+        }
+      };
+      const checkCatalog = async (): Promise<void> => {
+        if (catalogChecking || signal.aborted) return;
+        catalogChecking = true;
+        renderCatalog();
+        try {
+          await loadCatalog(true);
+        } finally {
+          catalogChecking = false;
+          if (!signal.aborted) renderCatalog();
+        }
       };
       const loadCodex = async (): Promise<void> => {
         const statusGetter = getClient()?.rly0RelayCodexConfigStatus;

@@ -389,6 +389,7 @@ describe("Renderer fixed Model request client", () => {
       "rly0RelayCodexConfigApply",
       "rly0RelayCodexConfigRestore",
       "rly0RelayCodexConfigStatus",
+      "rly0RelayModelCatalogStatus",
       "selectThreadModel",
       "selectThreadPermissionMode",
       "selectThreadThinking",

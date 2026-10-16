@@ -22,6 +22,7 @@ export const RLY0_PROXY_STATUS_METHOD = "codexhost/rly0/proxy/status";
 export const RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD = "codexhost/rly0/relay/codexConfig/status";
 export const RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD = "codexhost/rly0/relay/codexConfig/apply";
 export const RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD = "codexhost/rly0/relay/codexConfig/restore";
+export const RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD = "codexhost/rly0/relay/modelCatalog/status";
 
 export const RLY0_PROXY_DEFAULT_PORT = 25817;
 /** Provider table name written into Codex's config.toml. */
@@ -210,6 +211,45 @@ export const rly0LocalProxyBaseUrlSchema = z
     const port = Number(/:(\d{1,5})\//u.exec(value)?.[1]);
     return port >= 1 && port <= 65_535;
   });
+
+/**
+ * Where Codex's model picker gets its entries. The official part always comes from Codex's own live
+ * `model/list` (never a local snapshot); relay models are only appended after it. `refresh` reads
+ * the official catalog again right now, to check it is reachable.
+ */
+export const rly0RelayModelCatalogStatusParamsSchema = z
+  .object({ refresh: z.boolean().optional() })
+  .strict();
+export type Rly0RelayModelCatalogStatusParams = z.infer<
+  typeof rly0RelayModelCatalogStatusParamsSchema
+>;
+export const rly0RelayModelCatalogStatusResultSchema = z
+  .object({
+    /** The last complete official catalog seen, or null before Codex or Hub has read one. */
+    official: z
+      .object({
+        /** Unix milliseconds. */
+        fetchedAt: z.number().int().nonnegative(),
+        count: z.number().int().nonnegative().max(10_000),
+        /** `codex`: Codex's own request passed through Hub. `hub`: Hub read it directly. */
+        via: z.enum(["codex", "hub"]),
+      })
+      .strict()
+      .nullable(),
+    /** The latest direct read failed (code-shaped), after `official` was recorded or not. */
+    lastError: z
+      .object({ at: z.number().int().nonnegative(), message: z.string().max(300) })
+      .strict()
+      .optional(),
+    /** Relay models appended after the official entries. */
+    appended: rly0RelayModelsSchema,
+    /** Relay models not added because the official catalog already has that name. */
+    shadowed: rly0RelayModelsSchema,
+  })
+  .strict();
+export type Rly0RelayModelCatalogStatusResult = z.infer<
+  typeof rly0RelayModelCatalogStatusResultSchema
+>;
 
 export const rly0RelayCodexConfigStatusParamsSchema = z.object({}).strict();
 export type Rly0RelayCodexConfigStatusParams = z.infer<

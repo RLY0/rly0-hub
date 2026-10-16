@@ -465,6 +465,71 @@ describe("Relay settings page", () => {
     expect(allText(root)).toContain(messages.codexRestoreDone);
   });
 
+  it("shows the live official catalog, the appended relay models, and checks on demand", async () => {
+    const fetchedAt = Date.now() - 5 * 60_000;
+    const catalogStatus = vi.fn(async (input?: { refresh?: boolean }) =>
+      input?.refresh
+        ? {
+            official: { fetchedAt: Date.now(), count: 12, via: "hub" as const },
+            appended: ["claude-opus-5"],
+            shadowed: ["gpt-5.5"],
+          }
+        : {
+            official: { fetchedAt, count: 11, via: "codex" as const },
+            appended: ["claude-opus-5"],
+            shadowed: [],
+          },
+    );
+    const { root } = mountPage(fullClient({ rly0RelayModelCatalogStatus: catalogStatus }));
+    await flush();
+    const card = root.querySelector(".settings-rly0-relay__catalog");
+    if (!card) throw new Error("expected the catalog card");
+    const text = allText(card);
+    expect(text).toContain(messages.catalogLive);
+    expect(text).toContain("11");
+    expect(text).toContain("5 分钟前");
+    expect(text).toContain(messages.catalogViaCodex);
+    expect(text).toContain(messages.catalogAppended.replace("{models}", "claude-opus-5"));
+    expect(catalogStatus).toHaveBeenLastCalledWith({});
+
+    const check = buttonByText(card, messages.catalogCheck);
+    expect(check.title).toBe(messages.catalogCheckHint);
+    check.listeners.get("click")?.();
+    await flush();
+    expect(catalogStatus).toHaveBeenLastCalledWith({ refresh: true });
+    const after = allText(root.querySelector(".settings-rly0-relay__catalog") as FakeElement);
+    expect(after).toContain("12");
+    expect(after).toContain(messages.catalogViaHub);
+    expect(after).toContain(messages.catalogShadowed.replace("{models}", "gpt-5.5"));
+  });
+
+  it("says when the official list was never read or the last check failed", async () => {
+    const { root } = mountPage(
+      fullClient({
+        rly0RelayModelCatalogStatus: async () => ({
+          official: null,
+          lastError: { at: Date.now(), message: "OFFICIAL_CATALOG_FAILED" },
+          appended: [],
+          shadowed: [],
+        }),
+      }),
+    );
+    await flush();
+    const card = root.querySelector(".settings-rly0-relay__catalog") as FakeElement;
+    const text = allText(card);
+    expect(text).toContain(messages.catalogNotRead);
+    expect(text).toContain(messages.catalogNone);
+    expect(text).toContain(messages.catalogAppendedNone);
+    expect(text).toContain(messages.catalogError.replace("{time}", "刚刚"));
+    expect(text).not.toContain(messages.catalogLive);
+  });
+
+  it("hides the catalog card when the host does not offer it", async () => {
+    const { root } = mountPage(fullClient());
+    await flush();
+    expect(root.querySelector(".settings-rly0-relay__catalog")?.hidden).toBe(true);
+  });
+
   it("disables writing the Codex config while the proxy is stopped", async () => {
     const client = fullClient({
       rly0ProxyStatus: async () => ({ available: true, running: false, defaultPort: 18_765 }),

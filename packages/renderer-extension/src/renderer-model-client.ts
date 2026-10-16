@@ -186,6 +186,7 @@ import {
   RLY0_PROXY_START_METHOD,
   RLY0_PROXY_STOP_METHOD,
   RLY0_PROXY_STATUS_METHOD,
+  RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
   RLY0_RELAY_CODEX_CONFIG_STATUS_METHOD,
   RLY0_RELAY_CODEX_CONFIG_APPLY_METHOD,
   RLY0_RELAY_CODEX_CONFIG_RESTORE_METHOD,
@@ -209,6 +210,8 @@ import {
   rly0ProxyStatusResultSchema,
   rly0ProxyStopResultSchema,
   rly0RelayCodexConfigStatusResultSchema,
+  rly0RelayModelCatalogStatusParamsSchema,
+  rly0RelayModelCatalogStatusResultSchema,
   rly0RelayCodexConfigApplyParamsSchema,
   rly0RelayCodexConfigMutationResultSchema,
   type Rly0AccountsUsageParams,
@@ -231,6 +234,8 @@ import {
   type Rly0ProxyStatusResult,
   type Rly0ProxyStopResult,
   type Rly0RelayCodexConfigStatusResult,
+  type Rly0RelayModelCatalogStatusParams,
+  type Rly0RelayModelCatalogStatusResult,
   type Rly0RelayCodexConfigApplyParams,
   type Rly0RelayCodexConfigMutationResult,
   type ExternalThreadForkParams,
@@ -425,6 +430,9 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0ProxyStop?(): Promise<Rly0ProxyStopResult>;
   rly0ProxyStatus?(): Promise<Rly0ProxyStatusResult>;
   rly0RelayCodexConfigStatus?(): Promise<Rly0RelayCodexConfigStatusResult>;
+  rly0RelayModelCatalogStatus?(
+    input?: Rly0RelayModelCatalogStatusParams,
+  ): Promise<Rly0RelayModelCatalogStatusResult>;
   rly0RelayCodexConfigApply?(
     input: Rly0RelayCodexConfigApplyParams,
   ): Promise<Rly0RelayCodexConfigMutationResult>;
@@ -1057,6 +1065,16 @@ export function createRendererModelClient(
     async rly0ProxyStatus(): Promise<Rly0ProxyStatusResult> {
       return rly0ProxyStatusResultSchema.parse(
         await manager.sendRequest(RLY0_PROXY_STATUS_METHOD, {}),
+      );
+    },
+    async rly0RelayModelCatalogStatus(
+      input: Rly0RelayModelCatalogStatusParams = {},
+    ): Promise<Rly0RelayModelCatalogStatusResult> {
+      return rly0RelayModelCatalogStatusResultSchema.parse(
+        await manager.sendRequest(
+          RLY0_RELAY_MODEL_CATALOG_STATUS_METHOD,
+          rly0RelayModelCatalogStatusParamsSchema.parse(input),
+        ),
       );
     },
     async rly0RelayCodexConfigStatus(): Promise<Rly0RelayCodexConfigStatusResult> {

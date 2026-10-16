@@ -4,6 +4,7 @@ import {
   RLY0_PROXY_DEFAULT_PORT,
   type Rly0ProxyStatusResult,
   type Rly0RelayListResult,
+  type Rly0RelayModelCatalogStatusResult,
 } from "@codexhost/shared-contracts";
 
 /** The slice of the rly0-core bridge that relay model routing needs. */
@@ -19,8 +20,17 @@ export interface Rly0RelayModelRouterOptions {
    * relay model is chosen before any `model/list` response has passed through the Host. Never a
    * local cache or snapshot: a stale catalog is exactly what hides new official models.
    */
-  readonly loadOfficialModels?: () => Promise<readonly string[]>;
+  readonly loadOfficialModels?: () => Promise<Rly0OfficialCatalogRead>;
+  readonly now?: () => number;
 }
+
+/** One complete read of the official catalog: every `model`/`id` name, and the entry count. */
+export interface Rly0OfficialCatalogRead {
+  readonly names: readonly string[];
+  readonly count: number;
+}
+
+type OfficialSnapshot = NonNullable<Rly0RelayModelCatalogStatusResult["official"]>;
 
 export interface Rly0RelayModel {
   readonly model: string;
@@ -39,8 +49,9 @@ const MAX_TRACKED_THREADS = 2_000;
 /** After a failed official catalog read, relay decisions do not wait on another one for this long. */
 const OFFICIAL_RETRY_MS = 60_000;
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
-  return new Promise((resolve) => {
+/** Resolves `undefined` on timeout; a rejection resolves `undefined` too unless `rethrow` is set. */
+function withTimeout<T>(promise: Promise<T>, ms: number, rethrow = false): Promise<T | undefined> {
+  return new Promise((resolve, reject) => {
     const timer = setTimeout(() => resolve(undefined), ms);
     timer.unref?.();
     promise.then(
@@ -48,9 +59,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined>
         clearTimeout(timer);
         resolve(value);
       },
-      () => {
+      (error: unknown) => {
         clearTimeout(timer);
-        resolve(undefined);
+        if (rethrow) reject(error instanceof Error ? error : new Error(String(error)));
+        else resolve(undefined);
       },
     );
   });
@@ -74,7 +86,12 @@ export class Rly0RelayModelRouter {
   readonly #core: Rly0RelayRoutingCore;
   #cache: { at: number; models: readonly Rly0RelayModel[]; patterns: readonly string[] } | null =
     null;
-  readonly #loadOfficialModels: (() => Promise<readonly string[]>) | undefined;
+  readonly #loadOfficialModels: (() => Promise<Rly0OfficialCatalogRead>) | undefined;
+  readonly #now: () => number;
+  /** Entries on earlier pages of the `model/list` currently being paged through. */
+  #pagedCount = 0;
+  #officialSnapshot: OfficialSnapshot | null = null;
+  #lastOfficialError: { at: number; message: string } | undefined;
   #officialModels = new Set<string>();
   /** Whether the official catalog has been seen at least once (response or direct read). */
   #officialKnown = false;
@@ -85,6 +102,50 @@ export class Rly0RelayModelRouter {
   constructor(core: Rly0RelayRoutingCore, options: Rly0RelayModelRouterOptions = {}) {
     this.#core = core;
     this.#loadOfficialModels = options.loadOfficialModels;
+    this.#now = options.now ?? Date.now;
+  }
+
+  /**
+   * Reads the official catalog directly. Names only ever accumulate, so an official model seen once
+   * (even a hidden one) can never be taken over by a relay later.
+   */
+  async #readOfficial(): Promise<void> {
+    const load = this.#loadOfficialModels;
+    if (!load) return;
+    let read: Rly0OfficialCatalogRead | undefined;
+    let message = "OFFICIAL_CATALOG_TIMEOUT";
+    try {
+      read = await withTimeout(load(), LIST_TIMEOUT_MS, true);
+    } catch (error) {
+      message = error instanceof Error && error.message ? error.message : "OFFICIAL_CATALOG_FAILED";
+    }
+    const at = this.#now();
+    if (!read) {
+      this.#officialFailedAt = Date.now();
+      this.#lastOfficialError = { at, message: message.slice(0, 300) };
+      return;
+    }
+    for (const name of read.names) if (name) this.#officialModels.add(name);
+    this.#officialKnown = true;
+    this.#lastOfficialError = undefined;
+    this.#officialSnapshot = { fetchedAt: at, count: read.count, via: "hub" };
+  }
+
+  /** What the model picker is built from; `refresh` reads the official catalog again first. */
+  async catalogStatus(refresh = false): Promise<Rly0RelayModelCatalogStatusResult> {
+    if (refresh) await this.#readOfficial();
+    const { models } = await this.#relayModels(refresh);
+    const appended: string[] = [];
+    const shadowed: string[] = [];
+    for (const { model } of models) {
+      (this.#officialModels.has(model) ? shadowed : appended).push(model);
+    }
+    return {
+      official: this.#officialSnapshot,
+      ...(this.#lastOfficialError ? { lastError: this.#lastOfficialError } : {}),
+      appended,
+      shadowed,
+    };
   }
 
   /**
@@ -93,18 +154,9 @@ export class Rly0RelayModelRouter {
    * read the relay decision proceeds on the names already known (relay models stay usable).
    */
   async #ensureOfficialModels(): Promise<void> {
-    const load = this.#loadOfficialModels;
-    if (this.#officialKnown || !load) return;
+    if (this.#officialKnown || !this.#loadOfficialModels) return;
     if (!this.#officialLoad && Date.now() - this.#officialFailedAt < OFFICIAL_RETRY_MS) return;
-    this.#officialLoad ??= (async () => {
-      const names = await withTimeout(load(), LIST_TIMEOUT_MS);
-      if (names) {
-        for (const name of names) if (name) this.#officialModels.add(name);
-        this.#officialKnown = true;
-      } else {
-        this.#officialFailedAt = Date.now();
-      }
-    })().finally(() => {
+    this.#officialLoad ??= this.#readOfficial().finally(() => {
       this.#officialLoad = null;
     });
     await this.#officialLoad;
@@ -157,7 +209,16 @@ export class Rly0RelayModelRouter {
     }
     this.#officialKnown = true;
     // Only the last page carries the extra entries.
-    if (typeof result.nextCursor === "string" && result.nextCursor) return null;
+    if (typeof result.nextCursor === "string" && result.nextCursor) {
+      this.#pagedCount += official.length;
+      return null;
+    }
+    this.#officialSnapshot = {
+      fetchedAt: this.#now(),
+      count: this.#pagedCount + official.length,
+      via: "codex",
+    };
+    this.#pagedCount = 0;
     const relayModels = (this.#cache?.models ?? []).filter(
       ({ model }) => !this.#officialModels.has(model),
     );

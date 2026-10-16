@@ -1,1 +1,25 @@
 /* rly0-relay-cards: owned by one workstream; see PM notes. */
+
+/* Model picker (catalog) card */
+.settings-rly0-relay__catalog-models {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+.settings-rly0-relay__catalog-models p {
+  margin: 0;
+}
+
+/* A notice inside a relay card that needs attention but is not a failed action. */
+.settings-rly0-relay__callout {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--settings-warning-border);
+  border-radius: 8px;
+  background: var(--settings-warning-bg);
+  color: var(--settings-text);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}

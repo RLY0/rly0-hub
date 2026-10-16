@@ -191,7 +191,7 @@ describe("RLY/0 relay model routing", () => {
     const router = new Rly0RelayModelRouter(core, {
       loadOfficialModels: async () => {
         reads += 1;
-        return ["gpt-5.5"];
+        return { names: ["gpt-5.5"], count: 1 };
       },
     });
     // The relay lists gpt-5.5 too, but it is official: the thread must stay on the account.
@@ -217,5 +217,60 @@ describe("RLY/0 relay model routing", () => {
     // A failed read is not retried on every turn.
     expect(await router.isRelayModel("claude-opus-5")).toBe(true);
     expect(reads).toBe(1);
+  });
+
+  it("reports where the picker comes from: Codex's live list, then Hub refreshes", async () => {
+    const { core } = fakeCore();
+    let now = 1_000;
+    let fail = false;
+    const router = new Rly0RelayModelRouter(core, {
+      now: () => now,
+      loadOfficialModels: async () => {
+        if (fail) throw new Error("OFFICIAL_CATALOG_FAILED");
+        return { names: ["gpt-6", "claude-opus-5"], count: 2 };
+      },
+    });
+    expect(await router.catalogStatus()).toEqual({
+      official: null,
+      appended: ["claude-opus-5", "gpt-5.5"],
+      shadowed: [],
+    });
+
+    await router.prepareModelList();
+    router.rewriteModelListResponse({
+      id: 1,
+      result: {
+        data: [
+          { id: "a", model: "a" },
+          { id: "b", model: "b" },
+        ],
+        nextCursor: "p2",
+      },
+    });
+    now = 2_000;
+    router.rewriteModelListResponse(officialList);
+    expect(await router.catalogStatus()).toMatchObject({
+      official: { fetchedAt: 2_000, count: 3, via: "codex" },
+      appended: ["claude-opus-5"],
+      shadowed: ["gpt-5.5"],
+    });
+
+    now = 3_000;
+    const refreshed = await router.catalogStatus(true);
+    expect(refreshed).toMatchObject({
+      official: { fetchedAt: 3_000, count: 2, via: "hub" },
+      appended: [],
+      shadowed: ["claude-opus-5", "gpt-5.5"],
+    });
+    expect(refreshed).not.toHaveProperty("lastError");
+
+    fail = true;
+    now = 4_000;
+    const failed = await router.catalogStatus(true);
+    // The last good read stays visible next to the failure; nothing is invented.
+    expect(failed).toMatchObject({
+      official: { fetchedAt: 3_000, via: "hub" },
+      lastError: { at: 4_000, message: "OFFICIAL_CATALOG_FAILED" },
+    });
   });
 });

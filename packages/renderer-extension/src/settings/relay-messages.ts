@@ -80,6 +80,27 @@ export const relayEnglish = {
   codexCurrent: "Current model_provider: {provider} · model: {model}",
   codexNone: "(default)",
   codexParseError: "config.toml could not be parsed, so it will not be changed.",
+  catalogTitle: "Model picker",
+  catalogLive: "Official live list",
+  catalogNotRead: "Not read yet",
+  catalogDescription:
+    "Codex reads its model list from the official service itself. RLY/0 Hub never saves or replaces that list; it only adds your enabled relay models at the end.",
+  catalogOfficialCount: "Official models",
+  catalogFetched: "Last read",
+  catalogVia: "Read by",
+  catalogViaCodex: "Codex",
+  catalogViaHub: "RLY/0 Hub check",
+  catalogNone:
+    "Codex has not read the official list since RLY/0 Hub started. Open the model picker, or check now.",
+  catalogAppended: "Relay models added at the end: {models}",
+  catalogAppendedNone: "No relay models are added.",
+  catalogShadowed: "Same name as an official model, so they stay official: {models}",
+  catalogError:
+    "The last check could not read the official list ({time}). Relay models still work; the picker keeps whatever Codex last read.",
+  catalogCheck: "Check now",
+  catalogChecking: "Checking…",
+  catalogCheckHint:
+    "Reads the official list once to confirm it is reachable. Codex updates its own picker the next time it reads the list.",
   codexCatalogOverride:
     "config.toml sets model_catalog_json = {path} (left by another tool such as AiMaMi). Codex then shows that saved list instead of your account's live model list, so new official models may be missing. RLY/0 Hub does not need it; remove that line yourself if you no longer use the other tool.",
   codexSetDefault: "Also make RLY/0 the default provider and model",
@@ -190,6 +211,25 @@ export const relayChinese: RelayMessages = {
   codexCurrent: "当前 model_provider：{provider} · model：{model}",
   codexNone: "（默认）",
   codexParseError: "config.toml 无法解析，因此不会修改它。",
+  catalogTitle: "模型菜单",
+  catalogLive: "官方实时列表",
+  catalogNotRead: "尚未读取",
+  catalogDescription:
+    "Codex 的模型菜单由 Codex 自己向官方实时读取。RLY/0 Hub 不保存、也不替换这份列表，只把已启用中转的模型追加在末尾。",
+  catalogOfficialCount: "官方模型",
+  catalogFetched: "最近读取",
+  catalogVia: "读取方",
+  catalogViaCodex: "Codex",
+  catalogViaHub: "RLY/0 Hub 检查",
+  catalogNone: "本次启动后 Codex 还没读取官方列表。打开一次模型菜单，或点“重新检查”。",
+  catalogAppended: "追加在末尾的中转模型：{models}",
+  catalogAppendedNone: "没有追加中转模型。",
+  catalogShadowed: "与官方模型同名，按官方处理：{models}",
+  catalogError:
+    "最近一次检查没能读到官方列表（{time}）。中转模型仍可使用，菜单保持 Codex 上次读到的内容。",
+  catalogCheck: "重新检查",
+  catalogChecking: "检查中…",
+  catalogCheckHint: "立即向官方读取一次列表，确认能否读到。Codex 的菜单会在它下次读取时更新。",
   codexCatalogOverride:
     "config.toml 里设置了 model_catalog_json = {path}（由 AiMaMi 等其他工具留下）。Codex 会改用这份保存的列表，而不是你账号的实时模型列表，官方新模型可能不显示。RLY/0 Hub 不需要它；如果不再使用那个工具，请自行删除这一行。",
   codexSetDefault: "同时把 RLY/0 设为默认提供方和模型",
