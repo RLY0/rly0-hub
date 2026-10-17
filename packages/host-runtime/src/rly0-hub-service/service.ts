@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 import {
   rly0AccountsAddLoginStartParamsSchema,
@@ -36,6 +37,7 @@ import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { apiKeyLogin, importLogin, parseAuthFile } from "./account-import.js";
+import { importClaudeCredentials, saveAnthropicApiKey } from "./claude-official.js";
 import { listRly0HubAgents, rly0HubAgentDocsUrl } from "./agents.js";
 import { fetchRelayLogo } from "./relay-logo.js";
 import {
@@ -116,9 +118,22 @@ function rly0First<
 }
 
 function openInBrowser(url: string): void {
-  // explorer.exe hands a URL to the default browser; the URL is one of the fixed links above.
-  const child = spawn("explorer.exe", [url], { detached: true, stdio: "ignore" });
-  child.on("error", () => undefined);
+  // url.dll's protocol handler gives the URL to the default browser. explorer.exe is not used: it
+  // mis-parses long sign-in URLs (commas, `+`) and opens the Documents folder instead.
+  const handler = path.join(
+    process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows",
+    "System32",
+    "rundll32.exe",
+  );
+  const child = spawn(handler, ["url.dll,FileProtocolHandler", url], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.on("error", () => {
+    const fallback = spawn("explorer.exe", [url], { detached: true, stdio: "ignore" });
+    fallback.on("error", () => undefined);
+    fallback.unref();
+  });
   child.unref();
 }
 
@@ -577,6 +592,31 @@ export class Rly0HubService {
       "agents.claudeCode.logout": route(empty, async () => ({
         ok: await this.#claudeCode.logout(),
       })),
+      "agents.claudeCode.setApiKey": route(
+        z.object({ apiKey: z.string().min(1).max(400) }).strict(),
+        async (p) => {
+          const { id } = await saveAnthropicApiKey(core, p.apiKey);
+          await this.#agentRelays.set({ claudeCode: id });
+          await this.#ensureProxyForRelays().catch(() => undefined);
+          return { ok: true, id };
+        },
+      ),
+      "agents.claudeCode.importCredentials": route(
+        z
+          .object({
+            content: z
+              .string()
+              .min(2)
+              .max(256 * 1024),
+          })
+          .strict(),
+        async (p) => {
+          const result = await importClaudeCredentials(this.#options.environment, p.content);
+          // An imported login means the official account, not a pinned relay or key.
+          await this.#agentRelays.set({ claudeCode: null });
+          return result;
+        },
+      ),
       "agents.relays.get": route(empty, () => this.#agentRelays.get()),
       "agents.relays.set": route(rly0RelayAgentsSetParamsSchema, (p) =>
         this.#agentRelays.set({ claudeCode: p.claudeCode }),

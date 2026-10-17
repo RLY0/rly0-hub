@@ -8,6 +8,8 @@ import {
   RLY0_AGENT_RECIPES,
   classifyInstallFailure,
   createOutputDecoder,
+  decodeTranscript,
+  installWindowScript,
   type CommandRunner,
 } from "../src/rly0-agents/agent-installer.js";
 import { findCommand, windowsSystemTool } from "../src/rly0-agents/install-paths.js";
@@ -149,7 +151,7 @@ describe("one-click agent installation", () => {
     });
     installer.start("claude-code");
     expect(await settle(installer, "claude-code")).toMatchObject({ state: "succeeded" });
-    expect(calls.slice(1)).toEqual([
+    expect(calls.slice(1).filter((call) => !call.includes("GetEnvironmentVariable"))).toEqual([
       // npm is found through the added Node.js folder on PATH.
       '"npm" install -g @anthropic-ai/claude-code',
       '"npm" install -g @anthropic-ai/claude-code --registry=https://registry.npmmirror.com',
@@ -534,5 +536,59 @@ describe("one-click agent installation", () => {
       "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
     );
     expect(windowsSystemTool({}, "msiexec.exe", exists)).toBe("msiexec.exe");
+  });
+});
+
+describe("visible install window", () => {
+  it("runs official scripts in a window the person can answer, and keeps its transcript", async () => {
+    const windowed: string[] = [];
+    const runner: CommandRunner = {
+      async run() {
+        return { code: 0, output: "" };
+      },
+      openTerminal: vi.fn(async () => true),
+      async runInWindow(command) {
+        windowed.push(command);
+        return { code: 0, output: "Pi installed" };
+      },
+    };
+    const installer = new AgentInstaller({ ...windowsBase, runner });
+    installer.start("pi");
+    const status = await settle(installer, "pi");
+    expect(status.state).toBe("succeeded");
+    expect(windowed).toEqual(["irm https://pi.dev/install.ps1 | iex"]);
+    expect(status.log).toContain("Pi installed");
+  });
+
+  it("treats a non-zero exit as success once the agent's command is found", async () => {
+    let installed = false;
+    const runner: CommandRunner = {
+      async run() {
+        return { code: 0, output: "" };
+      },
+      openTerminal: vi.fn(async () => true),
+      async runInWindow() {
+        installed = true;
+        return { code: 1, output: "stale exit code" };
+      },
+    };
+    const installer = new AgentInstaller({
+      ...windowsBase,
+      runner,
+      fileExists: (file) => installed && /[\\/]pi\.(cmd|exe)$/iu.test(file),
+    });
+    installer.start("pi");
+    expect((await settle(installer, "pi")).state).toBe("succeeded");
+  });
+
+  it("wraps the command with a transcript, the network prelude and a readable ending", () => {
+    const script = installWindowScript("irm https://x.dev/i.ps1 | iex", "C:\T\it's.log");
+    expect(script).toContain("Start-Transcript -LiteralPath 'C:\T\it''s.log'");
+    expect(script).toContain("Tls12");
+    expect(script).toContain("try { irm https://x.dev/i.ps1 | iex;");
+    expect(script.trim().endsWith("exit $rly0Code")).toBe(true);
+    expect(decodeTranscript(Buffer.from("**********************\nStart time: 1\nhello\n"))).toBe(
+      "hello",
+    );
   });
 });

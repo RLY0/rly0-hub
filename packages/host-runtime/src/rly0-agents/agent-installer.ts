@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -9,6 +9,7 @@ import { commandExists } from "./claude-code-auth.js";
 import {
   fileOrAliasExists,
   findCommand,
+  POWERSHELL_PRELUDE,
   powershellArguments,
   windowsSystemTool,
   withAgentInstallPaths,
@@ -173,6 +174,8 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
 
 const NPM_MIRROR = "https://registry.npmmirror.com";
 const STEP_TIMEOUT_MS = 15 * 60_000;
+/** A visible install window may wait on the person; give it longer. */
+const WINDOW_TIMEOUT_MS = 40 * 60_000;
 const LOG_LIMIT = 6_000;
 const WINGET_PACKAGES = { node: "OpenJS.NodeJS.LTS", git: "Git.Git" } as const;
 
@@ -189,6 +192,52 @@ export interface CommandRunner {
   ): Promise<CommandResult>;
   /** Opens a visible terminal running `command` (for an agent's own sign-in). */
   openTerminal(command: string, environment: NodeJS.ProcessEnv): Promise<boolean>;
+  /**
+   * Runs a PowerShell command in a visible window the person can answer prompts in, and resolves
+   * with its exit code and transcript once the window closes. Windows only.
+   */
+  runInWindow?(
+    command: string,
+    options: { environment: NodeJS.ProcessEnv; timeoutMs: number },
+  ): Promise<CommandResult>;
+}
+
+/**
+ * The script a visible install window runs: the vendor's own installer, with its prompts answered
+ * by the person, recorded to `logFile` so the Hub can show what happened.
+ */
+export function installWindowScript(command: string, logFile: string): string {
+  const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
+  return [
+    "$Host.UI.RawUI.WindowTitle = 'RLY/0 Hub - 安装'",
+    `try { Start-Transcript -LiteralPath ${quote(logFile)} -Force | Out-Null } catch {}`,
+    "Write-Host 'RLY/0 Hub 正在运行官方安装程序。如果下面有提问，请直接在这个窗口里回答。' -ForegroundColor Cyan",
+    "Write-Host ''",
+    POWERSHELL_PRELUDE,
+    "$rly0Code = 0",
+    `try { ${command}; if ($LASTEXITCODE) { $rly0Code = $LASTEXITCODE } } catch { Write-Host $_ -ForegroundColor Red; $rly0Code = 1 }`,
+    "try { Stop-Transcript | Out-Null } catch {}",
+    "Write-Host ''",
+    "if ($rly0Code -eq 0) { Write-Host '安装程序已结束，窗口马上关闭。' -ForegroundColor Green; Start-Sleep -Seconds 3 }",
+    "else { Write-Host '安装程序报错了，原因见上方。按回车关闭窗口，RLY/0 Hub 里也能看到这段日志。' -ForegroundColor Yellow; try { [void](Read-Host) } catch {} }",
+    "exit $rly0Code",
+  ].join("\r\n");
+}
+
+const TRANSCRIPT_BANNER =
+  /^\*{6,}$|^(Windows PowerShell transcript|Windows PowerShell 脚本|Start time|End time|Username|RunAs User|Configuration Name|Machine|Host Application|Process ID|PSVersion|PSEdition|PSCompatibleVersions|BuildVersion|CLRVersion|WSManStackVersion|PSRemotingProtocolVersion|SerializationVersion|Transcript started|开始时间|结束时间|用户名|计算机|主机应用程序|进程 ID)/u;
+
+/** Start-Transcript writes UTF-16 or UTF-8 depending on the Windows version. */
+export function decodeTranscript(bytes: Buffer): string {
+  const text =
+    bytes[0] === 0xff && bytes[1] === 0xfe
+      ? bytes.subarray(2).toString("utf16le")
+      : bytes.toString("utf8").replace(/^\uFEFF/u, "");
+  return text
+    .split(/\r?\n/u)
+    .filter((line) => !TRANSCRIPT_BANNER.test(line))
+    .join("\n")
+    .trim();
 }
 
 /** Length of an incomplete UTF-8 sequence at the end of `bytes` (0 when it ends cleanly). */
@@ -320,6 +369,67 @@ export const processRunner: CommandRunner = {
       });
       child.on("close", (code) => finish(code));
     });
+  },
+  async runInWindow(command, options) {
+    if (process.platform !== "win32") return { code: null, output: "WINDOW_UNSUPPORTED" };
+    const directory = await mkdtemp(path.join(tmpdir(), "rly0-install-"));
+    const scriptFile = path.join(directory, "install.ps1");
+    const logFile = path.join(directory, "install.log");
+    try {
+      // PowerShell 5.1 reads a script without a BOM in the ANSI code page.
+      await writeFile(scriptFile, `\uFEFF${installWindowScript(command, logFile)}`, "utf8");
+      const powershell = path.join(
+        options.environment.SystemRoot ?? options.environment.windir ?? "C:\\Windows",
+        "System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      );
+      const code = await new Promise<number | null>((resolve) => {
+        let child: ReturnType<typeof spawn>;
+        try {
+          // `start /wait` opens a new console window and waits until it closes.
+          child = spawn(
+            "cmd.exe",
+            [
+              "/d",
+              "/c",
+              "start",
+              '"RLY0 Hub"',
+              "/wait",
+              powershell,
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              scriptFile,
+            ],
+            { env: options.environment, windowsHide: true, stdio: "ignore" },
+          );
+        } catch {
+          resolve(null);
+          return;
+        }
+        const timer = setTimeout(() => {
+          killTree(child);
+          resolve(null);
+        }, options.timeoutMs);
+        child.on("error", () => {
+          clearTimeout(timer);
+          resolve(null);
+        });
+        child.on("close", (exit) => {
+          clearTimeout(timer);
+          resolve(exit);
+        });
+      });
+      let output: string;
+      try {
+        output = decodeTranscript(await readFile(logFile));
+      } catch {
+        output = "（安装窗口没有留下日志）";
+      }
+      return { code, output: output.slice(-LOG_LIMIT * 4) };
+    } finally {
+      await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+    }
   },
   openTerminal(command, environment) {
     // Windows only for now; elsewhere the page shows the command to run instead.
@@ -541,7 +651,12 @@ export class AgentInstaller {
         attempt.kind === "script"
           ? await this.#runScript(attempt, status)
           : await this.#runNpm(attempt, status);
-      if (result.code === 0) {
+      // Vendor scripts sometimes end with a stale non-zero code although the agent is installed.
+      const ok = result.code === 0 || (await this.#detected(recipe));
+      if (ok && result.code !== 0) {
+        this.#append(status, "[RLY/0 Hub] 已检测到装好的命令，按安装成功处理。");
+      }
+      if (ok) {
         delete status.error;
         delete status.requirementReason;
         return true;
@@ -551,6 +666,15 @@ export class AgentInstaller {
     status.error =
       status.error === "NODE_MISSING" ? status.error : classifyInstallFailure(lastOutput);
     return false;
+  }
+
+  async #detected(recipe: Recipe): Promise<boolean> {
+    const command = recipe.detectionCommand;
+    if (!command) return false;
+    if (this.#has(command, this.#withKnownPaths(this.#environment()))) return true;
+    if (this.#platform !== "win32") return false;
+    await this.#refreshPath();
+    return this.#has(command, this.#withKnownPaths(this.#environment()));
   }
 
   /** PATH plus the usual install folders, so freshly installed tools are found right away. */
@@ -665,6 +789,21 @@ export class AgentInstaller {
   ): Promise<CommandResult> {
     status.step = "officialInstaller";
     const environment = this.#withKnownPaths(this.#environment());
+    if (this.#platform === "win32" && this.#runner.runInWindow) {
+      // Official scripts ask questions (install Node? add to PATH?) that a hidden run cannot
+      // answer, so they run in a window the person can see and type in.
+      status.step = "installerWindow";
+      this.#append(status, `[RLY/0 Hub] 在新窗口运行官方安装脚本：${attempt.windows}`);
+      const started = this.#now();
+      const result = await this.#runner.runInWindow(attempt.windows, {
+        environment,
+        timeoutMs: WINDOW_TIMEOUT_MS,
+      });
+      this.#append(status, result.output.trim());
+      const seconds = Math.max(0, Math.round((this.#now() - started) / 1000));
+      this.#append(status, `[RLY/0 Hub] 退出码 ${formatExitCode(result.code)}，用时 ${seconds} 秒`);
+      return result;
+    }
     if (this.#platform === "win32") {
       return this.#step(
         status,

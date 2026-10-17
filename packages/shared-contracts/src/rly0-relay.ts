@@ -432,7 +432,7 @@ export const rly0AgentInstallStatusSchema = z
       .optional(),
     canOpenLogin: z.boolean().optional(),
     step: z
-      .enum(["installingNode", "installingGit", "officialInstaller", "npm", "npmMirror"])
+      .enum(["installingNode", "installingGit", "officialInstaller", "installerWindow", "npm", "npmMirror"])
       .optional(),
     error: z
       .enum([

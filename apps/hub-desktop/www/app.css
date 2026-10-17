@@ -2228,3 +2228,647 @@ select.input,
   opacity: calc(var(--unlock) * 6);
   width: calc(52px + (100% - 52px) * var(--unlock));
 }
+
+/* ================= Round 6: test feedback ================= */
+
+/* Cards stand off the background: solid surface, hairline edge, faint top light. No pointer light. */
+:root {
+  --card: rgba(30, 30, 26, 0.94);
+  --card-tone: rgba(36, 36, 31, 0.94);
+  --edge: rgba(233, 233, 227, 0.08);
+  --edge-strong: rgba(233, 233, 227, 0.2);
+  --well: rgba(10, 10, 8, 0.55);
+}
+.m {
+  background: linear-gradient(180deg, rgba(233, 233, 227, 0.035), transparent 90px), var(--card);
+  box-shadow:
+    inset 0 0 0 1px var(--edge),
+    0 14px 36px rgba(0, 0, 0, 0.28);
+}
+.m.tone {
+  background:
+    linear-gradient(180deg, rgba(233, 233, 227, 0.04), transparent 90px), var(--card-tone);
+}
+.m:not(.promo)::before {
+  content: none;
+}
+.m:hover {
+  box-shadow:
+    inset 0 0 0 1px var(--edge-strong),
+    0 18px 44px rgba(0, 0, 0, 0.32);
+}
+.grid > .m:hover {
+  transform: none;
+}
+.mod-icon svg,
+.menu-icon svg,
+.pick-chevron {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- Module header ---------- */
+.mod-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.mod-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.08);
+  color: var(--paper-100);
+}
+.mod-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.mod-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.mod-title b {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--paper-50);
+}
+.mod-title span {
+  font-size: 12.5px;
+  color: var(--muted-dark);
+}
+.state-pill,
+.count-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted-dark);
+  white-space: nowrap;
+}
+.state-pill.ok {
+  color: var(--ok);
+}
+
+/* ---------- Home ---------- */
+.home-grid .panel {
+  gap: 16px;
+}
+.work-say {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--paper-50);
+}
+.work-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--well);
+}
+.avatar {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--paper-100);
+  color: var(--ink-950);
+  font-weight: 750;
+}
+.reset-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.reset-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.reset-card b {
+  font-size: 18px;
+  color: var(--paper-50);
+}
+.reset-kind {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--muted-dark);
+}
+.reset-when {
+  font-size: 12px;
+  color: var(--muted-dark);
+}
+.reset-card .bar i,
+.peek-row .bar i {
+  background: var(--ok);
+}
+.reset-card.low .bar i {
+  background: var(--warn);
+}
+.reset-card.low b {
+  color: var(--warn);
+}
+.empty-usage {
+  display: block;
+}
+
+/* The one light module on the home screen. */
+.m.paper-panel {
+  background: var(--paper-100);
+  color: var(--ink-950);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+}
+.paper-panel .mod-icon {
+  background: rgba(13, 13, 11, 0.08);
+  color: var(--ink-950);
+}
+.paper-panel .mod-title b {
+  color: var(--ink-950);
+}
+.paper-panel .mod-title span,
+.paper-panel .sub {
+  color: var(--muted-light);
+}
+.paper-panel .bar {
+  background: rgba(13, 13, 11, 0.12);
+}
+.paper-panel .peek-row .bar i {
+  background: var(--ink-950);
+}
+.paper-panel .btn {
+  background: var(--ink-950);
+  color: var(--paper-50);
+}
+.peek-list {
+  display: grid;
+  gap: 12px;
+}
+.peek-row {
+  display: grid;
+  gap: 6px;
+}
+.peek-name {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70%;
+}
+.peek-left {
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.peek-row.current .peek-name::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2f9e5f;
+  margin-right: 8px;
+  vertical-align: 2px;
+}
+.chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+.agent-chip,
+.line-row {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  cursor: pointer;
+  min-width: 0;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.agent-chip:hover,
+.line-row:hover {
+  background: rgba(233, 233, 227, 0.07);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+}
+.agent-chip .who,
+.line-row .who {
+  min-width: 0;
+}
+.agent-chip.more {
+  background: transparent;
+  box-shadow: none;
+  outline: 1px dashed rgba(233, 233, 227, 0.22);
+  outline-offset: -1px;
+}
+.more-plus {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.08);
+  font-size: 18px;
+}
+.line-list {
+  display: grid;
+  gap: 8px;
+}
+.line-money {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.empty-cta {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+
+/* ---------- AI 助手: official and third-party look different ---------- */
+.agent-section {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 30px;
+}
+.agent-section-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+}
+.agent-section-head.official {
+  background: linear-gradient(100deg, rgba(233, 233, 227, 0.12), rgba(233, 233, 227, 0.02) 60%);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+}
+.agent-section-head.community {
+  outline: 1px dashed rgba(233, 233, 227, 0.22);
+  outline-offset: -1px;
+}
+.section-badge {
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  white-space: nowrap;
+}
+.official .section-badge {
+  background: var(--paper-100);
+  color: var(--ink-950);
+}
+.community .section-badge {
+  color: var(--paper-100);
+  box-shadow: inset 0 0 0 1px rgba(233, 233, 227, 0.35);
+}
+.agent-card {
+  transition:
+    background 0.5s ease,
+    box-shadow 0.5s ease;
+}
+.agent-card.official {
+  background: linear-gradient(180deg, rgba(233, 233, 227, 0.07), transparent 120px), var(--card);
+  box-shadow:
+    inset 0 0 0 1px rgba(233, 233, 227, 0.14),
+    0 14px 36px rgba(0, 0, 0, 0.28);
+}
+.agent-card.official::after {
+  content: "";
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 0;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: linear-gradient(90deg, transparent, rgba(233, 233, 227, 0.55), transparent);
+}
+.agent-card.community {
+  background: rgba(22, 22, 19, 0.94);
+  box-shadow: none;
+  outline: 1px dashed rgba(233, 233, 227, 0.16);
+  outline-offset: -1px;
+}
+/* Not installed: the card sleeps in the dark; only the unlock slider is lit. */
+.agent-card.dormant {
+  background: rgba(12, 12, 10, 0.92);
+}
+.agent-card.dormant .agent-head,
+.agent-card.dormant .manual {
+  opacity: 0.4;
+  filter: grayscale(1);
+  transition:
+    opacity 0.6s ease,
+    filter 0.6s ease;
+}
+.agent-card.dormant:hover .agent-head {
+  opacity: 0.6;
+}
+.agent-card.dormant .unlock {
+  background: rgba(233, 233, 227, 0.1);
+  box-shadow:
+    inset 0 0 0 1px rgba(233, 233, 227, 0.22),
+    0 0 24px rgba(233, 233, 227, 0.06);
+}
+.agent-card.dormant .unlock-text {
+  color: var(--paper-50);
+}
+.agent-card.dormant .unlock-knob {
+  box-shadow: 0 0 18px rgba(245, 245, 240, 0.45);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .agent-card.dormant:not(.awake) .unlock-knob {
+    animation: knob-glow 2.2s ease-in-out infinite;
+  }
+  .agent-card.awake {
+    animation: card-wake 0.9s ease;
+  }
+}
+@keyframes knob-glow {
+  50% {
+    box-shadow: 0 0 28px rgba(245, 245, 240, 0.75);
+  }
+}
+@keyframes card-wake {
+  40% {
+    box-shadow:
+      inset 0 0 0 1px rgba(233, 233, 227, 0.6),
+      0 0 48px rgba(233, 233, 227, 0.18);
+  }
+}
+/* Unlocking (or installed): the card lights up. */
+.agent-card.dormant.awake {
+  background: var(--card);
+}
+.agent-card.dormant.awake .agent-head,
+.agent-card.dormant.awake .manual {
+  opacity: 1;
+  filter: none;
+}
+.segment button.off {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.segment button.off:hover {
+  color: var(--muted-dark);
+}
+.key-form {
+  display: grid;
+  gap: 10px;
+}
+.key-form .input {
+  flex: 1;
+  min-width: 180px;
+}
+
+/* ---------- Rounded picker (replaces the system dropdown) ---------- */
+.pick-native {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.pick {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+  height: 44px;
+  padding: 0 12px 0 14px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  color: var(--paper-50);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+.pick:hover {
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+}
+.pick:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.pick-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted-dark);
+  transition: transform 0.2s ease;
+}
+.pick.open {
+  background: #23231e;
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.pick.open.open-up {
+  border-radius: 0 0 var(--r-md) var(--r-md);
+}
+.pick.open .pick-chevron {
+  transform: rotate(180deg);
+}
+.pick-list,
+.menu-panel {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  background: #23231e;
+  box-shadow:
+    inset 0 0 0 1px var(--edge-strong),
+    0 22px 48px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+  max-height: 300px;
+  overflow: auto;
+}
+.pick-list.show,
+.menu-panel.show {
+  opacity: 1;
+  transform: none;
+}
+.pick-list {
+  border-radius: 0 0 var(--r-md) var(--r-md);
+}
+.pick-list.up {
+  border-radius: var(--r-md) var(--r-md) 0 0;
+}
+.pick-option,
+.menu-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--paper-100);
+  font: inherit;
+  text-align: left;
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.pick-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  font-size: 14px;
+}
+.pick-option:hover,
+.pick-option:focus-visible,
+.menu-item:not(.off):hover,
+.menu-item:focus-visible {
+  background: rgba(233, 233, 227, 0.09);
+  outline: none;
+}
+.pick-option[aria-selected="true"] {
+  font-weight: 700;
+  color: var(--paper-50);
+}
+.pick-option[aria-selected="true"]::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.menu-trigger .pick-chevron {
+  color: inherit;
+  opacity: 0.7;
+}
+.menu-trigger.open .pick-chevron {
+  transform: rotate(180deg);
+}
+.menu-panel {
+  border-radius: var(--r-lg);
+  min-width: 280px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 10px;
+}
+.menu-item.off {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.menu-icon {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.08);
+}
+.menu-icon svg {
+  width: 19px;
+  height: 19px;
+}
+.menu-text {
+  display: grid;
+  gap: 2px;
+}
+.menu-text b {
+  font-size: 14px;
+}
+.menu-text small {
+  font-size: 12px;
+  color: var(--muted-dark);
+}
+.tip-bubble {
+  position: fixed;
+  z-index: 2000;
+  max-width: 260px;
+  padding: 7px 11px;
+  border-radius: var(--r-md);
+  background: var(--paper-100);
+  color: var(--ink-950);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(2px);
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+.tip-bubble.show {
+  opacity: 1;
+  transform: none;
+}
+
+/* Round 6 fixes: the banner keeps its brand red; switches and compact pickers read clearly. */
+.m.promo {
+  background: linear-gradient(115deg, #c23a26 0%, #b83220 38%, #8e2517 100%);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3);
+}
+.switch {
+  background: rgba(10, 10, 8, 0.7);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+}
+.pick.compact-select {
+  font-size: 14px;
+  min-width: 150px;
+}
+.paper-panel {
+  align-content: start;
+}
+.paper-panel > .row:last-child {
+  margin-top: auto;
+}

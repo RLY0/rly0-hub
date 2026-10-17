@@ -10,6 +10,8 @@ window.registerHubAgents = ({
   failed,
   explain,
   isRly0,
+  isOfficialKey,
+  LOGIN_ICONS,
   pollers,
   moneyBadge,
   rateBadge,
@@ -28,12 +30,13 @@ window.registerHubAgents = ({
     installingNode: ["正在安装 Node.js", 20],
     installingGit: ["正在安装 Git", 35],
     officialInstaller: ["正在运行官方安装程序", 60],
+    installerWindow: ["请在弹出的安装窗口里完成安装，有提问直接在窗口里回答", 60],
     npm: ["正在通过 npm 安装", 60],
     npmMirror: ["正在通过备用源安装", 75],
   };
   const INSTALL_ERRORS = {
     NETWORK: "网络不通，换个网络或开代理再试",
-    PERMISSION: "没有权限，试试以管理员身份运行 Hub",
+    PERMISSION: "安装被系统拒绝了，展开下面的安装日志看具体原因",
     NODE_MISSING: "缺少 Node.js，可以先手动安装",
     GIT_MISSING: "缺少 Git，可以先手动安装",
     MANUAL: "需要手动安装",
@@ -238,28 +241,36 @@ window.registerHubAgents = ({
   }
 
   /* ---------- Page ---------- */
+  const LOGIN_ERRORS = {
+    API_KEY_INVALID: "Key 格式不对，Anthropic 的 Key 以 sk-ant- 开头",
+    AUTH_FILE_INVALID: "这个文件不是有效的 JSON",
+    AUTH_FILE_NOT_A_LOGIN: "这个文件里没有 Claude 登录信息（需要 .credentials.json）",
+    RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
+  };
+  const loginFailed = (error) =>
+    toast(LOGIN_ERRORS[error && error.message] || explain(error && error.message));
+
+  const sectionHead = (kind, title, hint, count) =>
+    h(
+      "div",
+      { class: `agent-section-head ${kind}` },
+      h("span", { class: "section-badge" }, kind === "official" ? "OFFICIAL" : "THIRD-PARTY"),
+      h("div", { class: "mod-title" }, h("b", null, title), h("span", null, hint)),
+      h("span", { class: "spacer" }),
+      h("span", { class: "count-pill tabular" }, count),
+    );
+
   pages.agents = (root, alive) => {
-    const ready = h("section", { class: "m tone span-6 ready-strip" });
-    const official = h("div", { class: "grid compact" });
-    const community = h("div", { class: "grid compact" });
+    const official = h("div", { class: "grid compact agent-grid" });
+    const community = h("div", { class: "grid compact agent-grid" });
+    const officialHead = h("div");
+    const communityHead = h("div");
     root.append(
-      h("div", { class: "grid compact" }, ready),
-      h(
-        "h2",
-        { class: "section-title" },
-        "官方 Agent",
-        h("span", { class: "sub" }, "模型厂商自家的编程助手"),
-      ),
-      official,
-      h(
-        "h2",
-        { class: "section-title" },
-        "第三方 Agent",
-        h("span", { class: "sub" }, "开源在前，闭源在后"),
-      ),
-      community,
+      h("section", { class: "agent-section official" }, officialHead, official),
+      h("section", { class: "agent-section community" }, communityHead, community),
     );
     let relays = [];
+    let officialKey = null;
     let claudeRelay = null;
     let claudeAuth = null;
     const balances = new Map();
@@ -272,55 +283,37 @@ window.registerHubAgents = ({
         call("agents.claudeCode.status").catch(() => null),
       ]);
       if (!alive()) return;
-      relays = ((relayList && relayList.relays) || []).filter((relay) => relay.hasKey);
+      const all = ((relayList && relayList.relays) || []).filter((relay) => relay.hasKey);
+      officialKey = all.find(isOfficialKey) || null;
+      relays = all.filter((relay) => relay.enabled && !isOfficialKey(relay));
       claudeRelay = selection.claudeCode;
       claudeAuth = auth;
       const agents = (list && list.agents) || [];
-      renderReady(agents);
-      put(official, ...agents.filter((a) => a.category === "official").map(card));
+      // Installed first; within each, the catalogue order (open source before closed).
+      const order = (items) =>
+        items
+          .map((agent, index) => ({ agent, index }))
+          .sort(
+            (a, b) =>
+              Number(b.agent.installed) - Number(a.agent.installed) ||
+              Number(b.agent.openSource) - Number(a.agent.openSource) ||
+              a.index - b.index,
+          )
+          .map(({ agent }) => agent);
+      const officials = order(agents.filter((a) => a.category === "official"));
+      const others = order(agents.filter((a) => a.category === "community"));
+      const ready = (items) =>
+        `${items.filter((a) => a.installed).length} / ${items.length} 已安装`;
       put(
-        community,
-        ...agents
-          .filter((a) => a.category === "community")
-          .sort((a, b) => Number(b.openSource) - Number(a.openSource))
-          .map(card),
+        officialHead,
+        sectionHead("official", "官方 Agent", "模型厂商自家的编程助手", ready(officials)),
       );
-    }
-
-    function accessText(agent) {
-      if (agent.id === "claude-code") {
-        const relay = relays.find((r) => r.id === claudeRelay);
-        if (relay) return `通过 ${relay.name}`;
-        return claudeAuth && claudeAuth.loggedIn ? `官方账号 ${claudeAuth.email || ""}` : "未登录";
-      }
-      return "已安装";
-    }
-
-    function renderReady(agents) {
-      const installed = agents.filter((a) => a.installed);
       put(
-        ready,
-        h("span", { class: "label" }, "Ready on this PC"),
-        installed.length
-          ? h(
-              "div",
-              { class: "ready-list" },
-              installed.map((agent) =>
-                h(
-                  "div",
-                  { class: "ready-item" },
-                  logo(agent, 28),
-                  h(
-                    "div",
-                    { class: "who" },
-                    h("b", null, agent.name),
-                    h("span", null, accessText(agent)),
-                  ),
-                ),
-              ),
-            )
-          : h("p", { class: "sub" }, "这台电脑还没有装 AI 助手，从下面选一个解锁。"),
+        communityHead,
+        sectionHead("community", "第三方 Agent", "社区和独立团队做的，开源在前", ready(others)),
       );
+      put(official, ...officials.map(card));
+      put(community, ...others.map(card));
     }
 
     async function balanceOf(relay) {
@@ -333,7 +326,9 @@ window.registerHubAgents = ({
     }
 
     function card(agent) {
-      const element = h("section", { class: "m agent-card span-3" });
+      const element = h("section", {
+        class: `m agent-card span-3 ${agent.category} ${agent.installed ? "installed" : "dormant"}`,
+      });
       const body = h("div", { class: "agent-body" });
       element.append(
         h(
@@ -353,13 +348,13 @@ window.registerHubAgents = ({
           h(
             "span",
             { class: `tag ${agent.installed ? "ok" : ""}` },
-            agent.installed ? "Installed" : "Locked",
+            agent.installed ? "已安装" : "未解锁",
           ),
         ),
         body,
       );
       if (agent.installed) renderAccess(agent, body);
-      else renderLocked(agent, body);
+      else renderLocked(agent, body, element);
       return element;
     }
 
@@ -383,10 +378,12 @@ window.registerHubAgents = ({
       );
     }
 
-    function renderLocked(agent, body) {
+    function renderLocked(agent, body, element) {
       const progress = progressBar();
       const status = h("p", { class: "sub" });
       const start = async () => {
+        // The card lights up once it is being unlocked.
+        element.classList.add("awake");
         put(body, progress.element, status);
         progress.set("准备安装", 5);
         let state = await call("agents.installStart", { agent: agent.id }).catch(() => ({
@@ -428,16 +425,20 @@ window.registerHubAgents = ({
                   : null,
                 h(
                   "button",
-                  { class: "btn sm", type: "button", onclick: () => renderLocked(agent, body) },
+                  {
+                    class: "btn sm",
+                    type: "button",
+                    onclick: () => renderLocked(agent, body, element),
+                  },
                   "再试一次",
                 ),
               ),
               state.log
                 ? h(
                     "details",
-                    { class: "manual" },
+                    { class: "manual", open: true },
                     h("summary", null, "安装日志"),
-                    codeBlock("最后几行（发给我们排查用）", state.log.slice(-3000)),
+                    codeBlock("最后几行（截图发给我们排查）", state.log.slice(-3000)),
                   )
                 : null,
               manualHelp(agent),
@@ -452,6 +453,7 @@ window.registerHubAgents = ({
         pollers.add(timer);
         tick();
       };
+      element.classList.remove("awake");
       put(
         body,
         agent.automatic
@@ -468,13 +470,34 @@ window.registerHubAgents = ({
       );
     }
 
+    // A file the person picks, read as text (login files are small).
+    function pickFile(onText) {
+      const input = h("input", { type: "file", accept: ".json,application/json", hidden: true });
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        input.remove();
+        if (!file) return;
+        if (file.size > 256 * 1024) {
+          toast("文件太大，不像是登录文件");
+          return;
+        }
+        file.text().then(onText);
+      });
+      document.body.append(input);
+      input.click();
+    }
+
     function renderAccess(agent, body) {
       const zero = relays.find((relay) => isRly0(relay));
       const others = relays.filter((relay) => !isRly0(relay));
-      const supports = agent.relay !== "none" && relays.length > 0;
+      const canRelay = agent.relay !== "none";
       let mode = "official";
       let relay = null;
-      if (agent.id === "claude-code" && claudeRelay) {
+      if (
+        agent.id === "claude-code" &&
+        claudeRelay &&
+        !(officialKey && claudeRelay === officialKey.id)
+      ) {
         relay = relays.find((r) => r.id === claudeRelay) || null;
         mode = relay ? (isRly0(relay) ? "rly0" : "other") : "official";
       }
@@ -503,77 +526,194 @@ window.registerHubAgents = ({
       };
 
       function draw() {
-        const option = (key, label, disabled, onclick) =>
+        // Every way in is always shown; one that cannot be used yet is grey with a hint.
+        const option = (key, label, blocked, onclick) =>
           h(
             "button",
             {
               type: "button",
               role: "radio",
               "aria-checked": String(mode === key),
-              class: mode === key ? "on" : "",
-              disabled,
-              onclick,
+              "aria-disabled": blocked ? "true" : null,
+              "data-tip": blocked || null,
+              class: `${mode === key ? "on" : ""} ${blocked ? "off" : ""}`,
+              onclick: () => (blocked ? toast(blocked) : onclick()),
             },
             label,
           );
+        const unsupported = canRelay ? null : `${agent.name} 暂时不能接中转站，只能用官方账号`;
         put(
           segment,
-          option("official", "官方账号", false, () => choose("official", null)),
-          supports && zero ? option("rly0", "零号中转", false, () => choose("rly0", zero)) : null,
-          supports && others.length
-            ? option("other", others.length === 1 ? others[0].name : "其他中转", false, () =>
-                choose("other", relay && !isRly0(relay) ? relay : others[0]),
-              )
-            : null,
+          option("official", "官方账号", null, () => choose("official", null)),
+          option(
+            "rly0",
+            "零号中转",
+            unsupported || (zero ? null : "还没添加零号中转，先去「中转站」页接入"),
+            () => choose("rly0", zero),
+          ),
+          option(
+            "other",
+            others.length === 1 ? others[0].name : "其他中转",
+            unsupported || (others.length ? null : "还没添加其他中转站，可以在「中转站」页添加"),
+            () => choose("other", relay && !isRly0(relay) ? relay : others[0]),
+          ),
         );
         if (mode === "official") drawOfficial();
         else drawRelay();
+      }
+
+      function loginMenu(label, className) {
+        const claude = agent.id === "claude-code";
+        return window.HubUI.menuButton(
+          label,
+          [
+            {
+              icon: LOGIN_ICONS.web,
+              title: "网页登录",
+              desc: claude
+                ? "在浏览器登录 Claude 账号（Pro / Max）"
+                : "打开终端，按提示在浏览器里登录",
+              onSelect: () =>
+                claude ? login("claudeai") : openTerminalLogin("已打开终端，按提示登录"),
+            },
+            {
+              icon: LOGIN_ICONS.file,
+              title: "导入登录文件",
+              desc: claude ? "用别的电脑 ~/.claude/.credentials.json" : "这个助手不支持",
+              disabled: !claude,
+              tip: `${agent.name} 不支持导入登录文件，用网页登录或 API Key`,
+              onSelect: () =>
+                pickFile((content) =>
+                  call("agents.claudeCode.importCredentials", { content }).then((result) => {
+                    toast(result.backup ? "已导入，原来的登录文件已备份" : "已导入 Claude 登录");
+                    load();
+                  }, loginFailed),
+                ),
+            },
+            {
+              icon: LOGIN_ICONS.key,
+              title: "官方 API Key",
+              desc: claude
+                ? "填 Anthropic 的 sk-ant- Key，按用量计费"
+                : "在终端里选择 API Key 方式",
+              onSelect: () =>
+                claude ? showKeyForm() : openTerminalLogin("已打开终端，选择 API Key 方式登录"),
+            },
+          ],
+          { className: className || "btn paper sm" },
+        );
+      }
+
+      function openTerminalLogin(done) {
+        call("agents.openLogin", { agent: agent.id }).then(
+          (r) => toast(r.ok ? done : "没能打开终端"),
+          failed,
+        );
+      }
+
+      function showKeyForm() {
+        const key = h("input", {
+          class: "input",
+          type: "password",
+          placeholder: "sk-ant-…",
+          autocomplete: "off",
+          spellcheck: "false",
+          "aria-label": "Anthropic API Key",
+        });
+        const save = () =>
+          call("agents.claudeCode.setApiKey", { apiKey: key.value.trim() }).then(() => {
+            toast("已保存，Codex 里新开的 Claude Code 对话用这个 Key");
+            load();
+          }, loginFailed);
+        key.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") save();
+        });
+        put(
+          detail,
+          h(
+            "div",
+            { class: "key-form" },
+            h(
+              "p",
+              { class: "sub" },
+              "Key 加密保存在本机，只发给 Anthropic 官方，界面上不会再显示。",
+            ),
+            h(
+              "div",
+              { class: "row" },
+              key,
+              h("button", { class: "btn paper sm", type: "button", onclick: save }, "保存"),
+              h(
+                "button",
+                { class: "btn quiet sm", type: "button", onclick: () => drawOfficial() },
+                "取消",
+              ),
+            ),
+          ),
+        );
+        key.focus();
       }
 
       function drawOfficial() {
         put(quota);
         if (agent.id === "claude-code") {
           const auth = claudeAuth;
+          const usingKey = officialKey && claudeRelay === officialKey.id;
           put(
             detail,
-            auth && auth.loggedIn
+            usingKey
               ? h(
                   "div",
                   { class: "row" },
-                  h(
-                    "span",
-                    { class: "sub" },
-                    `已登录 ${auth.email || ""}${auth.plan ? ` · ${auth.plan}` : ""}`,
-                  ),
+                  h("span", { class: "sub" }, "正在用官方 API Key"),
                   h("span", { class: "spacer" }),
+                  loginMenu("换个方式", "btn quiet sm"),
                   h(
                     "button",
                     {
                       class: "btn quiet sm",
                       type: "button",
                       onclick: () =>
-                        call("agents.claudeCode.logout").then(() => {
-                          toast("已退出登录");
+                        call("agents.relays.set", { claudeCode: null }).then(() => {
+                          toast(auth && auth.loggedIn ? "已改回账号登录" : "已停用 API Key");
                           load();
                         }, failed),
                     },
-                    "退出登录",
+                    "停用 Key",
                   ),
                 )
-              : h(
-                  "div",
-                  { class: "row" },
-                  h(
-                    "button",
-                    { class: "btn paper sm", type: "button", onclick: () => login("claudeai") },
-                    "用 Claude 账号登录",
+              : auth && auth.loggedIn
+                ? h(
+                    "div",
+                    { class: "row" },
+                    h(
+                      "span",
+                      { class: "sub" },
+                      `已登录 ${auth.email || ""}${auth.plan ? ` · ${auth.plan}` : ""}`,
+                    ),
+                    h("span", { class: "spacer" }),
+                    loginMenu("换个方式", "btn quiet sm"),
+                    h(
+                      "button",
+                      {
+                        class: "btn quiet sm",
+                        type: "button",
+                        onclick: () =>
+                          call("agents.claudeCode.logout").then(() => {
+                            toast("已退出登录");
+                            load();
+                          }, failed),
+                      },
+                      "退出登录",
+                    ),
+                  )
+                : h(
+                    "div",
+                    { class: "row" },
+                    h("span", { class: "sub" }, "还没登录"),
+                    h("span", { class: "spacer" }),
+                    loginMenu("登录官方账号"),
                   ),
-                  h(
-                    "button",
-                    { class: "btn sm", type: "button", onclick: () => login("console") },
-                    "用 API Console 登录",
-                  ),
-                ),
           );
           return;
         }
@@ -582,21 +722,8 @@ window.registerHubAgents = ({
           h(
             "div",
             { class: "row" },
-            agent.canOpenLogin
-              ? h(
-                  "button",
-                  {
-                    class: "btn sm",
-                    type: "button",
-                    onclick: () =>
-                      call("agents.openLogin", { agent: agent.id }).then(
-                        (r) => toast(r.ok ? "已打开终端，按提示登录" : "没能打开终端"),
-                        failed,
-                      ),
-                  },
-                  "登录官方账号",
-                )
-              : null,
+            agent.canOpenLogin ? loginMenu("登录官方账号") : null,
+            h("span", { class: "spacer" }),
             h(
               "button",
               {

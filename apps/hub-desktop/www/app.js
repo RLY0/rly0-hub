@@ -124,6 +124,31 @@
     const sameDay = date.toDateString() === new Date().toDateString();
     return `${sameDay ? "" : `${date.getMonth() + 1}/${date.getDate()} `}${pad(date.getHours())}:${pad(date.getMinutes())} 重置`;
   }
+  // "2 小时 13 分后" / "3 天后" until a quota window refills.
+  function countdown(seconds) {
+    const left = Math.max(0, seconds * 1000 - Date.now());
+    const minutes = Math.round(left / 60000);
+    if (minutes < 1) return "马上";
+    if (minutes < 60) return `${minutes} 分钟后`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} 小时 ${minutes % 60} 分后`;
+    return `${Math.round(hours / 24)} 天后`;
+  }
+  // Icons for the three ways to sign in (fixed markup).
+  const LOGIN_ICONS = {
+    web: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
+    file: '<path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M12 10v7M9 14l3 3 3-3"/>',
+    key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
+    terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12 15h5"/>',
+  };
+  /** Claude Code's official Anthropic key, stored by rly0-core like a relay. */
+  const isOfficialKey = (relay) => {
+    try {
+      return new URL(relay.baseUrl).hostname.toLowerCase() === "api.anthropic.com";
+    } catch {
+      return false;
+    }
+  };
   const accountName = (account) => account.alias || account.email || "Codex 账号";
   const isRly0 = (relay) => {
     try {
@@ -210,15 +235,6 @@
     requestAnimationFrame(check);
   }
 
-  /* ---------- A soft light that follows the pointer across every module ---------- */
-  document.addEventListener("pointermove", (event) => {
-    const card = event.target instanceof Element ? event.target.closest(".m") : null;
-    if (!card) return;
-    const box = card.getBoundingClientRect();
-    card.style.setProperty("--mx", `${Math.round(event.clientX - box.left)}px`);
-    card.style.setProperty("--my", `${Math.round(event.clientY - box.top)}px`);
-  });
-
   /* ---------- Pages ---------- */
   const pages = {};
 
@@ -304,10 +320,13 @@
     explain,
     money,
     isRly0,
+    isOfficialKey,
     pollers,
     svg,
     go,
     resetText,
+    countdown,
+    LOGIN_ICONS,
     accountName,
     moneyBadge,
     rateBadge,
@@ -317,6 +336,7 @@
   window.registerHubAgents(pageApi);
   const relayModule = window.registerHubRelays(pageApi);
   pageApi.relayStrip = relayModule.relayStrip;
+  pageApi.relayLogo = relayModule.relayLogo;
   window.registerHubHome(pageApi);
   window.registerHubInstructions(pageApi);
 
@@ -324,6 +344,7 @@
     installingNode: "正在安装 Node.js",
     installingGit: "正在安装 Git",
     officialInstaller: "正在用官方安装器安装",
+    installerWindow: "请在弹出的安装窗口里完成安装",
     npm: "正在通过 npm 安装",
     npmMirror: "正在通过国内镜像安装",
   };
@@ -354,7 +375,7 @@
       h(
         "button",
         {
-          class: "btn",
+          class: "btn quiet",
           type: "button",
           onclick: () =>
             call("accounts.importCurrent", {}).then((r) => {
@@ -364,20 +385,29 @@
         },
         "保存当前登录",
       ),
-      h(
-        "button",
-        { class: "btn", type: "button", onclick: () => filePicker.click() },
-        "导入 auth.json",
-      ),
-      h(
-        "button",
-        { class: "btn", type: "button", onclick: () => showApiKeyForm() },
-        "API Key 登录",
-      ),
-      h(
-        "button",
-        { class: "btn paper", type: "button", onclick: () => addAccount() },
-        "+ 添加其他 GPT 账号",
+      window.HubUI.menuButton(
+        "+ 添加账号",
+        [
+          {
+            icon: LOGIN_ICONS.web,
+            title: "网页登录",
+            desc: "在浏览器里登录另一个 ChatGPT 账号",
+            onSelect: () => addAccount(),
+          },
+          {
+            icon: LOGIN_ICONS.file,
+            title: "导入 auth.json",
+            desc: "用别的电脑上 Codex 的登录文件",
+            onSelect: () => filePicker.click(),
+          },
+          {
+            icon: LOGIN_ICONS.key,
+            title: "官方 API Key",
+            desc: "填 OpenAI 的 sk- Key，按用量计费",
+            onSelect: () => showApiKeyForm(),
+          },
+        ],
+        { align: "right" },
       ),
     );
     const addStatus = h("div");
@@ -655,23 +685,37 @@
             ]),
       );
     }
+    // One reset card per quota window: what is left, a bar, and when it refills.
     function usageBars(usage) {
-      if (!usage) return h("div", { class: "sub" }, "额度未知");
-      return usage.windows.map((w) =>
-        h(
+      if (!usage || !usage.windows.length)
+        return h(
           "div",
-          { class: "field" },
-          h(
-            "span",
-            null,
-            `${w.kind === "primary" ? "5 小时" : "每周"} · 已用 ${Math.round(w.usedPercent)}%${w.resetsAt ? ` · ${resetText(w.resetsAt)}` : ""}`,
-          ),
-          h(
+          { class: "reset-cards empty-usage" },
+          h("span", { class: "sub" }, "额度未知，切换到这个账号后会读取"),
+        );
+      return h(
+        "div",
+        { class: "reset-cards" },
+        usage.windows.map((w) => {
+          const left = Math.max(0, Math.round(100 - w.usedPercent));
+          return h(
             "div",
-            { class: "bar" },
-            h("i", { style: { width: `${Math.min(100, w.usedPercent)}%` } }),
-          ),
-        ),
+            { class: `reset-card ${left <= 15 ? "low" : ""}` },
+            h(
+              "div",
+              { class: "row" },
+              h("span", { class: "reset-kind" }, w.kind === "primary" ? "5 小时额度" : "每周额度"),
+              h("span", { class: "spacer" }),
+              h("b", { class: "tabular" }, `剩 ${left}%`),
+            ),
+            h("div", { class: "bar" }, h("i", { style: { width: `${left}%` } })),
+            h(
+              "span",
+              { class: "reset-when" },
+              w.resetsAt ? `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}` : "重置时间未知",
+            ),
+          );
+        }),
       );
     }
     function rename(label, account) {

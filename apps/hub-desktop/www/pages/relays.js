@@ -11,6 +11,7 @@ window.registerHubRelays = ({
   explain,
   money,
   isRly0,
+  isOfficialKey,
   moneyBadge,
   rateBadge,
 }) => {
@@ -412,6 +413,8 @@ window.registerHubRelays = ({
         call("proxy.status").catch(() => null),
       ]);
       if (!alive()) return;
+      // Claude Code's own Anthropic API key is kept like a relay but managed on the AI 助手 page.
+      if (relays && relays.relays) relays.relays = relays.relays.filter((r) => !isOfficialKey(r));
       const running = Boolean(proxy && proxy.running);
       put(
         proxyLine,
@@ -649,6 +652,7 @@ window.registerHubRelays = ({
 
   /** Home strip: every relay at a glance, 零号 first, with its logo and balance. */
   return {
+    relayLogo,
     relayStrip(alive) {
       const strip = h(
         "section",
@@ -659,7 +663,9 @@ window.registerHubRelays = ({
         .catch(() => null)
         .then((relays) => {
           if (!alive()) return;
-          const items = ((relays && relays.relays) || []).filter((r) => r.enabled);
+          const items = ((relays && relays.relays) || []).filter(
+            (r) => r.enabled && !isOfficialKey(r),
+          );
           if (!items.length) {
             strip.append(h("p", { class: "sub" }, "还没有启用的中转站"));
             return;
