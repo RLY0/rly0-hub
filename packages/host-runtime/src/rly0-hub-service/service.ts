@@ -36,7 +36,12 @@ import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { listRly0HubAgents, rly0HubAgentDocsUrl } from "./agents.js";
 import { fetchRelayLogo } from "./relay-logo.js";
-import { evaluateRly0HubAlerts, type Rly0HubAlert } from "./alerts.js";
+import {
+  cleanAlertSettings,
+  evaluateRly0HubAlerts,
+  RLY0_ALERT_DEFAULTS,
+  type Rly0HubAlert,
+} from "./alerts.js";
 import {
   cleanAutoSwitchSettings,
   decideAutoSwitch,
@@ -226,6 +231,7 @@ export class Rly0HubService {
     const { alerts, state } = evaluateRly0HubAlerts(
       { balance, quota: switching ? null : quota },
       switching ? { ...before, ...switching.state } : before,
+      cleanAlertSettings(before.alerts ?? RLY0_ALERT_DEFAULTS),
     );
     if (JSON.stringify(state) !== JSON.stringify(before)) await this.#state.update(state);
     return { alerts: switching?.alert ? [switching.alert, ...alerts] : alerts };
@@ -420,6 +426,22 @@ export class Rly0HubService {
         const result = await this.#codexConfig.restore();
         return { ok: result.ok };
       }),
+      "alerts.settingsGet": route(empty, async () =>
+        cleanAlertSettings((await this.#state.read()).alerts ?? RLY0_ALERT_DEFAULTS),
+      ),
+      "alerts.settingsSet": route(
+        z
+          .object({
+            balanceUsd: z.number().min(0).max(1000),
+            quotaUsedPercent: z.number().int().min(50).max(100),
+          })
+          .strict(),
+        async (p) => {
+          const settings = cleanAlertSettings(p);
+          await this.#state.update({ alerts: settings });
+          return settings;
+        },
+      ),
       "accounts.switchAndRestart": route(rly0AccountsSwitchParamsSchema, (p) =>
         this.#switchAndRestart(p.id),
       ),

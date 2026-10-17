@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
+import { cleanAlertSettings, type Rly0AlertSettings } from "./alerts.js";
 import { cleanAutoSwitchSettings, type Rly0AutoSwitchSettings } from "./auto-switch.js";
 
 export const RLY0_HUB_STATE_FILE = "hub-desktop.json";
@@ -20,6 +21,8 @@ export interface Rly0HubState {
   readonly autoSwitch?: Rly0AutoSwitchSettings;
   /** Account, window and reset time an auto-switch notice or switch was made for. */
   readonly autoSwitchHandledFor?: string;
+  /** Tray-notice thresholds; defaults when absent. */
+  readonly alerts?: Rly0AlertSettings;
 }
 
 function clean(value: unknown): Rly0HubState {
@@ -35,6 +38,7 @@ function clean(value: unknown): Rly0HubState {
     ...(raw.autoSwitch !== undefined
       ? { autoSwitch: cleanAutoSwitchSettings(raw.autoSwitch) }
       : {}),
+    ...(raw.alerts !== undefined ? { alerts: cleanAlertSettings(raw.alerts) } : {}),
     ...(typeof raw.autoSwitchHandledFor === "string" && raw.autoSwitchHandledFor.length <= 200
       ? { autoSwitchHandledFor: raw.autoSwitchHandledFor }
       : {}),

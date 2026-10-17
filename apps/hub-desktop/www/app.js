@@ -991,6 +991,55 @@
   };
 
   pages.general = (root, alive) => {
+    // Tray-notice thresholds: when to warn about 零号's balance and the Codex 5-hour quota.
+    const alertCard = h("section", { class: "m span-6" });
+    call("alerts.settingsGet")
+      .then((settings) => {
+        if (!alive() || !settings) return;
+        const choose = (label, value, options) =>
+          h(
+            "select",
+            { class: "input compact-select", "aria-label": label },
+            options.map(([v, text]) =>
+              h("option", { value: String(v), selected: v === value }, text),
+            ),
+          );
+        const balance = choose("余额提醒", settings.balanceUsd, [
+          [0, "不提醒"],
+          [1, "低于 $1"],
+          [5, "低于 $5"],
+          [10, "低于 $10"],
+          [20, "低于 $20"],
+        ]);
+        const quota = choose("额度提醒", settings.quotaUsedPercent, [
+          [80, "用掉 80%"],
+          [90, "用掉 90%"],
+          [95, "用掉 95%"],
+          [100, "不提醒"],
+        ]);
+        const save = () =>
+          call("alerts.settingsSet", {
+            balanceUsd: Number(balance.value),
+            quotaUsedPercent: Number(quota.value),
+          }).then(() => toast("已保存"), failed);
+        balance.addEventListener("change", save);
+        quota.addEventListener("change", save);
+        alertCard.append(
+          h(
+            "div",
+            { class: "who" },
+            h("b", null, "托盘提醒"),
+            h("span", null, "到这里时，右下角弹一次提醒"),
+          ),
+          h(
+            "div",
+            { class: "row auto-switch-fields" },
+            h("label", { class: "field" }, h("span", null, "零号余额"), balance),
+            h("label", { class: "field" }, h("span", null, "Codex 5 小时额度"), quota),
+          ),
+        );
+      })
+      .catch(() => undefined);
     const autostart = h("section", { class: "m tone agent span-3" });
     const about = h(
       "section",
@@ -1013,6 +1062,7 @@
         { class: "grid compact" },
         autostart,
         about,
+        alertCard,
         h(
           "section",
           { class: "m span-6" },
@@ -1466,6 +1516,7 @@
       },
       "autostart.get": { supported: true, enabled: true },
       "accounts.autoSwitchGet": { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask" },
+      "alerts.settingsGet": { balanceUsd: 1, quotaUsedPercent: 90 },
       "relay.noAccountStatus": {
         enabled: false,
         configPath: "C:/Users/me/.codex/config.toml",

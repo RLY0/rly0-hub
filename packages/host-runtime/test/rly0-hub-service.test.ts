@@ -571,3 +571,35 @@ describe("No-account mode from the Hub", () => {
     expect(await service.handle("relay.noAccountStatus", {})).toMatchObject({ enabled: false });
   });
 });
+
+describe("Tray notice thresholds", () => {
+  it("follows the person's own balance and quota thresholds", async () => {
+    const { evaluateRly0HubAlerts } = await import("../src/rly0-hub-service/alerts.js");
+    const input = {
+      balance: { amount: 4, unit: "USD" as const },
+      quota: { usedPercent: 85, resetsAt: 1 },
+    };
+    expect(evaluateRly0HubAlerts(input, {}).alerts).toEqual([]);
+    expect(
+      evaluateRly0HubAlerts(input, {}, { balanceUsd: 5, quotaUsedPercent: 80 }).alerts.map(
+        (a) => a.id,
+      ),
+    ).toEqual(["balance-low", "quota-low"]);
+    // CNY relays use the same threshold in yuan (×7).
+    expect(
+      evaluateRly0HubAlerts(
+        { balance: { amount: 30, unit: "CNY" } },
+        {},
+        { balanceUsd: 5, quotaUsedPercent: 90 },
+      ).alerts,
+    ).toHaveLength(1);
+    // 0 / 100 turn a notice off.
+    expect(
+      evaluateRly0HubAlerts(
+        { ...input, quota: { usedPercent: 99 } },
+        {},
+        { balanceUsd: 0, quotaUsedPercent: 100 },
+      ).alerts,
+    ).toEqual([]);
+  });
+});
