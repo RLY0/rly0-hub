@@ -182,6 +182,7 @@
     if (railPage === "settings") settingsFrame(name, alive, options || {});
     else pages[name](pageEl, alive, options || {});
     pageEl.scrollTop = 0;
+    showLoading(mine);
   }
 
   document
@@ -193,6 +194,21 @@
   document
     .getElementById("star")
     .addEventListener("click", () => call("links.open", { target: "github" }).catch(failed));
+
+  /* ---------- Loading: 阿零 on a dark screen until the page's first answers arrive ---------- */
+  const bootEl = document.getElementById("boot");
+  let loadingSince = 0;
+  function showLoading(mine) {
+    loadingSince = Date.now();
+    bootEl.classList.add("show");
+    const check = () => {
+      if (mine !== generation) return;
+      const settled = serviceReady && (pending.size === 0 || Date.now() - loadingSince > 2500);
+      if (settled && Date.now() - loadingSince > 250) bootEl.classList.remove("show");
+      else requestAnimationFrame(check);
+    };
+    requestAnimationFrame(check);
+  }
 
   /* ---------- Pages ---------- */
   const pages = {};
@@ -233,381 +249,67 @@
     pages[section](content, alive, options);
   }
 
-  const pageApi = { pages, h, call, toast, failed, explain, money, isRly0, pollers };
+  /* ---------- Small graphics shared by pages ---------- */
+  // Balance as a coin badge, multiplier as a ring gauge (1 = list price; less = cheaper).
+  function moneyBadge(value, unit, size) {
+    const coin = svg(
+      '<ellipse cx="32" cy="46" rx="20" ry="7" fill="none" stroke="currentColor" stroke-width="4"/><path d="M12 46v-8M52 46v-8" stroke="currentColor" stroke-width="4"/><ellipse cx="32" cy="38" rx="20" ry="7" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="4"/><path d="M12 38v-10M52 38v-10" stroke="currentColor" stroke-width="4"/><ellipse cx="32" cy="27" rx="20" ry="7" fill="currentColor" fill-opacity=".35" stroke="currentColor" stroke-width="4"/>',
+    );
+    return h(
+      "span",
+      { class: `money-badge ${size || ""}` },
+      coin,
+      h("b", { class: "tabular" }, money(value, unit)),
+    );
+  }
+  function rateBadge(rate, tone) {
+    const length = 163.4;
+    const fill = Math.max(0.04, Math.min(1, rate));
+    const saving =
+      rate < 1
+        ? `省 ${Math.round((1 - rate) * 100)}%`
+        : rate > 1
+          ? `贵 ${Math.round((rate - 1) * 100)}%`
+          : "官方价";
+    return h(
+      "span",
+      { class: `rate-badge ${tone || ""}`, title: `价格倍率 ×${rate}（相对官方价）` },
+      svg(
+        `<circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-opacity=".22" stroke-width="8"/><circle cx="32" cy="32" r="26" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(fill * length).toFixed(1)} ${length}" transform="rotate(-90 32 32)"/>`,
+      ),
+      h(
+        "span",
+        { class: "rate-text" },
+        h("b", { class: "tabular" }, `×${rate}`),
+        h("small", null, saving),
+      ),
+    );
+  }
+
+  const pageApi = {
+    pages,
+    h,
+    call,
+    toast,
+    failed,
+    explain,
+    money,
+    isRly0,
+    pollers,
+    svg,
+    go,
+    resetText,
+    accountName,
+    moneyBadge,
+    rateBadge,
+  };
   Object.assign(pageApi, window.registerHubResources(pageApi));
   window.registerHubSystem(pageApi);
   window.registerHubAgents(pageApi);
   const relayModule = window.registerHubRelays(pageApi);
+  pageApi.relayStrip = relayModule.relayStrip;
+  window.registerHubHome(pageApi);
   window.registerHubInstructions(pageApi);
-
-  pages.home = (root, alive) => {
-    const codexModule = h("section", { class: "m codex span-4 rows-2" });
-    const balanceModule = h(
-      "section",
-      { class: "m bal span-2 rows-2" },
-      h("span", { class: "label" }, "RLY/0 Balance"),
-      h("div", { class: "num" }, "…"),
-    );
-    const quotaModule = h(
-      "section",
-      { class: "m quota span-2" },
-      h("span", { class: "label" }, "Codex · 5H"),
-      h("div", { class: "sub" }, "读取中…"),
-    );
-    const proxyModule = h(
-      "section",
-      { class: "m tone stat span-2" },
-      h("span", { class: "label" }, "Proxy"),
-      h("div", { class: "num" }, "…"),
-    );
-    const accountModule = h(
-      "section",
-      { class: "m stat span-2" },
-      h("span", { class: "label" }, "Account"),
-      h("div", { class: "sub" }, "…"),
-    );
-    const agentRow = [
-      h("section", { class: "m tone agent span-2" }),
-      h("section", { class: "m tone agent span-2" }),
-      h("section", { class: "m agent span-2" }),
-    ];
-    root.append(
-      h(
-        "div",
-        { class: "grid" },
-        codexModule,
-        balanceModule,
-        quotaModule,
-        proxyModule,
-        accountModule,
-        agentRow,
-        relayModule.relayStrip(alive),
-      ),
-    );
-
-    async function load() {
-      const [summary, agents] = await Promise.all([
-        call("home.summary").catch(() => null),
-        call("agents.list").catch(() => null),
-      ]);
-      if (!alive()) return;
-      renderCodex(summary, agents);
-      renderProxy(summary);
-      renderAccount(summary);
-      renderAgents(agents);
-      loadQuota(summary);
-    }
-
-    function renderCodex(summary, agents) {
-      const codex = summary && summary.codex;
-      const running = Boolean(codex && codex.running);
-      const claude = agents && agents.agents.find((agent) => agent.id === "claude-code");
-      codexModule.classList.toggle("live", running);
-      codexModule.replaceChildren(
-        h(
-          "div",
-          { class: "row" },
-          h("span", { class: `dot ${running ? "ok" : ""}` }),
-          h("span", { class: "label" }, running ? "Codex · Online" : "Codex · Offline"),
-        ),
-        h(
-          "h2",
-          null,
-          running ? "运行中" : "未启动",
-          h(
-            "span",
-            null,
-            claude && claude.installed
-              ? "Claude Code 已就绪"
-              : "可在 AI 助手里一键安装 Claude Code",
-          ),
-        ),
-        h(
-          "div",
-          { class: "stack", "aria-hidden": "true" },
-          [0, 1, 2, 3].map(() => h("i", null, h("b"))),
-        ),
-        h(
-          "div",
-          { class: "row" },
-          h(
-            "button",
-            {
-              class: "btn paper",
-              type: "button",
-              disabled: codex && !codex.canOpen,
-              onclick: () =>
-                call("codex.open").then(
-                  (r) => toast(r.ok ? "正在打开 Codex" : "没有找到 Codex 启动器"),
-                  failed,
-                ),
-            },
-            running ? "切到 Codex" : "打开 Codex",
-          ),
-          running
-            ? h(
-                "button",
-                {
-                  class: "btn",
-                  type: "button",
-                  onclick: () =>
-                    call("codex.restart").then(
-                      (r) => toast(r.ok ? "Codex 正在重启" : "重启没有成功"),
-                      failed,
-                    ),
-                },
-                "重启 Codex",
-              )
-            : null,
-        ),
-      );
-    }
-
-    function renderProxy(summary) {
-      const proxy = summary && summary.proxy;
-      const running = Boolean(proxy && proxy.running);
-      proxyModule.replaceChildren(
-        h("span", { class: "label" }, "Proxy"),
-        h(
-          "div",
-          { class: "num" },
-          h("span", { class: `pulse ${running ? "" : "off"}` }),
-          running ? "ONLINE" : "OFF",
-        ),
-        h(
-          "span",
-          { class: "sub mono" },
-          running ? `127.0.0.1:${proxy.port}` : "有启用的中转站时自动开启",
-        ),
-      );
-    }
-
-    function renderAccount(summary) {
-      const account = summary && summary.currentAccount;
-      accountModule.replaceChildren(
-        h("span", { class: "label" }, "Account"),
-        account
-          ? h(
-              "div",
-              { class: "who" },
-              h("b", null, accountName(account)),
-              h("span", null, account.plan ? account.plan.toUpperCase() : "当前 Codex 登录"),
-            )
-          : h("div", { class: "sub" }, "Codex 还没登录"),
-        account
-          ? h(
-              "div",
-              { class: "row" },
-              h(
-                "button",
-                { class: "btn sm", type: "button", onclick: () => go("accounts") },
-                "切换账号",
-              ),
-              account.saved ? null : h("span", { class: "tag" }, "未保存"),
-            )
-          : null,
-      );
-    }
-
-    function renderAgents(list) {
-      const agents = (list && list.agents) || [];
-      const claude = agents.find((agent) => agent.id === "claude-code");
-      const installed = agents.filter((agent) => agent.installed && agent.id !== "claude-code");
-      agentRow[0].replaceChildren(
-        h(
-          "span",
-          { class: "agent-logo", style: { width: "44px", height: "44px" } },
-          h("img", { src: "agents/claude-code.svg", alt: "" }),
-        ),
-        h(
-          "div",
-          { class: "who" },
-          h("b", null, "Claude Code"),
-          h("span", null, claude && claude.installed ? "已安装" : "未安装"),
-        ),
-        claude && claude.installed
-          ? h("span", { class: "tag ok" }, "Ready")
-          : h(
-              "button",
-              { class: "btn paper sm", type: "button", onclick: () => go("agents") },
-              "安装",
-            ),
-      );
-      const second = installed[0];
-      agentRow[1].replaceChildren(
-        second
-          ? h(
-              "span",
-              { class: "agent-logo", style: { width: "44px", height: "44px" } },
-              h("img", {
-                src: `agents/${second.id}.${["grok", "opencode", "hermes"].includes(second.id) ? "png" : "svg"}`,
-                alt: "",
-              }),
-            )
-          : h("div", { class: "logo" }, "+"),
-        h(
-          "div",
-          { class: "who" },
-          h("b", null, second ? second.name : "OpenCode、Cursor…"),
-          h("span", null, second ? "已安装" : "第三方 AI 助手"),
-        ),
-        h(
-          "button",
-          { class: "btn sm", type: "button", onclick: () => go("agents") },
-          second ? "管理" : "看看",
-        ),
-      );
-      agentRow[2].replaceChildren(
-        h(
-          "div",
-          { class: "who" },
-          h("b", null, "更多 AI"),
-          h("span", null, `已装 ${agents.filter((a) => a.installed).length} 个`),
-        ),
-        h("span", { class: "num" }, String(agents.length)),
-        h(
-          "button",
-          {
-            class: "btn quiet",
-            type: "button",
-            "aria-label": "打开 AI 助手",
-            onclick: () => go("agents"),
-          },
-          "→",
-        ),
-      );
-    }
-
-    async function loadQuota(summary) {
-      const account = summary && summary.currentAccount;
-      if (!account) {
-        quotaModule.replaceChildren(
-          h("span", { class: "label" }, "Codex · 5H"),
-          h("div", { class: "sub" }, "登录 Codex 后显示额度"),
-        );
-        return;
-      }
-      const result = await call("accounts.usageCurrent").catch(() => null);
-      if (!alive()) return;
-      const usage = result && result.available ? result.usage : null;
-      const window5h = usage && usage.windows.find((w) => w.kind === "primary");
-      if (!window5h) {
-        quotaModule.replaceChildren(
-          h("span", { class: "label" }, "Codex · 5H"),
-          h("div", { class: "sub" }, "暂时读不到额度"),
-        );
-        return;
-      }
-      const left = Math.max(0, Math.round(100 - window5h.usedPercent));
-      const length = 163.4;
-      quotaModule.replaceChildren(
-        h("span", { class: "label" }, "Codex · 5H 剩余"),
-        h(
-          "div",
-          { class: "ring" },
-          svg(
-            `<circle cx="32" cy="32" r="26" fill="none" stroke="#D3D3CC" stroke-width="8"/><circle cx="32" cy="32" r="26" fill="none" stroke="#0D0D0B" stroke-width="8" stroke-linecap="round" stroke-dasharray="${((left / 100) * length).toFixed(1)} ${length}" transform="rotate(-90 32 32)"/>`,
-          ),
-          h(
-            "div",
-            null,
-            h("div", { class: "num" }, `${left}%`),
-            h("div", { class: "sub" }, resetText(window5h.resetsAt)),
-          ),
-        ),
-      );
-    }
-
-    async function loadBalance() {
-      const result = await call("balance.get").catch((error) => ({
-        configured: true,
-        ok: false,
-        error: error.message,
-      }));
-      if (!alive()) return;
-      if (!result.configured) {
-        balanceModule.replaceChildren(
-          h("span", { class: "label" }, "RLY/0 零号中转"),
-          h("h3", null, "一个密钥，调用所有模型"),
-          h(
-            "div",
-            { class: "row" },
-            h(
-              "button",
-              { class: "btn", type: "button", onclick: () => go("relays", { preset: "rly0" }) },
-              "接入零号",
-            ),
-            h(
-              "button",
-              {
-                class: "btn ghost",
-                type: "button",
-                onclick: () => call("links.open", { target: "site" }).catch(failed),
-              },
-              "注册",
-            ),
-          ),
-        );
-        return;
-      }
-      balanceModule.replaceChildren(
-        h("span", { class: "label" }, "RLY/0 Balance"),
-        result.ok
-          ? h(
-              "div",
-              null,
-              h(
-                "div",
-                { class: "num" },
-                h("small", null, result.unit === "CNY" ? "¥" : "$"),
-                typeof result.balance === "number" ? result.balance.toFixed(2) : "—",
-              ),
-              h(
-                "div",
-                { class: "meta" },
-                [
-                  typeof result.todayCost === "number"
-                    ? `今日 −${result.todayCost.toFixed(2)}`
-                    : null,
-                  typeof result.totalCost === "number"
-                    ? `累计 ${result.totalCost.toFixed(2)}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join("  ·  "),
-              ),
-            )
-          : h(
-              "div",
-              null,
-              h("div", { class: "num" }, "—"),
-              h("div", { class: "meta" }, explain(result.error)),
-            ),
-        h(
-          "button",
-          {
-            class: "btn",
-            type: "button",
-            onclick: () =>
-              call("links.open", { target: "recharge" }).then(
-                () => toast("已在浏览器打开充值页"),
-                failed,
-              ),
-          },
-          "充值",
-        ),
-      );
-    }
-
-    load();
-    loadBalance();
-    refreshTimer = setInterval(() => {
-      if (!document.hidden) {
-        load();
-        loadBalance();
-      }
-    }, 60000);
-  };
 
   const STEP = {
     installingNode: "正在安装 Node.js",
@@ -1448,6 +1150,7 @@
         unit: "USD",
         todayCost: 3.12,
         totalCost: 214.6,
+        rate: 0.3,
       },
       "accounts.usage": {
         available: true,

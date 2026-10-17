@@ -1385,3 +1385,455 @@ textarea.models {
     grid-template-columns: 1fr;
   }
 }
+
+/* ================= Round 4: test feedback ================= */
+
+/* Cards let the background glow and grain show through. */
+:root {
+  --card: rgba(23, 23, 20, 0.62);
+  --card-tone: rgba(29, 29, 25, 0.7);
+  --card-paper: rgba(233, 233, 227, 0.9);
+}
+.m {
+  background: var(--card);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.m.tone {
+  background: var(--card-tone);
+}
+.quota {
+  background: var(--card-paper);
+}
+.ready-item,
+.code-block,
+.relay-editor,
+.instructions-compare > div {
+  background: rgba(13, 13, 11, 0.55);
+}
+
+/* A larger, softer glow and grain behind the lower half of every screen. */
+.stage::after {
+  height: 72%;
+  background:
+    radial-gradient(70% 90% at 78% 100%, rgba(184, 50, 32, 0.2), transparent 72%),
+    radial-gradient(55% 70% at 12% 100%, rgba(233, 233, 227, 0.05), transparent 70%),
+    repeating-conic-gradient(rgba(233, 233, 227, 0.045) 0 25%, transparent 0 50%) 0 0 / 6px 6px;
+}
+
+/* One radius family: cards 14, controls 10, chips and switches round. */
+.btn,
+.input,
+select.input,
+.unlock-knob + * {
+  border-radius: var(--r-md);
+}
+.input,
+select.input {
+  min-height: 42px;
+  border: 0;
+  background: rgba(13, 13, 11, 0.65);
+  color: var(--paper-100);
+}
+.input:focus,
+select.input:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+/* Selects look like the inputs, with our own chevron. */
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 38px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6 9l6 6 6-6' fill='none' stroke='%23989891' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px 16px;
+}
+select.input option {
+  background: #171714;
+  color: var(--paper-100);
+}
+
+/* Settings: section tabs across the top. */
+.settings-layout {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.settings-menu {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: rgba(13, 13, 11, 0.7);
+  backdrop-filter: blur(10px);
+  justify-self: start;
+}
+.settings-menu button {
+  border-radius: var(--r-pill);
+  padding: 8px 16px;
+  text-align: center;
+}
+.settings-menu button.on {
+  background: var(--paper-100);
+  color: var(--ink-950);
+}
+.settings-menu button:not(.on):hover {
+  background: transparent;
+}
+
+/* ---------- Home banner: the screen's one brand-red module ---------- */
+.home-grid {
+  grid-auto-rows: auto;
+}
+.promo {
+  flex-direction: row;
+  align-items: center;
+  gap: 28px;
+  padding: 28px 32px;
+  background: linear-gradient(120deg, #b83220 0%, #a12b1c 60%, #8e2517 100%);
+  color: var(--paper-50);
+  min-height: 190px;
+}
+.promo .label {
+  color: rgba(245, 245, 240, 0.78);
+}
+.promo-text {
+  display: grid;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.promo-text h2 {
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+.promo-text p {
+  color: rgba(245, 245, 240, 0.82);
+  font-size: 14px;
+}
+.promo-side {
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+  flex: none;
+}
+.promo-balance {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.promo-note {
+  color: rgba(245, 245, 240, 0.82);
+  font-size: 13px;
+}
+.promo .btn.promo-cta {
+  background: var(--paper-50);
+  color: var(--brand-press);
+  min-width: 132px;
+}
+.promo .btn.ghost {
+  background: rgba(245, 245, 240, 0.16);
+  color: var(--paper-50);
+}
+
+/* 阿零 hops; packets fly out to the right. The official IP is moved as a whole only. */
+.mascot-stage {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  flex: none;
+}
+.mascot {
+  position: absolute;
+  left: 22px;
+  bottom: 18px;
+  width: 88px;
+  height: auto;
+  transform-origin: 50% 100%;
+}
+.mascot-shadow {
+  position: absolute;
+  left: 36px;
+  bottom: 10px;
+  width: 60px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(13, 13, 11, 0.28);
+}
+.packet {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--paper-50);
+  top: 52px;
+  left: 92px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mascot {
+    animation: hop 1.8s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  }
+  .mascot-shadow {
+    animation: shadow 1.8s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  }
+  .packet {
+    animation: fly 1.8s ease-out infinite;
+  }
+  .packet.p2 {
+    animation-delay: 0.6s;
+    top: 64px;
+  }
+  .packet.p3 {
+    animation-delay: 1.2s;
+    top: 40px;
+  }
+  @keyframes hop {
+    0%,
+    100% {
+      transform: translateY(0) scale(1.04, 0.96);
+    }
+    15% {
+      transform: translateY(0) scale(1, 1);
+    }
+    45% {
+      transform: translateY(-22px) scale(0.98, 1.03) rotate(-3deg);
+    }
+    70% {
+      transform: translateY(0) scale(1.03, 0.97);
+    }
+  }
+  @keyframes shadow {
+    0%,
+    100% {
+      transform: scaleX(1);
+      opacity: 1;
+    }
+    45% {
+      transform: scaleX(0.6);
+      opacity: 0.5;
+    }
+  }
+  @keyframes fly {
+    0% {
+      transform: translateX(0) scale(0.6);
+      opacity: 0;
+    }
+    15% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(60px) scale(1);
+      opacity: 0;
+    }
+  }
+}
+
+/* Coin and ring badges for balance and multiplier. */
+.money-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.money-badge svg {
+  width: 26px;
+  height: 26px;
+  color: var(--ok);
+  flex: none;
+}
+.money-badge b {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.money-badge.large svg {
+  width: 36px;
+  height: 36px;
+  color: var(--paper-50);
+}
+.money-badge.large b {
+  font-size: clamp(30px, 3.4vw, 44px);
+  letter-spacing: -0.03em;
+}
+.rate-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--paper-100);
+}
+.rate-badge svg {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  color: var(--ok);
+}
+.rate-badge .rate-text {
+  display: grid;
+  line-height: 1.15;
+}
+.rate-badge b {
+  font-size: 15px;
+  font-weight: 700;
+}
+.rate-badge small {
+  font-size: 12px;
+  color: var(--muted-dark);
+}
+.rate-badge.on-red svg {
+  color: var(--paper-50);
+}
+.rate-badge.on-red small {
+  color: rgba(245, 245, 240, 0.78);
+}
+.quota-line {
+  align-items: center;
+  gap: 18px;
+}
+.strip-money {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.strip-money .money-badge b {
+  font-size: 15px;
+}
+.strip-money .money-badge svg,
+.strip-money .rate-badge svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* AI agent logos on the home card. */
+.logo-stack {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.agent-logo.dim {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+/* ---------- Loading: 阿零 on black until the page has its data ---------- */
+.boot {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: var(--ink-950);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.boot.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+.boot-stage {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+.boot-ip {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: 72px;
+  transform-origin: 50% 100%;
+}
+.boot-shadow {
+  position: absolute;
+  left: 24px;
+  bottom: 4px;
+  width: 48px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(233, 233, 227, 0.12);
+}
+.boot-bars {
+  display: flex;
+  gap: 6px;
+}
+.boot-bars i {
+  width: 22px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ink-600);
+}
+.boot-text {
+  font-size: 13px;
+  color: var(--muted-dark);
+  letter-spacing: 0.08em;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .boot-ip {
+    animation: hop 1.2s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  }
+  .boot-shadow {
+    animation: shadow 1.2s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  }
+  .boot-bars i {
+    animation: bar 1.2s ease-in-out infinite;
+  }
+  .boot-bars i:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .boot-bars i:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+  @keyframes bar {
+    0%,
+    100% {
+      background: var(--ink-600);
+    }
+    40% {
+      background: var(--brand);
+    }
+  }
+}
+
+@media (max-width: 900px) {
+  .promo {
+    flex-wrap: wrap;
+  }
+  .promo-side {
+    justify-items: start;
+  }
+}
+
+.mascot-stage {
+  width: 168px;
+  height: 150px;
+}
+.mascot {
+  left: 24px;
+  bottom: 20px;
+  width: 116px;
+}
+.mascot-shadow {
+  left: 46px;
+  bottom: 12px;
+  width: 74px;
+}
+.packet {
+  left: 128px;
+  top: 58px;
+}
+.packet.p2 {
+  top: 72px;
+}
+.packet.p3 {
+  top: 44px;
+}

@@ -2,7 +2,18 @@
 // "中转站" page: 零号中转 first, each relay with its own site logo, balance and multiplier, and a
 // model list that a test fills in automatically (that list is what reaches Codex's model menu).
 // Other relays are added from a folded form so the page stays about the relays you have.
-window.registerHubRelays = ({ pages, h, call, toast, failed, explain, money, isRly0 }) => {
+window.registerHubRelays = ({
+  pages,
+  h,
+  call,
+  toast,
+  failed,
+  explain,
+  money,
+  isRly0,
+  moneyBadge,
+  rateBadge,
+}) => {
   const RLY0_BASE = "https://api.rly0.com/v1";
   const put = (element, ...items) =>
     element.replaceChildren(
@@ -524,13 +535,8 @@ window.registerHubRelays = ({ pages, h, call, toast, failed, explain, money, isR
           if (balance && balance.available && balance.ok) {
             put(
               money_,
-              h("b", { class: "tabular" }, money(balance.balance, balance.unit)),
-              typeof balance.rate === "number"
-                ? h("span", { class: "sub tabular" }, `倍率 ×${balance.rate}`)
-                : null,
-              typeof balance.todayCost === "number"
-                ? h("span", { class: "sub tabular" }, `今日 −${balance.todayCost.toFixed(2)}`)
-                : null,
+              moneyBadge(balance.balance, balance.unit),
+              typeof balance.rate === "number" ? rateBadge(balance.rate) : null,
             );
           } else
             put(
@@ -661,7 +667,7 @@ window.registerHubRelays = ({ pages, h, call, toast, failed, explain, money, isR
           const row = h("div", { class: "ready-list" });
           strip.append(row);
           for (const relay of items) {
-            const balance = h("span", { class: "tabular" }, "…");
+            const balance = h("span", { class: "strip-money" }, "…");
             row.append(
               h(
                 "div",
@@ -673,10 +679,13 @@ window.registerHubRelays = ({ pages, h, call, toast, failed, explain, money, isR
             call("relay.balance", { id: relay.id })
               .catch(() => null)
               .then((b) => {
-                balance.textContent =
-                  b && b.available && b.ok
-                    ? `${money(b.balance, b.unit)}${typeof b.rate === "number" ? ` · ×${b.rate}` : ""}`
-                    : "余额未知";
+                if (b && b.available && b.ok) {
+                  put(
+                    balance,
+                    moneyBadge(b.balance, b.unit),
+                    typeof b.rate === "number" ? rateBadge(b.rate) : null,
+                  );
+                } else balance.textContent = "余额未知";
               });
           }
         });

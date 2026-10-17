@@ -25,6 +25,18 @@ internal static class Program {
     [DllImport("user32.dll")] internal static extern bool PostMessage(IntPtr hwnd, int message, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] private static extern bool SetProcessDPIAware();
 
+    // The service's stdin uses the system code page (GBK on Chinese Windows) while the service
+    // reads UTF-8, so Chinese text would arrive garbled. Escaping every non-ASCII character as
+    // a JSON \uXXXX escape keeps the line identical whatever the code page.
+    internal static string AsciiJson(string json) {
+        var builder = new StringBuilder(json.Length + 16);
+        foreach (char c in json) {
+            if (c < 128) builder.Append(c);
+            else builder.Append("\\u").Append(((int)c).ToString("x4"));
+        }
+        return builder.ToString();
+    }
+
     internal static string Quote(string s) {
         if (s.IndexOf('"') >= 0 || s.IndexOf('\n') >= 0 || s.IndexOf('\r') >= 0) throw new InvalidOperationException("UNSAFE_PATH");
         return "\"" + s.TrimEnd('\\') + "\"";
@@ -265,7 +277,7 @@ internal sealed class HubContext : ApplicationContext {
     private void Send(Dictionary<string, object> request) {
         if (!ready || exiting) return;
         try {
-            worker.StandardInput.WriteLine(Program.Json.Serialize(request));
+            worker.StandardInput.WriteLine(Program.AsciiJson(Program.Json.Serialize(request)));
             worker.StandardInput.Flush();
         } catch { ready = false; }
     }

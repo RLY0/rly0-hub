@@ -2,7 +2,18 @@
 // "AI 助手" page: official agents of the model vendors, then third-party agents. Each card shows
 // the vendor's logo, installs with a slide-to-unlock control and a progress bar, and lets the
 // person pick how the agent connects: its own account, 零号中转, or another relay.
-window.registerHubAgents = ({ pages, h, call, toast, failed, explain, money, isRly0, pollers }) => {
+window.registerHubAgents = ({
+  pages,
+  h,
+  call,
+  toast,
+  failed,
+  explain,
+  isRly0,
+  pollers,
+  moneyBadge,
+  rateBadge,
+}) => {
   const LOGOS = {
     "claude-code": "agents/claude-code.svg",
     antigravity: "agents/antigravity.svg",
@@ -421,6 +432,14 @@ window.registerHubAgents = ({ pages, h, call, toast, failed, explain, money, isR
                   "再试一次",
                 ),
               ),
+              state.log
+                ? h(
+                    "details",
+                    { class: "manual" },
+                    h("summary", null, "安装日志"),
+                    codeBlock("最后几行（发给我们排查用）", state.log.slice(-3000)),
+                  )
+                : null,
               manualHelp(agent),
             );
           }
@@ -660,10 +679,8 @@ window.registerHubAgents = ({ pages, h, call, toast, failed, explain, money, isR
           put(
             quota,
             h("span", { class: "label" }, relay.name),
-            h("b", { class: "tabular" }, money(balance.balance, balance.unit)),
-            typeof balance.rate === "number"
-              ? h("span", { class: "sub tabular" }, `倍率 ×${balance.rate}`)
-              : null,
+            moneyBadge(balance.balance, balance.unit),
+            typeof balance.rate === "number" ? rateBadge(balance.rate) : null,
           );
         } else {
           put(quota, h("span", { class: "sub" }, balance ? explain(balance.error) : "读不到余额"));
