@@ -1,16 +1,26 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import type { Rly0AgentInstallStatus } from "@codexhost/shared-contracts";
 
 import { commandExists } from "./claude-code-auth.js";
-import { withAgentInstallPaths } from "./install-paths.js";
+import {
+  fileOrAliasExists,
+  findCommand,
+  powershellArguments,
+  windowsSystemTool,
+  withAgentInstallPaths,
+} from "./install-paths.js";
+import { installNodeFromMsi, windowsNodeArch, type InstallerFiles } from "./node-msi.js";
 
 /**
  * One-click installation of native agents. Each agent has a recipe: the vendor's official
  * installer (the same command the Connections page shows), npm for npm-distributed agents, and the
- * prerequisites they need (Node.js, Git), installed with Windows' own winget when missing. Commands
- * are fixed literals; nothing the person types is executed.
+ * prerequisites they need (Node.js, Git), installed with Windows' own winget when missing (Node.js
+ * falls back to the checksum-verified official MSI when winget is missing or fails). Commands are
+ * fixed literals; nothing the person types is executed.
  */
 
 type Attempt =
@@ -181,15 +191,108 @@ export interface CommandRunner {
   openTerminal(command: string, environment: NodeJS.ProcessEnv): Promise<boolean>;
 }
 
+/** Length of an incomplete UTF-8 sequence at the end of `bytes` (0 when it ends cleanly). */
+function incompleteUtf8Tail(bytes: Uint8Array): number {
+  for (let back = 1; back <= Math.min(3, bytes.length); back += 1) {
+    const byte = bytes[bytes.length - back] ?? 0;
+    if ((byte & 0xc0) === 0x80) continue;
+    const needed = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1;
+    return needed > back ? back : 0;
+  }
+  return 0;
+}
+
+/**
+ * Decodes installer output chunk by chunk: UTF-8 when it is valid, otherwise the Chinese Windows
+ * console code page (GBK/GB18030), which cmd.exe and many native tools still write when their
+ * output is piped. Without this, localized errors such as “拒绝访问” arrive garbled and are
+ * neither readable in the log nor classifiable.
+ */
+export function createOutputDecoder(): { write(chunk: Uint8Array): string; end(): string } {
+  const utf8 = new TextDecoder("utf-8", { fatal: true });
+  let carry: Uint8Array = new Uint8Array(0);
+  const legacy = (bytes: Uint8Array): string => {
+    try {
+      return new TextDecoder("gb18030").decode(bytes);
+    } catch {
+      return Buffer.from(bytes).toString("utf8");
+    }
+  };
+  return {
+    write(chunk) {
+      const bytes = carry.length > 0 ? Buffer.concat([carry, chunk]) : chunk;
+      const cut = incompleteUtf8Tail(bytes);
+      try {
+        const text = utf8.decode(bytes.subarray(0, bytes.length - cut));
+        carry = bytes.slice(bytes.length - cut);
+        return text;
+      } catch {
+        carry = new Uint8Array(0);
+        return legacy(bytes);
+      }
+    },
+    end() {
+      const rest = carry;
+      carry = new Uint8Array(0);
+      if (rest.length === 0) return "";
+      try {
+        return utf8.decode(rest);
+      } catch {
+        return legacy(rest);
+      }
+    },
+  };
+}
+
+/** winget and other HRESULT-style exit codes read better in hex. */
+function formatExitCode(code: number | null): string {
+  if (code === null) return "无（未启动或超时）";
+  return code < 0 ? `0x${(code >>> 0).toString(16).toUpperCase()}` : String(code);
+}
+
+/** Proxy URLs may carry a user name and password; the log only says which host is used. */
+function describeProxy(environment: NodeJS.ProcessEnv): string {
+  const value = environment.HTTPS_PROXY ?? environment.https_proxy ?? environment.HTTP_PROXY;
+  if (!value) return "系统代理设置";
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "自定义代理";
+  }
+}
+
+function killTree(child: ReturnType<typeof spawn>): void {
+  // On Windows `kill` stops only the direct child (cmd.exe for npm), not the installer below it.
+  if (process.platform === "win32" && child.pid !== undefined) {
+    try {
+      const killer = spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      killer.on("error", () => child.kill());
+      return;
+    } catch {
+      // Fall through to a plain kill.
+    }
+  }
+  child.kill();
+}
+
 export const processRunner: CommandRunner = {
   run(command, args, options) {
     return new Promise((resolve) => {
       let output = "";
       let settled = false;
+      const decoders = { stdout: createOutputDecoder(), stderr: createOutputDecoder() };
+      const append = (text: string): void => {
+        output = `${output}${text}`.slice(-LOG_LIMIT * 4);
+      };
       const finish = (code: number | null): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        append(decoders.stdout.end() + decoders.stderr.end());
         resolve({ code, output });
       };
       let child: ReturnType<typeof spawn>;
@@ -205,17 +308,14 @@ export const processRunner: CommandRunner = {
         return;
       }
       const timer = setTimeout(() => {
-        output += "\n[RLY/0 Hub] step timed out";
-        child.kill();
+        append(`\n[RLY/0 Hub] 超时（${Math.round(options.timeoutMs / 60_000)} 分钟），已停止。`);
+        killTree(child);
         finish(null);
       }, options.timeoutMs);
-      const collect = (chunk: Buffer | string): void => {
-        output = `${output}${chunk.toString()}`.slice(-LOG_LIMIT * 4);
-      };
-      child.stdout?.on("data", collect);
-      child.stderr?.on("data", collect);
+      child.stdout?.on("data", (chunk: Buffer) => append(decoders.stdout.write(chunk)));
+      child.stderr?.on("data", (chunk: Buffer) => append(decoders.stderr.write(chunk)));
       child.on("error", (error) => {
-        output += `\n${error.message}`;
+        append(`\n${error.message}`);
         finish(null);
       });
       child.on("close", (code) => finish(code));
@@ -247,15 +347,35 @@ export function classifyInstallFailure(
   output: string,
 ): NonNullable<Rly0AgentInstallStatus["error"]> {
   if (
-    /supported-countries|not available in your region|unexpected content|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|unable to connect|could not be resolved|远程名称无法解析|无法连接|操作超时|timed out|network/iu.test(
+    /supported-countries|not available in your region|unexpected content|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|socket hang up|unable to connect|could not be resolved|remote name could not be resolved|underlying connection was closed|error occurred on a send|could not establish (?:secure channel|trust relationship)|SSL\/TLS|certificate|远程名称无法解析|未能解析此远程名称|无法连接|基础连接已经关闭|发送时发生错误|无法建立|操作超时|timed out|network/iu.test(
       output,
     )
   ) {
     return "NETWORK";
   }
-  if (/EACCES|EPERM|access is denied|拒绝访问|administrator/iu.test(output)) return "PERMISSION";
+  if (
+    /EACCES|EPERM|access is denied|拒绝访问|administrator|elevation|需要管理员|管理员权限|running scripts is disabled|禁止运行脚本|not digitally signed/iu.test(
+      output,
+    )
+  ) {
+    return "PERMISSION";
+  }
   return "FAILED";
 }
+
+function requirementReasonOf(
+  result: CommandResult,
+): NonNullable<Rly0AgentInstallStatus["requirementReason"]> {
+  if (result.code === 0) return "NOT_DETECTED";
+  const kind = classifyInstallFailure(result.output);
+  return kind === "NETWORK" ? "NETWORK" : kind === "PERMISSION" ? "PERMISSION" : "INSTALL_FAILED";
+}
+
+const defaultFiles: InstallerFiles = {
+  makeTempDirectory: () => mkdtemp(path.join(tmpdir(), "rly0-node-")),
+  read: (file) => readFile(file),
+  remove: (target) => rm(target, { recursive: true, force: true }),
+};
 
 export interface AgentInstallerOptions {
   readonly environment: NodeJS.ProcessEnv;
@@ -264,6 +384,8 @@ export interface AgentInstallerOptions {
   readonly platform?: NodeJS.Platform;
   readonly runner?: CommandRunner;
   readonly fileExists?: (file: string) => boolean;
+  /** Temporary files for the Node.js MSI fallback. */
+  readonly files?: InstallerFiles;
   readonly now?: () => number;
 }
 
@@ -295,12 +417,28 @@ export class AgentInstaller {
     return this.#options.runner ?? processRunner;
   }
 
-  #exists(file: string): boolean {
-    return (this.#options.fileExists ?? existsSync)(file);
+  get #fileExists(): (file: string) => boolean {
+    return this.#options.fileExists ?? fileOrAliasExists;
+  }
+
+  #now(): number {
+    return (this.#options.now ?? Date.now)();
+  }
+
+  #has(command: string, environment: NodeJS.ProcessEnv): boolean {
+    return commandExists(command, environment, this.#platform, this.#fileExists);
   }
 
   #environment(): NodeJS.ProcessEnv {
     return this.#options.downloadEnvironment?.() ?? this.#options.environment;
+  }
+
+  #powershell(environment: NodeJS.ProcessEnv): string {
+    return windowsSystemTool(
+      environment,
+      "WindowsPowerShell\\v1.0\\powershell.exe",
+      this.#fileExists,
+    );
   }
 
   status(agent: string): Rly0AgentInstallStatus {
@@ -337,9 +475,12 @@ export class AgentInstaller {
       });
       return this.status(agent);
     }
-    const now = this.#options.now ?? Date.now;
-    const status: MutableStatus = { state: "running", log: "", startedAt: now() };
+    const status: MutableStatus = { state: "running", log: "", startedAt: this.#now() };
     this.#status.set(agent, status);
+    this.#append(
+      status,
+      `[RLY/0 Hub] 安装 ${agent}（${this.#platform}，网络：${describeProxy(this.#environment())}）`,
+    );
     void this.#install(recipe, status)
       .then((ok) => {
         status.state = ok ? "succeeded" : "failed";
@@ -350,8 +491,14 @@ export class AgentInstaller {
         this.#append(status, error instanceof Error ? error.message : String(error));
       })
       .finally(() => {
-        status.finishedAt = now();
+        status.finishedAt = this.#now();
         delete status.step;
+        this.#append(
+          status,
+          status.state === "succeeded"
+            ? "[RLY/0 Hub] 安装完成。"
+            : `[RLY/0 Hub] 安装失败（${[status.error, status.requirementReason].filter(Boolean).join(" / ")}）。`,
+        );
       });
     return this.status(agent);
   }
@@ -363,7 +510,25 @@ export class AgentInstaller {
   }
 
   #append(status: MutableStatus, text: string): void {
+    if (!text) return;
     status.log = `${status.log}${text.endsWith("\n") ? text : `${text}\n`}`.slice(-LOG_LIMIT * 2);
+  }
+
+  /** Runs one step with a readable header, exit code and duration in the log. */
+  async #step(
+    status: MutableStatus,
+    label: string,
+    command: string,
+    args: readonly string[],
+    options: { environment: NodeJS.ProcessEnv; shell: boolean; timeoutMs: number },
+  ): Promise<CommandResult> {
+    this.#append(status, `[RLY/0 Hub] ${label}`);
+    const started = this.#now();
+    const result = await this.#runner.run(command, args, options);
+    this.#append(status, result.output.trim());
+    const seconds = Math.max(0, Math.round((this.#now() - started) / 1000));
+    this.#append(status, `[RLY/0 Hub] 退出码 ${formatExitCode(result.code)}，用时 ${seconds} 秒`);
+    return result;
   }
 
   async #install(recipe: Recipe, status: MutableStatus): Promise<boolean> {
@@ -378,6 +543,7 @@ export class AgentInstaller {
           : await this.#runNpm(attempt, status);
       if (result.code === 0) {
         delete status.error;
+        delete status.requirementReason;
         return true;
       }
       lastOutput = result.output;
@@ -396,86 +562,101 @@ export class AgentInstaller {
 
   #npmCommand(environment: NodeJS.ProcessEnv): string | null {
     const known = this.#platform === "win32" ? "C:\\Program Files\\nodejs\\npm.cmd" : null;
-    if (commandExists("npm", environment, this.#platform, this.#options.fileExists)) return "npm";
-    if (known && this.#exists(known)) return known;
+    if (this.#has("npm", environment)) return "npm";
+    if (known && this.#fileExists(known)) return known;
     return null;
   }
 
-  async #ensureRequirement(requirement: "node" | "git", status: MutableStatus): Promise<boolean> {
+  #hasRequirement(requirement: "node" | "git"): boolean {
     const environment = this.#withKnownPaths(this.#environment());
-    const present =
-      requirement === "node"
-        ? this.#npmCommand(environment) !== null &&
-          commandExists("node", environment, this.#platform, this.#options.fileExists)
-        : commandExists("git", environment, this.#platform, this.#options.fileExists);
-    if (present) return true;
-    status.step = requirement === "node" ? "installingNode" : "installingGit";
-    if (
-      this.#platform !== "win32" ||
-      !commandExists("winget", environment, this.#platform, this.#options.fileExists)
-    ) {
-      status.error = requirement === "node" ? "NODE_MISSING" : "GIT_MISSING";
-      status.requirementReason = "WINGET_UNAVAILABLE";
-      this.#append(status, "系统没有可用的 winget，无法自动安装依赖。请手动安装后重试。");
-      return false;
-    }
-    const result = await this.#runner.run(
-      "winget",
+    return requirement === "node"
+      ? this.#npmCommand(environment) !== null && this.#has("node", environment)
+      : this.#has("git", environment);
+  }
+
+  /**
+   * Machine and user PATH as Windows has them now. Installers update the registry, but a running
+   * process (and everything it starts) keeps the PATH it was born with.
+   */
+  async #refreshPath(): Promise<void> {
+    const environment = this.#withKnownPaths(this.#environment());
+    const refreshed = await this.#runner.run(
+      this.#powershell(environment),
       [
-        "install",
-        "--id",
-        WINGET_PACKAGES[requirement],
-        "-e",
-        "--silent",
-        "--accept-package-agreements",
-        "--accept-source-agreements",
-        "--disable-interactivity",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "([Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'))",
       ],
-      { environment, shell: false, timeoutMs: STEP_TIMEOUT_MS },
+      { environment, shell: false, timeoutMs: 20_000 },
     );
-    this.#append(status, result.output);
-    // Refresh only PATH (not credentials or other environment values) when winget used a
-    // nonstandard destination. Existing processes do not inherit registry PATH updates.
-    const known = this.#withKnownPaths(this.#environment());
-    if (!commandExists(requirement, known, this.#platform, this.#options.fileExists)) {
-      const refreshed = await this.#runner.run(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          "([Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [Environment]::GetEnvironmentVariable('Path','User'))",
-        ],
-        { environment: known, shell: false, timeoutMs: 10_000 },
-      );
-      if (refreshed.code === 0) this.#refreshedPath = refreshed.output.trim();
+    if (refreshed.code === 0) this.#refreshedPath = refreshed.output.trim();
+  }
+
+  async #ensureRequirement(requirement: "node" | "git", status: MutableStatus): Promise<boolean> {
+    if (this.#hasRequirement(requirement)) return true;
+    const name = requirement === "node" ? "Node.js" : "Git";
+    status.step = requirement === "node" ? "installingNode" : "installingGit";
+    const fail = (reason: NonNullable<Rly0AgentInstallStatus["requirementReason"]>): false => {
+      status.error = requirement === "node" ? "NODE_MISSING" : "GIT_MISSING";
+      status.requirementReason = reason;
+      return false;
+    };
+    if (this.#platform !== "win32") {
+      this.#append(status, `没有找到 ${name}，请手动安装后重试。`);
+      return fail("WINGET_UNAVAILABLE");
     }
-    const installed =
-      requirement === "node"
-        ? this.#npmCommand(this.#withKnownPaths(this.#environment())) !== null &&
-          commandExists(
-            "node",
-            this.#withKnownPaths(this.#environment()),
-            this.#platform,
-            this.#options.fileExists,
-          )
-        : commandExists(
-            "git",
-            this.#withKnownPaths(this.#environment()),
-            this.#platform,
-            this.#options.fileExists,
-          );
-    if (installed) return true;
-    status.requirementReason =
-      result.code === 0
-        ? "NOT_DETECTED"
-        : classifyInstallFailure(result.output) === "NETWORK"
-          ? "NETWORK"
-          : classifyInstallFailure(result.output) === "PERMISSION"
-            ? "PERMISSION"
-            : "INSTALL_FAILED";
-    status.error = requirement === "node" ? "NODE_MISSING" : "GIT_MISSING";
-    return false;
+    const environment = this.#withKnownPaths(this.#environment());
+    // winget is an app execution alias in %LOCALAPPDATA%\Microsoft\WindowsApps, which a service
+    // started without a console often lacks on PATH; the known folders above include it.
+    const winget = findCommand("winget", environment, this.#platform, this.#fileExists);
+    let reason: NonNullable<Rly0AgentInstallStatus["requirementReason"]> = "WINGET_UNAVAILABLE";
+    if (winget) {
+      const result = await this.#step(
+        status,
+        `用 winget 安装 ${name}（Windows 可能请求管理员授权）`,
+        winget,
+        [
+          "install",
+          "--id",
+          WINGET_PACKAGES[requirement],
+          "-e",
+          "--source",
+          "winget",
+          "--silent",
+          "--accept-package-agreements",
+          "--accept-source-agreements",
+          "--disable-interactivity",
+        ],
+        { environment, shell: false, timeoutMs: STEP_TIMEOUT_MS },
+      );
+      if (!this.#hasRequirement(requirement)) await this.#refreshPath();
+      if (this.#hasRequirement(requirement)) return true;
+      reason = requirementReasonOf(result);
+      this.#append(status, `winget 没有装好 ${name}。`);
+    } else {
+      this.#append(status, "没有找到 winget（Windows“应用安装程序”）。");
+    }
+    if (requirement === "git") {
+      this.#append(status, "请从 https://git-scm.com 手动安装 Git 后重试。");
+      return fail(reason);
+    }
+    const outcome = await installNodeFromMsi({
+      runner: this.#runner,
+      environment,
+      powershell: this.#powershell(environment),
+      msiexec: windowsSystemTool(environment, "msiexec.exe", this.#fileExists),
+      arch: windowsNodeArch(environment),
+      files: this.#options.files ?? defaultFiles,
+      log: (text) => this.#append(status, text),
+    });
+    if (outcome.ok) {
+      if (!this.#hasRequirement("node")) await this.#refreshPath();
+      if (this.#hasRequirement("node")) return true;
+      this.#append(status, "Node.js 已安装，但还找不到 node/npm；重启 RLY/0 Hub 后重试。");
+      return fail("NOT_DETECTED");
+    }
+    return fail(outcome.reason);
   }
 
   async #runScript(
@@ -484,27 +665,20 @@ export class AgentInstaller {
   ): Promise<CommandResult> {
     status.step = "officialInstaller";
     const environment = this.#withKnownPaths(this.#environment());
-    const result =
-      this.#platform === "win32"
-        ? await this.#runner.run(
-            "powershell.exe",
-            [
-              "-NoProfile",
-              "-NonInteractive",
-              "-ExecutionPolicy",
-              "Bypass",
-              "-Command",
-              attempt.windows,
-            ],
-            { environment, shell: false, timeoutMs: STEP_TIMEOUT_MS },
-          )
-        : await this.#runner.run("sh", ["-c", attempt.posix], {
-            environment,
-            shell: false,
-            timeoutMs: STEP_TIMEOUT_MS,
-          });
-    this.#append(status, result.output);
-    return result;
+    if (this.#platform === "win32") {
+      return this.#step(
+        status,
+        `运行官方安装脚本：${attempt.windows}`,
+        this.#powershell(environment),
+        powershellArguments(attempt.windows),
+        { environment, shell: false, timeoutMs: STEP_TIMEOUT_MS },
+      );
+    }
+    return this.#step(status, `运行官方安装脚本：${attempt.posix}`, "sh", ["-c", attempt.posix], {
+      environment,
+      shell: false,
+      timeoutMs: STEP_TIMEOUT_MS,
+    });
   }
 
   async #runNpm(
@@ -520,20 +694,20 @@ export class AgentInstaller {
       return { code: null, output: "npm is not available" };
     }
     const windows = this.#platform === "win32";
+    // npm is a .cmd on Windows, which needs a shell; the quoted command keeps spaces intact.
     const run = (registry?: string) =>
-      this.#runner.run(
+      this.#step(
+        status,
+        `npm install -g ${attempt.packageName}${registry ? `（镜像 ${registry}）` : ""}`,
         windows ? `"${npmCommand}"` : npmCommand,
         ["install", "-g", attempt.packageName, ...(registry ? [`--registry=${registry}`] : [])],
         { environment, shell: windows, timeoutMs: STEP_TIMEOUT_MS },
       );
     status.step = "npm";
     const first = await run();
-    this.#append(status, first.output);
     if (first.code === 0) return first;
     // The public registry is often slow or blocked in mainland China; retry through the mirror.
     status.step = "npmMirror";
-    const mirrored = await run(NPM_MIRROR);
-    this.#append(status, mirrored.output);
-    return mirrored;
+    return run(NPM_MIRROR);
   }
 }
