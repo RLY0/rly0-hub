@@ -23,6 +23,31 @@ export const KNOWN_RENDERER_AGENTS = [
   "kimi-code",
 ] as const;
 export const DEFAULT_RENDERER_AGENTS = KNOWN_RENDERER_AGENTS;
+/**
+ * RLY/0 Hub offers two kinds of agents, in this order: the model vendors' own agents, then
+ * third-party agents. Agents for domestic models and duplicates stay enabled (old threads keep
+ * working) but are no longer offered in the picker or the `#` menu.
+ */
+export const RLY0_AGENT_DISPLAY_ORDER: readonly RendererAgent[] = [
+  "codex",
+  "claude-code",
+  "antigravity",
+  "grok",
+  "opencode",
+  "pi",
+  "hermes",
+  "cursor-cli",
+  "kiro-cli",
+];
+export const RLY0_HIDDEN_RENDERER_AGENTS: ReadonlySet<RendererAgent> = new Set<RendererAgent>([
+  "kimi-code",
+  "qoder",
+  "qoder-cn",
+  "codebuddy",
+  "workbuddy",
+  "deepseek-harness",
+  "omp",
+]);
 export type RendererAgent = (typeof KNOWN_RENDERER_AGENTS)[number];
 export type ExternalRendererAgent = Exclude<RendererAgent, "codex">;
 export type RendererAgentAvailability =

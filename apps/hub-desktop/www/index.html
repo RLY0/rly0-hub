@@ -13,62 +13,49 @@
   <body>
     <div class="app">
       <nav class="rail" aria-label="主菜单">
-        <img class="rail-ip" src="brand/rly0-ip-on-dark.svg" alt="RLY/0" />
-        <button type="button" data-page="home" title="首页" aria-label="首页">
+        <img class="rail-ip" src="brand/rly0-ip-on-dark.svg" alt="RLY/0 Hub" />
+        <button type="button" data-page="home" aria-label="首页">
           <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v9H4z" /></svg>
+          <span>首页</span>
         </button>
-        <button type="button" data-page="agents" title="AI 助手" aria-label="AI 助手">
+        <button type="button" data-page="accounts" aria-label="账号">
+          <svg viewBox="0 0 24 24">
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c1.6-3.6 4.4-5.4 8-5.4s6.4 1.8 8 5.4" />
+          </svg>
+          <span>账号</span>
+        </button>
+        <button type="button" data-page="relays" aria-label="中转站">
+          <svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3" /></svg>
+          <span>中转站</span>
+        </button>
+        <button type="button" data-page="agents" aria-label="AI 助手">
           <svg viewBox="0 0 24 24">
             <rect x="4" y="4" width="16" height="4" rx="2" />
             <rect x="4" y="10" width="13" height="4" rx="2" />
             <rect x="4" y="16" width="10" height="4" rx="2" />
           </svg>
-        </button>
-        <button type="button" data-page="relays" title="中转站" aria-label="中转站">
-          <svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3" /></svg>
-        </button>
-        <button type="button" data-page="accounts" title="Codex 账号" aria-label="Codex 账号">
-          <svg viewBox="0 0 24 24">
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20c1.6-3.6 4.4-5.4 8-5.4s6.4 1.8 8 5.4" />
-          </svg>
-        </button>
-        <button type="button" data-page="backup" title="备份" aria-label="备份">
-          <svg viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 20h14" /></svg>
-        </button>
-        <button type="button" data-page="mcp" title="MCP 管理" aria-label="MCP 管理">
-          <svg viewBox="0 0 24 24"><path d="M8 4H4v16h4M16 4h4v16h-4M9 12h6" /></svg>
-        </button>
-        <button type="button" data-page="skills" title="Skills 管理" aria-label="Skills 管理">
-          <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 9h8M8 13h5" /></svg>
-        </button>
-        <button type="button" data-page="threads" title="线程管理" aria-label="线程管理">
-          <svg viewBox="0 0 24 24"><path d="M4 5h16v10H9l-5 4z" /></svg>
-        </button>
-        <button type="button" data-page="maintenance" title="维护工具" aria-label="维护工具">
-          <svg viewBox="0 0 24 24"><path d="M4 20l7-7M10 4a6 6 0 0 0 8 8l3-3-5-1-1-5z" /></svg>
-        </button>
-        <button type="button" data-page="updates" title="更新" aria-label="更新">
-          <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v5h-5" /></svg>
+          <span>AI 助手</span>
         </button>
         <span class="rail-gap"></span>
-        <button type="button" data-page="support" title="支持" aria-label="支持">
+        <button type="button" data-page="support" class="rail-support" aria-label="支持">
           <svg viewBox="0 0 24 24">
             <path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z" />
           </svg>
+          <span>支持</span>
         </button>
-        <button type="button" data-page="settings" title="设置" aria-label="设置">
+        <button type="button" data-page="settings" aria-label="设置">
           <svg viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="3" />
             <path
               d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"
             />
           </svg>
+          <span>设置</span>
         </button>
       </nav>
       <div class="stage">
         <header class="top">
-          <img class="lockup" src="brand/rly0-lockup-on-dark.svg" alt="RLY/0 零号中转" />
           <h1 id="title"></h1>
           <button type="button" class="ad star" id="star" title="在 GitHub 上给 RLY/0 Hub 点 Star">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -94,6 +81,8 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="pages/resources.js"></script>
     <script src="pages/system.js"></script>
+    <script src="pages/agents.js"></script>
+    <script src="pages/relays.js"></script>
     <script src="pages/mock.js"></script>
     <script src="app.js"></script>
   </body>

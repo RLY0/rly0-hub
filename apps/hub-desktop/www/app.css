@@ -881,3 +881,408 @@ textarea.input {
     margin-left: 60px;
   }
 }
+
+/* ---------- Navigation v2: labelled rail, settings sub-menu, quiet texture ---------- */
+.app {
+  grid-template-columns: 84px minmax(0, 1fr);
+}
+.rail {
+  gap: 4px;
+  padding: 16px 0;
+}
+.rail-ip {
+  margin-bottom: 12px;
+}
+.rail button {
+  width: 68px;
+  height: auto;
+  min-height: 56px;
+  padding: 8px 0 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.rail button span {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+.rail button.on::before {
+  left: -8px;
+  top: 18px;
+}
+/* Support stands apart: the one filled brand-red mark in the rail (a graphic, not text). */
+.rail .rail-support svg {
+  fill: var(--brand);
+  stroke: var(--brand);
+}
+.rail .rail-support {
+  color: var(--paper-100);
+}
+.rail .rail-support:hover svg {
+  fill: var(--brand-press);
+  stroke: var(--brand-press);
+}
+
+.top {
+  padding-left: 32px;
+}
+.top h1 {
+  color: var(--paper-100);
+  font-size: 24px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.settings-menu {
+  display: grid;
+  gap: 4px;
+  position: sticky;
+  top: 0;
+}
+.settings-menu button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted-dark);
+  text-align: left;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 650;
+}
+.settings-menu button:hover {
+  color: var(--paper-100);
+  background: var(--ink-800);
+}
+.settings-menu button.on {
+  color: var(--paper-100);
+  background: var(--ink-750);
+}
+.settings-content {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-menu {
+    position: static;
+    grid-auto-flow: column;
+    overflow-x: auto;
+  }
+}
+
+/* Bottom of every screen: a faint pixel grain and a low warm glow. Decoration only. */
+.stage {
+  position: relative;
+  isolation: isolate;
+}
+.stage::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 180px;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(60% 120% at 70% 100%, rgba(184, 50, 32, 0.1), transparent 70%),
+    repeating-conic-gradient(rgba(233, 233, 227, 0.035) 0 25%, transparent 0 50%) 0 0 / 6px 6px;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, transparent 100%);
+}
+#page {
+  position: relative;
+  z-index: 0;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .stage::after {
+    display: none;
+  }
+}
+
+/* ---------- AI 助手 v2 ---------- */
+.section-title .sub {
+  font-size: 13px;
+  font-weight: 400;
+}
+.agent-logo {
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: var(--r-md);
+  background: var(--paper-50);
+  overflow: hidden;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink-950);
+}
+.agent-logo img {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+}
+.agent-card {
+  gap: 16px;
+}
+.agent-head {
+  flex-wrap: nowrap;
+}
+.agent-body {
+  display: grid;
+  gap: 12px;
+}
+.ready-strip {
+  gap: 12px;
+}
+.ready-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ready-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--ink-800);
+  border-radius: var(--r-md);
+  padding: 8px 14px 8px 8px;
+}
+.segment {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: var(--ink-950);
+  border-radius: var(--r-pill);
+  padding: 4px;
+  justify-self: start;
+}
+.segment button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted-dark);
+  border-radius: var(--r-pill);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 650;
+}
+.segment button.on {
+  background: var(--paper-100);
+  color: var(--ink-950);
+}
+.segment button:not(.on):hover {
+  color: var(--paper-100);
+}
+.quota-line {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.quota-line:empty {
+  display: none;
+}
+.quota-line b {
+  font-size: 20px;
+  font-weight: 680;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+.warn-text {
+  color: var(--warn);
+  font-size: 14px;
+}
+.manual summary {
+  cursor: pointer;
+  color: var(--muted-dark);
+  font-size: 13px;
+  font-weight: 650;
+  list-style: none;
+}
+.manual summary::before {
+  content: "▸ ";
+}
+.manual[open] summary::before {
+  content: "▾ ";
+}
+.manual[open] {
+  display: grid;
+  gap: 10px;
+}
+.code-block {
+  background: var(--ink-950);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.code-block pre {
+  margin: 0;
+  font: 400 12px/1.6 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--paper-100);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.copy-buffer {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+}
+
+/* Slide to unlock: the knob carries a lock; the track fills with brand red as it moves. */
+.unlock {
+  --unlock: 0;
+  position: relative;
+  height: 52px;
+  border-radius: var(--r-pill);
+  background: var(--ink-950);
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+.unlock::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: calc(26px + (100% - 26px) * var(--unlock));
+  background: linear-gradient(90deg, rgba(184, 50, 32, 0.35), rgba(184, 50, 32, 0.75));
+  border-radius: inherit;
+}
+.unlock-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--muted-dark);
+  padding-left: 40px;
+  pointer-events: none;
+}
+.unlock-knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--paper-50);
+  color: var(--ink-950);
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  transition: transform 0.25s ease;
+}
+.unlock.dragging .unlock-knob {
+  transition: none;
+  cursor: grabbing;
+}
+.unlock-knob svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.unlock.unlocked .unlock-text {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .unlock:not(.dragging):not(.unlocked) .unlock-text {
+    animation: unlock-hint 2.4s ease-in-out infinite;
+  }
+  @keyframes unlock-hint {
+    50% {
+      color: var(--paper-100);
+    }
+  }
+}
+.install-progress {
+  display: grid;
+  gap: 8px;
+}
+.install-progress .bar {
+  height: 8px;
+}
+.install-progress .bar i {
+  transition: width 0.6s ease;
+}
+
+/* ---------- 中转站 v2 ---------- */
+.relay-logo b {
+  font-size: 18px;
+}
+.relay-logo.dark {
+  background: var(--ink-950);
+}
+.relay-card {
+  gap: 12px;
+}
+.relay-editor {
+  display: grid;
+  gap: 10px;
+  background: var(--ink-950);
+  border-radius: var(--r-md);
+  padding: 14px;
+}
+.relay-editor .input {
+  background: var(--ink-800);
+}
+textarea.models {
+  resize: vertical;
+  font: 400 13px/1.6 var(--font-ui);
+}
+.proxy-line {
+  margin-left: auto;
+  gap: 8px;
+  font-size: 13px;
+}
+.section-title .proxy-line {
+  font-weight: 400;
+}
+.add-tile {
+  appearance: none;
+  border: 0;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted-dark);
+  font-size: 15px;
+  font-weight: 650;
+  text-align: left;
+  background: var(--ink-900);
+  outline: 1px dashed transparent;
+}
+.add-tile:hover {
+  color: var(--paper-100);
+  background: var(--ink-800);
+}
+.add-tile .plus {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ink-750);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.relay-strip {
+  gap: 12px;
+}

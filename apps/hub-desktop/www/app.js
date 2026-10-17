@@ -142,6 +142,7 @@
     backup: "备份",
     support: "支持",
     settings: "设置",
+    general: "通用",
     network: "网络代理",
     wizard: "开始使用",
     mcp: "MCP 管理",
@@ -167,16 +168,18 @@
     current = name;
     stopPollers();
     const mine = ++generation;
+    const railPage = SETTINGS_SECTIONS.some(([id]) => id === name) ? "settings" : name;
     document.querySelectorAll(".rail button").forEach((button) => {
-      button.classList.toggle("on", button.dataset.page === name);
-      if (button.dataset.page === name) button.setAttribute("aria-current", "page");
+      button.classList.toggle("on", button.dataset.page === railPage);
+      if (button.dataset.page === railPage) button.setAttribute("aria-current", "page");
       else button.removeAttribute("aria-current");
     });
     titleEl.textContent = titles[name];
     document.body.classList.toggle("guided", name === "wizard");
     pageEl.replaceChildren();
     const alive = () => mine === generation;
-    pages[name](pageEl, alive, options || {});
+    if (railPage === "settings") settingsFrame(name, alive, options || {});
+    else pages[name](pageEl, alive, options || {});
     pageEl.scrollTop = 0;
   }
 
@@ -193,9 +196,46 @@
   /* ---------- Pages ---------- */
   const pages = {};
 
-  const pageApi = { pages, h, call, toast, failed };
+  /* Settings: one rail entry with its own second-level menu. */
+  const SETTINGS_SECTIONS = [
+    ["general", "通用"],
+    ["network", "网络代理"],
+    ["backup", "备份"],
+    ["mcp", "MCP"],
+    ["skills", "Skills"],
+    ["threads", "线程"],
+    ["maintenance", "维护工具"],
+    ["updates", "更新"],
+  ];
+  function settingsFrame(name, alive, options) {
+    const section = name === "settings" ? "general" : name;
+    titleEl.textContent = "设置";
+    const content = h("div", { class: "settings-content" });
+    const menu = h(
+      "nav",
+      { class: "settings-menu", "aria-label": "设置分类" },
+      SETTINGS_SECTIONS.map(([id, label]) =>
+        h(
+          "button",
+          {
+            type: "button",
+            class: id === section ? "on" : "",
+            "aria-current": id === section ? "page" : null,
+            onclick: () => go(id),
+          },
+          label,
+        ),
+      ),
+    );
+    pageEl.append(h("div", { class: "settings-layout" }, menu, content));
+    pages[section](content, alive, options);
+  }
+
+  const pageApi = { pages, h, call, toast, failed, explain, money, isRly0, pollers };
   Object.assign(pageApi, window.registerHubResources(pageApi));
   window.registerHubSystem(pageApi);
+  window.registerHubAgents(pageApi);
+  const relayModule = window.registerHubRelays(pageApi);
 
   pages.home = (root, alive) => {
     const codexModule = h("section", { class: "m codex span-4 rows-2" });
@@ -238,6 +278,7 @@
         proxyModule,
         accountModule,
         agentRow,
+        relayModule.relayStrip(alive),
       ),
     );
 
@@ -370,7 +411,11 @@
       const claude = agents.find((agent) => agent.id === "claude-code");
       const installed = agents.filter((agent) => agent.installed && agent.id !== "claude-code");
       agentRow[0].replaceChildren(
-        h("div", { class: "logo cc" }, "CC"),
+        h(
+          "span",
+          { class: "agent-logo", style: { width: "44px", height: "44px" } },
+          h("img", { src: "agents/claude-code.svg", alt: "" }),
+        ),
         h(
           "div",
           { class: "who" },
@@ -387,12 +432,21 @@
       );
       const second = installed[0];
       agentRow[1].replaceChildren(
-        h("div", { class: "logo" }, second ? second.name.slice(0, 2).toUpperCase() : "+"),
+        second
+          ? h(
+              "span",
+              { class: "agent-logo", style: { width: "44px", height: "44px" } },
+              h("img", {
+                src: `agents/${second.id}.${["grok", "opencode", "hermes"].includes(second.id) ? "png" : "svg"}`,
+                alt: "",
+              }),
+            )
+          : h("div", { class: "logo" }, "+"),
         h(
           "div",
           { class: "who" },
-          h("b", null, second ? second.name : "国产 AI 助手"),
-          h("span", null, second ? "已安装" : "Kimi、Qoder、CodeBuddy…"),
+          h("b", null, second ? second.name : "OpenCode、Cursor…"),
+          h("span", null, second ? "已安装" : "第三方 AI 助手"),
         ),
         h(
           "button",
@@ -574,522 +628,6 @@
     PERMISSION: "安装 Node.js 没有获得权限，请手动安装后重试",
     INSTALL_FAILED: "winget 没能装好 Node.js，请手动安装后重试",
     NOT_DETECTED: "安装后仍找不到 npm，请安装含 npm 的 Node.js 后重试",
-  };
-
-  pages.agents = (root, alive) => {
-    const claudeModule = h(
-      "section",
-      { class: "m tone span-6" },
-      h("span", { class: "label" }, "Claude Code"),
-      h("div", { class: "sub" }, "读取中…"),
-    );
-    const list = h("div", { class: "grid compact" });
-    root.append(
-      h("div", { class: "grid compact" }, claudeModule),
-      h("h2", { class: "section-title" }, "全部 AI 助手"),
-      list,
-    );
-
-    async function loadClaude() {
-      const [status, relays, selection] = await Promise.all([
-        call("agents.claudeCode.status").catch(() => null),
-        call("relay.list").catch(() => null),
-        call("agents.relays.get").catch(() => ({ claudeCode: null })),
-      ]);
-      if (!alive()) return;
-      if (!status || !status.installed) {
-        claudeModule.replaceChildren(
-          h("span", { class: "label" }, "Claude Code"),
-          h("div", { class: "sub" }, "还没安装，在下面一键安装。"),
-        );
-        return;
-      }
-      const choices = ((relays && relays.relays) || []).filter((relay) => relay.hasKey);
-      const select = h(
-        "select",
-        {
-          class: "input",
-          "aria-label": "Claude Code 运行方式",
-          onchange: () =>
-            call("agents.relays.set", { claudeCode: select.value || null }).then(
-              () => toast("已保存，Codex 里新开的 Claude Code 对话生效"),
-              failed,
-            ),
-        },
-        h("option", { value: "" }, "用自己的 Claude 账号"),
-        choices.map((relay) =>
-          h(
-            "option",
-            { value: relay.id, selected: selection.claudeCode === relay.id },
-            `通过中转：${relay.name}`,
-          ),
-        ),
-      );
-      claudeModule.replaceChildren(
-        h(
-          "div",
-          { class: "row" },
-          h("div", { class: "logo cc" }, "CC"),
-          h(
-            "div",
-            { class: "who" },
-            h("b", null, "Claude Code"),
-            h(
-              "span",
-              null,
-              status.loggedIn
-                ? `已登录 ${status.email || ""}${status.plan ? ` · ${status.plan}` : ""}`
-                : "未登录",
-            ),
-          ),
-          h(
-            "span",
-            { class: `tag ${status.loggedIn || selection.claudeCode ? "ok" : ""}` },
-            status.loggedIn || selection.claudeCode ? "Ready" : "Sign in",
-          ),
-        ),
-        h(
-          "div",
-          { class: "form" },
-          h("label", { class: "field" }, h("span", null, "运行方式"), select),
-          h(
-            "div",
-            { class: "field" },
-            h("span", null, "账号"),
-            h(
-              "div",
-              { class: "row" },
-              status.loggedIn
-                ? h(
-                    "button",
-                    {
-                      class: "btn",
-                      type: "button",
-                      onclick: () =>
-                        call("agents.claudeCode.logout").then(() => {
-                          toast("已退出登录");
-                          loadClaude();
-                        }, failed),
-                    },
-                    "退出登录",
-                  )
-                : [
-                    h(
-                      "button",
-                      { class: "btn paper", type: "button", onclick: () => login("claudeai") },
-                      "用 Claude 账号登录",
-                    ),
-                    h(
-                      "button",
-                      { class: "btn", type: "button", onclick: () => login("console") },
-                      "用 API Console 登录",
-                    ),
-                  ],
-            ),
-          ),
-        ),
-      );
-    }
-    async function login(mode) {
-      const result = await call("agents.claudeCode.login", { mode }).catch(() => null);
-      toast(result && result.started ? "已在浏览器打开登录页，完成后回到这里" : "没能开始登录");
-      const timer = setInterval(async () => {
-        const status = await call("agents.claudeCode.status").catch(() => null);
-        if (status && status.loggedIn) {
-          clearInterval(timer);
-          pollers.delete(timer);
-          if (alive()) loadClaude();
-        }
-      }, 3000);
-      pollers.add(timer);
-    }
-
-    async function loadList() {
-      const result = await call("agents.list").catch(() => null);
-      if (!alive()) return;
-      list.replaceChildren(...((result && result.agents) || []).map(agentCard));
-    }
-    function agentCard(agent) {
-      const card = h("section", { class: "m agent span-3" });
-      const progress = h("div");
-      function draw(status) {
-        const running = status && status.state === "running";
-        let action;
-        if (agent.installed)
-          action = agent.canOpenLogin
-            ? h(
-                "button",
-                {
-                  class: "btn sm",
-                  type: "button",
-                  onclick: () =>
-                    call("agents.openLogin", { agent: agent.id }).then(
-                      (r) => toast(r.ok ? "已打开终端，按提示登录或设置" : "没能打开终端"),
-                      failed,
-                    ),
-                },
-                "登录 / 设置",
-              )
-            : h("span", { class: "tag ok" }, "已安装");
-        else if (!agent.automatic) action = h("span", { class: "tag" }, "需手动安装");
-        else
-          action = h(
-            "button",
-            { class: "btn paper sm", type: "button", disabled: running, onclick: () => install() },
-            running ? "安装中…" : "一键安装",
-          );
-        card.replaceChildren(
-          h(
-            "div",
-            { class: "logo" },
-            agent.id === "claude-code" ? "CC" : agent.name.slice(0, 2).toUpperCase(),
-          ),
-          h(
-            "div",
-            { class: "who" },
-            h("b", null, agent.name),
-            h(
-              "span",
-              null,
-              running
-                ? STEP[status.step] || "安装中"
-                : status && status.state === "failed"
-                  ? INSTALL_ERRORS[status.error] || "安装没有成功"
-                  : status && status.state === "succeeded"
-                    ? "装好了"
-                    : agent.installed
-                      ? "已安装"
-                      : agent.installed === null
-                        ? "桌面应用"
-                        : "未安装",
-            ),
-          ),
-          action,
-        );
-        if (agent.id === "claude-code") card.classList.add("tone");
-        progress.replaceChildren();
-        if (status && status.error === "NODE_MISSING") {
-          card.classList.add("install-help");
-          progress.className = "install-fallback";
-          progress.append(
-            h(
-              "p",
-              { class: "sub" },
-              REQUIREMENT_REASONS[status.requirementReason] || "请安装含 npm 的 Node.js 后重试",
-            ),
-            h(
-              "button",
-              {
-                class: "btn sm",
-                type: "button",
-                onclick: () => call("links.open", { target: "nodejs" }).catch(failed),
-              },
-              "下载 Node.js",
-            ),
-          );
-        } else card.classList.remove("install-help");
-        card.append(progress);
-      }
-      async function install() {
-        draw(
-          await call("agents.installStart", { agent: agent.id }).catch(() => ({
-            state: "failed",
-            error: "FAILED",
-          })),
-        );
-        const timer = setInterval(async () => {
-          const status = await call("agents.installStatus", { agent: agent.id }).catch(() => null);
-          if (!alive() || !status) return;
-          if (status.state !== "running") {
-            clearInterval(timer);
-            pollers.delete(timer);
-            if (status.state === "succeeded") {
-              toast(`${agent.name} 装好了`);
-              agent.installed = true;
-              loadClaude();
-            }
-          }
-          draw(status);
-        }, 1500);
-        pollers.add(timer);
-      }
-      draw(null);
-      call("agents.installStatus", { agent: agent.id }).then(
-        (status) => {
-          if (alive() && status.state !== "idle") {
-            draw(status);
-          }
-        },
-        () => undefined,
-      );
-      return card;
-    }
-
-    loadClaude();
-    loadList();
-  };
-
-  pages.relays = (root, alive, options) => {
-    const list = h("div", { class: "grid compact" });
-    const proxyModule = h("section", { class: "m tone span-6 agent" });
-    const rly0Module = h("section", { class: "m bal span-6 rly0-connect" });
-    const name = h("input", { class: "input", maxlength: "40", placeholder: "中转站名称" });
-    const baseUrl = h("input", {
-      class: "input",
-      placeholder: "https://…/v1",
-      spellcheck: "false",
-    });
-    const apiKey = h("input", {
-      class: "input",
-      type: "password",
-      placeholder: "sk-…",
-      autocomplete: "off",
-      spellcheck: "false",
-    });
-    const rly0Key = h("input", {
-      class: "input on-red",
-      type: "password",
-      placeholder: "粘贴零号中转的 API 密钥 sk-…",
-      autocomplete: "off",
-      spellcheck: "false",
-    });
-    const connectRly0 = async () => {
-      const key = rly0Key.value.trim();
-      if (!key) {
-        toast("先粘贴密钥");
-        return;
-      }
-      try {
-        const added = await call("relay.add", {
-          name: "零号中转",
-          baseUrl: "https://api.rly0.com/v1",
-          apiKey: key,
-        });
-        if (!added.available) throw new Error("HUB_ERROR");
-        rly0Key.value = "";
-        toast("零号中转已接入");
-        load();
-      } catch (error) {
-        failed(error);
-      }
-    };
-    function renderRly0(hasRly0) {
-      rly0Module.hidden = hasRly0;
-      if (hasRly0) return;
-      rly0Module.replaceChildren(
-        h("span", { class: "label" }, "RLY/0 零号中转 · 推荐"),
-        h("h3", null, "一个密钥，Claude、GPT 等模型都能用"),
-        h(
-          "div",
-          { class: "row wide" },
-          rly0Key,
-          h("button", { class: "btn", type: "button", onclick: connectRly0 }, "接入"),
-        ),
-        h(
-          "div",
-          { class: "row" },
-          h(
-            "button",
-            {
-              class: "btn ghost",
-              type: "button",
-              onclick: () => call("links.open", { target: "site" }).catch(failed),
-            },
-            "还没有账号？去注册",
-          ),
-        ),
-      );
-    }
-    const form = h(
-      "section",
-      { class: "m span-6" },
-      h("div", { class: "row" }, h("span", { class: "label" }, "Other relay")),
-      h(
-        "div",
-        { class: "form" },
-        h("label", { class: "field" }, h("span", null, "名称"), name),
-        h("label", { class: "field" }, h("span", null, "地址"), baseUrl),
-        h("label", { class: "field" }, h("span", null, "密钥"), apiKey),
-        h(
-          "div",
-          { class: "field" },
-          h("span", null, " "),
-          h(
-            "div",
-            { class: "row" },
-            h("button", { class: "btn paper", type: "button", onclick: add }, "添加"),
-          ),
-        ),
-      ),
-    );
-    root.append(
-      h("div", { class: "grid compact" }, rly0Module, proxyModule),
-      h("h2", { class: "section-title" }, "我的中转站"),
-      list,
-      h("h2", { class: "section-title" }, "添加其他中转站"),
-      h("div", { class: "grid compact" }, form),
-    );
-    if (options.preset === "rly0") setTimeout(() => rly0Key.focus(), 0);
-
-    async function add() {
-      const params = { name: name.value.trim(), baseUrl: baseUrl.value.trim() };
-      if (apiKey.value.trim()) params.apiKey = apiKey.value.trim();
-      if (!params.name || !params.baseUrl) {
-        toast("名称和地址都要填");
-        return;
-      }
-      try {
-        const result = await call("relay.add", params);
-        if (!result.available) throw new Error("HUB_ERROR");
-        apiKey.value = "";
-        name.value = "";
-        baseUrl.value = "";
-        toast("已添加");
-        load();
-      } catch (error) {
-        failed(error);
-      }
-    }
-
-    async function load() {
-      const [relays, proxy] = await Promise.all([
-        call("relay.list").catch(() => null),
-        call("proxy.status").catch(() => null),
-      ]);
-      if (!alive()) return;
-      const running = Boolean(proxy && proxy.running);
-      proxyModule.replaceChildren(
-        h("span", { class: `pulse ${running ? "" : "off"}` }),
-        h(
-          "div",
-          { class: "who" },
-          h("b", null, running ? "本地代理运行中" : "本地代理未开启"),
-          h(
-            "span",
-            { class: "mono" },
-            running ? `127.0.0.1:${proxy.port}` : "AI 助手通过它使用中转站",
-          ),
-        ),
-        h(
-          "button",
-          {
-            class: "btn sm",
-            type: "button",
-            onclick: () => call(running ? "proxy.stop" : "proxy.start").then(load, failed),
-          },
-          running ? "停止" : "开启",
-        ),
-      );
-      const items = (relays && relays.relays) || [];
-      renderRly0(items.some((relay) => relay.hasKey && isRly0(relay)));
-      list.replaceChildren(
-        ...(items.length
-          ? items.map(relayCard)
-          : [h("p", { class: "empty span-6" }, "还没有中转站。")]),
-      );
-    }
-
-    function relayCard(relay) {
-      const result = h("div", { class: "sub" });
-      const toggle = h("button", {
-        class: "switch",
-        type: "button",
-        role: "switch",
-        "aria-checked": String(relay.enabled),
-        "aria-label": "启用",
-        onclick: () =>
-          call("relay.setEnabled", { id: relay.id, enabled: !relay.enabled }).then(load, failed),
-      });
-      let confirmRemove = false;
-      const remove = h(
-        "button",
-        {
-          class: "btn quiet sm",
-          type: "button",
-          onclick: () => {
-            if (!confirmRemove) {
-              confirmRemove = true;
-              remove.textContent = "确认删除";
-              setTimeout(() => {
-                confirmRemove = false;
-                remove.textContent = "删除";
-              }, 3000);
-              return;
-            }
-            call("relay.remove", { id: relay.id }).then(() => {
-              toast("已删除");
-              load();
-            }, failed);
-          },
-        },
-        "删除",
-      );
-      const card = h(
-        "section",
-        { class: "m span-3" },
-        h(
-          "div",
-          { class: "row" },
-          h("span", { class: `dot ${relay.enabled ? "ok" : ""}` }),
-          h("b", null, relay.name),
-          h("span", { class: "spacer" }),
-          toggle,
-        ),
-        h("div", { class: "sub mono" }, relay.baseUrl),
-        h(
-          "div",
-          { class: "sub" },
-          relay.hasKey ? `密钥 ${relay.keyMask || "已保存"}` : "未填写密钥",
-        ),
-        result,
-        h(
-          "div",
-          { class: "row" },
-          h(
-            "button",
-            {
-              class: "btn sm",
-              type: "button",
-              onclick: async () => {
-                result.textContent = "测试中…";
-                const t = await call("relay.test", { id: relay.id }).catch(() => null);
-                if (!alive()) return;
-                result.textContent =
-                  t && t.available
-                    ? t.ok
-                      ? `连通 · ${t.latencyMs} ms${t.modelCount ? ` · ${t.modelCount} 个模型` : ""}`
-                      : explain(t.error)
-                    : "测试没有成功";
-              },
-            },
-            "测试",
-          ),
-          h(
-            "button",
-            {
-              class: "btn sm",
-              type: "button",
-              onclick: async () => {
-                result.textContent = "查询中…";
-                const b = await call("relay.balance", { id: relay.id }).catch(() => null);
-                if (!alive()) return;
-                result.textContent =
-                  b && b.available
-                    ? b.ok
-                      ? `余额 ${money(b.balance, b.unit)}`
-                      : explain(b.error)
-                    : "查询没有成功";
-              },
-            },
-            "余额",
-          ),
-          h("span", { class: "spacer" }),
-          remove,
-        ),
-      );
-      return card;
-    }
-    load();
   };
 
   pages.accounts = (root, alive) => {
@@ -1343,7 +881,7 @@
     load();
   };
 
-  pages.settings = (root, alive) => {
+  pages.general = (root, alive) => {
     const autostart = h("section", { class: "m tone agent span-3" });
     const about = h(
       "section",
@@ -1369,16 +907,11 @@
         h(
           "section",
           { class: "m span-6" },
-          h("h3", null, "网络与 Codex 内工具"),
-          h(
-            "div",
-            { class: "row" },
-            h("button", { class: "btn", type: "button", onclick: () => go("network") }, "网络代理"),
-          ),
+          h("h3", null, "Codex 内工具"),
           h(
             "p",
             { class: "sub" },
-            "在 Codex 中右键 RLY/0 按钮，可设置自定义启动命令、浏览器添加账号、导入会话，以及调整界面和额度提示。也可从 AI 助手选择器的管理入口打开。",
+            "在 Codex 里右键 RLY/0 图标：自定义启动命令、浏览器添加账号、导入会话、界面和额度提示。",
           ),
         ),
       ),
@@ -1677,7 +1210,7 @@
         frame(
           "Welcome",
           "一个窗口，管好所有 AI",
-          "Codex、Claude Code 和国产 AI 助手，接入、登录、额度都在这里。",
+          "Codex、Claude Code、Grok 等 AI 助手，接入、登录、额度都在这里。",
           h(
             "div",
             { class: "row" },
@@ -1723,34 +1256,25 @@
       },
       "agents.list": {
         agents: [
-          "claude-code",
-          "kimi-code",
-          "qoder-cn",
-          "codebuddy",
-          "deepseek-harness",
-          "opencode",
-          "cursor-cli",
-          "qoder",
-          "antigravity",
-          "grok",
-          "kiro-cli",
-          "hermes",
-          "pi",
-          "omp",
-          "workbuddy",
-        ].map((id) => ({
+          ["claude-code", "Claude Code", "Anthropic", "official", false, "auto", true],
+          ["antigravity", "Antigravity", "Google", "official", false, "none", false],
+          ["grok", "Grok", "xAI", "official", false, "manual", false],
+          ["opencode", "OpenCode", "OpenCode", "community", true, "manual", true],
+          ["pi", "Pi", "Pi", "community", true, "manual", false],
+          ["hermes", "Hermes", "Nous Research", "community", true, "none", false],
+          ["cursor-cli", "Cursor", "Cursor", "community", false, "none", false],
+          ["kiro-cli", "Kiro", "AWS", "community", false, "none", false],
+        ].map(([id, name, vendor, category, openSource, relay, installed]) => ({
           id,
-          name:
-            {
-              "claude-code": "Claude Code",
-              "kiro-cli": "Kiro",
-              hermes: "Hermes",
-              grok: "Grok",
-              "deepseek-harness": "DeepSeek",
-            }[id] || id,
-          installed: id === "workbuddy" ? null : id === "claude-code",
-          automatic: id !== "workbuddy",
-          canOpenLogin: !["deepseek-harness", "workbuddy"].includes(id),
+          name,
+          vendor,
+          category,
+          openSource,
+          relay,
+          installed,
+          automatic: true,
+          canOpenLogin: true,
+          manualCommand: "npm install -g opencode-ai",
         })),
       },
       "balance.get": {
@@ -1808,6 +1332,7 @@
         ],
       },
       "proxy.status": { available: true, running: true, port: 25917 },
+      "relay.balance": { available: true, ok: true, balance: 86.4, unit: "USD", rate: 0.3 },
       "agents.claudeCode.status": { installed: true, loggedIn: false },
       "agents.relays.get": { claudeCode: "aaaaaaaaaaaa" },
       "agents.installStatus": { state: "idle", automatic: true },

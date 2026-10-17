@@ -332,3 +332,78 @@ describe("零号中转 first", () => {
     });
   });
 });
+
+describe("AI 助手 catalog and relay logos", () => {
+  it("lists official agents first and hides agents for domestic models", async () => {
+    const { listRly0HubAgents, RLY0_HUB_HIDDEN_AGENTS } =
+      await import("../src/rly0-hub-service/agents.js");
+    const agents = listRly0HubAgents({ PATH: "" }, "win32", () => false);
+    expect(agents.map((a) => a.id)).toEqual([
+      "claude-code",
+      "antigravity",
+      "grok",
+      "opencode",
+      "pi",
+      "hermes",
+      "cursor-cli",
+      "kiro-cli",
+    ]);
+    expect(agents.filter((a) => a.category === "official").map((a) => a.vendor)).toEqual([
+      "Anthropic",
+      "Google",
+      "xAI",
+    ]);
+    for (const hidden of RLY0_HUB_HIDDEN_AGENTS)
+      expect(agents.map((a) => a.id)).not.toContain(hidden);
+    expect(agents.find((a) => a.id === "opencode")?.manualCommand).toBe(
+      "npm install -g opencode-ai",
+    );
+  });
+
+  it("opens only the catalog's own docs pages", async () => {
+    const root = await tempDir();
+    const opened: string[] = [];
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      core: fakeCore([]).core,
+      openUrl: (url) => opened.push(url),
+    });
+    await service.handle("links.agentDocs", { agent: "opencode" });
+    await expect(service.handle("links.agentDocs", { agent: "https://evil" })).rejects.toThrow(
+      "INVALID_PARAMS",
+    );
+    expect(opened).toEqual(["https://opencode.ai/docs"]);
+  });
+
+  it("reads a Sub2API site's logo as a data URI and nothing else", async () => {
+    const { fetchRelayLogo } = await import("../src/rly0-hub-service/relay-logo.js");
+    const png = Buffer.from([137, 80, 78, 71]);
+    const seen: string[] = [];
+    const fake = async (url: string) => {
+      seen.push(url);
+      if (url === "https://api.example.com/api/v1/settings/public")
+        return new Response("nope", { status: 404 });
+      if (url === "https://api.example.com/favicon.ico") return new Response("x", { status: 404 });
+      if (url === "https://example.com/api/v1/settings/public")
+        return Response.json({ code: 0, data: { site_name: "Example", site_logo: "/logo.png" } });
+      if (url === "https://example.com/logo.png")
+        return new Response(png, { headers: { "content-type": "image/png" } });
+      return new Response("", { status: 404 });
+    };
+    const result = await fetchRelayLogo("https://api.example.com/v1", fake);
+    expect(result).toEqual({
+      logo: `data:image/png;base64,${png.toString("base64")}`,
+      siteName: "Example",
+    });
+    const html = async () => new Response("<html>", { headers: { "content-type": "text/html" } });
+    expect(await fetchRelayLogo("https://relay.example/v1", html)).toEqual({
+      logo: null,
+      siteName: null,
+    });
+    expect(await fetchRelayLogo("http://plain.example/v1", fake)).toEqual({
+      logo: null,
+      siteName: null,
+    });
+  });
+});

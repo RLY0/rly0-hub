@@ -1,4 +1,8 @@
-import { KNOWN_RENDERER_AGENTS, type ExternalRendererAgent } from "./agent-selection-state.js";
+import {
+  KNOWN_RENDERER_AGENTS,
+  RLY0_AGENT_DISPLAY_ORDER,
+  type ExternalRendererAgent,
+} from "./agent-selection-state.js";
 
 /**
  * Where an external Agent currently lives from the user's point of view:
@@ -37,9 +41,14 @@ export interface AgentGroupPreferenceStore {
 
 export const AGENT_GROUP_PREFERENCE_STORAGE_KEY = "codexhost.agentGroupPreference.v1";
 
+const displayRank = (agent: string): number => {
+  const index = (RLY0_AGENT_DISPLAY_ORDER as readonly string[]).indexOf(agent);
+  return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+};
+// Default order: official agents, then third-party ones, then everything else as before.
 const EXTERNAL_AGENTS: readonly ExternalRendererAgent[] = KNOWN_RENDERER_AGENTS.filter(
   (agent): agent is ExternalRendererAgent => agent !== "codex",
-);
+).sort((a, b) => displayRank(a) - displayRank(b));
 
 interface StoredEntry {
   readonly agent: string;

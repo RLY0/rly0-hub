@@ -503,6 +503,13 @@ export class Rly0CoreBridge {
             : undefined,
       todayCost: money(raw.todayCost),
       totalCost: money(raw.totalCost),
+      rate:
+        typeof raw.rate === "number" &&
+        Number.isFinite(raw.rate) &&
+        raw.rate >= 0 &&
+        raw.rate <= 1000
+          ? raw.rate
+          : undefined,
       status: status !== undefined && status <= 999 ? status : undefined,
       error:
         error === undefined

@@ -167,6 +167,8 @@ export const rly0RelayBalanceResultSchema = z.discriminatedUnion("available", [
       unit: z.enum(["USD", "CNY"]).nullable().optional(),
       todayCost: money.optional(),
       totalCost: money.optional(),
+      /** Price multiplier: charged / list price over the key's whole usage. */
+      rate: z.number().finite().min(0).max(1000).optional(),
       status: z.number().int().min(0).max(999).optional(),
       error: z.string().max(200).optional(),
     })

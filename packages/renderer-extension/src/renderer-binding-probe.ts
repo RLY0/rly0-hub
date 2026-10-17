@@ -24,6 +24,7 @@ import {
   type ExternalRendererAgent,
   type RendererAgent,
   type RendererAgentAvailability,
+  RLY0_HIDDEN_RENDERER_AGENTS,
 } from "./agent-selection-state.js";
 import {
   CODEX_COMPOSER_SELECTOR,
@@ -2874,6 +2875,7 @@ export function installRendererBindingProbe(
       const availability = activeHarnessAvailabilityState().availability;
       return enabledAgents
         .filter((agent) => agent === "codex" || availability[agent] === "ready")
+        .filter((agent) => !RLY0_HIDDEN_RENDERER_AGENTS.has(agent))
         .map((agent) => ({ agent, label: RENDERER_AGENT_LABELS[agent] }));
     },
     isComposerEditor: (editor) => {

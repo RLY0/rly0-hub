@@ -8,6 +8,7 @@ import type {
   RendererAgent,
   RendererAgentAvailability,
 } from "./agent-selection-state.js";
+import { RLY0_HIDDEN_RENDERER_AGENTS } from "./agent-selection-state.js";
 import type { CodexAccountSummary } from "@codexhost/shared-contracts";
 import { createRendererAgentIcon, RENDERER_AGENT_LABELS } from "./renderer-agent-icon.js";
 import { requestConnectionsPageFocus } from "./settings/connections-page.js";
@@ -558,6 +559,10 @@ export function mountRendererAgentPicker(
     for (const entry of groupPreference.list()) {
       const agent = entry.agent as RendererAgent;
       if (!enabledSet.has(agent) || seen.has(agent)) continue;
+      if (RLY0_HIDDEN_RENDERER_AGENTS.has(agent)) {
+        seen.add(agent);
+        continue;
+      }
       seen.add(agent);
       const section = groupPreference.sectionOf(entry.agent, notInstalled.has(agent));
       (section === "more" ? nextMore : nextMain).push(agent);
@@ -566,7 +571,7 @@ export function mountRendererAgentPicker(
     // Defensive: an enabled Agent the preference store hasn't recorded yet
     // (should not normally happen) still needs to render somewhere.
     for (const agent of enabledAgents) {
-      if (seen.has(agent)) continue;
+      if (seen.has(agent) || RLY0_HIDDEN_RENDERER_AGENTS.has(agent)) continue;
       seen.add(agent);
       nextMain.push(agent);
     }

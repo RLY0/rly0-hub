@@ -203,17 +203,17 @@ describe("independent Hub management", () => {
     ).toMatchObject({ error: "UPDATE_CHECK_FAILED" });
   });
 
-  it("detects DeepSeek through dsh without implying it supports interactive login", () => {
+  it("detects an npm-installed agent from the npm folder", () => {
     const agents = listRly0HubAgents(
       { APPDATA: "C:\\Users\\test\\AppData\\Roaming" },
       "win32",
-      (file) => file.toLowerCase().endsWith("\\npm\\dsh.cmd"),
+      (file) => file.toLowerCase().endsWith("\\npm\\opencode.cmd"),
     );
-    expect(agents.find((a) => a.id === "deepseek-harness")).toMatchObject({
+    expect(agents.find((a) => a.id === "opencode")).toMatchObject({
       installed: true,
-      canOpenLogin: false,
+      canOpenLogin: true,
     });
-    expect(agents.find((a) => a.id === "workbuddy")).toMatchObject({ installed: null });
+    expect(agents.find((a) => a.id === "grok")).toMatchObject({ installed: false });
     expect(rly0HubStatus("C:\\Hub", () => true, "win32")).toEqual({ available: true });
     expect(rly0HubStatus("C:\\Hub", () => false, "win32")).toEqual({ available: false });
   });

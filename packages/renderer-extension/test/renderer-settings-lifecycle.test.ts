@@ -174,7 +174,14 @@ describe("Renderer Settings lifecycle", () => {
       close: shellClose,
       dispose: vi.fn(),
     };
-    vi.mocked(installRendererSettingsShell).mockReturnValue(shell as never);
+    // Like the real shell, every install returns a fresh object.
+    vi.mocked(installRendererSettingsShell).mockImplementation(
+      () =>
+        ({
+          ...shell,
+          openSettings: (...args: unknown[]) => openSettings(...(args as [])),
+        }) as never,
+    );
     vi.mocked(installRendererSettingsRailTrigger).mockReturnValue({
       root,
       refresh: triggerRefresh,
@@ -258,7 +265,7 @@ describe("Renderer Settings lifecycle", () => {
     lifecycle.dispose();
   });
 
-  it("does not show the old dialog on Hub launch errors or on availability errors", async () => {
+  it("falls back to the full settings when the Hub cannot be opened, never to a dead end", async () => {
     const f = hubFixture(true);
     f.client.rly0OpenHub.mockRejectedValue(new Error("unavailable"));
     const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
@@ -268,17 +275,26 @@ describe("Renderer Settings lifecycle", () => {
     vi.mocked(installRendererSettingsRailTrigger)
       .mock.calls.at(-1)?.[0]
       .onOpen(f.button as unknown as HTMLButtonElement);
-    await vi.waitFor(() => expect(f.ownerWindow.alert).toHaveBeenCalled());
-    expect(f.openSettings).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(f.openSettings).toHaveBeenCalled());
+    expect(f.ownerWindow.alert).not.toHaveBeenCalled();
     lifecycle.dispose();
+
+    // The availability check itself fails: settings stay mounted and the Hub is still tried.
     vi.mocked(installRendererSettingsShell).mockClear();
+    f.openSettings.mockClear();
+    f.client.rly0OpenHub.mockReset();
+    f.client.rly0OpenHub.mockResolvedValue({ available: true, ok: true });
     f.client.rly0HubStatus.mockRejectedValue(new Error("offline"));
     const second = installRendererSettingsLifecycle(f.ownerWindow, {
       getHubClient: () => f.client,
     });
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(installRendererSettingsShell).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(installRendererSettingsShell).toHaveBeenCalled());
+    vi.mocked(installRendererSettingsRailTrigger)
+      .mock.calls.at(-1)?.[0]
+      .onOpen(f.button as unknown as HTMLButtonElement);
+    await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalled());
+    expect(f.openSettings).not.toHaveBeenCalled();
+    expect(f.ownerWindow.alert).not.toHaveBeenCalled();
     second.dispose();
   });
 

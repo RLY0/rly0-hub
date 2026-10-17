@@ -33,7 +33,8 @@ import { Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
-import { listRly0HubAgents } from "./agents.js";
+import { listRly0HubAgents, rly0HubAgentDocsUrl } from "./agents.js";
+import { fetchRelayLogo } from "./relay-logo.js";
 import { evaluateRly0HubAlerts } from "./alerts.js";
 import { Rly0CodexControl } from "./codex-control.js";
 import { Rly0HubStateStore } from "./hub-state.js";
@@ -47,11 +48,12 @@ export const RLY0_HUB_LINKS = {
   github: RLY0_GITHUB_REPOSITORY_URL,
   nodejs: "https://nodejs.org",
   releases: RLY0_GITHUB_RELEASES_LATEST_URL,
+  keys: "https://rly0.com/keys",
 } as const;
 
 const empty = z.object({}).strict();
 const linkParams = z
-  .object({ target: z.enum(["site", "recharge", "github", "nodejs", "releases"]) })
+  .object({ target: z.enum(["site", "recharge", "github", "nodejs", "releases", "keys"]) })
   .strict();
 
 type Handler = (params: unknown) => Promise<unknown>;
@@ -118,6 +120,16 @@ export class Rly0HubService {
   readonly #installer: AgentInstaller;
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
+  readonly #relayLogos = new Map<
+    string,
+    Promise<{ logo: string | null; siteName: string | null }>
+  >();
+
+  #rememberLogo(baseUrl: string): Promise<{ logo: string | null; siteName: string | null }> {
+    const pending = fetchRelayLogo(baseUrl).catch(() => ({ logo: null, siteName: null }));
+    this.#relayLogos.set(baseUrl, pending);
+    return pending;
+  }
   readonly #routes: Readonly<Record<string, Handler>>;
 
   constructor(options: Rly0HubServiceOptions) {
@@ -277,6 +289,19 @@ export class Rly0HubService {
         return { ok: true };
       }),
       "alerts.check": route(empty, () => this.#checkAlerts()),
+      "links.agentDocs": route(z.object({ agent: z.string().max(40) }).strict(), (p) => {
+        const url = rly0HubAgentDocsUrl(p.agent);
+        if (!url) throw Object.assign(new Error("INVALID_PARAMS"), { code: -32602 });
+        (this.#options.openUrl ?? openInBrowser)(url);
+        return { ok: true };
+      }),
+      "relay.logo": route(rly0RelayBalanceParamsSchema, async (p) => {
+        const relays = await core.listRelays();
+        const relay = relays.available ? relays.relays.find((r) => r.id === p.id) : undefined;
+        if (!relay) return { logo: null, siteName: null };
+        if (isRly0Relay(relay)) return { logo: "rly0", siteName: "零号中转" };
+        return this.#relayLogos.get(relay.baseUrl) ?? this.#rememberLogo(relay.baseUrl);
+      }),
       "links.open": route(linkParams, (p) => {
         (this.#options.openUrl ?? openInBrowser)(RLY0_HUB_LINKS[p.target]);
         return { ok: true };

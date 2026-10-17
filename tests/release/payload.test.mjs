@@ -203,3 +203,27 @@ describe("release Payload", () => {
     }
   });
 });
+
+describe("RLY/0 Hub window files", () => {
+  it("lists exactly the files in apps/hub-desktop/www", async () => {
+    const { readdir } = await import("node:fs/promises");
+    const root = path.join(import.meta.dirname, "../../apps/hub-desktop/www");
+    const walk = async (dir) =>
+      (await readdir(dir, { withFileTypes: true })).flatMap((entry) => entry).length
+        ? (
+            await Promise.all(
+              (await readdir(dir, { withFileTypes: true })).map((entry) =>
+                entry.isDirectory()
+                  ? walk(path.join(dir, entry.name))
+                  : [path.relative(root, path.join(dir, entry.name)).split(path.sep).join("/")],
+              ),
+            )
+          ).flat()
+        : [];
+    const files = (await walk(root)).map((file) => `app/hub-ui/${file}`).sort();
+    const listed = RLY0_HUB_WINDOWS_PAYLOAD_PATHS.filter((file) =>
+      file.startsWith("app/hub-ui/"),
+    ).sort();
+    expect(listed).toEqual(files);
+  });
+});

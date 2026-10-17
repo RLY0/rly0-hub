@@ -161,10 +161,8 @@ export function installRendererSettingsLifecycle(
           (CODEX_ONLY_SETTINGS_PAGES as readonly string[]).includes(page.id),
         )
       : definitions;
-    const nextShell =
-      hubAvailable === null
-        ? null
-        : installRendererSettingsShell(selectedPages, messages, ownerWindow.document);
+    // While the Hub check is pending the full settings stay mounted as the fallback.
+    const nextShell = installRendererSettingsShell(selectedPages, messages, ownerWindow.document);
     if (nextShell && hubAvailable) {
       const openTools = nextShell.openSettings.bind(nextShell);
       nextShell.openSettings = (opener, pageId) => {
@@ -187,23 +185,28 @@ export function installRendererSettingsLifecycle(
             : (trigger?.root?.querySelector<HTMLButtonElement>("button") ?? undefined);
           await refreshHubAvailability();
           if (disposed || generation !== openGeneration) return;
-          if (hubAvailable) {
-            try {
-              await openHub();
-            } catch {
-              ownerWindow.alert(
-                locale === "zh-CN"
-                  ? "没能打开 RLY/0 Hub，请从托盘或开始菜单打开。"
-                  : "Could not open RLY/0 Hub. Open it from the tray or Start menu.",
-              );
-            }
-          } else if (hubAvailable === false) shell?.openSettings(currentOpener, pageId);
-          else
-            ownerWindow.alert(
-              locale === "zh-CN"
-                ? "无法连接 RLY/0 服务，请稍后重试。"
-                : "RLY/0 service is unavailable. Try again later.",
-            );
+          if (hubAvailable === false) {
+            shell?.openSettings(currentOpener, pageId);
+            return;
+          }
+          // Hub present or not known yet: try it first. Whatever fails, the person still gets
+          // the full settings instead of a dead-end message.
+          try {
+            await openHub();
+            return;
+          } catch {
+            if (disposed || generation !== openGeneration) return;
+          }
+          hubAvailable = false;
+          trigger?.dispose();
+          shell?.dispose();
+          trigger = null;
+          shell = null;
+          const mounted = mount();
+          mounted.shell?.openSettings(
+            mounted.trigger.root?.querySelector<HTMLButtonElement>("button") ?? undefined,
+            pageId,
+          );
         });
       },
     });
