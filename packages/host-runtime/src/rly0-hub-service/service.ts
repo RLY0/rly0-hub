@@ -35,6 +35,7 @@ import { Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
+import { apiKeyLogin, importLogin, parseAuthFile } from "./account-import.js";
 import { listRly0HubAgents, rly0HubAgentDocsUrl } from "./agents.js";
 import { fetchRelayLogo } from "./relay-logo.js";
 import {
@@ -455,6 +456,33 @@ export class Rly0HubService {
           const settings = cleanAlertSettings(p);
           await this.#state.update({ alerts: settings });
           return settings;
+        },
+      ),
+      "accounts.importAuthFile": route(
+        z
+          .object({
+            content: z
+              .string()
+              .min(2)
+              .max(256 * 1024),
+            alias: z.string().trim().min(1).max(40).optional(),
+          })
+          .strict(),
+        (p) => {
+          const parsed = parseAuthFile(p.content);
+          return importLogin(core, parsed.json, p.alias ?? parsed.alias);
+        },
+      ),
+      "accounts.addApiKey": route(
+        z
+          .object({
+            apiKey: z.string().min(1).max(400),
+            alias: z.string().trim().min(1).max(40).optional(),
+          })
+          .strict(),
+        (p) => {
+          const login = apiKeyLogin(p.apiKey);
+          return importLogin(core, login.json, p.alias ?? login.alias);
         },
       ),
       "accounts.switchAndRestart": route(rly0AccountsSwitchParamsSchema, (p) =>

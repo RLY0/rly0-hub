@@ -1845,3 +1845,386 @@ select.input option {
 .login-url {
   word-break: break-all;
 }
+
+/* ================= Round 5 ================= */
+
+/* One radius family: cards 14; everything inside a card 10; only switches and dots are round. */
+.ad,
+.segment,
+.segment button,
+.unlock,
+.settings-menu,
+.settings-menu button,
+.chip {
+  border-radius: var(--r-md);
+}
+.unlock-knob {
+  border-radius: var(--r-sm);
+}
+.agent-logo,
+.ready-item,
+.code-block,
+.relay-editor,
+.btn,
+.input,
+select.input,
+.add-tile .plus {
+  border-radius: var(--r-md);
+}
+.m,
+.promo {
+  border-radius: var(--r-lg);
+}
+
+/* Pointer light on modules: a soft spot that follows the cursor, plus a lifted edge. */
+.m {
+  isolation: isolate;
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+.m::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  background: radial-gradient(
+    260px circle at var(--mx, 50%) var(--my, 50%),
+    rgba(233, 233, 227, 0.09),
+    transparent 65%
+  );
+}
+.m:hover::before {
+  opacity: 1;
+}
+.m:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(233, 233, 227, 0.07),
+    0 18px 48px rgba(0, 0, 0, 0.22);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .grid > .m:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* ---------- Banner v2: micro-pixel scene ---------- */
+.promo {
+  position: relative;
+  overflow: hidden;
+  min-height: 210px;
+  padding: 28px 36px;
+  gap: 32px;
+  background: linear-gradient(115deg, #c23a26 0%, #b83220 38%, #8e2517 100%);
+}
+.promo::before {
+  background: radial-gradient(
+    320px circle at var(--mx, 70%) var(--my, 40%),
+    rgba(255, 240, 220, 0.22),
+    transparent 65%
+  );
+}
+.promo > *:not(.px-grid):not(.px-scan):not(.px-sparkles):not(.px-eq) {
+  position: relative;
+  z-index: 1;
+}
+.px-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(13, 13, 11, 0.12) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 13, 11, 0.12) 1px, transparent 1px);
+  background-size: 8px 8px;
+  -webkit-mask-image: linear-gradient(100deg, #000 0%, rgba(0, 0, 0, 0.35) 55%, #000 100%);
+  mask-image: linear-gradient(100deg, #000 0%, rgba(0, 0, 0, 0.35) 55%, #000 100%);
+}
+.px-scan {
+  position: absolute;
+  inset: -40% auto -40% -30%;
+  width: 22%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255, 245, 230, 0.16), transparent);
+  transform: skewX(-18deg);
+}
+.px-sparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.px-sparkles i {
+  position: absolute;
+  width: var(--s, 4px);
+  height: var(--s, 4px);
+  background: rgba(255, 245, 230, 0.75);
+  opacity: 0;
+}
+.px-eq {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 40px;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 0 12px;
+  pointer-events: none;
+  opacity: 0.35;
+}
+.px-eq i {
+  flex: 1;
+  height: var(--h, 12px);
+  background: repeating-linear-gradient(to top, rgba(13, 13, 11, 0.55) 0 4px, transparent 4px 6px);
+}
+.px-cursor {
+  display: inline-block;
+  width: 0.45em;
+  height: 0.9em;
+  margin-left: 6px;
+  vertical-align: -0.08em;
+  background: var(--paper-50);
+}
+
+.mascot-stage {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  width: 176px;
+  height: 158px;
+  flex: none;
+  position: relative;
+}
+.mascot-stage:focus-visible {
+  outline: 2px solid var(--paper-50);
+  outline-offset: 4px;
+  border-radius: var(--r-md);
+}
+.mascot {
+  position: absolute;
+  left: 30px;
+  bottom: 30px;
+  width: 112px;
+  transform: translate(var(--lean-x, 0), var(--lean-y, 0)) rotate(var(--lean-r, 0));
+  transition: transform 0.25s ease-out;
+  filter: drop-shadow(0 6px 0 rgba(13, 13, 11, 0.25));
+}
+.mascot-halo {
+  position: absolute;
+  left: 22px;
+  bottom: 18px;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 240, 220, 0.35), transparent 65%);
+  opacity: 0.6;
+}
+.mascot-pad {
+  position: absolute;
+  left: 38px;
+  bottom: 16px;
+  width: 100px;
+  height: 12px;
+  background: repeating-linear-gradient(90deg, rgba(13, 13, 11, 0.4) 0 6px, transparent 6px 8px);
+}
+.mascot-stage:hover .mascot-halo {
+  opacity: 1;
+}
+.px-track {
+  position: absolute;
+  left: 150px;
+  top: 70px;
+  width: 70px;
+  height: 4px;
+  background: repeating-linear-gradient(90deg, rgba(255, 245, 230, 0.5) 0 4px, transparent 4px 8px);
+}
+.px-track .packet {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 0;
+  background: var(--paper-50);
+  opacity: 0;
+}
+.px-burst {
+  position: absolute;
+  left: 86px;
+  top: 74px;
+  width: 0;
+  height: 0;
+}
+.px-burst i {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--paper-50);
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .px-scan {
+    animation: scan 5.5s ease-in-out infinite;
+  }
+  @keyframes scan {
+    0% {
+      transform: translateX(0) skewX(-18deg);
+    }
+    60%,
+    100% {
+      transform: translateX(640%) skewX(-18deg);
+    }
+  }
+  .px-sparkles i {
+    animation: twinkle 3s steps(3) infinite;
+  }
+  @keyframes twinkle {
+    0%,
+    100% {
+      opacity: 0;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  .px-eq i {
+    animation: eq 1.6s steps(4) infinite alternate;
+  }
+  @keyframes eq {
+    from {
+      transform: scaleY(0.35);
+      transform-origin: bottom;
+    }
+    to {
+      transform: scaleY(1);
+      transform-origin: bottom;
+    }
+  }
+  .px-cursor {
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  .mascot-halo {
+    animation: halo 2.4s ease-in-out infinite;
+  }
+  @keyframes halo {
+    50% {
+      transform: scale(1.08);
+      opacity: 0.9;
+    }
+  }
+  .px-track .packet {
+    animation: travel 1.8s steps(9) infinite;
+  }
+  .px-track .packet.p2 {
+    animation-delay: 0.6s;
+  }
+  .px-track .packet.p3 {
+    animation-delay: 1.2s;
+  }
+  @keyframes travel {
+    0% {
+      transform: translateX(0);
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(70px);
+      opacity: 0;
+    }
+  }
+  .mascot-stage.jump .mascot {
+    animation: big-hop 0.7s cubic-bezier(0.3, 0, 0.2, 1);
+  }
+  @keyframes big-hop {
+    0% {
+      transform: translate(var(--lean-x, 0), 0) scale(1.08, 0.9);
+    }
+    40% {
+      transform: translate(var(--lean-x, 0), -38px) scale(0.94, 1.08) rotate(-8deg);
+    }
+    70% {
+      transform: translate(var(--lean-x, 0), 0) scale(1.06, 0.94);
+    }
+    100% {
+      transform: translate(var(--lean-x, 0), 0) scale(1);
+    }
+  }
+  .mascot-stage.jump .px-burst i {
+    animation: burst 0.8s steps(6) forwards;
+  }
+  @keyframes burst {
+    0% {
+      transform: translate(0, 0);
+      opacity: 1;
+    }
+    100% {
+      transform: translate(var(--dx), var(--dy));
+      opacity: 0;
+    }
+  }
+}
+.promo .btn.promo-cta {
+  position: relative;
+  overflow: hidden;
+}
+.promo .btn.promo-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(184, 50, 32, 0.18) 50%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .promo .btn.promo-cta:hover::after {
+    animation: shine 0.8s ease;
+  }
+  @keyframes shine {
+    to {
+      transform: translateX(100%);
+    }
+  }
+}
+
+/* Round 5 touch-ups: the packet track stays inside 阿零's stage; the slider fill starts empty. */
+.mascot-stage {
+  width: 196px;
+}
+.px-track {
+  left: 150px;
+  width: 38px;
+}
+@keyframes travel {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(38px);
+    opacity: 0;
+  }
+}
+.unlock::before {
+  opacity: calc(var(--unlock) * 6);
+  width: calc(52px + (100% - 52px) * var(--unlock));
+}

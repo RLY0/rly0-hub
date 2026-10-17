@@ -35,21 +35,94 @@ window.registerHubHome = (api) => {
     "kiro-cli": "svg",
   };
 
+  // Pixel scene for the banner: a pixel grid, twinkling pixels, an equalizer of "traffic" bars
+  // and a pixel track that packets travel along. 阿零 (the official IP, moved only as a whole)
+  // leans toward the pointer and hops with a pixel burst when clicked.
+  function pixelScene() {
+    const sparkles = h("div", { class: "px-sparkles", "aria-hidden": "true" });
+    for (let i = 0; i < 26; i += 1) {
+      const dot = h("i");
+      dot.style.setProperty("left", `${Math.round(Math.random() * 100)}%`);
+      dot.style.setProperty("top", `${Math.round(Math.random() * 100)}%`);
+      dot.style.setProperty("animation-delay", `${(Math.random() * 3).toFixed(2)}s`);
+      dot.style.setProperty("--s", `${[4, 4, 6, 8][i % 4]}px`);
+      sparkles.append(dot);
+    }
+    const equalizer = h("div", { class: "px-eq", "aria-hidden": "true" });
+    for (let i = 0; i < 40; i += 1) {
+      const bar = h("i");
+      bar.style.setProperty("animation-delay", `${(Math.random() * 1.6).toFixed(2)}s`);
+      bar.style.setProperty("--h", `${6 + Math.round(Math.random() * 5) * 6}px`);
+      equalizer.append(bar);
+    }
+    return [
+      h("div", { class: "px-grid", "aria-hidden": "true" }),
+      h("div", { class: "px-scan", "aria-hidden": "true" }),
+      sparkles,
+      equalizer,
+    ];
+  }
+
   function mascot() {
-    // The official IP is moved as a whole; the packets are a separate scene layer.
-    return h(
-      "div",
-      { class: "mascot-stage", "aria-hidden": "true" },
-      h("img", { class: "mascot", src: "brand/rly0-ip-on-dark.svg", alt: "" }),
-      h("span", { class: "mascot-shadow" }),
-      h("span", { class: "packet p1" }),
-      h("span", { class: "packet p2" }),
-      h("span", { class: "packet p3" }),
+    const ip = h("img", { class: "mascot", src: "brand/rly0-ip-on-dark.svg", alt: "阿零" });
+    const burst = h("div", { class: "px-burst", "aria-hidden": "true" });
+    const stage = h(
+      "button",
+      { class: "mascot-stage", type: "button", "aria-label": "和阿零打个招呼" },
+      h("span", { class: "mascot-halo", "aria-hidden": "true" }),
+      h("span", { class: "mascot-pad", "aria-hidden": "true" }),
+      ip,
+      burst,
+      h(
+        "span",
+        { class: "px-track", "aria-hidden": "true" },
+        h("i", { class: "packet p1" }),
+        h("i", { class: "packet p2" }),
+        h("i", { class: "packet p3" }),
+      ),
     );
+    stage.addEventListener("click", () => {
+      stage.classList.remove("jump");
+      void stage.offsetWidth;
+      stage.classList.add("jump");
+      burst.replaceChildren();
+      for (let i = 0; i < 14; i += 1) {
+        const px = h("i");
+        const angle = (Math.PI * 2 * i) / 14;
+        px.style.setProperty(
+          "--dx",
+          `${Math.round(Math.cos(angle) * (46 + Math.random() * 26))}px`,
+        );
+        px.style.setProperty(
+          "--dy",
+          `${Math.round(Math.sin(angle) * (40 + Math.random() * 22)) - 18}px`,
+        );
+        burst.append(px);
+      }
+    });
+    return stage;
+  }
+
+  // 阿零 leans toward the pointer while it is over the banner.
+  function followPointer(banner) {
+    banner.addEventListener("pointermove", (event) => {
+      const box = banner.getBoundingClientRect();
+      const x = (event.clientX - box.left) / box.width - 0.5;
+      const y = (event.clientY - box.top) / box.height - 0.5;
+      banner.style.setProperty("--lean-x", `${(x * 14).toFixed(1)}px`);
+      banner.style.setProperty("--lean-r", `${(x * 8).toFixed(1)}deg`);
+      banner.style.setProperty("--lean-y", `${(y * 6).toFixed(1)}px`);
+    });
+    banner.addEventListener("pointerleave", () => {
+      banner.style.setProperty("--lean-x", "0px");
+      banner.style.setProperty("--lean-r", "0deg");
+      banner.style.setProperty("--lean-y", "0px");
+    });
   }
 
   pages.home = (root, alive) => {
     const promo = h("section", { class: "m promo span-6" });
+    followPointer(promo);
     const codexModule = h("section", { class: "m codex span-4" });
     const quotaModule = h("section", { class: "m quota span-2" });
     const accountModule = h("section", { class: "m stat span-2" });
@@ -80,7 +153,12 @@ window.registerHubHome = (api) => {
         "div",
         { class: "promo-text" },
         h("span", { class: "label" }, "RLY/0 零号中转 · 作者自营"),
-        h("h2", null, "一个密钥，调用所有模型"),
+        h(
+          "h2",
+          null,
+          "一个密钥，调用所有模型",
+          h("span", { class: "px-cursor", "aria-hidden": "true" }),
+        ),
         h("p", null, "Claude、GPT、Gemini、Grok，Codex 和各家 AI 助手都能直接用。"),
       );
       let side;
@@ -134,7 +212,7 @@ window.registerHubHome = (api) => {
           ),
         );
       }
-      put(promo, mascot(), text, side);
+      put(promo, pixelScene(), mascot(), text, side);
     }
 
     async function load() {

@@ -210,6 +210,15 @@
     requestAnimationFrame(check);
   }
 
+  /* ---------- A soft light that follows the pointer across every module ---------- */
+  document.addEventListener("pointermove", (event) => {
+    const card = event.target instanceof Element ? event.target.closest(".m") : null;
+    if (!card) return;
+    const box = card.getBoundingClientRect();
+    card.style.setProperty("--mx", `${Math.round(event.clientX - box.left)}px`);
+    card.style.setProperty("--my", `${Math.round(event.clientY - box.top)}px`);
+  });
+
   /* ---------- Pages ---------- */
   const pages = {};
 
@@ -357,6 +366,16 @@
       ),
       h(
         "button",
+        { class: "btn", type: "button", onclick: () => filePicker.click() },
+        "导入 auth.json",
+      ),
+      h(
+        "button",
+        { class: "btn", type: "button", onclick: () => showApiKeyForm() },
+        "API Key 登录",
+      ),
+      h(
+        "button",
         { class: "btn paper", type: "button", onclick: () => addAccount() },
         "+ 添加其他 GPT 账号",
       ),
@@ -368,7 +387,92 @@
       CODEX_NOT_FOUND: "没找到 Codex，请先安装官方 Codex 桌面版",
       CODEX_START_FAILED: "Codex 没能启动，请稍后再试",
       RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
+      AUTH_FILE_INVALID: "这个文件不是有效的 JSON",
+      AUTH_FILE_NOT_A_LOGIN: "这个文件里没有 Codex 登录信息（需要 auth.json）",
+      API_KEY_INVALID: "API Key 格式不对，应以 sk- 开头",
+      AUTH_IDENTITY_UNKNOWN: "读不出这个登录属于哪个账号",
     };
+    const loginFailed = (error) =>
+      toast(LOGIN_ERRORS[error && error.message] || explain(error && error.message));
+
+    // A Codex auth.json picked from disk (e.g. copied from another computer).
+    const filePicker = h("input", { type: "file", accept: ".json,application/json", hidden: true });
+    filePicker.addEventListener("change", () => {
+      const file = filePicker.files && filePicker.files[0];
+      filePicker.value = "";
+      if (!file) return;
+      if (file.size > 256 * 1024) {
+        toast("文件太大，不像是 auth.json");
+        return;
+      }
+      file.text().then((content) =>
+        call("accounts.importAuthFile", { content }).then(() => {
+          toast("已导入并保存这个账号");
+          load();
+        }, loginFailed),
+      );
+    });
+
+    // An OpenAI API key, saved as an API-key login.
+    function showApiKeyForm() {
+      const key = h("input", {
+        class: "input",
+        type: "password",
+        placeholder: "sk-…",
+        autocomplete: "off",
+        spellcheck: "false",
+        "aria-label": "OpenAI API Key",
+      });
+      const name = h("input", {
+        class: "input",
+        maxlength: "40",
+        placeholder: "名称（可不填）",
+        "aria-label": "账号名称",
+      });
+      const save = () =>
+        call("accounts.addApiKey", {
+          apiKey: key.value.trim(),
+          ...(name.value.trim() ? { alias: name.value.trim() } : {}),
+        }).then(() => {
+          toast("API Key 账号已保存，切换到它后 Codex 用这个 Key");
+          addStatus.replaceChildren();
+          load();
+        }, loginFailed);
+      addStatus.replaceChildren(
+        h(
+          "section",
+          { class: "m tone add-login" },
+          h(
+            "div",
+            { class: "row" },
+            h("b", null, "用 OpenAI API Key 登录"),
+            h("span", { class: "spacer" }),
+            h(
+              "button",
+              { class: "btn quiet sm", type: "button", onclick: () => addStatus.replaceChildren() },
+              "取消",
+            ),
+          ),
+          h(
+            "p",
+            { class: "sub" },
+            "保存为一个账号，切换到它后 Codex 按用量从这个 Key 扣费。Key 加密保存在本机，不会显示出来。",
+          ),
+          h(
+            "div",
+            { class: "form" },
+            key,
+            name,
+            h(
+              "div",
+              { class: "row" },
+              h("button", { class: "btn paper", type: "button", onclick: save }, "保存"),
+            ),
+          ),
+        ),
+      );
+      key.focus();
+    }
     async function addAccount() {
       let started;
       try {
@@ -422,6 +526,7 @@
     const autoCard = h("section", { class: "m tone span-6 auto-switch" });
     root.append(
       head,
+      filePicker,
       addStatus,
       h("div", { style: { height: "16px" } }),
       h("div", { class: "grid compact" }, autoCard),
