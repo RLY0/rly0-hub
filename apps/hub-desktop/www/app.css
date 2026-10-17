@@ -3142,3 +3142,61 @@ select.input,
   padding: 4px 8px;
   font-weight: 650;
 }
+
+/* Round 8: balance coin and rate ring the same size, both white; square account avatar. */
+.money-badge svg,
+.rate-badge svg {
+  width: 30px;
+  height: 30px;
+  color: var(--paper-50);
+}
+.money-badge.large svg {
+  width: 40px;
+  height: 40px;
+}
+.avatar {
+  border-radius: var(--r-md);
+}
+
+/* AI 助手: official agents are wide rows (name on the left, access on the right); third-party
+   agents are a compact three-column grid. */
+.agent-card.wide {
+  display: grid;
+  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+  column-gap: 32px;
+  row-gap: 12px;
+  align-items: start;
+  padding: 26px 28px;
+}
+.agent-card.wide .agent-head {
+  flex-wrap: wrap;
+  row-gap: 10px;
+}
+.agent-card.wide .agent-head .tag {
+  order: 3;
+  flex-basis: 100%;
+  padding-left: 60px;
+}
+.agent-card.wide .agent-body {
+  min-width: 0;
+}
+.agent-card.span-2 {
+  padding: 20px;
+}
+.agent-card.span-2 .segment button {
+  padding: 8px 11px;
+}
+@media (max-width: 1100px) {
+  .agent-card.span-2 {
+    grid-column: span 3;
+  }
+}
+@media (max-width: 860px) {
+  .agent-card.wide {
+    grid-template-columns: 1fr;
+  }
+}
+.line-money,
+.line-money .money-badge b {
+  color: var(--paper-50);
+}

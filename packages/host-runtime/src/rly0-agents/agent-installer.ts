@@ -705,6 +705,20 @@ export class AgentInstaller {
     return false;
   }
 
+  #pathReadAt = 0;
+
+  /**
+   * The environment to look for installed agents in: PATH as Windows has it now (re-read at most
+   * every 15 seconds), so an agent installed since the Hub started is found without a restart.
+   */
+  async searchEnvironment(): Promise<NodeJS.ProcessEnv> {
+    if (this.#platform === "win32" && this.#now() - this.#pathReadAt > 15_000) {
+      this.#pathReadAt = this.#now();
+      await this.#refreshPath().catch(() => undefined);
+    }
+    return this.#withKnownPaths(this.#options.environment);
+  }
+
   async #detected(recipe: Recipe): Promise<boolean> {
     const command = recipe.detectionCommand;
     if (!command) return false;

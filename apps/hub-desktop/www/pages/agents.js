@@ -240,6 +240,13 @@ window.registerHubAgents = ({
     };
   }
 
+  // Official agents and the model family they are built for.
+  const NATIVE_MODELS = {
+    "claude-code": { family: "Claude", pattern: /^(?:anthropic\/)?claude/iu },
+    grok: { family: "Grok", pattern: /^(?:xai\/)?grok/iu },
+    antigravity: { family: "Gemini", pattern: /^(?:google\/)?gemini/iu },
+  };
+
   /* ---------- Page ---------- */
   const LOGIN_ERRORS = {
     API_KEY_INVALID: "Key 格式不对，Anthropic 的 Key 以 sk-ant- 开头",
@@ -273,6 +280,8 @@ window.registerHubAgents = ({
     let relays = [];
     let officialKey = null;
     let claudeRelay = null;
+    // Third-party agents RLY/0 Hub routes itself: { agentId: { relayId, model } }.
+    let agentRelays = {};
     let claudeAuth = null;
     const balances = new Map();
 
@@ -288,6 +297,7 @@ window.registerHubAgents = ({
       officialKey = all.find(isOfficialKey) || null;
       relays = all.filter((relay) => relay.enabled && !isOfficialKey(relay));
       claudeRelay = selection.claudeCode;
+      agentRelays = selection.agents || {};
       claudeAuth = auth;
       const agents = (list && list.agents) || [];
       // Installed first; within each, the catalogue order (open source before closed).
@@ -328,7 +338,7 @@ window.registerHubAgents = ({
 
     function card(agent) {
       const element = h("section", {
-        class: `m agent-card span-3 ${agent.category} ${agent.installed ? "installed" : "dormant"}`,
+        class: `m agent-card ${agent.category === "official" ? "span-6 wide" : "span-2"} ${agent.category} ${agent.installed ? "installed" : "dormant"}`,
       });
       const body = h("div", { class: "agent-body" });
       element.append(
@@ -489,19 +499,41 @@ window.registerHubAgents = ({
     }
 
     function renderAccess(agent, body) {
-      const zero = relays.find((relay) => isRly0(relay));
-      const others = relays.filter((relay) => !isRly0(relay));
+      // An official agent runs only its own vendor's models, so it can use a relay only when the
+      // relay offers them (Claude Code → Claude). Third-party agents can use any relay.
+      const native = NATIVE_MODELS[agent.id];
+      const fits = (relay) => !native || relay.models.some((model) => native.pattern.test(model));
+      const nativeTip = (relay) =>
+        relay.models.length
+          ? `${relay.name} 没有 ${native.family} 模型，${agent.name} 只能用原生的 ${native.family} 模型`
+          : `${relay.name} 还没读出模型，先到「中转站」页点“编辑 / 选模型”测试一次`;
+      const zero = relays.find((relay) => isRly0(relay) && fits(relay));
+      const zeroAny = relays.find((relay) => isRly0(relay));
+      const others = relays.filter((relay) => !isRly0(relay) && fits(relay));
+      const othersAny = relays.filter((relay) => !isRly0(relay));
       const canRelay = agent.relay !== "none";
       let mode = "official";
       let relay = null;
-      if (
-        agent.id === "claude-code" &&
-        claudeRelay &&
-        !(officialKey && claudeRelay === officialKey.id)
-      ) {
-        relay = relays.find((r) => r.id === claudeRelay) || null;
+      const thirdParty = agent.id !== "claude-code" && agent.relay === "auto";
+      const savedId =
+        agent.id === "claude-code"
+          ? claudeRelay && !(officialKey && claudeRelay === officialKey.id)
+            ? claudeRelay
+            : null
+          : thirdParty && agentRelays[agent.id]
+            ? agentRelays[agent.id].relayId
+            : null;
+      if (savedId) {
+        relay = relays.find((r) => r.id === savedId) || null;
         mode = relay ? (isRly0(relay) ? "rly0" : "other") : "official";
       }
+      // A default model for agents that need one; the relay's first model when none is saved.
+      const defaultModel = (target) => {
+        const saved = agentRelays[agent.id];
+        if (saved && saved.relayId === target.id && saved.model) return saved.model;
+        const usable = target.models.filter((m) => !m.endsWith("*"));
+        return usable.find((m) => /^gpt-5/iu.test(m)) || usable[0] || null;
+      };
       const detail = h("div", { class: "access-detail" });
       const quota = h("div", { class: "quota-line" });
       const segment = h("div", { class: "segment", role: "radiogroup", "aria-label": "接入方式" });
@@ -509,7 +541,21 @@ window.registerHubAgents = ({
       const choose = async (nextMode, nextRelay) => {
         mode = nextMode;
         relay = nextRelay;
-        if (agent.relay === "auto") {
+        if (thirdParty) {
+          const model = mode === "official" ? null : defaultModel(relay);
+          await call("agents.relays.setAgent", {
+            agent: agent.id,
+            relayId: mode === "official" ? null : relay.id,
+            model,
+          }).then((next) => {
+            agentRelays = (next && next.agents) || {};
+            toast(
+              mode === "official"
+                ? "已改为官方账号"
+                : `已接入 ${relay.name}，Codex 里新开的 ${agent.name} 对话直接生效`,
+            );
+          }, failed);
+        } else if (agent.relay === "auto") {
           await call("agents.relays.set", {
             claudeCode: mode === "official" ? null : relay.id,
           }).then(
@@ -517,7 +563,7 @@ window.registerHubAgents = ({
               toast(
                 mode === "official"
                   ? "已改为官方账号"
-                  : `已接入 ${relay.name}，Codex 里新开的对话生效`,
+                  : `已接入 ${relay.name}，Codex 里新开的对话直接生效，不用重启`,
               ),
             failed,
           );
@@ -549,13 +595,25 @@ window.registerHubAgents = ({
           option(
             "rly0",
             "零号中转",
-            unsupported || (zero ? null : "还没添加零号中转，先去「中转站」页接入"),
+            unsupported ||
+              (zero
+                ? null
+                : zeroAny
+                  ? nativeTip(zeroAny)
+                  : "还没添加零号中转，先去「中转站」页接入"),
             () => choose("rly0", zero),
           ),
           option(
             "other",
             others.length === 1 ? others[0].name : "其他中转",
-            unsupported || (others.length ? null : "还没添加其他中转站，可以在「中转站」页添加"),
+            unsupported ||
+              (others.length
+                ? null
+                : othersAny.length
+                  ? othersAny.length === 1
+                    ? nativeTip(othersAny[0])
+                    : `已添加的中转站都没有 ${native ? native.family : ""} 模型`
+                  : "还没添加其他中转站，可以在「中转站」页添加"),
             () => choose("other", relay && !isRly0(relay) ? relay : others[0]),
           ),
         );
@@ -778,8 +836,46 @@ window.registerHubAgents = ({
               )
             : null;
         const auto = agent.relay === "auto";
+        const usableModels = relay.models.filter((m) => !m.endsWith("*"));
+        const modelPicker =
+          thirdParty && usableModels.length
+            ? h(
+                "label",
+                { class: "field" },
+                h("span", null, "默认模型"),
+                h(
+                  "select",
+                  {
+                    class: "input",
+                    "aria-label": "默认模型",
+                    onchange: (event) =>
+                      call("agents.relays.setAgent", {
+                        agent: agent.id,
+                        relayId: relay.id,
+                        model: event.target.value,
+                      }).then((next) => {
+                        agentRelays = (next && next.agents) || {};
+                        toast(`默认模型改为 ${event.target.value}`);
+                      }, failed),
+                  },
+                  usableModels.map((m) =>
+                    h("option", { value: m, selected: m === defaultModel(relay) }, m),
+                  ),
+                ),
+              )
+            : thirdParty
+              ? h(
+                  "p",
+                  { class: "warn-text" },
+                  `${relay.name} 还没读出模型，先到「中转站」页点“编辑 / 选模型”测试一次`,
+                )
+              : null;
         put(
           detail,
+          modelPicker,
+          relay && !fits(relay)
+            ? h("p", { class: "warn-text" }, `${nativeTip(relay)}。请改回官方账号或换一个中转站。`)
+            : null,
           picker,
           auto
             ? h(

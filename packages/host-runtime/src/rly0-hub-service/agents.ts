@@ -57,7 +57,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     vendor: "OpenCode",
     category: "community",
     openSource: true,
-    relay: "manual",
+    relay: "auto",
     docsUrl: "https://opencode.ai/docs",
   },
   {
@@ -66,7 +66,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     vendor: "Pi",
     category: "community",
     openSource: true,
-    relay: "manual",
+    relay: "auto",
     docsUrl: "https://pi.dev",
   },
   {
@@ -75,7 +75,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     vendor: "Nous Research",
     category: "community",
     openSource: true,
-    relay: "none",
+    relay: "auto",
     docsUrl: "https://hermes-agent.nousresearch.com",
   },
   {

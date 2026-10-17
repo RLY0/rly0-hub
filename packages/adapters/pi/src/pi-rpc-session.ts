@@ -437,15 +437,23 @@ export function piRpcProcessCommand(
       ? ["--session", options.sessionFile]
       : [];
   const startupModel = options.emptySessionConfiguration?.model ?? options.model;
+  // RLY/0 Hub can route Pi through a relay: a private extension registers the relay as the
+  // `rly0` provider, and its default model is used when the Session does not pick one.
+  const relayExtension = options.environment?.RLY0_PI_EXTENSION?.trim();
+  const relayModel = options.environment?.RLY0_PI_MODEL?.trim();
+  const relayArguments = relayExtension ? ["-e", relayExtension] : [];
   const modelArguments = startupModel
     ? ["--provider", startupModel.provider, "--model", startupModel.id]
-    : [];
+    : relayExtension && relayModel && !options.sessionFile && !options.forkSessionFile
+      ? ["--provider", "rly0", "--model", relayModel]
+      : [];
   const thinkingArguments = options.emptySessionConfiguration
     ? ["--thinking", options.emptySessionConfiguration.thinkingLevel]
     : [];
   const arguments_ = [
     "--mode",
     "rpc",
+    ...relayArguments,
     ...modelArguments,
     ...thinkingArguments,
     ...sessionArguments,

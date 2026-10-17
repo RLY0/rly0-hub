@@ -32,7 +32,7 @@ import { Rly0AppearanceManager } from "../rly0-appearance/index.js";
 import { WindowsRegistryAutostart } from "../rly0-appearance/windows-autostart.js";
 import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
-import { Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
+import { RLY0_RELAY_AGENTS, Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
@@ -584,8 +584,11 @@ export class Rly0HubService {
       "accounts.addLoginStatus": route(addLoginIdParams, (p) => this.#addLogin.status(p.id)),
       "accounts.addLoginCancel": route(addLoginIdParams, (p) => this.#addLogin.cancel(p.id)),
 
-      "agents.list": route(empty, () => ({
-        agents: listRly0HubAgents(this.#options.environment, this.#options.platform),
+      "agents.list": route(empty, async () => ({
+        agents: listRly0HubAgents(
+          await this.#installer.searchEnvironment(),
+          this.#options.platform,
+        ),
       })),
       "agents.installStart": route(rly0AgentIdParamsSchema, (p) => this.#installer.start(p.agent)),
       "agents.installStatus": route(rly0AgentIdParamsSchema, (p) =>
@@ -635,6 +638,27 @@ export class Rly0HubService {
         },
       ),
       "agents.relays.get": route(empty, () => this.#agentRelays.get()),
+      "agents.relays.setAgent": route(
+        z
+          .object({
+            agent: z.enum(RLY0_RELAY_AGENTS),
+            relayId: z.string().min(1).max(64).nullable(),
+            model: z
+              .string()
+              .regex(/^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/u)
+              .nullable()
+              .optional(),
+          })
+          .strict(),
+        async (p) => {
+          const next = await this.#agentRelays.setAgent(
+            p.agent,
+            p.relayId ? { relayId: p.relayId, model: p.model ?? null } : null,
+          );
+          if (p.relayId) await this.#ensureProxyForRelays().catch(() => undefined);
+          return next;
+        },
+      ),
       "agents.relays.set": route(rly0RelayAgentsSetParamsSchema, (p) =>
         this.#agentRelays.set({ claudeCode: p.claudeCode }),
       ),

@@ -12,6 +12,11 @@ import {
   CLAUDE_CODE_RELAY_TOKEN,
   Rly0AgentRelaySettings,
   claudeCodeRelayEnvironment,
+  hermesRelayEnvironment,
+  opencodeRelayEnvironment,
+  piRelayEnvironment,
+  piRelayExtension,
+  pinnedRelayUrl,
   withSessionEnvironment,
 } from "../src/rly0-relay/agent-relays.js";
 
@@ -44,13 +49,62 @@ describe("Claude Code through a relay", () => {
   it("stores the choice in RLY/0 Hub's data and ignores invalid ids", async () => {
     directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-agent-relays-"));
     const settings = new Rly0AgentRelaySettings({ environment: { CODEXHOST_DATA_DIR: directory } });
-    expect(await settings.get()).toEqual({ claudeCode: null });
+    expect(await settings.get()).toEqual({ claudeCode: null, agents: {} });
     await settings.set({ claudeCode: "relay-1" });
-    expect(await settings.get()).toEqual({ claudeCode: "relay-1" });
+    expect(await settings.get()).toEqual({ claudeCode: "relay-1", agents: {} });
     await fs.writeFile(settings.path(), JSON.stringify({ version: 1, claudeCode: "../evil" }));
-    expect(await settings.get()).toEqual({ claudeCode: null });
+    expect(await settings.get()).toEqual({ claudeCode: null, agents: {} });
     await settings.set({ claudeCode: null });
-    expect(await settings.get()).toEqual({ claudeCode: null });
+    expect(await settings.get()).toEqual({ claudeCode: null, agents: {} });
+  });
+
+  it("keeps a relay and default model per third-party agent next to Claude Code's", async () => {
+    directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-agent-relays-"));
+    const settings = new Rly0AgentRelaySettings({ environment: { CODEXHOST_DATA_DIR: directory } });
+    await settings.set({ claudeCode: "relay-1" });
+    await settings.setAgent("hermes", { relayId: "relay-2", model: "gpt-5.4" });
+    await settings.setAgent("pi", { relayId: "relay-2", model: "bad model!" });
+    expect(await settings.get()).toEqual({
+      claudeCode: "relay-1",
+      agents: {
+        hermes: { relayId: "relay-2", model: "gpt-5.4" },
+        pi: { relayId: "relay-2", model: null },
+      },
+    });
+    await settings.set({ claudeCode: null });
+    await settings.setAgent("pi", null);
+    expect(await settings.get()).toEqual({
+      claudeCode: null,
+      agents: { hermes: { relayId: "relay-2", model: "gpt-5.4" } },
+    });
+  });
+
+  it("builds each agent's relay environment around the local proxy", () => {
+    const url = pinnedRelayUrl("http://127.0.0.1:25917/v1", "relay-2");
+    expect(url).toBe("http://127.0.0.1:25917/r/relay-2/v1");
+    const hermes = hermesRelayEnvironment({ PATH: "x" }, url, "gpt-5.4");
+    expect(hermes).toMatchObject({
+      PATH: "x",
+      HERMES_IGNORE_USER_CONFIG: "1",
+      HERMES_INFERENCE_PROVIDER: "custom",
+      CUSTOM_BASE_URL: url,
+      OPENAI_BASE_URL: url,
+      HERMES_MODEL: "gpt-5.4",
+    });
+    const opencode = JSON.parse(
+      opencodeRelayEnvironment({}, url, ["gpt-5.4", "claude-*"], "gpt-5.4")
+        .OPENCODE_CONFIG_CONTENT!,
+    );
+    expect(opencode.model).toBe("rly0/gpt-5.4");
+    expect(Object.keys(opencode.provider.rly0.models)).toEqual(["gpt-5.4"]);
+    expect(opencode.provider.rly0.options.baseURL).toBe(url);
+    const extension = piRelayExtension(url, ["gpt-5.4"]);
+    expect(extension).toContain('pi.registerProvider("rly0"');
+    expect(extension).toContain(url);
+    expect(piRelayEnvironment({}, "C:/x/pi.ts", "gpt-5.4")).toMatchObject({
+      RLY0_PI_EXTENSION: "C:/x/pi.ts",
+      RLY0_PI_MODEL: "gpt-5.4",
+    });
   });
 
   it("puts the relay into every session's own environment, which replaces the adapter's", async () => {

@@ -123,17 +123,20 @@ internal sealed class HubContext : ApplicationContext {
         icon = new Icon(Path.Combine(root, "bin", "rly0-hub.ico"));
         control = new ControlWindow(ShowPanel, Quit);
         tray = new NotifyIcon { Icon = icon, Text = "RLY/0 Hub", Visible = true };
-        var menu = new ContextMenuStrip();
+        var menu = HubMenu.Create();
+        menu.Items.Add(HubMenu.Header("RLY/0 Hub", "零号中转出品"));
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("打开 RLY/0 Hub", null, delegate { ShowPanel(); });
         menu.Items.Add("打开 Codex", null, delegate { SendInternal("codex.open", null, null); });
         menu.Items.Add("充值", null, delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "recharge" } }, null); });
         menu.Items.Add(new ToolStripSeparator());
-        autostartItem = new ToolStripMenuItem("开机自启") { CheckOnClick = false };
+        autostartItem = new ToolStripMenuItem("开机自启") { CheckOnClick = false, Tag = "toggle" };
         autostartItem.Click += delegate {
             bool next = !autostartItem.Checked;
             SendInternal("autostart.set", new Dictionary<string, object> { { "enabled", next } }, ApplyAutostart);
         };
         menu.Items.Add(autostartItem);
+        autostartItem.Padding = new Padding(10, 7, 64, 7);
         menu.Items.Add("Star 支持", null, delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "github" } }, null); });
         menu.Items.Add("退出", null, delegate { Quit(); });
         menu.Opening += delegate { SendInternal("autostart.get", null, ApplyAutostart); };
@@ -338,6 +341,110 @@ internal sealed class HubContext : ApplicationContext {
         job.Dispose();
         control.Dispose(); tray.Dispose(); balanceTimer.Dispose(); alertTimer.Dispose(); dispatch.Dispose();
         ExitThread();
+    }
+}
+
+/// <summary>
+/// The tray menu drawn in the Hub's own dark style: rounded corners (Windows 11), roomy items, a
+/// soft highlight and a quiet separator, instead of the system's light menu.
+/// </summary>
+internal static class HubMenu {
+    private static readonly Color Back = Color.FromArgb(30, 30, 26);
+    private static readonly Color Edge = Color.FromArgb(58, 58, 51);
+    private static readonly Color Hover = Color.FromArgb(46, 46, 40);
+    private static readonly Color Ink = Color.FromArgb(245, 245, 240);
+    private static readonly Color Muted = Color.FromArgb(152, 152, 145);
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    internal static ContextMenuStrip Create() {
+        var menu = new ContextMenuStrip {
+            Renderer = new Painter(),
+            ShowImageMargin = false,
+            ShowCheckMargin = false,
+            BackColor = Back,
+            ForeColor = Ink,
+            Padding = new Padding(6, 6, 6, 6),
+            Font = new Font("Microsoft YaHei UI", 10f),
+        };
+        menu.ItemAdded += delegate (object s, ToolStripItemEventArgs e) {
+            e.Item.ForeColor = Ink;
+            if (!(e.Item is ToolStripSeparator)) {
+                e.Item.Padding = new Padding(10, 7, 22, 7);
+                e.Item.AutoSize = true;
+            }
+        };
+        menu.Opened += delegate {
+            try {
+                int round = 2; // DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND
+                DwmSetWindowAttribute(menu.Handle, 33, ref round, sizeof(int));
+            } catch { }
+        };
+        return menu;
+    }
+
+    internal static ToolStripItem Header(string title, string sub) {
+        return new ToolStripLabel(title + "   " + sub) { Tag = "header", Enabled = false, Padding = new Padding(10, 6, 10, 6) };
+    }
+
+    private sealed class Painter : ToolStripRenderer {
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) {
+            e.Graphics.Clear(Back);
+        }
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) {
+            using (var pen = new Pen(Edge)) {
+                var r = e.AffectedBounds; r.Width -= 1; r.Height -= 1;
+                e.Graphics.DrawRectangle(pen, r);
+            }
+        }
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) {
+            if (!e.Item.Selected || !e.Item.Enabled) return;
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            var r = new Rectangle(2, 1, e.Item.Width - 4, e.Item.Height - 2);
+            using (var path = Rounded(r, 7)) using (var brush = new SolidBrush(Hover)) g.FillPath(brush, path);
+        }
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) {
+            bool header = "header".Equals(e.Item.Tag);
+            var item = e.Item as ToolStripMenuItem;
+            bool check = item != null && item.Checked;
+            var r = e.TextRectangle;
+            if (header) {
+                using (var bold = new Font(e.TextFont, FontStyle.Bold))
+                    TextRenderer.DrawText(e.Graphics, e.Text, bold, r, Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+                return;
+            }
+            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, r, e.Item.Enabled ? Ink : Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            if (item != null && item.CheckOnClick == false && item.Tag is string && (string)item.Tag == "toggle") {
+                // A small switch at the right edge shows on/off.
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                var track = new Rectangle(e.Item.Width - 44, (e.Item.Height - 16) / 2, 30, 16);
+                using (var path = Rounded(track, 8))
+                using (var brush = new SolidBrush(check ? Color.FromArgb(91, 208, 138) : Color.FromArgb(70, 70, 62)))
+                    g.FillPath(brush, path);
+                int knob = check ? track.Right - 14 : track.Left + 2;
+                using (var brush = new SolidBrush(Ink)) g.FillEllipse(brush, knob, track.Top + 2, 12, 12);
+            }
+        }
+        protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e) {
+            using (var pen = new Pen(Edge)) {
+                int y = e.Item.Height / 2;
+                e.Graphics.DrawLine(pen, 8, y, e.Item.Width - 8, y);
+            }
+        }
+        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e) { }
+        protected override void OnRenderLabelBackground(ToolStripItemRenderEventArgs e) { }
+
+        private static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int radius) {
+            int d = radius * 2;
+            var path = new System.Drawing.Drawing2D.GraphicsPath();
+            path.AddArc(r.X, r.Y, d, d, 180, 90);
+            path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+            path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+            path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
     }
 }
 

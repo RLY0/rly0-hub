@@ -170,6 +170,11 @@ import { applyProxyEnvironment } from "./rly0-core/proxy-settings.js";
 import {
   Rly0AgentRelaySettings,
   claudeCodeRelayEnvironment,
+  hermesRelayEnvironment,
+  opencodeRelayEnvironment,
+  piRelayEnvironment,
+  piRelayExtension,
+  pinnedRelayUrl,
   withSessionEnvironment,
 } from "./rly0-relay/agent-relays.js";
 import { RLY0_CODEX_PROVIDER_ID } from "@codexhost/shared-contracts";
@@ -193,6 +198,7 @@ import { HarnessAccountInspectionCache, listHarnessAccountSources } from "./harn
 import type { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import os from "node:os";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { Readable, Writable } from "node:stream";
 
@@ -725,6 +731,9 @@ class OrderedWriter {
   }
 }
 
+/** Agents whose sessions RLY/0 Hub can route through a relay. */
+const RELAY_CAPABLE_AGENTS = new Set(["claude-code", "pi", "hermes", "opencode"]);
+
 export class AppServerHost {
   readonly #options: Required<
     Pick<AppServerHostOptions, "desktopInput" | "desktopOutput" | "diagnosticOutput">
@@ -749,9 +758,17 @@ export class AppServerHost {
   readonly #agentInstaller: AgentInstaller;
   /** Relay Claude Code was loaded with; undefined until agents are loaded. */
   #claudeCodeRelayApplied: string | null | undefined;
-  /** Puts the relay settings into each Claude Code session's own environment. */
-  #claudeCodeSessionEnvironment:
-    ((environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv) | undefined;
+  /**
+   * The relay each agent runs through, as a transform of a session's environment. Re-read when
+   * RLY/0 Hub saves a new choice, so a new session uses it without restarting Codex.
+   */
+  readonly #relayOverlays = new Map<
+    string,
+    (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
+  >();
+  #relayRefresh: Promise<void> | null = null;
+  #relayWatchTimer: ReturnType<typeof setInterval> | undefined;
+  #relaySettingsStamp = "";
   readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
@@ -1012,6 +1029,7 @@ export class AppServerHost {
   close(): void {
     if (this.#closeRequested) return;
     this.#closeRequested = true;
+    if (this.#relayWatchTimer) clearInterval(this.#relayWatchTimer);
     this.#externalRuntime.idleRelease.disable();
     this.#pluginLoadAbort.abort();
     this.#externalSteering.close();
@@ -1048,8 +1066,7 @@ export class AppServerHost {
     const plugins = await loadHarnessPlugins({
       roots: this.#options.pluginRoots,
       launchCommandForPlugin: (id) => this.#launchSettings.initialCommand(id),
-      environmentForPlugin: (id) =>
-        id === "claude-code" ? this.#claudeCodeEnvironment() : Promise.resolve(undefined),
+      environmentForPlugin: (id) => this.#relayEnvironmentForPlugin(id),
       context: this.#options.pluginContext ?? {
         environment: this.#options.environment ?? process.env,
         platform: process.platform,
@@ -1065,40 +1082,106 @@ export class AppServerHost {
     }
     this.#pluginDescriptors = plugins.list();
     for (const [id, adapter] of plugins.adapters) {
-      const overlay = id === "claude-code" ? this.#claudeCodeSessionEnvironment : undefined;
-      this.#externalAdapters.set(id, overlay ? withSessionEnvironment(adapter, overlay) : adapter);
+      this.#externalAdapters.set(
+        id,
+        RELAY_CAPABLE_AGENTS.has(id)
+          ? withSessionEnvironment(adapter, (environment) => {
+              const overlay = this.#relayOverlays.get(id);
+              return overlay ? overlay(environment) : environment;
+            })
+          : adapter,
+      );
     }
+    this.#watchRelaySettings();
+  }
+
+  async #relayEnvironmentForPlugin(id: string): Promise<NodeJS.ProcessEnv | undefined> {
+    if (!RELAY_CAPABLE_AGENTS.has(id)) return undefined;
+    await this.#refreshRelayOverlays();
+    const overlay = this.#relayOverlays.get(id);
+    const base =
+      this.#options.pluginContext?.environment ?? this.#options.environment ?? process.env;
+    return overlay ? overlay(base) : undefined;
+  }
+
+  /** Polls the Hub's agent-relay file; a change is applied to the next session at once. */
+  #watchRelaySettings(): void {
+    if (this.#relayWatchTimer) return;
+    const check = (): void => {
+      void fs
+        .stat(this.#rly0AgentRelays.path())
+        .then((stat) => `${stat.mtimeMs}:${stat.size}`)
+        .catch(() => "missing")
+        .then((stamp) => {
+          if (stamp === this.#relaySettingsStamp) return;
+          this.#relaySettingsStamp = stamp;
+          return this.#refreshRelayOverlays();
+        });
+    };
+    this.#relayWatchTimer = setInterval(check, 2000);
+    this.#relayWatchTimer.unref?.();
+  }
+
+  #refreshRelayOverlays(): Promise<void> {
+    this.#relayRefresh ??= this.#buildRelayOverlays()
+      .catch((error: unknown) => this.#diagnose(error))
+      .finally(() => {
+        this.#relayRefresh = null;
+      });
+    return this.#relayRefresh;
   }
 
   /**
-   * Claude Code's environment when it should run through a relay: RLY/0 Hub's own local proxy,
-   * pinned to that relay. Falls back to Claude Code's own login (undefined) when the relay is
-   * gone, disabled or keyless, or the proxy cannot start, and records what was applied.
+   * Turns the saved choices into per-agent environment transforms: requests go to RLY/0 Hub's
+   * local proxy pinned to the chosen relay, which adds the relay key itself. A relay that is gone,
+   * disabled or keyless leaves the agent on its own login.
    */
-  async #claudeCodeEnvironment(): Promise<NodeJS.ProcessEnv | undefined> {
-    this.#claudeCodeRelayApplied = null;
-    const { claudeCode } = await this.#rly0AgentRelays.get();
-    if (!claudeCode) return undefined;
-    try {
+  async #buildRelayOverlays(): Promise<void> {
+    const saved = await this.#rly0AgentRelays.get();
+    const wanted = [
+      saved.claudeCode,
+      ...Object.values(saved.agents ?? {}).map((choice) => choice?.relayId),
+    ].filter((id): id is string => Boolean(id));
+    const next = new Map<string, (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv>();
+    let claudeApplied: string | null = null;
+    if (wanted.length) {
       const listed = await this.#rly0Core.listRelays();
-      const relay = listed.available
-        ? listed.relays.find((entry) => entry.id === claudeCode)
-        : undefined;
-      if (!relay?.enabled || !relay.hasKey) {
-        this.#diagnose("Claude Code relay is unavailable; using Claude Code's own login");
-        return undefined;
+      const usable = (id: string | null | undefined) => {
+        if (!id || !listed.available) return undefined;
+        const relay = listed.relays.find((entry) => entry.id === id);
+        return relay?.enabled && relay.hasKey ? relay : undefined;
+      };
+      const needsProxy = wanted.some((id) => usable(id));
+      const proxyBaseUrl = needsProxy ? await this.#rly0RelayModels.ensureProxy() : "";
+      const claude = usable(saved.claudeCode);
+      if (claude) {
+        claudeApplied = claude.id;
+        next.set("claude-code", (environment) =>
+          claudeCodeRelayEnvironment(environment, proxyBaseUrl, claude.id),
+        );
       }
-      const proxyBaseUrl = await this.#rly0RelayModels.ensureProxy();
-      this.#claudeCodeRelayApplied = claudeCode;
-      this.#claudeCodeSessionEnvironment = (environment) =>
-        claudeCodeRelayEnvironment(environment, proxyBaseUrl, claudeCode);
-      const base =
-        this.#options.pluginContext?.environment ?? this.#options.environment ?? process.env;
-      return claudeCodeRelayEnvironment(base, proxyBaseUrl, claudeCode);
-    } catch (error) {
-      this.#diagnose(error);
-      return undefined;
+      for (const [id, choice] of Object.entries(saved.agents ?? {})) {
+        const relay = usable(choice?.relayId);
+        if (!relay || !choice) continue;
+        const url = pinnedRelayUrl(proxyBaseUrl, relay.id);
+        if (id === "hermes") {
+          next.set(id, (environment) => hermesRelayEnvironment(environment, url, choice.model));
+        } else if (id === "opencode") {
+          next.set(id, (environment) =>
+            opencodeRelayEnvironment(environment, url, relay.models, choice.model),
+          );
+        } else if (id === "pi") {
+          const directory = path.join(path.dirname(this.#rly0AgentRelays.path()), "agent-relays");
+          await fs.mkdir(directory, { recursive: true });
+          const file = path.join(directory, `pi-${relay.id}.ts`);
+          await fs.writeFile(file, piRelayExtension(url, relay.models), "utf8");
+          next.set(id, (environment) => piRelayEnvironment(environment, file, choice.model));
+        }
+      }
     }
+    this.#relayOverlays.clear();
+    for (const [id, overlay] of next) this.#relayOverlays.set(id, overlay);
+    this.#claudeCodeRelayApplied = claudeApplied;
   }
 
   async #agentRelayStatus(): Promise<Rly0RelayAgentsResult> {
@@ -1107,7 +1190,8 @@ export class AppServerHost {
     return {
       claudeCode: saved.claudeCode,
       active: applied === undefined ? null : { claudeCode: applied },
-      restartRequired: applied !== undefined && applied !== saved.claudeCode,
+      // New sessions pick up a changed choice by themselves (see #watchRelaySettings).
+      restartRequired: false,
     };
   }
 

@@ -250,7 +250,6 @@
     fabDot.classList.toggle("off", !codexRunning);
   }
   document.getElementById("codexFab").addEventListener("click", openCodex);
-  document.querySelector(".rail-codex").addEventListener("click", openCodex);
   setTimeout(refreshCodexState, 600);
   setInterval(() => document.hidden || refreshCodexState(), 15000);
   document
@@ -320,6 +319,8 @@
     const coin = svg(
       '<ellipse cx="32" cy="46" rx="20" ry="7" fill="none" stroke="currentColor" stroke-width="4"/><path d="M12 46v-8M52 46v-8" stroke="currentColor" stroke-width="4"/><ellipse cx="32" cy="38" rx="20" ry="7" fill="currentColor" fill-opacity=".25" stroke="currentColor" stroke-width="4"/><path d="M12 38v-10M52 38v-10" stroke="currentColor" stroke-width="4"/><ellipse cx="32" cy="27" rx="20" ry="7" fill="currentColor" fill-opacity=".35" stroke="currentColor" stroke-width="4"/>',
     );
+    // Crop to the coins so they read as large as the rate ring next to them.
+    coin.setAttribute("viewBox", "6 12 52 52");
     return h(
       "span",
       { class: `money-badge ${size || ""}` },
