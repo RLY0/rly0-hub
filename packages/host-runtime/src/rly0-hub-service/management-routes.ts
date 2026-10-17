@@ -11,6 +11,7 @@ import {
 import { z } from "zod";
 
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "../rly0-maintenance/index.js";
+import { Rly0InstructionsManager, rly0InstructionsRpcError } from "../rly0-instructions/index.js";
 import { Rly0McpManager, rly0McpRpcError } from "../rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "../rly0-skills/index.js";
 import { Rly0ThreadsManager, rly0ThreadsRpcError } from "../rly0-threads/index.js";
@@ -47,10 +48,29 @@ export function createHubManagementRoutes(options: {
   const mcp = new Rly0McpManager({ environment });
   const skills = new Rly0SkillsManager({ environment });
   const threads = new Rly0ThreadsManager({ environment });
+  const instructions = new Rly0InstructionsManager({ environment });
+  const content = z.string().max(64 * 1024);
   const maintenance = new Rly0MaintenanceManager({ environment, core });
   const updates = options.updates ?? { check: () => checkHubUpdate(options.installRoot) };
   const updateFailure = () => ({ code: -32000, message: "UPDATE_CHECK_FAILED" });
   return {
+    "instructions.state": route(empty, () => instructions.state(), rly0InstructionsRpcError),
+    "instructions.preview": route(
+      z.object({ content }).strict(),
+      (p) => instructions.preview(p.content),
+      rly0InstructionsRpcError,
+    ),
+    "instructions.apply": route(
+      z.object({ content, template: z.string().max(40).optional() }).strict(),
+      (p) => instructions.apply(p.content, p.template),
+      rly0InstructionsRpcError,
+    ),
+    "instructions.clear": route(empty, () => instructions.clear(), rly0InstructionsRpcError),
+    "instructions.rollback": route(
+      z.object({ id: z.string().regex(/^\d{12}-[a-z0-9]{1,8}$/u) }).strict(),
+      (p) => instructions.rollback(p.id),
+      rly0InstructionsRpcError,
+    ),
     "mcp.list": route(
       empty,
       async () => {

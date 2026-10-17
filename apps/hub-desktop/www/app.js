@@ -143,6 +143,7 @@
     support: "支持",
     settings: "设置",
     general: "通用",
+    instructions: "自定义指令",
     network: "网络代理",
     wizard: "开始使用",
     mcp: "MCP 管理",
@@ -199,6 +200,7 @@
   /* Settings: one rail entry with its own second-level menu. */
   const SETTINGS_SECTIONS = [
     ["general", "通用"],
+    ["instructions", "自定义指令"],
     ["network", "网络代理"],
     ["backup", "备份"],
     ["mcp", "MCP"],
@@ -236,6 +238,7 @@
   window.registerHubSystem(pageApi);
   window.registerHubAgents(pageApi);
   const relayModule = window.registerHubRelays(pageApi);
+  window.registerHubInstructions(pageApi);
 
   pages.home = (root, alive) => {
     const codexModule = h("section", { class: "m codex span-4 rows-2" });
@@ -1517,6 +1520,41 @@
       "autostart.get": { supported: true, enabled: true },
       "accounts.autoSwitchGet": { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask" },
       "alerts.settingsGet": { balanceUsd: 1, quotaUsedPercent: 90 },
+      "instructions.state": {
+        filePath: "C:/Users/me/.codex/AGENTS.md",
+        fileExists: true,
+        managed: true,
+        protected: false,
+        content: "始终用简体中文回答和写说明；代码、命令、文件名和报错原文保持原样。",
+        otherBlocks: [],
+        templates: [
+          {
+            id: "chinese",
+            name: "用中文交流",
+            content: "始终用简体中文回答和写说明；代码、命令、文件名和报错原文保持原样。",
+          },
+          { id: "concise", name: "简洁直接", content: "回答先给结论，再给必要的理由。" },
+          {
+            id: "plan-first",
+            name: "先计划再动手",
+            content: "改动超过一个文件时，先列出要改的文件和步骤。",
+          },
+        ],
+        history: [
+          {
+            id: "001792150000-abc",
+            at: 1792150000,
+            action: "apply",
+            template: "chinese",
+            preview: "始终用简体中文回答和写说明",
+          },
+          { id: "001792140000-def", at: 1792140000, action: "clear", preview: "" },
+        ],
+      },
+      "instructions.preview": {
+        current: "始终用简体中文回答。",
+        next: "始终用简体中文回答。\n回答先给结论。",
+      },
       "relay.noAccountStatus": {
         enabled: false,
         configPath: "C:/Users/me/.codex/config.toml",

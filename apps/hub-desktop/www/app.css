@@ -1332,3 +1332,56 @@ textarea.models {
   font-size: 13px;
   line-height: 1.7;
 }
+
+/* ---------- 自定义指令 ---------- */
+.instructions-editor {
+  gap: 12px;
+}
+.instructions-text {
+  resize: vertical;
+  min-height: 180px;
+  font: 400 14px/1.7 var(--font-ui);
+}
+.template-row {
+  gap: 8px;
+}
+.instructions-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.instructions-compare > div {
+  background: var(--ink-950);
+  border-radius: var(--r-md);
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.instructions-compare pre {
+  margin: 0;
+  font: 400 13px/1.7 var(--font-ui);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.history-list {
+  display: grid;
+  gap: 4px;
+}
+.history-row {
+  gap: 12px;
+  padding: 8px 0;
+  flex-wrap: nowrap;
+}
+.history-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+@media (max-width: 760px) {
+  .instructions-compare {
+    grid-template-columns: 1fr;
+  }
+}
