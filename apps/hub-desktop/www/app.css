@@ -1286,3 +1286,29 @@ textarea.models {
 .relay-strip {
   gap: 12px;
 }
+
+/* ---------- 账号：自动切换、改名 ---------- */
+.auto-switch {
+  gap: 14px;
+}
+.auto-switch-fields {
+  gap: 16px;
+}
+.auto-switch-fields .field {
+  min-width: 160px;
+}
+.compact-select {
+  padding: 8px 12px;
+}
+.renamable {
+  cursor: text;
+  border-radius: 4px;
+}
+.renamable:hover {
+  background: var(--ink-700);
+}
+.rename-input {
+  padding: 6px 10px;
+  font-size: 15px;
+  font-weight: 650;
+}

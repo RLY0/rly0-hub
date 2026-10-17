@@ -407,3 +407,120 @@ describe("AI 助手 catalog and relay logos", () => {
     });
   });
 });
+
+describe("Auto-switch before the Codex quota runs out", () => {
+  const usage = (used5h: number, usedWeekly = 0, resetsAt = 1_800_000_000) => ({
+    windows: [
+      { kind: "primary" as const, usedPercent: used5h, resetsAt },
+      { kind: "secondary" as const, usedPercent: usedWeekly },
+    ],
+    source: "live" as const,
+  });
+  const account = (id: string, used5h: number | null, extra: Record<string, unknown> = {}) => ({
+    id,
+    alias: `账号${id.slice(-1)}`,
+    current: false,
+    ...(used5h === null ? {} : { lastUsage: usage(used5h) }),
+    ...extra,
+  });
+
+  it("picks the saved account with the most quota and skips unknown or low ones", async () => {
+    const { decideAutoSwitch, RLY0_AUTO_SWITCH_DEFAULTS } =
+      await import("../src/rly0-hub-service/auto-switch.js");
+    const on = { ...RLY0_AUTO_SWITCH_DEFAULTS, enabled: true };
+    const accounts = [
+      account("aaaaaaaaaaa1", 40),
+      account("aaaaaaaaaaa2", 10),
+      account("aaaaaaaaaaa3", null),
+      account("aaaaaaaaaaa4", 95),
+    ] as never;
+    expect(decideAutoSwitch(on, { id: "c", usage: usage(50) }, accounts)).toBeNull();
+    expect(
+      decideAutoSwitch({ ...on, enabled: false }, { id: "c", usage: usage(99) }, accounts),
+    ).toBeNull();
+    expect(decideAutoSwitch(on, { id: "c", usage: usage(90) }, accounts)).toEqual({
+      reason: { window: "5h", left: 10, resetsAt: 1_800_000_000 },
+      target: { id: "aaaaaaaaaaa2", name: "账号2", left: 90 },
+    });
+    expect(
+      decideAutoSwitch(on, { id: "c", usage: usage(10, 95) }, [
+        account("aaaaaaaaaaa5", 99),
+      ] as never),
+    ).toMatchObject({ reason: { window: "weekly", left: 5 }, target: null });
+  });
+
+  it("asks once per window, and switches and restarts Codex in auto mode", async () => {
+    const root = await tempDir();
+    const switched: string[] = [];
+    const restarted: number[] = [];
+    const { core } = fakeCore([]);
+    Object.assign(core, {
+      currentAccount: async () => ({ loggedIn: true, saved: true, id: "cccccccccccc" }),
+      usageCurrent: async () => ({ available: true, usage: usage(92) }),
+      usageAll: async () => ({ available: true, entries: [] }),
+      listAccounts: async () => ({
+        available: true,
+        accounts: [account("cccccccccccc", 92, { current: true }), account("bbbbbbbbbbbb", 20)],
+      }),
+      switchAccount: async (p: { id: string }) => {
+        switched.push(p.id);
+        return { available: true, switched: true };
+      },
+    });
+    const codex = {
+      status: async () => ({ running: true, canOpen: true }),
+      restart: async () => {
+        restarted.push(1);
+        return { ok: true };
+      },
+    };
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      core,
+      codex: codex as never,
+    });
+    await service.handle("autoSwitch.set", {
+      enabled: true,
+      remain5h: 15,
+      remainWeekly: 10,
+      mode: "ask",
+    });
+    const first = (await service.handle("alerts.check", {})) as {
+      alerts: Record<string, unknown>[];
+    };
+    expect(first.alerts).toEqual([
+      expect.objectContaining({
+        id: "switch-suggest",
+        action: "switch",
+        accountId: "bbbbbbbbbbbb",
+      }),
+    ]);
+    expect(((await service.handle("alerts.check", {})) as { alerts: unknown[] }).alerts).toEqual(
+      [],
+    );
+    expect(switched).toEqual([]);
+
+    await service.handle("accounts.switchAndRestart", { id: "bbbbbbbbbbbb" });
+    expect(switched).toEqual(["bbbbbbbbbbbb"]);
+    expect(restarted).toEqual([1]);
+
+    const autoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-hub-auto-"));
+    const auto = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: autoRoot },
+      installRoot: autoRoot,
+      core,
+      codex: codex as never,
+    });
+    await auto.handle("autoSwitch.set", {
+      enabled: true,
+      remain5h: 15,
+      remainWeekly: 10,
+      mode: "auto",
+    });
+    const done = (await auto.handle("alerts.check", {})) as { alerts: Record<string, unknown>[] };
+    expect(done.alerts[0]).toMatchObject({ id: "switched", title: "已切换到 账号b" });
+    expect(switched).toEqual(["bbbbbbbbbbbb", "bbbbbbbbbbbb"]);
+    await fs.rm(autoRoot, { recursive: true, force: true });
+  });
+});

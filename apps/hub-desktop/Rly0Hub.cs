@@ -90,7 +90,7 @@ internal sealed class HubContext : ApplicationContext {
     private readonly Control dispatch = new Control();
     private readonly System.Windows.Forms.Timer balanceTimer = new System.Windows.Forms.Timer();
     private readonly System.Windows.Forms.Timer alertTimer = new System.Windows.Forms.Timer();
-    private string balloonAction;
+    private string balloonAction, balloonAccount;
     private readonly string webviewData;
     private ChildJob job;
     private Process worker;
@@ -138,7 +138,14 @@ internal sealed class HubContext : ApplicationContext {
         tray.BalloonTipClicked += delegate {
             if (balloonAction == "recharge") SendInternal("links.open", new Dictionary<string, object> { { "target", "recharge" } }, null);
             else if (balloonAction == "open") ShowPanel();
+            else if (balloonAction == "switch" && balloonAccount != null)
+                SendInternal("accounts.switchAndRestart", new Dictionary<string, object> { { "id", balloonAccount } }, delegate (Dictionary<string, object> r) {
+                    object switched;
+                    bool ok = r != null && r.TryGetValue("switched", out switched) && switched is bool && (bool)switched;
+                    tray.ShowBalloonTip(4000, "RLY/0 Hub", ok ? "已切换账号，Codex 正在重启。" : "切换没有成功，请在 Hub 的账号页重试。", ToolTipIcon.None);
+                });
             balloonAction = null;
+            balloonAccount = null;
         };
         if (!background) ShowPanel();
     }
@@ -167,18 +174,20 @@ internal sealed class HubContext : ApplicationContext {
         SendInternal("alerts.check", null, delegate (Dictionary<string, object> result) {
             object list;
             if (result == null || !result.TryGetValue("alerts", out list) || !(list is System.Collections.ArrayList)) return;
-            var titles = new List<string>(); var bodies = new List<string>(); string first = null;
+            var titles = new List<string>(); var bodies = new List<string>(); string first = null, account = null;
             foreach (object item in (System.Collections.ArrayList)list) {
                 var alert = item as Dictionary<string, object>;
                 if (alert == null) continue;
-                object title, body, action;
+                object title, body, action, accountId;
                 alert.TryGetValue("title", out title); alert.TryGetValue("body", out body); alert.TryGetValue("action", out action);
-                if (first == null) first = Convert.ToString(action);
+                alert.TryGetValue("accountId", out accountId);
+                if (first == null) { first = Convert.ToString(action); account = accountId as string; }
                 titles.Add(Convert.ToString(title)); bodies.Add(Convert.ToString(title) + "：" + Convert.ToString(body));
             }
             if (titles.Count == 0) return;
             // Every notice is shown now: the service already remembered them as said.
             balloonAction = first;
+            balloonAccount = account != null && System.Text.RegularExpressions.Regex.IsMatch(account, "^[0-9a-f]{12}$") ? account : null;
             if (titles.Count == 1) tray.ShowBalloonTip(8000, titles[0], bodies[0].Substring(titles[0].Length + 1), ToolTipIcon.None);
             else tray.ShowBalloonTip(8000, "RLY/0 Hub 提醒", string.Join(Environment.NewLine, bodies), ToolTipIcon.None);
         });

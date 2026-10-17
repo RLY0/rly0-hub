@@ -651,7 +651,76 @@
         "保存当前登录",
       ),
     );
-    root.append(head, h("div", { style: { height: "16px" } }), list);
+    const autoCard = h("section", { class: "m tone span-6 auto-switch" });
+    root.append(
+      head,
+      h("div", { style: { height: "16px" } }),
+      h("div", { class: "grid compact" }, autoCard),
+      h("div", { style: { height: "12px" } }),
+      list,
+    );
+
+    // Switch before the current account runs out (AiMaMi's 自动切换). Off by default.
+    async function loadAutoSwitch() {
+      const settings = await call("autoSwitch.get").catch(() => null);
+      if (!alive() || !settings) return;
+      const percentSelect = (value, label) =>
+        h(
+          "select",
+          { class: "input compact-select", "aria-label": label },
+          [5, 10, 15, 20, 30].map((n) =>
+            h("option", { value: String(n), selected: n === value }, `剩 ${n}%`),
+          ),
+        );
+      const h5 = percentSelect(settings.remain5h, "5 小时阈值");
+      const weekly = percentSelect(settings.remainWeekly, "每周阈值");
+      const mode = h(
+        "select",
+        { class: "input compact-select", "aria-label": "切换方式" },
+        h("option", { value: "ask", selected: settings.mode === "ask" }, "先提醒我"),
+        h("option", { value: "auto", selected: settings.mode === "auto" }, "直接切换并重启 Codex"),
+      );
+      const save = (enabled) =>
+        call("autoSwitch.set", {
+          enabled,
+          remain5h: Number(h5.value),
+          remainWeekly: Number(weekly.value),
+          mode: mode.value,
+        }).then((next) => {
+          toast(next.enabled ? "自动切换已开启" : "设置已保存");
+          loadAutoSwitch();
+        }, failed);
+      for (const select of [h5, weekly, mode])
+        select.addEventListener("change", () => save(settings.enabled));
+      autoCard.replaceChildren(
+        h(
+          "div",
+          { class: "row" },
+          h(
+            "div",
+            { class: "who" },
+            h("b", null, "额度快用完时自动切换账号"),
+            h("span", null, "低于阈值时切到额度最多的已保存账号，Codex 会重启"),
+          ),
+          h("button", {
+            class: "switch",
+            type: "button",
+            role: "switch",
+            "aria-checked": String(settings.enabled),
+            "aria-label": "自动切换账号",
+            onclick: () => save(!settings.enabled),
+          }),
+        ),
+        h(
+          "div",
+          { class: "row auto-switch-fields" },
+          h("label", { class: "field" }, h("span", null, "5 小时额度"), h5),
+          h("label", { class: "field" }, h("span", null, "每周额度"), weekly),
+          h("label", { class: "field" }, h("span", null, "到阈值时"), mode),
+        ),
+      );
+    }
+    loadAutoSwitch();
 
     async function load() {
       const [result, live] = await Promise.all([
@@ -731,6 +800,34 @@
         ),
       );
     }
+    function rename(label, account) {
+      const input = h("input", {
+        class: "input rename-input",
+        maxlength: "40",
+        value: accountName(account),
+        "aria-label": "账号名称",
+      });
+      const commit = () => {
+        const alias = input.value.trim();
+        if (!alias || alias === accountName(account)) {
+          load();
+          return;
+        }
+        call("accounts.rename", { id: account.id, alias }).then(() => {
+          toast("已改名");
+          load();
+        }, failed);
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") commit();
+        if (event.key === "Escape") load();
+      });
+      input.addEventListener("blur", commit);
+      label.replaceWith(input);
+      input.focus();
+      input.select();
+    }
+
     function card(account) {
       let confirmRemove = false;
       const remove = h(
@@ -766,7 +863,19 @@
           h(
             "div",
             { class: "who" },
-            h("b", null, accountName(account)),
+            h(
+              "b",
+              {
+                class: "renamable",
+                title: "点击改名",
+                tabindex: "0",
+                onclick: (event) => rename(event.currentTarget, account),
+                onkeydown: (event) => {
+                  if (event.key === "Enter") rename(event.currentTarget, account);
+                },
+              },
+              accountName(account),
+            ),
             h(
               "span",
               null,
@@ -1356,6 +1465,7 @@
         ],
       },
       "autostart.get": { supported: true, enabled: true },
+      "autoSwitch.get": { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask" },
       "hub.state": { onboarded: !/[?&]wizard/.test(location.search) },
     };
     setTimeout(

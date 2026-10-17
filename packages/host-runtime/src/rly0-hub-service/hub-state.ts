@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
+import { cleanAutoSwitchSettings, type Rly0AutoSwitchSettings } from "./auto-switch.js";
 
 export const RLY0_HUB_STATE_FILE = "hub-desktop.json";
 
@@ -15,6 +16,10 @@ export interface Rly0HubState {
   readonly balanceLowNotified?: boolean;
   /** `resetsAt` of the Codex quota window a low-quota notice was shown for. */
   readonly quotaNotifiedFor?: number;
+  /** Switch accounts before the current one runs out (off by default). */
+  readonly autoSwitch?: Rly0AutoSwitchSettings;
+  /** Account, window and reset time an auto-switch notice or switch was made for. */
+  readonly autoSwitchHandledFor?: string;
 }
 
 function clean(value: unknown): Rly0HubState {
@@ -26,6 +31,12 @@ function clean(value: unknown): Rly0HubState {
     ...(raw.balanceLowNotified === true ? { balanceLowNotified: true } : {}),
     ...(typeof raw.quotaNotifiedFor === "number" && Number.isSafeInteger(raw.quotaNotifiedFor)
       ? { quotaNotifiedFor: raw.quotaNotifiedFor }
+      : {}),
+    ...(raw.autoSwitch !== undefined
+      ? { autoSwitch: cleanAutoSwitchSettings(raw.autoSwitch) }
+      : {}),
+    ...(typeof raw.autoSwitchHandledFor === "string" && raw.autoSwitchHandledFor.length <= 200
+      ? { autoSwitchHandledFor: raw.autoSwitchHandledFor }
       : {}),
   };
 }

@@ -19,6 +19,7 @@ import {
   rly0RelayUpdateParamsSchema,
   RLY0_GITHUB_REPOSITORY_URL,
   RLY0_GITHUB_RELEASES_LATEST_URL,
+  type Rly0AccountUsage,
   type Rly0Relay,
 } from "@codexhost/shared-contracts";
 import { z } from "zod";
@@ -35,9 +36,14 @@ import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { listRly0HubAgents, rly0HubAgentDocsUrl } from "./agents.js";
 import { fetchRelayLogo } from "./relay-logo.js";
-import { evaluateRly0HubAlerts } from "./alerts.js";
+import { evaluateRly0HubAlerts, type Rly0HubAlert } from "./alerts.js";
+import {
+  cleanAutoSwitchSettings,
+  decideAutoSwitch,
+  RLY0_AUTO_SWITCH_DEFAULTS,
+} from "./auto-switch.js";
 import { Rly0CodexControl } from "./codex-control.js";
-import { Rly0HubStateStore } from "./hub-state.js";
+import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
@@ -211,9 +217,83 @@ export class Rly0HubService {
       }
     }
     const before = await this.#state.read();
-    const { alerts, state } = evaluateRly0HubAlerts({ balance, quota }, before);
+    const switching = usage?.available ? await this.#autoSwitch(usage.usage, before) : null;
+    // An auto-switch notice already covers a low Codex quota.
+    const { alerts, state } = evaluateRly0HubAlerts(
+      { balance, quota: switching ? null : quota },
+      switching ? { ...before, ...switching.state } : before,
+    );
     if (JSON.stringify(state) !== JSON.stringify(before)) await this.#state.update(state);
-    return { alerts };
+    return { alerts: switching?.alert ? [switching.alert, ...alerts] : alerts };
+  }
+
+  /** At most one notice (or switch) per account, window and reset time. */
+  async #autoSwitch(
+    usage: Rly0AccountUsage,
+    state: Rly0HubState,
+  ): Promise<{ alert: Rly0HubAlert | null; state: Partial<Rly0HubState> } | null> {
+    const settings = cleanAutoSwitchSettings(state.autoSwitch ?? RLY0_AUTO_SWITCH_DEFAULTS);
+    if (!settings.enabled) return null;
+    const live = await this.#core.currentAccount().catch(() => ({ loggedIn: false as const }));
+    const current = { ...(live.loggedIn && live.id ? { id: live.id } : {}), usage };
+    const list = async () => {
+      const accounts = await this.#core.listAccounts().catch(() => null);
+      return accounts?.available ? accounts.accounts : [];
+    };
+    let decision = decideAutoSwitch(settings, current, await list());
+    if (!decision) return null;
+    const key = `${current.id ?? "live"}:${decision.reason.window}:${decision.reason.resetsAt ?? 0}`;
+    if (state.autoSwitchHandledFor === key) return { alert: null, state: {} };
+    // Low now: read every saved account fresh before choosing.
+    await this.#core.usageAll().catch(() => undefined);
+    decision = decideAutoSwitch(settings, current, await list()) ?? decision;
+    const window = decision.reason.window === "5h" ? "5 小时" : "每周";
+    const handled = { autoSwitchHandledFor: key };
+    if (!decision.target) {
+      return {
+        alert: {
+          id: "all-low",
+          title: `Codex ${window}额度只剩 ${decision.reason.left}%`,
+          body: "保存的账号额度都不多了，可以先用 Claude Code 等其他 AI。",
+          action: "open",
+        },
+        state: handled,
+      };
+    }
+    const target = decision.target;
+    if (settings.mode === "auto") {
+      const switched = await this.#switchAndRestart(target.id).catch(() => ({ switched: false }));
+      if (switched.switched) {
+        return {
+          alert: {
+            id: "switched",
+            title: `已切换到 ${target.name}`,
+            body: `原账号${window}额度只剩 ${decision.reason.left}%，新账号还有 ${target.left}%。`,
+            action: "open",
+          },
+          state: handled,
+        };
+      }
+    }
+    return {
+      alert: {
+        id: "switch-suggest",
+        title: `Codex ${window}额度只剩 ${decision.reason.left}%`,
+        body: `点这里切换到 ${target.name}（还有 ${target.left}%），Codex 会自动重启。`,
+        action: "switch",
+        accountId: target.id,
+      },
+      state: handled,
+    };
+  }
+
+  /** Switch the live Codex login and restart Codex when it is running so the switch takes effect. */
+  async #switchAndRestart(id: string): Promise<{ switched: boolean; restarted: boolean }> {
+    const result = await this.#core.switchAccount({ id });
+    if (!result.available || !result.switched) return { switched: false, restarted: false };
+    const codex = await this.#codex.status();
+    const restarted = codex.running ? (await this.#codex.restart()).ok : false;
+    return { switched: true, restarted };
   }
 
   async dispose(): Promise<void> {
@@ -289,6 +369,27 @@ export class Rly0HubService {
         return { ok: true };
       }),
       "alerts.check": route(empty, () => this.#checkAlerts()),
+      "autoSwitch.get": route(empty, async () =>
+        cleanAutoSwitchSettings((await this.#state.read()).autoSwitch ?? RLY0_AUTO_SWITCH_DEFAULTS),
+      ),
+      "autoSwitch.set": route(
+        z
+          .object({
+            enabled: z.boolean(),
+            remain5h: z.number().int().min(1).max(90),
+            remainWeekly: z.number().int().min(1).max(90),
+            mode: z.enum(["ask", "auto"]),
+          })
+          .strict(),
+        async (p) => {
+          const settings = cleanAutoSwitchSettings(p);
+          await this.#state.update({ autoSwitch: settings });
+          return settings;
+        },
+      ),
+      "accounts.switchAndRestart": route(rly0AccountsSwitchParamsSchema, (p) =>
+        this.#switchAndRestart(p.id),
+      ),
       "links.agentDocs": route(z.object({ agent: z.string().max(40) }).strict(), (p) => {
         const url = rly0HubAgentDocsUrl(p.agent);
         if (!url) throw Object.assign(new Error("INVALID_PARAMS"), { code: -32602 });
