@@ -31,7 +31,7 @@ window.registerHubRelays = ({
     });
     const letter = () => put(tile, h("b", null, relay.name.slice(0, 1).toUpperCase()));
     if (isRly0(relay)) {
-      put(tile, h("img", { src: "brand/rly0-ip-on-dark.svg", alt: "零号中转" }));
+      put(tile, h("img", { src: "brand/rly0-ip-tight.svg", alt: "零号中转" }));
       tile.classList.add("dark");
       return tile;
     }
@@ -56,15 +56,6 @@ window.registerHubRelays = ({
       return url;
     }
   };
-  const parseModels = (text) =>
-    [
-      ...new Set(
-        text
-          .split(/[\s,，]+/u)
-          .map((m) => m.trim())
-          .filter(Boolean),
-      ),
-    ].slice(0, 256);
 
   /** Test a relay and, when it lists no models yet, keep what the relay reports. */
   async function testAndFill(relay) {
@@ -85,169 +76,375 @@ window.registerHubRelays = ({
     return { result, filled: 0 };
   }
 
+  // Codex is OpenAI's agent: only these relay models can appear in its model menu.
+  const isGptModel = (model) => /^(?:gpt-|chatgpt-|codex-|o\d)/iu.test(model.trim());
+  // People paste the site address or the API address; relays answer under /v1.
+  function normalizeBase(text) {
+    let value = text.trim().replace(/\/+$/u, "");
+    if (!value) return "";
+    if (!/^https?:\/\//iu.test(value)) value = `https://${value}`;
+    if (!/\/v1$/iu.test(value)) value = `${value}/v1`;
+    return value;
+  }
+  const nameFromHost = (url) => {
+    try {
+      return new URL(url).hostname.replace(/^(api|www)\./u, "").slice(0, 40);
+    } catch {
+      return "中转站";
+    }
+  };
+
+  /**
+   * Add or edit a relay in one dialog: address + key → 测试 (reads the site's logo and name and
+   * every model) → tick the GPT models to show in Codex → 保存. A relay being added is saved
+   * switched off while testing and removed again when the dialog is cancelled.
+   */
+  function relayDialog({ relay, onDone }) {
+    const editing = Boolean(relay);
+    let draft = relay || null; // the saved relay this dialog works on
+    let saved = false;
+    const ui = window.HubUI.dialog({
+      title: editing ? `编辑 ${relay.name}` : "添加中转站",
+      sub: "填地址和 API Key，测试后选择要显示在 Codex 里的 GPT 模型",
+      wide: true,
+      onClose: () => {
+        if (!editing && draft && !saved)
+          call("relay.remove", { id: draft.id }).catch(() => undefined);
+      },
+    });
+    const baseUrl = h("input", {
+      class: "input",
+      placeholder: "中转站地址，例如 https://api.example.com",
+      spellcheck: "false",
+      value: editing ? relay.baseUrl : "",
+      "aria-label": "中转站地址",
+    });
+    const apiKey = h("input", {
+      class: "input",
+      type: "password",
+      placeholder: editing ? "API Key（留空 = 不改）" : "API Key，例如 sk-…",
+      autocomplete: "off",
+      spellcheck: "false",
+      "aria-label": "API Key",
+    });
+    const testButton = h("button", { class: "btn paper", type: "button" }, "测试");
+    const result = h("div", { class: "relay-test" });
+    const saveButton = h("button", { class: "btn paper", type: "button", disabled: true }, "保存");
+    const cancelButton = h(
+      "button",
+      { class: "btn quiet", type: "button", onclick: () => ui.close() },
+      "取消",
+    );
+    put(
+      ui.body,
+      h("label", { class: "field" }, h("span", null, "地址"), baseUrl),
+      h(
+        "label",
+        { class: "field" },
+        h("span", null, "API Key"),
+        h("div", { class: "row wide" }, apiKey, testButton),
+      ),
+      result,
+    );
+    put(ui.foot, h("span", { class: "spacer" }), cancelButton, saveButton);
+    let picked = null; // { name, gpt: Map<model, checkbox>, others: string[] }
+
+    async function runTest() {
+      const base = normalizeBase(baseUrl.value);
+      const key = apiKey.value.trim();
+      if (!base) return toast("先填中转站地址");
+      if (!editing && !key) return toast("先填 API Key");
+      testButton.disabled = true;
+      saveButton.disabled = true;
+      put(result, h("p", { class: "sub" }, "正在连接中转站、读取名称和模型…"));
+      try {
+        if (!draft) {
+          const added = await call("relay.add", {
+            name: nameFromHost(base),
+            baseUrl: base,
+            apiKey: key,
+            enabled: false,
+          });
+          if (!added.available) throw new Error("HUB_ERROR");
+          draft = added.relay;
+        } else {
+          const params = { id: draft.id, baseUrl: base };
+          if (key) params.apiKey = key;
+          const updated = await call("relay.update", params);
+          if (!updated.available) throw new Error("HUB_ERROR");
+          draft = updated.relay;
+        }
+        logos.delete(draft.id);
+        const [test, site] = await Promise.all([
+          call("relay.test", { id: draft.id }).catch(() => null),
+          isRly0(draft)
+            ? Promise.resolve({ siteName: "零号中转" })
+            : call("relay.logo", { id: draft.id }).catch(() => null),
+        ]);
+        if (!test || !test.available || !test.ok) {
+          put(
+            result,
+            h("p", { class: "warn-text" }, `测试没通过：${explain(test && test.error)}`),
+            h("p", { class: "sub" }, "检查地址和 API Key 后再点一次测试。"),
+          );
+          return;
+        }
+        showModels(test, (site && site.siteName) || (editing ? relay.name : nameFromHost(base)));
+      } catch (error) {
+        put(result, h("p", { class: "warn-text" }, explain(error && error.message)));
+      } finally {
+        testButton.disabled = false;
+      }
+    }
+
+    function showModels(test, siteName) {
+      const models = [...new Set(test.models || [])];
+      const gpt = models.filter(isGptModel);
+      const others = models.filter((m) => !isGptModel(m));
+      // Editing keeps the person's earlier choice; a new relay starts with every GPT model on.
+      const before = editing ? new Set(relay.models) : null;
+      const name = h("input", {
+        class: "input",
+        maxlength: "40",
+        value: siteName,
+        "aria-label": "名称",
+      });
+      const boxes = new Map();
+      const all = h("input", { type: "checkbox" });
+      const syncAll = () => {
+        const values = [...boxes.values()];
+        all.checked = values.length > 0 && values.every((box) => box.checked);
+        all.indeterminate = !all.checked && values.some((box) => box.checked);
+        count.textContent = `已选 ${values.filter((box) => box.checked).length} / ${values.length}`;
+      };
+      all.addEventListener("change", () => {
+        for (const box of boxes.values()) box.checked = all.checked;
+        syncAll();
+      });
+      const count = h("span", { class: "sub tabular" });
+      const list = h(
+        "div",
+        { class: "model-checks" },
+        gpt.map((model) => {
+          const box = h("input", { type: "checkbox" });
+          box.checked = before ? before.has(model) || before.size === 0 : true;
+          box.addEventListener("change", syncAll);
+          boxes.set(model, box);
+          return h("label", { class: "model-check" }, box, h("span", null, model));
+        }),
+      );
+      put(
+        result,
+        h(
+          "div",
+          { class: "relay-found" },
+          relayLogo(draft, 44),
+          h(
+            "div",
+            { class: "who" },
+            h("b", null, `连通 · ${test.latencyMs} ms`),
+            h("span", null, `读到 ${models.length} 个模型，其中 GPT 系列 ${gpt.length} 个`),
+          ),
+        ),
+        h("label", { class: "field" }, h("span", null, "名称（自动识别，可改）"), name),
+        gpt.length
+          ? h(
+              "div",
+              { class: "field" },
+              h(
+                "div",
+                { class: "row" },
+                h("span", null, "显示在 Codex 模型菜单里的 GPT 模型"),
+                h("span", { class: "spacer" }),
+                count,
+                h("label", { class: "model-check all" }, all, h("span", null, "全选")),
+              ),
+              list,
+            )
+          : h("p", { class: "sub" }, "这个中转站没有 GPT 系列模型，Codex 菜单里不会多出模型。"),
+        others.length
+          ? h(
+              "p",
+              { class: "sub" },
+              `另有 ${others.length} 个其他模型（Claude、Gemini 等），给 Claude Code 等 AI 助手用。`,
+            )
+          : null,
+      );
+      syncAll();
+      picked = { name, boxes, others };
+      saveButton.disabled = false;
+    }
+
+    saveButton.addEventListener("click", async () => {
+      if (!draft || !picked) return;
+      const chosen = [...picked.boxes].filter(([, box]) => box.checked).map(([model]) => model);
+      try {
+        const updated = await call("relay.update", {
+          id: draft.id,
+          name: picked.name.value.trim() || nameFromHost(draft.baseUrl),
+          models: [...chosen, ...picked.others].slice(0, 256),
+          enabled: true,
+        });
+        if (!updated.available) throw new Error("HUB_ERROR");
+        saved = true;
+        toast(
+          chosen.length
+            ? `已保存，${chosen.length} 个 GPT 模型会出现在 Codex 模型菜单（新开对话生效）`
+            : "已保存",
+        );
+        ui.close();
+        onDone();
+      } catch (error) {
+        failed(error);
+      }
+    });
+    testButton.addEventListener("click", runTest);
+    for (const input of [baseUrl, apiKey])
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") runTest();
+      });
+    (editing ? apiKey : baseUrl).focus();
+    if (editing) runTest();
+  }
+
   pages.relays = (root, alive, options) => {
+    const addTile = h(
+      "button",
+      { class: "m add-tile span-3", type: "button", onclick: () => relayDialog({ onDone: load }) },
+      h("span", { class: "plus", "aria-hidden": "true" }, "+"),
+      h(
+        "span",
+        { class: "who" },
+        h("b", null, "添加中转站"),
+        h("span", null, "填地址和 API Key，自动识别名称、图标和模型"),
+      ),
+    );
+    const noAccount = h("section", { class: "m span-3 no-account" });
     const rly0Module = h("section", { class: "m bal span-6 rly0-connect" });
     const list = h("div", { class: "grid compact" });
     const proxyLine = h("div", { class: "row proxy-line" });
-    const addHolder = h("div", { class: "grid compact" });
-    const noAccount = h("section", { class: "m span-6 no-account" });
     root.append(
+      h("div", { class: "grid compact relay-top" }, addTile, noAccount),
       h("div", { class: "grid compact" }, rly0Module),
       h("h2", { class: "section-title" }, "我的中转站", proxyLine),
       list,
-      addHolder,
-      h(
-        "h2",
-        { class: "section-title" },
-        "不登录 OpenAI 也能用",
-        h("span", { class: "tag" }, "实验"),
-      ),
-      h("div", { class: "grid compact" }, noAccount),
     );
 
-    // No-account mode changes ~/.codex/config.toml, so it shows the exact changes first.
+    // No-account mode is a switch. It changes ~/.codex/config.toml, so turning it on shows the
+    // exact changes first; it can only be turned on once a relay offers GPT models.
     async function loadNoAccount() {
       const status = await call("relay.noAccountStatus").catch(() => null);
       if (!alive() || !status) return;
-      if (status.enabled) {
-        put(
-          noAccount,
-          h(
-            "div",
-            { class: "row" },
-            h("span", { class: "dot ok" }),
-            h("b", null, `已开启 · 默认模型 ${status.model || ""}`),
-          ),
-          h(
-            "p",
-            { class: "sub" },
-            "Codex 不需要 OpenAI 账号，中转站的 GPT 模型通过本机 Hub 运行。请保持 Hub 在托盘里运行。",
-          ),
-          h(
-            "div",
-            { class: "row" },
-            h(
-              "button",
-              {
-                class: "btn",
-                type: "button",
-                onclick: () =>
-                  call("relay.noAccountDisable").then(() => {
-                    toast("已恢复原来的 Codex 设置，重启 Codex 生效");
-                    loadNoAccount();
-                  }, failed),
-              },
-              "恢复原来的设置",
-            ),
-            h(
-              "button",
-              {
-                class: "btn quiet",
-                type: "button",
-                onclick: () =>
-                  call("codex.restart").then(
-                    (r) => toast(r.ok ? "Codex 正在重启" : "Codex 没在运行"),
-                    failed,
-                  ),
-              },
-              "重启 Codex",
-            ),
-          ),
-        );
-        return;
-      }
-      if (!status.models.length) {
-        put(
-          noAccount,
-          h(
-            "p",
-            { class: "sub" },
-            "没有 OpenAI 账号时，可以让 Codex 直接用中转站的 GPT 模型。先在上面的中转站里点“测试”，读出 GPT 系列模型。",
-          ),
-        );
-        return;
-      }
-      const model = h(
-        "select",
-        { class: "input compact-select", "aria-label": "默认模型" },
-        status.models.map((m) => h("option", { value: m }, m)),
-      );
-      const plan = h("div");
+      const blocked = status.enabled
+        ? null
+        : status.models.length
+          ? null
+          : "先添加一个有 GPT 模型的中转站，才能打开";
+      const toggle = h("button", {
+        class: `switch ${blocked ? "off" : ""}`,
+        type: "button",
+        role: "switch",
+        "aria-checked": String(Boolean(status.enabled)),
+        "aria-disabled": blocked ? "true" : null,
+        "data-tip": blocked,
+        "aria-label": "不登录 OpenAI 也能用",
+        onclick: () => {
+          if (blocked) return toast(blocked);
+          if (status.enabled)
+            call("relay.noAccountDisable").then(() => {
+              toast("已恢复原来的 Codex 设置，重启 Codex 生效");
+              loadNoAccount();
+            }, failed);
+          else enableDialog(status.models);
+        },
+      });
       put(
         noAccount,
         h(
-          "p",
-          { class: "sub" },
-          "没有 OpenAI 账号时，让 Codex 直接用中转站的 GPT 模型。会修改 Codex 的设置文件，改之前会先备份，可以一键恢复。",
-        ),
-        h(
           "div",
           { class: "row" },
-          h("label", { class: "field" }, h("span", null, "默认模型"), model),
           h(
-            "button",
-            {
-              class: "btn",
-              type: "button",
-              onclick: async () => {
-                const preview = await call("relay.noAccountPreview", { model: model.value }).catch(
-                  (error) => {
-                    failed(error);
-                    return null;
-                  },
-                );
-                if (!preview || !alive()) return;
-                put(
-                  plan,
-                  h(
-                    "div",
-                    { class: "relay-editor" },
-                    h("span", { class: "label" }, "Will change"),
-                    h("p", { class: "sub tabular" }, preview.configPath),
-                    h("pre", { class: "plan-lines" }, preview.changes.join("\n")),
-                    h(
-                      "ul",
-                      { class: "plan-notes" },
-                      h("li", null, "开启后 Codex 只能用中转站的模型，官方模型暂时不可用。"),
-                      h("li", null, "Hub 要一直在托盘里运行（开机自启已默认打开）。"),
-                      h("li", null, "需要重启 Codex 才生效；随时可以一键恢复。"),
-                    ),
-                    h(
-                      "div",
-                      { class: "row" },
-                      h(
-                        "button",
-                        {
-                          class: "btn red",
-                          type: "button",
-                          onclick: () =>
-                            call("relay.noAccountEnable", {
-                              model: model.value,
-                              confirmed: true,
-                            }).then((r) => {
-                              toast(r.noAccount ? "已开启，重启 Codex 生效" : "没有开启成功");
-                              loadNoAccount();
-                            }, failed),
-                        },
-                        "我已了解，开启",
-                      ),
-                      h(
-                        "button",
-                        { class: "btn quiet", type: "button", onclick: () => put(plan) },
-                        "取消",
-                      ),
-                    ),
-                  ),
-                );
-              },
-            },
-            "查看会改什么",
+            "div",
+            { class: "who" },
+            h("b", null, "不登录 OpenAI 也能用"),
+            h(
+              "span",
+              null,
+              status.enabled
+                ? `已开启 · 默认模型 ${status.model || ""}`
+                : "没有 OpenAI 账号时，Codex 直接用中转站的 GPT 模型",
+            ),
           ),
+          h("span", { class: "spacer" }),
+          toggle,
         ),
-        plan,
+        status.enabled
+          ? h(
+              "p",
+              { class: "sub" },
+              "请保持 Hub 在托盘里运行。关掉开关会恢复原来的设置，重启 Codex 生效。",
+            )
+          : h("p", { class: "sub" }, blocked || "打开前会先列出要改的设置，改之前自动备份。"),
       );
     }
-    loadNoAccount();
+
+    function enableDialog(models) {
+      const ui = window.HubUI.dialog({
+        title: "不登录 OpenAI 也能用",
+        sub: "会修改 Codex 的设置文件，改之前先备份，随时可以关掉恢复",
+      });
+      const model = h(
+        "select",
+        { class: "input", "aria-label": "默认模型" },
+        models.map((m) => h("option", { value: m }, m)),
+      );
+      const plan = h("div");
+      const confirm = h(
+        "button",
+        { class: "btn red", type: "button", disabled: true },
+        "我已了解，开启",
+      );
+      const preview = async () => {
+        confirm.disabled = true;
+        const result = await call("relay.noAccountPreview", { model: model.value }).catch(
+          (error) => {
+            failed(error);
+            return null;
+          },
+        );
+        if (!result) return;
+        put(
+          plan,
+          h("span", { class: "label" }, "会修改"),
+          h("p", { class: "sub tabular" }, result.configPath),
+          h("pre", { class: "plan-lines" }, result.changes.join("\n")),
+          h(
+            "ul",
+            { class: "plan-notes" },
+            h("li", null, "开启后 Codex 只用中转站的模型，官方模型暂时不可用。"),
+            h("li", null, "Hub 要一直在托盘里运行（开机自启已默认打开）。"),
+            h("li", null, "重启 Codex 后生效。"),
+          ),
+        );
+        confirm.disabled = false;
+      };
+      model.addEventListener("change", preview);
+      confirm.addEventListener("click", () =>
+        call("relay.noAccountEnable", { model: model.value, confirmed: true }).then((r) => {
+          toast(r.noAccount ? "已开启，重启 Codex 生效" : "没有开启成功");
+          ui.close();
+          loadNoAccount();
+        }, failed),
+      );
+      put(ui.body, h("label", { class: "field" }, h("span", null, "默认模型"), model), plan);
+      put(
+        ui.foot,
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn quiet", type: "button", onclick: () => ui.close() }, "取消"),
+        confirm,
+      );
+      preview();
+    }
 
     const rly0Key = h("input", {
       class: "input on-red",
@@ -325,88 +522,6 @@ window.registerHubRelays = ({
       );
     }
 
-    function renderAdd(open) {
-      if (!open) {
-        put(
-          addHolder,
-          h(
-            "button",
-            { class: "m add-tile span-6", type: "button", onclick: () => renderAdd(true) },
-            h("span", { class: "plus", "aria-hidden": "true" }, "+"),
-            h("span", null, "添加其他中转站"),
-          ),
-        );
-        return;
-      }
-      const name = h("input", { class: "input", maxlength: "40", placeholder: "名称" });
-      const baseUrl = h("input", {
-        class: "input",
-        placeholder: "https://…/v1",
-        spellcheck: "false",
-      });
-      const apiKey = h("input", {
-        class: "input",
-        type: "password",
-        placeholder: "密钥 sk-…",
-        autocomplete: "off",
-        spellcheck: "false",
-      });
-      const add = async () => {
-        const params = { name: name.value.trim(), baseUrl: baseUrl.value.trim() };
-        if (apiKey.value.trim()) params.apiKey = apiKey.value.trim();
-        if (!params.name || !params.baseUrl) {
-          toast("名称和地址都要填");
-          return;
-        }
-        try {
-          const added = await call("relay.add", params);
-          if (!added.available) throw new Error("HUB_ERROR");
-          const { result, filled } = await testAndFill(added.relay);
-          toast(
-            result && result.ok
-              ? `已添加${filled ? `，读到 ${filled} 个模型` : ""}`
-              : `已添加，但测试没通过：${explain(result && result.error)}`,
-          );
-          renderAdd(false);
-          load();
-        } catch (error) {
-          failed(error);
-        }
-      };
-      put(
-        addHolder,
-        h(
-          "section",
-          { class: "m span-6" },
-          h(
-            "div",
-            { class: "row" },
-            h("span", { class: "label" }, "Other relay"),
-            h("span", { class: "spacer" }),
-            h(
-              "button",
-              { class: "btn quiet sm", type: "button", onclick: () => renderAdd(false) },
-              "收起",
-            ),
-          ),
-          h(
-            "div",
-            { class: "form" },
-            name,
-            baseUrl,
-            apiKey,
-            h(
-              "div",
-              { class: "row" },
-              h("button", { class: "btn paper", type: "button", onclick: add }, "添加并测试"),
-            ),
-          ),
-          h("p", { class: "sub" }, "添加后会自动测试，并读出这个中转站的模型。"),
-        ),
-      );
-      name.focus();
-    }
-
     async function load() {
       const [relays, proxy] = await Promise.all([
         call("relay.list").catch(() => null),
@@ -414,7 +529,7 @@ window.registerHubRelays = ({
       ]);
       if (!alive()) return;
       // Claude Code's own Anthropic API key is kept like a relay but managed on the AI 助手 page.
-      if (relays && relays.relays) relays.relays = relays.relays.filter((r) => !isOfficialKey(r));
+      const items = ((relays && relays.relays) || []).filter((r) => !isOfficialKey(r));
       const running = Boolean(proxy && proxy.running);
       put(
         proxyLine,
@@ -434,19 +549,19 @@ window.registerHubRelays = ({
           running ? "停止" : "开启",
         ),
       );
-      const items = (relays && relays.relays) || [];
       renderRly0(items.some((relay) => relay.hasKey && isRly0(relay)));
       put(
         list,
-        items.length ? items.map(card) : h("p", { class: "empty span-6" }, "还没有中转站。"),
+        items.length
+          ? items.map(card)
+          : h("p", { class: "empty span-6" }, "还没有中转站。点上面的“添加中转站”。"),
       );
+      loadNoAccount();
     }
 
     function card(relay) {
       const element = h("section", { class: `m span-3 relay-card ${isRly0(relay) ? "tone" : ""}` });
       const money_ = h("div", { class: "quota-line" }, h("span", { class: "sub" }, "余额读取中…"));
-      const note = h("p", { class: "sub" });
-      const editor = h("div");
       let confirmRemove = false;
       const remove = h(
         "button",
@@ -480,6 +595,7 @@ window.registerHubRelays = ({
         onclick: () =>
           call("relay.setEnabled", { id: relay.id, enabled: !relay.enabled }).then(load, failed),
       });
+      const gpt = relay.models.filter(isGptModel).length;
       put(
         element,
         h(
@@ -499,11 +615,9 @@ window.registerHubRelays = ({
           "div",
           { class: "sub" },
           relay.models.length
-            ? `${relay.models.length} 个模型${relay.routeLocked ? " · 未列出的模型也走这里" : ""}`
-            : "还没有模型列表，点“测试”自动读取",
+            ? `${relay.models.length} 个模型 · ${gpt} 个显示在 Codex 菜单`
+            : "还没有模型，点“编辑”测试并选择",
         ),
-        note,
-        editor,
         h(
           "div",
           { class: "row" },
@@ -512,21 +626,10 @@ window.registerHubRelays = ({
             {
               class: "btn sm",
               type: "button",
-              onclick: async () => {
-                note.textContent = "测试中…";
-                const { result, filled } = await testAndFill(relay);
-                note.textContent =
-                  result && result.available
-                    ? result.ok
-                      ? `连通 · ${result.latencyMs} ms${result.modelCount ? ` · ${result.modelCount} 个模型` : ""}${filled ? " · 已填入模型列表" : ""}`
-                      : explain(result.error)
-                    : "测试没有成功";
-                if (filled) load();
-              },
+              onclick: () => relayDialog({ relay, onDone: load }),
             },
-            "测试",
+            "编辑 / 选模型",
           ),
-          h("button", { class: "btn sm", type: "button", onclick: () => edit() }, "编辑"),
           h("span", { class: "spacer" }),
           remove,
         ),
@@ -547,107 +650,12 @@ window.registerHubRelays = ({
               h("span", { class: "sub" }, balance ? explain(balance.error) : "读不到余额"),
             );
         });
-
-      function edit() {
-        if (editor.childElementCount) {
-          put(editor);
-          return;
-        }
-        const name = h("input", {
-          class: "input",
-          maxlength: "40",
-          value: relay.name,
-          "aria-label": "名称",
-        });
-        const baseUrl = h("input", {
-          class: "input",
-          value: relay.baseUrl,
-          spellcheck: "false",
-          "aria-label": "地址",
-        });
-        const apiKey = h("input", {
-          class: "input",
-          type: "password",
-          placeholder: "留空 = 不改密钥",
-          autocomplete: "off",
-          "aria-label": "新密钥",
-        });
-        const models = h("textarea", {
-          class: "input models",
-          rows: "4",
-          spellcheck: "false",
-          "aria-label": "模型列表",
-        });
-        models.value = relay.models.join("\n");
-        let locked = Boolean(relay.routeLocked);
-        const lock = h("button", {
-          class: "switch",
-          type: "button",
-          role: "switch",
-          "aria-checked": String(locked),
-          "aria-label": "未列出的模型也走这个中转站",
-          onclick: () => {
-            locked = !locked;
-            lock.setAttribute("aria-checked", String(locked));
-          },
-        });
-        const save = async () => {
-          const params = {
-            id: relay.id,
-            name: name.value.trim(),
-            baseUrl: baseUrl.value.trim(),
-            models: parseModels(models.value),
-            routeLocked: locked,
-          };
-          if (apiKey.value.trim()) params.apiKey = apiKey.value.trim();
-          try {
-            const result = await call("relay.update", params);
-            if (!result.available) throw new Error("HUB_ERROR");
-            toast("已保存。Codex 新开的对话会用新的模型列表");
-            load();
-          } catch (error) {
-            failed(error);
-          }
-        };
-        put(
-          editor,
-          h(
-            "div",
-            { class: "relay-editor" },
-            h("label", { class: "field" }, h("span", null, "名称"), name),
-            h("label", { class: "field" }, h("span", null, "地址"), baseUrl),
-            h("label", { class: "field" }, h("span", null, "密钥"), apiKey),
-            h(
-              "label",
-              { class: "field" },
-              h("span", null, "模型（每行一个；GPT 系列会出现在 Codex 模型菜单）"),
-              models,
-            ),
-            h(
-              "div",
-              { class: "row" },
-              lock,
-              h("span", { class: "sub" }, "没列出的模型也走这个中转站"),
-            ),
-            h(
-              "div",
-              { class: "row" },
-              h("button", { class: "btn paper sm", type: "button", onclick: save }, "保存"),
-              h(
-                "button",
-                { class: "btn quiet sm", type: "button", onclick: () => put(editor) },
-                "取消",
-              ),
-            ),
-          ),
-        );
-      }
       return element;
     }
 
-    renderAdd(false);
     load();
     if (options.preset === "rly0") setTimeout(() => rly0Key.focus(), 0);
+    if (options.preset === "add") setTimeout(() => relayDialog({ onDone: load }), 0);
   };
 
   /** Home strip: every relay at a glance, 零号 first, with its logo and balance. */

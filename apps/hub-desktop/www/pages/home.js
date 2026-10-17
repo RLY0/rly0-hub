@@ -159,7 +159,8 @@ window.registerHubHome = (api) => {
         ? h("img", { src: `agents/${agent.id}.${LOGOS[agent.id]}`, alt: agent.name })
         : agent.name.slice(0, 2),
     );
-  const quotaTiles = (windows) =>
+  // Quota windows, plus the reset cards OpenAI gave the account (官方赠送的额度重置卡).
+  const quotaTiles = (windows, resetCredits) =>
     h(
       "div",
       { class: "reset-cards" },
@@ -185,16 +186,16 @@ window.registerHubHome = (api) => {
           ),
         );
       }),
+      resetCredits === undefined ? null : api.resetCardTile(resetCredits),
     );
 
   pages.home = (root, alive) => {
     const promo = h("section", { class: "m promo span-6" });
     followPointer(promo);
-    const work = h("section", { class: "m panel work span-4" });
-    const people = h("section", { class: "m panel paper-panel span-2" });
+    const people = h("section", { class: "m panel span-6 accounts-panel" });
     const agentsModule = h("section", { class: "m panel span-3" });
     const lines = h("section", { class: "m panel span-3" });
-    root.append(h("div", { class: "grid home-grid" }, promo, work, people, agentsModule, lines));
+    root.append(h("div", { class: "grid home-grid" }, promo, people, agentsModule, lines));
 
     async function loadPromo() {
       const result = await call("balance.get").catch((error) => ({
@@ -276,38 +277,23 @@ window.registerHubHome = (api) => {
         call("accounts.list").catch(() => null),
       ]);
       if (!alive()) return;
-      renderWork(summary);
-      renderPeople(summary, accounts);
+      renderAccounts(summary, accounts);
       renderAgents(agents);
       renderLines(summary);
     }
 
-    /* Codex 工作台: can I work now, as whom, and how much is left. */
-    function renderWork(summary) {
-      const codex = summary && summary.codex;
-      const running = Boolean(codex && codex.running);
+    /* 账号额度: the current Codex account with its quota and reset cards, then the saved ones. */
+    function renderAccounts(summary, result) {
       const account = summary && summary.currentAccount;
+      const saved = ((result && result.available && result.accounts) || []).filter(
+        (a) => !a.current,
+      );
       const quota = h("div", { class: "work-quota" });
-      put(
-        work,
-        modHead(
-          "work",
-          "Codex 工作台",
-          "现在能不能开工",
-          h(
-            "span",
-            { class: `state-pill ${running ? "ok" : ""}` },
-            h("span", { class: `pulse ${running ? "" : "off"}` }),
-            running ? "运行中" : "未启动",
-          ),
-        ),
-        h(
-          "p",
-          { class: "work-say" },
-          running ? "Codex 正在运行，可以开工了。" : "Codex 还没打开，点下面一键启动。",
-        ),
-        account
-          ? h(
+      const current = account
+        ? h(
+            "div",
+            { class: "acct-current" },
+            h(
               "div",
               { class: "work-account" },
               h("span", { class: "avatar" }, accountName(account).slice(0, 1).toUpperCase()),
@@ -319,123 +305,87 @@ window.registerHubHome = (api) => {
                   "span",
                   null,
                   [
-                    account.plan ? account.plan.toUpperCase() : "当前登录",
+                    "正在使用",
+                    account.plan ? account.plan.toUpperCase() : null,
                     account.saved ? null : "未保存",
                   ]
                     .filter(Boolean)
                     .join(" · "),
                 ),
               ),
-              h("span", { class: "spacer" }),
-              h(
-                "button",
-                { class: "btn sm", type: "button", onclick: () => go("accounts") },
-                "切换账号",
-              ),
-            )
-          : h(
-              "div",
-              { class: "work-account" },
-              h("span", { class: "sub" }, "Codex 还没登录账号。"),
-              h("span", { class: "spacer" }),
-              h(
-                "button",
-                { class: "btn sm", type: "button", onclick: () => go("accounts") },
-                "去添加",
-              ),
             ),
-        quota,
-        h(
-          "div",
-          { class: "row" },
+            quota,
+          )
+        : h(
+            "div",
+            { class: "acct-current empty-cta" },
+            h("p", { class: "sub" }, "Codex 还没登录账号。添加后这里显示额度和重置卡。"),
+            h(
+              "button",
+              { class: "btn paper sm", type: "button", onclick: () => go("accounts") },
+              "添加账号",
+            ),
+          );
+      const others = h(
+        "div",
+        { class: "acct-others" },
+        h("span", { class: "label" }, `其他账号 · ${saved.length}`),
+        saved.length
+          ? saved.slice(0, 5).map((other) => {
+              const window5h = other.lastUsage
+                ? other.lastUsage.windows.find((w) => w.kind === "primary")
+                : null;
+              const left = window5h ? Math.max(0, Math.round(100 - window5h.usedPercent)) : null;
+              const cards = other.lastUsage && other.lastUsage.resetCredits;
+              return h(
+                "div",
+                { class: "peek-row" },
+                h(
+                  "div",
+                  { class: "row" },
+                  h("b", { class: "peek-name" }, accountName(other)),
+                  h("span", { class: "spacer" }),
+                  cards ? h("span", { class: "card-chip" }, `重置卡 ×${cards}`) : null,
+                  h("span", { class: "peek-left tabular" }, left === null ? "未知" : `剩 ${left}%`),
+                ),
+                h(
+                  "div",
+                  { class: "bar" },
+                  h("i", { style: { width: `${left === null ? 0 : left}%` } }),
+                ),
+              );
+            })
+          : h("p", { class: "sub" }, "只有一个账号。额度用完时可以切到别的账号继续用。"),
+      );
+      put(
+        people,
+        modHead(
+          "people",
+          "账号额度",
+          "当前账号还剩多少、什么时候重置",
           h(
             "button",
-            {
-              class: "btn paper",
-              type: "button",
-              disabled: codex && !codex.canOpen,
-              onclick: () =>
-                call("codex.open").then(
-                  (r) => toast(r.ok ? "正在打开 Codex" : "没有找到 Codex 启动器"),
-                  failed,
-                ),
-            },
-            running ? "切到 Codex" : "打开 Codex",
+            { class: "btn sm", type: "button", onclick: () => go("accounts") },
+            "管理账号",
           ),
-          running
-            ? h(
-                "button",
-                {
-                  class: "btn",
-                  type: "button",
-                  onclick: () =>
-                    call("codex.restart").then(
-                      (r) => toast(r.ok ? "Codex 正在重启" : "重启没有成功"),
-                      failed,
-                    ),
-                },
-                "重启 Codex",
-              )
-            : null,
         ),
+        h("div", { class: "acct-grid" }, current, others),
       );
       if (!account) return;
       put(quota, h("span", { class: "sub" }, "额度读取中…"));
       call("accounts.usageCurrent")
         .catch(() => null)
-        .then((result) => {
+        .then((usage) => {
           if (!alive()) return;
-          const windows = result && result.available ? result.usage.windows : [];
+          const ok = usage && usage.available;
+          const windows = ok ? usage.usage.windows : [];
           put(
             quota,
-            windows.length ? quotaTiles(windows) : h("span", { class: "sub" }, "暂时读不到额度"),
+            windows.length || (ok && usage.usage.resetCredits !== undefined)
+              ? quotaTiles(windows, ok ? usage.usage.resetCredits : undefined)
+              : h("span", { class: "sub" }, "暂时读不到额度"),
           );
         });
-    }
-
-    /* 账号额度: which saved account still has room (the one light module). */
-    function renderPeople(summary, result) {
-      const accounts = (result && result.available && result.accounts) || [];
-      const rows = accounts.slice(0, 4).map((account) => {
-        const window5h = account.lastUsage
-          ? account.lastUsage.windows.find((w) => w.kind === "primary")
-          : null;
-        const left = window5h ? Math.max(0, Math.round(100 - window5h.usedPercent)) : null;
-        return h(
-          "div",
-          { class: `peek-row ${account.current ? "current" : ""}` },
-          h(
-            "div",
-            { class: "row" },
-            h("b", { class: "peek-name" }, accountName(account)),
-            h("span", { class: "spacer" }),
-            h(
-              "span",
-              { class: "peek-left tabular" },
-              account.current ? "使用中 · " : "",
-              left === null ? "未知" : `剩 ${left}%`,
-            ),
-          ),
-          h("div", { class: "bar" }, h("i", { style: { width: `${left === null ? 0 : left}%` } })),
-        );
-      });
-      put(
-        people,
-        modHead("people", "账号额度", "哪个账号还有余量"),
-        rows.length
-          ? h("div", { class: "peek-list" }, rows)
-          : h("p", { class: "sub" }, "还没有保存的账号。保存后，这里能看到每个账号还剩多少。"),
-        h(
-          "div",
-          { class: "row" },
-          h("span", { class: "spacer" }),
-          h(
-            "button",
-            { class: "btn sm", type: "button", onclick: () => go("accounts") },
-            accounts.length > 4 ? `全部 ${accounts.length} 个账号` : "管理账号",
-          ),
-        ),
-      );
     }
 
     /* AI 助手: which agents are ready to call from Codex. */
@@ -509,8 +459,8 @@ window.registerHubHome = (api) => {
         lines,
         modHead(
           "route",
-          "线路与余额",
-          "请求走哪条线，余额够不够",
+          "中转站",
+          "接入的中转站和余额",
           h(
             "span",
             {
@@ -522,6 +472,21 @@ window.registerHubHome = (api) => {
           ),
         ),
         list,
+        h(
+          "div",
+          { class: "row" },
+          h("span", { class: "spacer" }),
+          h(
+            "button",
+            { class: "btn sm", type: "button", onclick: () => go("relays", { preset: "add" }) },
+            "+ 添加中转站",
+          ),
+          h(
+            "button",
+            { class: "btn paper sm", type: "button", onclick: () => go("relays") },
+            "管理中转站",
+          ),
+        ),
       );
       call("relay.list")
         .catch(() => null)

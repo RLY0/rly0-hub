@@ -254,5 +254,64 @@ window.HubUI = (() => {
     bubble.classList.add("show");
   });
 
-  return { menuButton, enhanceSelect, closeLayer };
+  /* ---------- Dialog ---------- */
+  // A centred panel over a dimmed page. `onClose` runs however it closes (button, Esc, backdrop).
+  function dialog({ title, sub, onClose, wide } = {}) {
+    closeLayer();
+    const body = make("div", { class: "dialog-body" });
+    const foot = make("div", { class: "dialog-foot" });
+    const closeButton = make(
+      "button",
+      { type: "button", class: "dialog-x", "aria-label": "关闭" },
+      "×",
+    );
+    const panel = make(
+      "div",
+      {
+        class: `dialog ${wide ? "wide" : ""}`,
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-label": title,
+      },
+      make(
+        "div",
+        { class: "dialog-head" },
+        make(
+          "div",
+          { class: "mod-title" },
+          make("b", null, title),
+          sub ? make("span", null, sub) : null,
+        ),
+        closeButton,
+      ),
+      body,
+      foot,
+    );
+    const backdrop = make("div", { class: "dialog-backdrop" }, panel);
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener("keydown", onKey, true);
+      backdrop.classList.remove("show");
+      setTimeout(() => backdrop.remove(), 180);
+      if (onClose) onClose();
+    };
+    const onKey = (event) => {
+      if (event.key === "Escape" && !openLayer) {
+        event.stopPropagation();
+        close();
+      }
+    };
+    closeButton.addEventListener("click", close);
+    backdrop.addEventListener("pointerdown", (event) => {
+      if (event.target === backdrop) close();
+    });
+    document.addEventListener("keydown", onKey, true);
+    document.body.append(backdrop);
+    requestAnimationFrame(() => backdrop.classList.add("show"));
+    return { panel, body, foot, close };
+  }
+
+  return { menuButton, enhanceSelect, closeLayer, dialog };
 })();

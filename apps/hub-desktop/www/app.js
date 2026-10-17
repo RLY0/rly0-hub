@@ -149,6 +149,25 @@
       return false;
     }
   };
+  // 官方赠送的额度重置卡: how many the account has; they are used from Codex itself.
+  function resetCardTile(count) {
+    return h(
+      "div",
+      { class: `reset-card cards ${count ? "" : "none"}` },
+      h(
+        "div",
+        { class: "row" },
+        h("span", { class: "reset-kind" }, "额度重置卡"),
+        h("span", { class: "spacer" }),
+        h("b", { class: "tabular" }, `× ${count}`),
+      ),
+      h(
+        "span",
+        { class: "reset-when" },
+        count ? "OpenAI 官方赠送，额度用完时可在 Codex 里使用" : "暂时没有官方赠送的重置卡",
+      ),
+    );
+  }
   const accountName = (account) => account.alias || account.email || "Codex 账号";
   const isRly0 = (relay) => {
     try {
@@ -211,8 +230,29 @@
   }
 
   document
-    .querySelectorAll(".rail button")
+    .querySelectorAll(".rail button[data-page]")
     .forEach((button) => button.addEventListener("click", () => go(button.dataset.page)));
+
+  /* ---------- Open Codex: a floating button at the top and a rail entry ---------- */
+  const fabText = document.getElementById("codexFabText");
+  const fabDot = document.getElementById("codexFabDot");
+  let codexRunning = false;
+  function openCodex() {
+    call("codex.open").then((r) => {
+      toast(r.ok ? (codexRunning ? "已切到 Codex" : "正在打开 Codex") : "没有找到 Codex 启动器");
+      setTimeout(refreshCodexState, 2500);
+    }, failed);
+  }
+  async function refreshCodexState() {
+    const status = await call("codex.status").catch(() => null);
+    codexRunning = Boolean(status && status.running);
+    fabText.textContent = codexRunning ? "切到 Codex" : "打开 Codex";
+    fabDot.classList.toggle("off", !codexRunning);
+  }
+  document.getElementById("codexFab").addEventListener("click", openCodex);
+  document.querySelector(".rail-codex").addEventListener("click", openCodex);
+  setTimeout(refreshCodexState, 600);
+  setInterval(() => document.hidden || refreshCodexState(), 15000);
   document
     .getElementById("ad")
     .addEventListener("click", () => call("links.open", { target: "site" }).catch(failed));
@@ -326,6 +366,7 @@
     go,
     resetText,
     countdown,
+    resetCardTile,
     LOGIN_ICONS,
     accountName,
     moneyBadge,
@@ -396,8 +437,8 @@
           },
           {
             icon: LOGIN_ICONS.file,
-            title: "导入 auth.json",
-            desc: "用别的电脑上 Codex 的登录文件",
+            title: "导入登录文件",
+            desc: "Codex 的 auth.json，或 Sub2API 导出的账号 JSON",
             onSelect: () => filePicker.click(),
           },
           {
@@ -418,7 +459,8 @@
       CODEX_START_FAILED: "Codex 没能启动，请稍后再试",
       RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
       AUTH_FILE_INVALID: "这个文件不是有效的 JSON",
-      AUTH_FILE_NOT_A_LOGIN: "这个文件里没有 Codex 登录信息（需要 auth.json）",
+      AUTH_FILE_NOT_A_LOGIN:
+        "文件里没有 Codex 登录（支持 Codex 的 auth.json 和 Sub2API 导出的账号文件）",
       API_KEY_INVALID: "API Key 格式不对，应以 sk- 开头",
       AUTH_IDENTITY_UNKNOWN: "读不出这个登录属于哪个账号",
     };
@@ -436,8 +478,10 @@
         return;
       }
       file.text().then((content) =>
-        call("accounts.importAuthFile", { content }).then(() => {
-          toast("已导入并保存这个账号");
+        call("accounts.importAuthFile", { content }).then((result) => {
+          toast(
+            result && result.count > 1 ? `已导入 ${result.count} 个账号` : "已导入并保存这个账号",
+          );
           load();
         }, loginFailed),
       );
@@ -716,6 +760,7 @@
             ),
           );
         }),
+        usage.resetCredits === undefined ? null : resetCardTile(usage.resetCredits),
       );
     }
     function rename(label, account) {
@@ -1370,7 +1415,13 @@
         usage: {
           windows: [
             { kind: "primary", usedPercent: 36, resetsAt: Math.floor(Date.now() / 1000) + 7200 },
+            {
+              kind: "secondary",
+              usedPercent: 19,
+              resetsAt: Math.floor(Date.now() / 1000) + 500000,
+            },
           ],
+          resetCredits: 2,
           source: "live",
         },
       },
@@ -1387,6 +1438,7 @@
                 { kind: "primary", usedPercent: 36 },
                 { kind: "secondary", usedPercent: 12 },
               ],
+              resetCredits: 2,
               source: "snapshot",
             },
           },
@@ -1410,6 +1462,7 @@
         ],
       },
       "proxy.status": { available: true, running: true, port: 25917 },
+      "codex.status": { running: false, canOpen: true },
       "relay.balance": { available: true, ok: true, balance: 86.4, unit: "USD", rate: 0.3 },
       "agents.claudeCode.status": { installed: true, loggedIn: false },
       "agents.relays.get": { claudeCode: "aaaaaaaaaaaa" },
@@ -1420,7 +1473,13 @@
         usage: {
           windows: [
             { kind: "primary", usedPercent: 36, resetsAt: Math.floor(Date.now() / 1000) + 7200 },
+            {
+              kind: "secondary",
+              usedPercent: 19,
+              resetsAt: Math.floor(Date.now() / 1000) + 500000,
+            },
           ],
+          resetCredits: 2,
           source: "live",
         },
       },

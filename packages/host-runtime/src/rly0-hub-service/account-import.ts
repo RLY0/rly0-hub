@@ -48,6 +48,59 @@ export function parseAuthFile(content: string): { json: string; alias?: string }
   };
 }
 
+/**
+ * Every Codex login in a picked file: a Codex `auth.json`, or a Sub2API account export
+ * (`{"type":"sub2api-data","accounts":[…]}`) whose OpenAI accounts are turned into auth.json.
+ */
+export function parseLoginFile(content: string): { json: string; alias?: string }[] {
+  let value: unknown;
+  try {
+    value = JSON.parse(content.replace(/^﻿/u, ""));
+  } catch {
+    throw codedError("AUTH_FILE_INVALID");
+  }
+  const record = (typeof value === "object" && value !== null ? value : {}) as Record<
+    string,
+    unknown
+  >;
+  if (!Array.isArray(record.accounts)) return [parseAuthFile(content)];
+  const logins: { json: string; alias?: string }[] = [];
+  for (const item of record.accounts.slice(0, 50)) {
+    if (typeof item !== "object" || item === null) continue;
+    const account = item as Record<string, unknown>;
+    if (account.platform !== "openai") continue;
+    const credentials = (account.credentials ?? {}) as Record<string, unknown>;
+    const text = (key: string): string =>
+      typeof credentials[key] === "string" ? (credentials[key] as string).trim() : "";
+    const name =
+      (typeof account.name === "string" && account.name.trim().slice(0, 40)) ||
+      text("email").slice(0, 40) ||
+      undefined;
+    if (text("id_token") && text("access_token")) {
+      logins.push({
+        json: JSON.stringify({
+          OPENAI_API_KEY: null,
+          tokens: {
+            id_token: text("id_token"),
+            access_token: text("access_token"),
+            refresh_token: text("refresh_token"),
+            account_id: text("chatgpt_account_id") || undefined,
+          },
+          last_refresh: new Date().toISOString(),
+        }),
+        ...(name ? { alias: name } : {}),
+      });
+    } else if (text("api_key")) {
+      logins.push({
+        json: JSON.stringify({ OPENAI_API_KEY: text("api_key") }),
+        alias: name ?? `API Key ····${lastFour(text("api_key"))}`,
+      });
+    }
+  }
+  if (!logins.length) throw codedError("AUTH_FILE_NOT_A_LOGIN");
+  return logins;
+}
+
 export async function importLogin(
   core: Pick<Rly0CoreBridge, "importFrom">,
   authJson: string,

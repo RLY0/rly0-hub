@@ -2872,3 +2872,273 @@ select.input,
 .paper-panel > .row:last-child {
   margin-top: auto;
 }
+
+/* ================= Round 7: test feedback ================= */
+
+/* 阿零 fills its black tile. */
+.relay-logo.dark img {
+  width: 86%;
+  height: 86%;
+}
+
+/* Floating "open Codex" button at the top, plus a rail entry. */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.codex-fab {
+  appearance: none;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 18px 0 14px;
+  margin-left: 18px;
+  border-radius: var(--r-md);
+  background: var(--paper-50);
+  color: var(--ink-950);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 750;
+  cursor: pointer;
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(245, 245, 240, 0.4),
+    0 0 26px rgba(245, 245, 240, 0.18);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.codex-fab:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(245, 245, 240, 0.6),
+    0 0 34px rgba(245, 245, 240, 0.3);
+}
+.codex-fab svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.codex-fab .pulse {
+  background: #2f9e5f;
+}
+.codex-fab .pulse.off {
+  background: rgba(13, 13, 11, 0.3);
+  animation: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .codex-fab {
+    animation: fab-float 3.2s ease-in-out infinite;
+  }
+}
+@keyframes fab-float {
+  50% {
+    transform: translateY(-2px);
+  }
+}
+.rail .rail-codex {
+  color: var(--paper-50);
+}
+.rail .rail-codex svg {
+  stroke: currentColor;
+}
+
+/* Home: one accounts module (current account + the others). */
+.acct-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+}
+@media (max-width: 860px) {
+  .acct-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.acct-current {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.acct-others {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.acct-others .bar i {
+  background: var(--ok);
+}
+.card-chip {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--r-md);
+  background: rgba(230, 180, 80, 0.14);
+  color: var(--warn);
+  white-space: nowrap;
+}
+.reset-card.cards {
+  background:
+    linear-gradient(135deg, rgba(230, 180, 80, 0.16), rgba(230, 180, 80, 0.03) 70%), var(--well);
+  box-shadow: inset 0 0 0 1px rgba(230, 180, 80, 0.3);
+}
+.reset-card.cards b {
+  color: var(--warn);
+}
+.reset-card.cards.none {
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.reset-card.cards.none b {
+  color: var(--muted-dark);
+}
+
+/* Relays: add + no-account side by side at the top. */
+.relay-top {
+  margin-bottom: 16px;
+}
+.relay-top .add-tile {
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 16px;
+  text-align: left;
+}
+.relay-top .add-tile .who b {
+  font-size: 16px;
+}
+.no-account {
+  justify-content: center;
+}
+.switch.off {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Dialog */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 5, 4, 0.62);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.dialog-backdrop.show {
+  opacity: 1;
+}
+.dialog {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 48px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-radius: var(--r-lg);
+  background: #1e1e1a;
+  box-shadow:
+    inset 0 0 0 1px var(--edge-strong),
+    0 30px 80px rgba(0, 0, 0, 0.55);
+  transform: translateY(8px) scale(0.98);
+  transition: transform 0.18s ease;
+}
+.dialog.wide {
+  width: min(680px, 100%);
+}
+.dialog-backdrop.show .dialog {
+  transform: none;
+}
+.dialog-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 22px 24px 14px;
+}
+.dialog-head .mod-title {
+  flex: 1;
+}
+.dialog-x {
+  appearance: none;
+  border: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.07);
+  color: var(--paper-100);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dialog-body {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 6px 24px 18px;
+  overflow: auto;
+}
+.dialog-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--edge);
+}
+.dialog .row.wide .input {
+  flex: 1;
+}
+.relay-test {
+  display: grid;
+  gap: 14px;
+}
+.relay-found {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--well);
+}
+.model-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.model-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-md);
+  font-size: 13px;
+  cursor: pointer;
+}
+.model-check:hover {
+  background: rgba(233, 233, 227, 0.06);
+}
+.model-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--paper-50);
+}
+.model-check.all {
+  padding: 4px 8px;
+  font-weight: 650;
+}

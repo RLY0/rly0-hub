@@ -56,6 +56,8 @@ export const rly0AccountUsageSchema = z
   .object({
     windows: z.array(rly0UsageWindowSchema).max(8),
     plan: z.string().max(64).optional(),
+    /** Rate-limit reset cards OpenAI gave the account (wham/usage rate_limit_reset_credits). */
+    resetCredits: z.number().int().nonnegative().max(1000).optional(),
     fetchedAt: z.number().int().nonnegative().max(100_000_000_000),
     source: z.enum(["live", "snapshot"]),
   })

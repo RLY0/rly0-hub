@@ -36,8 +36,12 @@ import { Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
-import { apiKeyLogin, importLogin, parseAuthFile } from "./account-import.js";
-import { importClaudeCredentials, saveAnthropicApiKey } from "./claude-official.js";
+import { apiKeyLogin, importLogin, parseLoginFile } from "./account-import.js";
+import {
+  importClaudeCredentials,
+  parseClaudeImport,
+  saveAnthropicApiKey,
+} from "./claude-official.js";
 import { listRly0HubAgents, rly0HubAgentDocsUrl } from "./agents.js";
 import { fetchRelayLogo } from "./relay-logo.js";
 import {
@@ -483,9 +487,14 @@ export class Rly0HubService {
             alias: z.string().trim().min(1).max(40).optional(),
           })
           .strict(),
-        (p) => {
-          const parsed = parseAuthFile(p.content);
-          return importLogin(core, parsed.json, p.alias ?? parsed.alias);
+        async (p) => {
+          const logins = parseLoginFile(p.content);
+          const ids: string[] = [];
+          for (const login of logins) {
+            const alias = logins.length === 1 ? (p.alias ?? login.alias) : login.alias;
+            ids.push((await importLogin(core, login.json, alias)).id);
+          }
+          return { id: ids[0], ids, count: ids.length };
         },
       ),
       "accounts.addApiKey": route(
@@ -611,6 +620,14 @@ export class Rly0HubService {
           })
           .strict(),
         async (p) => {
+          const parsed = parseClaudeImport(p.content);
+          if (parsed.kind === "token") {
+            // A subscription token or key from a Sub2API export: kept encrypted by rly0-core.
+            const { id } = await saveAnthropicApiKey(core, parsed.token);
+            await this.#agentRelays.set({ claudeCode: id });
+            await this.#ensureProxyForRelays().catch(() => undefined);
+            return { ok: true, backup: null, token: true };
+          }
           const result = await importClaudeCredentials(this.#options.environment, p.content);
           // An imported login means the official account, not a pinned relay or key.
           await this.#agentRelays.set({ claudeCode: null });

@@ -76,6 +76,41 @@ export function parseClaudeCredentials(content: string): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+/**
+ * What a picked Claude file holds: Claude Code's own `.credentials.json`, or a Sub2API account
+ * export whose Anthropic account carries a token (a `claude setup-token` subscription token or an
+ * API key), which is kept like an API key.
+ */
+export function parseClaudeImport(
+  content: string,
+): { kind: "credentials"; json: string } | { kind: "token"; token: string } {
+  let value: unknown;
+  try {
+    value = JSON.parse(content.replace(/^﻿/u, ""));
+  } catch {
+    throw codedError("AUTH_FILE_INVALID");
+  }
+  const record = (typeof value === "object" && value !== null ? value : {}) as Record<
+    string,
+    unknown
+  >;
+  if (Array.isArray(record.accounts)) {
+    for (const item of record.accounts) {
+      if (typeof item !== "object" || item === null) continue;
+      const account = item as Record<string, unknown>;
+      if (account.platform !== "anthropic") continue;
+      const credentials = (account.credentials ?? {}) as Record<string, unknown>;
+      for (const key of ["access_token", "api_key", "setup_token"]) {
+        const token = credentials[key];
+        if (typeof token === "string" && ANTHROPIC_API_KEY_PATTERN.test(token.trim()))
+          return { kind: "token", token: token.trim() };
+      }
+    }
+    throw codedError("AUTH_FILE_NOT_A_LOGIN");
+  }
+  return { kind: "credentials", json: parseClaudeCredentials(content) };
+}
+
 export function claudeConfigDir(environment: NodeJS.ProcessEnv): string {
   const configured = environment.CLAUDE_CONFIG_DIR?.trim();
   return configured || path.join(environment.USERPROFILE || os.homedir(), ".claude");

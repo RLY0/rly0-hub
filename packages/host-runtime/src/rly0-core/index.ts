@@ -139,6 +139,7 @@ export function sanitizeRly0Usage(raw: unknown): Rly0AccountUsage | undefined {
     compact({
       windows,
       plan: optionalString(raw.plan, 64),
+      resetCredits: optionalInt(raw.resetCredits),
       fetchedAt: optionalInt(raw.fetchedAt),
       source: raw.source === "snapshot" ? "snapshot" : "live",
     }),

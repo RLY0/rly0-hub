@@ -582,13 +582,25 @@ describe("visible install window", () => {
   });
 
   it("wraps the command with a transcript, the network prelude and a readable ending", () => {
-    const script = installWindowScript("irm https://x.dev/i.ps1 | iex", "C:\T\it's.log");
-    expect(script).toContain("Start-Transcript -LiteralPath 'C:\T\it''s.log'");
+    const script = installWindowScript(
+      "irm https://x.dev/i.ps1 | iex",
+      "T:/it's.log",
+      "T:/code.txt",
+    );
+    expect(script).toContain("Start-Transcript -LiteralPath 'T:/it''s.log'");
+    expect(script).toContain("Set-Content -LiteralPath 'T:/code.txt' -Value $rly0Code");
     expect(script).toContain("Tls12");
     expect(script).toContain("try { irm https://x.dev/i.ps1 | iex;");
     expect(script.trim().endsWith("exit $rly0Code")).toBe(true);
-    expect(decodeTranscript(Buffer.from("**********************\nStart time: 1\nhello\n"))).toBe(
+    const transcript = [
+      "**********************",
+      "Start time: 1",
+      "RunAs 用户: x",
+      "**********************",
       "hello",
-    );
+      "**********************",
+      "End time: 2",
+    ].join("\n");
+    expect(decodeTranscript(Buffer.from(transcript))).toBe("hello");
   });
 });

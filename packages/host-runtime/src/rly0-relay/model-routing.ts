@@ -97,9 +97,6 @@ export function isCodexFamilyModel(model: string): boolean {
   return /^(?:gpt-|chatgpt-|codex-|o\d)/iu.test(model.trim());
 }
 
-/** Shown before relay models in Codex's model picker. */
-export const RLY0_RELAY_MODEL_MARK = "⇄";
-
 export class Rly0RelayModelRouter {
   readonly #core: Rly0RelayRoutingCore;
   #cache: {
@@ -266,7 +263,7 @@ export class Rly0RelayModelRouter {
         // Relay first, behind a relay mark, so relay models stand out from official ones and two
         // relays offering the same model are easy to tell apart. Plain text: it survives Codex
         // updates, unlike decorating Codex's own menu.
-        displayName: `${RLY0_RELAY_MODEL_MARK} ${relayName} · ${model}`,
+        displayName: `${relayName} · ${model}`,
         description: `${relayName} · RLY/0`,
         hidden: false,
         isDefault: false,

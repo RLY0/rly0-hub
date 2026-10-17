@@ -91,7 +91,7 @@ describe("RLY/0 relay model routing", () => {
     const added = rewritten.result.data[1] as Record<string, unknown>;
     expect(added).toMatchObject({
       id: "gpt-relay-1",
-      displayName: "⇄ My relay · gpt-relay-1",
+      displayName: "My relay · gpt-relay-1",
       description: "My relay · RLY/0",
       isDefault: false,
       hidden: false,

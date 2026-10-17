@@ -244,7 +244,8 @@ window.registerHubAgents = ({
   const LOGIN_ERRORS = {
     API_KEY_INVALID: "Key 格式不对，Anthropic 的 Key 以 sk-ant- 开头",
     AUTH_FILE_INVALID: "这个文件不是有效的 JSON",
-    AUTH_FILE_NOT_A_LOGIN: "这个文件里没有 Claude 登录信息（需要 .credentials.json）",
+    AUTH_FILE_NOT_A_LOGIN:
+      "文件里没有 Claude 登录（支持 .credentials.json 和 Sub2API 导出的 Claude 账号）",
     RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
   };
   const loginFailed = (error) =>
@@ -579,13 +580,19 @@ window.registerHubAgents = ({
             {
               icon: LOGIN_ICONS.file,
               title: "导入登录文件",
-              desc: claude ? "用别的电脑 ~/.claude/.credentials.json" : "这个助手不支持",
+              desc: claude ? ".credentials.json 或 Sub2API 导出的 Claude 账号" : "这个助手不支持",
               disabled: !claude,
               tip: `${agent.name} 不支持导入登录文件，用网页登录或 API Key`,
               onSelect: () =>
                 pickFile((content) =>
                   call("agents.claudeCode.importCredentials", { content }).then((result) => {
-                    toast(result.backup ? "已导入，原来的登录文件已备份" : "已导入 Claude 登录");
+                    toast(
+                      result.token
+                        ? "已导入 Claude 令牌，Codex 里新开的 Claude Code 对话会用它"
+                        : result.backup
+                          ? "已导入，原来的登录文件已备份"
+                          : "已导入 Claude 登录",
+                    );
                     load();
                   }, loginFailed),
                 ),
@@ -594,7 +601,7 @@ window.registerHubAgents = ({
               icon: LOGIN_ICONS.key,
               title: "官方 API Key",
               desc: claude
-                ? "填 Anthropic 的 sk-ant- Key，按用量计费"
+                ? "API Key 或 claude setup-token 生成的令牌（sk-ant-…）"
                 : "在终端里选择 API Key 方式",
               onSelect: () =>
                 claude ? showKeyForm() : openTerminalLogin("已打开终端，选择 API Key 方式登录"),
@@ -615,7 +622,7 @@ window.registerHubAgents = ({
         const key = h("input", {
           class: "input",
           type: "password",
-          placeholder: "sk-ant-…",
+          placeholder: "sk-ant-api… 或 setup-token 生成的 sk-ant-oat…",
           autocomplete: "off",
           spellcheck: "false",
           "aria-label": "Anthropic API Key",
@@ -636,7 +643,7 @@ window.registerHubAgents = ({
             h(
               "p",
               { class: "sub" },
-              "Key 加密保存在本机，只发给 Anthropic 官方，界面上不会再显示。",
+              "API Key 和 claude setup-token 生成的订阅令牌都可以。加密保存在本机，只发给 Anthropic 官方，界面上不会再显示。",
             ),
             h(
               "div",
@@ -665,7 +672,7 @@ window.registerHubAgents = ({
               ? h(
                   "div",
                   { class: "row" },
-                  h("span", { class: "sub" }, "正在用官方 API Key"),
+                  h("span", { class: "sub" }, "正在用官方 API Key / 订阅令牌"),
                   h("span", { class: "spacer" }),
                   loginMenu("换个方式", "btn quiet sm"),
                   h(

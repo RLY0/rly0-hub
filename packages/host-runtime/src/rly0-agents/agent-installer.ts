@@ -206,7 +206,7 @@ export interface CommandRunner {
  * The script a visible install window runs: the vendor's own installer, with its prompts answered
  * by the person, recorded to `logFile` so the Hub can show what happened.
  */
-export function installWindowScript(command: string, logFile: string): string {
+export function installWindowScript(command: string, logFile: string, codeFile: string): string {
   const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
   return [
     "$Host.UI.RawUI.WindowTitle = 'RLY/0 Hub - 安装'",
@@ -217,6 +217,7 @@ export function installWindowScript(command: string, logFile: string): string {
     "$rly0Code = 0",
     `try { ${command}; if ($LASTEXITCODE) { $rly0Code = $LASTEXITCODE } } catch { Write-Host $_ -ForegroundColor Red; $rly0Code = 1 }`,
     "try { Stop-Transcript | Out-Null } catch {}",
+    `try { Set-Content -LiteralPath ${quote(codeFile)} -Value $rly0Code } catch {}`,
     "Write-Host ''",
     "if ($rly0Code -eq 0) { Write-Host '安装程序已结束，窗口马上关闭。' -ForegroundColor Green; Start-Sleep -Seconds 3 }",
     "else { Write-Host '安装程序报错了，原因见上方。按回车关闭窗口，RLY/0 Hub 里也能看到这段日志。' -ForegroundColor Yellow; try { [void](Read-Host) } catch {} }",
@@ -224,18 +225,21 @@ export function installWindowScript(command: string, logFile: string): string {
   ].join("\r\n");
 }
 
-const TRANSCRIPT_BANNER =
-  /^\*{6,}$|^(Windows PowerShell transcript|Windows PowerShell 脚本|Start time|End time|Username|RunAs User|Configuration Name|Machine|Host Application|Process ID|PSVersion|PSEdition|PSCompatibleVersions|BuildVersion|CLRVersion|WSManStackVersion|PSRemotingProtocolVersion|SerializationVersion|Transcript started|开始时间|结束时间|用户名|计算机|主机应用程序|进程 ID)/u;
-
 /** Start-Transcript writes UTF-16 or UTF-8 depending on the Windows version. */
 export function decodeTranscript(bytes: Buffer): string {
   const text =
     bytes[0] === 0xff && bytes[1] === 0xfe
       ? bytes.subarray(2).toString("utf16le")
       : bytes.toString("utf8").replace(/^\uFEFF/u, "");
-  return text
-    .split(/\r?\n/u)
-    .filter((line) => !TRANSCRIPT_BANNER.test(line))
+  const lines = text.split(/\r?\n/u);
+  // Header and footer are fenced by lines of asterisks; keep only what ran in between.
+  const fences = lines.flatMap((line, index) => (/^\*{6,}$/u.test(line) ? [index] : []));
+  const body =
+    fences.length >= 2
+      ? lines.slice(fences[1]! + 1, fences[2] ?? lines.length)
+      : lines.filter((line) => !/^\*{6,}$/u.test(line));
+  return body
+    .filter((line) => !/^(Transcript started|已启动脚本)/u.test(line))
     .join("\n")
     .trim();
 }
@@ -328,6 +332,21 @@ function killTree(child: ReturnType<typeof spawn>): void {
   child.kill();
 }
 
+/**
+ * `start "<title>" [/wait] <program> <args>` for cmd.exe, quoted the way cmd expects. Only fixed
+ * program paths and fixed commands reach here (never text the person typed).
+ */
+export function startCommandLine(program: string, args: readonly string[], wait: boolean): string {
+  const quote = (value: string): string => (/[\s&()^|<>]/u.test(value) ? `"${value}"` : value);
+  return [
+    "start",
+    '"RLY0 Hub"',
+    ...(wait ? ["/wait"] : []),
+    `"${program}"`,
+    ...args.map(quote),
+  ].join(" ");
+}
+
 export const processRunner: CommandRunner = {
   run(command, args, options) {
     return new Promise((resolve) => {
@@ -375,9 +394,14 @@ export const processRunner: CommandRunner = {
     const directory = await mkdtemp(path.join(tmpdir(), "rly0-install-"));
     const scriptFile = path.join(directory, "install.ps1");
     const logFile = path.join(directory, "install.log");
+    const codeFile = path.join(directory, "exit-code.txt");
     try {
       // PowerShell 5.1 reads a script without a BOM in the ANSI code page.
-      await writeFile(scriptFile, `\uFEFF${installWindowScript(command, logFile)}`, "utf8");
+      await writeFile(
+        scriptFile,
+        `\uFEFF${installWindowScript(command, logFile, codeFile)}`,
+        "utf8",
+      );
       const powershell = path.join(
         options.environment.SystemRoot ?? options.environment.windir ?? "C:\\Windows",
         "System32\\WindowsPowerShell\\v1.0\\powershell.exe",
@@ -390,18 +414,17 @@ export const processRunner: CommandRunner = {
             "cmd.exe",
             [
               "/d",
+              "/s",
               "/c",
-              "start",
-              '"RLY0 Hub"',
-              "/wait",
-              powershell,
-              "-NoProfile",
-              "-ExecutionPolicy",
-              "Bypass",
-              "-File",
-              scriptFile,
+              `"${startCommandLine(powershell, ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptFile], true)}"`,
             ],
-            { env: options.environment, windowsHide: true, stdio: "ignore" },
+            {
+              env: options.environment,
+              windowsHide: true,
+              stdio: "ignore",
+              // cmd does not understand Node's \" escaping; the line is built for cmd itself.
+              windowsVerbatimArguments: true,
+            },
           );
         } catch {
           resolve(null);
@@ -420,13 +443,22 @@ export const processRunner: CommandRunner = {
           resolve(exit);
         });
       });
+      // `start /wait` does not pass the exit code on. The wrapper writes it; a vendor script that
+      // calls `exit` itself leaves no file, which counts as a failure unless the agent is found.
+      let exitCode: number | null = code === null ? null : 1;
+      try {
+        const written = Number.parseInt((await readFile(codeFile, "utf8")).trim(), 10);
+        if (Number.isFinite(written)) exitCode = written;
+      } catch {
+        // No file: the script ended early.
+      }
       let output: string;
       try {
         output = decodeTranscript(await readFile(logFile));
       } catch {
         output = "（安装窗口没有留下日志）";
       }
-      return { code, output: output.slice(-LOG_LIMIT * 4) };
+      return { code: exitCode, output: output.slice(-LOG_LIMIT * 4) };
     } finally {
       await rm(directory, { recursive: true, force: true }).catch(() => undefined);
     }
@@ -436,12 +468,17 @@ export const processRunner: CommandRunner = {
     if (process.platform !== "win32") return Promise.resolve(false);
     return new Promise((resolve) => {
       try {
-        const child = spawn("cmd.exe", ["/c", "start", '"RLY/0 Hub"', "cmd.exe", "/k", command], {
-          env: environment,
-          windowsHide: false,
-          detached: true,
-          stdio: "ignore",
-        });
+        const child = spawn(
+          "cmd.exe",
+          ["/d", "/s", "/c", `"${startCommandLine("cmd.exe", ["/k", command], false)}"`],
+          {
+            env: environment,
+            windowsHide: true,
+            detached: true,
+            stdio: "ignore",
+            windowsVerbatimArguments: true,
+          },
+        );
         child.on("error", () => resolve(false));
         child.unref();
         setTimeout(() => resolve(true), 300);
