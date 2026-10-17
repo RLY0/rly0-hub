@@ -1837,3 +1837,11 @@ select.input option {
 .packet.p3 {
   top: 44px;
 }
+
+.add-login {
+  margin-top: 12px;
+  gap: 8px;
+}
+.login-url {
+  word-break: break-all;
+}

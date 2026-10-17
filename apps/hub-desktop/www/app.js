@@ -345,7 +345,7 @@
       h(
         "button",
         {
-          class: "btn paper",
+          class: "btn",
           type: "button",
           onclick: () =>
             call("accounts.importCurrent", {}).then((r) => {
@@ -355,10 +355,74 @@
         },
         "保存当前登录",
       ),
+      h(
+        "button",
+        { class: "btn paper", type: "button", onclick: () => addAccount() },
+        "+ 添加其他 GPT 账号",
+      ),
     );
+    const addStatus = h("div");
+
+    // Browser sign-in into a throw-away Codex home; the live Codex login is never touched.
+    const LOGIN_ERRORS = {
+      CODEX_NOT_FOUND: "没找到 Codex，请先安装官方 Codex 桌面版",
+      CODEX_START_FAILED: "Codex 没能启动，请稍后再试",
+      RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
+    };
+    async function addAccount() {
+      let started;
+      try {
+        started = await call("accounts.addLoginStart", {});
+      } catch (error) {
+        toast(LOGIN_ERRORS[error.message] || explain(error.message));
+        return;
+      }
+      const cancel = h(
+        "button",
+        {
+          class: "btn quiet sm",
+          type: "button",
+          onclick: () => call("accounts.addLoginCancel", { id: started.id }).catch(() => undefined),
+        },
+        "取消",
+      );
+      addStatus.replaceChildren(
+        h(
+          "section",
+          { class: "m tone add-login" },
+          h(
+            "div",
+            { class: "row" },
+            h("span", { class: "pulse" }),
+            h("b", null, "已在浏览器打开 ChatGPT 登录页"),
+            h("span", { class: "spacer" }),
+            cancel,
+          ),
+          h(
+            "p",
+            { class: "sub" },
+            "用要添加的账号登录，完成后这里会自动保存。你当前在 Codex 里的登录不受影响。",
+          ),
+          started.url ? h("p", { class: "sub tabular login-url" }, started.url) : null,
+        ),
+      );
+      const timer = setInterval(async () => {
+        const status = await call("accounts.addLoginStatus", { id: started.id }).catch(() => null);
+        if (!alive() || !status || status.state === "pending") return;
+        clearInterval(timer);
+        pollers.delete(timer);
+        addStatus.replaceChildren();
+        if (status.state === "completed") {
+          toast("新账号已保存");
+          load();
+        } else if (status.state === "failed") toast(LOGIN_ERRORS[status.error] || "登录没有完成");
+      }, 2000);
+      pollers.add(timer);
+    }
     const autoCard = h("section", { class: "m tone span-6 auto-switch" });
     root.append(
       head,
+      addStatus,
       h("div", { style: { height: "16px" } }),
       h("div", { class: "grid compact" }, autoCard),
       h("div", { style: { height: "12px" } }),
