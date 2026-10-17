@@ -33,6 +33,8 @@ interface InjectionState {
   readonly previous: { readonly modelProvider: string | null; readonly model: string | null };
   /** The `model` value this feature wrote, so restore only reverts it if still unchanged. */
   readonly writtenModel: string | null;
+  /** No-account mode was applied (provider written with `requires_openai_auth = false`). */
+  readonly noAccount?: boolean;
 }
 
 export interface Rly0RelayCodexConfigManagerOptions {
@@ -83,6 +85,7 @@ function parseState(raw: string | null): InjectionState | null {
         model: stringOrNull(value.previous.model),
       },
       writtenModel: stringOrNull(value.writtenModel),
+      ...(value.noAccount === true ? { noAccount: true } : {}),
     };
   } catch {
     return null;
@@ -147,9 +150,11 @@ export class Rly0RelayCodexConfigManager {
     const model = stringOrNull(parsed.model);
     const providerBaseUrl = isRecord(provider) ? stringOrNull(provider.base_url) : null;
     const catalog = stringOrNull(parsed.model_catalog_json);
+    const noAccount = isRecord(provider) && provider.requires_openai_auth === false;
     return {
       ...base,
       providerPresent: isRecord(provider),
+      ...(noAccount ? { noAccount: true } : {}),
       ...(providerBaseUrl === null ? {} : { providerBaseUrl: providerBaseUrl.slice(0, 2048) }),
       ...(modelProvider === null ? {} : { modelProvider: modelProvider.slice(0, 128) }),
       ...(model === null ? {} : { model: model.slice(0, 256) }),
@@ -180,9 +185,10 @@ export class Rly0RelayCodexConfigManager {
       ["name", tomlString(RLY0_CODEX_PROVIDER_NAME)],
       ["base_url", tomlString(params.baseUrl)],
       ["wire_api", tomlString("responses")],
-      // Codex attaches its own login so the local proxy can hand models no relay claims back to
-      // the official account. The proxy strips it (and the account id) before any relay request.
-      ["requires_openai_auth", "true"],
+      // Normally Codex attaches its own login so the local proxy can hand models no relay claims
+      // back to the official account (the proxy strips it before any relay request). In
+      // no-account mode there is no login to attach; only relay models work.
+      ["requires_openai_auth", params.noAccount ? "false" : "true"],
     ]);
     if (params.setDefault && params.model !== undefined) {
       next = setTopLevelKey(next, "model_provider", tomlString(RLY0_CODEX_PROVIDER_ID));
@@ -197,7 +203,7 @@ export class Rly0RelayCodexConfigManager {
       provider.base_url === params.baseUrl &&
       provider.name === RLY0_CODEX_PROVIDER_NAME &&
       provider.wire_api === "responses" &&
-      provider.requires_openai_auth === true;
+      provider.requires_openai_auth === !params.noAccount;
     const defaultsOk =
       !params.setDefault ||
       (verified.model_provider === RLY0_CODEX_PROVIDER_ID && verified.model === params.model);
@@ -209,9 +215,33 @@ export class Rly0RelayCodexConfigManager {
       setDefault: params.setDefault || (existing?.setDefault ?? false),
       previous,
       writtenModel: params.setDefault ? (params.model ?? null) : (existing?.writtenModel ?? null),
+      ...(params.noAccount ? { noAccount: true } : {}),
     });
     if (next !== content) await backupAndWriteAtomic(configPath, next);
     return { ok: true, status: await this.status() };
+  }
+
+  /**
+   * What `apply` would change, as short human-readable lines, so the person can confirm before
+   * anything in `~/.codex/config.toml` is written.
+   */
+  async preview(
+    input: Rly0RelayCodexConfigApplyParams,
+  ): Promise<{ configPath: string; changes: string[] }> {
+    const params = rly0RelayCodexConfigApplyParamsSchema.parse(input);
+    const content = (await readOptional(this.configPath())) ?? "";
+    const parsed = content.trim() === "" ? {} : parseConfig(content);
+    const changes = [
+      `[model_providers.${RLY0_CODEX_PROVIDER_ID}] base_url = "${params.baseUrl}"`,
+      `[model_providers.${RLY0_CODEX_PROVIDER_ID}] requires_openai_auth = ${params.noAccount ? "false" : "true"}`,
+    ];
+    if (params.setDefault && params.model !== undefined) {
+      const was = (value: unknown) =>
+        typeof value === "string" ? `（原来是 "${value}"）` : "（原来没有）";
+      changes.push(`model_provider = "${RLY0_CODEX_PROVIDER_ID}" ${was(parsed.model_provider)}`);
+      changes.push(`model = "${params.model}" ${was(parsed.model)}`);
+    }
+    return { configPath: this.configPath(), changes };
   }
 
   async restore(): Promise<Rly0RelayCodexConfigMutationResult> {

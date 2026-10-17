@@ -78,12 +78,164 @@ window.registerHubRelays = ({ pages, h, call, toast, failed, explain, money, isR
     const list = h("div", { class: "grid compact" });
     const proxyLine = h("div", { class: "row proxy-line" });
     const addHolder = h("div", { class: "grid compact" });
+    const noAccount = h("section", { class: "m span-6 no-account" });
     root.append(
       h("div", { class: "grid compact" }, rly0Module),
       h("h2", { class: "section-title" }, "我的中转站", proxyLine),
       list,
       addHolder,
+      h(
+        "h2",
+        { class: "section-title" },
+        "不登录 OpenAI 也能用",
+        h("span", { class: "tag" }, "实验"),
+      ),
+      h("div", { class: "grid compact" }, noAccount),
     );
+
+    // No-account mode changes ~/.codex/config.toml, so it shows the exact changes first.
+    async function loadNoAccount() {
+      const status = await call("relay.noAccountStatus").catch(() => null);
+      if (!alive() || !status) return;
+      if (status.enabled) {
+        put(
+          noAccount,
+          h(
+            "div",
+            { class: "row" },
+            h("span", { class: "dot ok" }),
+            h("b", null, `已开启 · 默认模型 ${status.model || ""}`),
+          ),
+          h(
+            "p",
+            { class: "sub" },
+            "Codex 不需要 OpenAI 账号，中转站的 GPT 模型通过本机 Hub 运行。请保持 Hub 在托盘里运行。",
+          ),
+          h(
+            "div",
+            { class: "row" },
+            h(
+              "button",
+              {
+                class: "btn",
+                type: "button",
+                onclick: () =>
+                  call("relay.noAccountDisable").then(() => {
+                    toast("已恢复原来的 Codex 设置，重启 Codex 生效");
+                    loadNoAccount();
+                  }, failed),
+              },
+              "恢复原来的设置",
+            ),
+            h(
+              "button",
+              {
+                class: "btn quiet",
+                type: "button",
+                onclick: () =>
+                  call("codex.restart").then(
+                    (r) => toast(r.ok ? "Codex 正在重启" : "Codex 没在运行"),
+                    failed,
+                  ),
+              },
+              "重启 Codex",
+            ),
+          ),
+        );
+        return;
+      }
+      if (!status.models.length) {
+        put(
+          noAccount,
+          h(
+            "p",
+            { class: "sub" },
+            "没有 OpenAI 账号时，可以让 Codex 直接用中转站的 GPT 模型。先在上面的中转站里点“测试”，读出 GPT 系列模型。",
+          ),
+        );
+        return;
+      }
+      const model = h(
+        "select",
+        { class: "input compact-select", "aria-label": "默认模型" },
+        status.models.map((m) => h("option", { value: m }, m)),
+      );
+      const plan = h("div");
+      put(
+        noAccount,
+        h(
+          "p",
+          { class: "sub" },
+          "没有 OpenAI 账号时，让 Codex 直接用中转站的 GPT 模型。会修改 Codex 的设置文件，改之前会先备份，可以一键恢复。",
+        ),
+        h(
+          "div",
+          { class: "row" },
+          h("label", { class: "field" }, h("span", null, "默认模型"), model),
+          h(
+            "button",
+            {
+              class: "btn",
+              type: "button",
+              onclick: async () => {
+                const preview = await call("relay.noAccountPreview", { model: model.value }).catch(
+                  (error) => {
+                    failed(error);
+                    return null;
+                  },
+                );
+                if (!preview || !alive()) return;
+                put(
+                  plan,
+                  h(
+                    "div",
+                    { class: "relay-editor" },
+                    h("span", { class: "label" }, "Will change"),
+                    h("p", { class: "sub tabular" }, preview.configPath),
+                    h("pre", { class: "plan-lines" }, preview.changes.join("\n")),
+                    h(
+                      "ul",
+                      { class: "plan-notes" },
+                      h("li", null, "开启后 Codex 只能用中转站的模型，官方模型暂时不可用。"),
+                      h("li", null, "Hub 要一直在托盘里运行（开机自启已默认打开）。"),
+                      h("li", null, "需要重启 Codex 才生效；随时可以一键恢复。"),
+                    ),
+                    h(
+                      "div",
+                      { class: "row" },
+                      h(
+                        "button",
+                        {
+                          class: "btn red",
+                          type: "button",
+                          onclick: () =>
+                            call("relay.noAccountEnable", {
+                              model: model.value,
+                              confirmed: true,
+                            }).then((r) => {
+                              toast(r.noAccount ? "已开启，重启 Codex 生效" : "没有开启成功");
+                              loadNoAccount();
+                            }, failed),
+                        },
+                        "我已了解，开启",
+                      ),
+                      h(
+                        "button",
+                        { class: "btn quiet", type: "button", onclick: () => put(plan) },
+                        "取消",
+                      ),
+                    ),
+                  ),
+                );
+              },
+            },
+            "查看会改什么",
+          ),
+        ),
+        plan,
+      );
+    }
+    loadNoAccount();
 
     const rly0Key = h("input", {
       class: "input on-red",

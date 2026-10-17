@@ -851,6 +851,8 @@ export class AppServerHost {
     this.#rly0RelayConfig = new Rly0RelayCodexConfigManager({ environment });
     this.#rly0RelayModels = new Rly0RelayModelRouter(this.#rly0Core, {
       loadOfficialModels: () => this.#listOfficialModelNames(),
+      // Matches config.toml: in no-account mode the rly0 provider must not demand a login.
+      providerRequiresOpenaiAuth: async () => !(await this.#rly0RelayConfig.status()).noAccount,
     });
     this.#rly0AddAccount = new Rly0AddAccountLogins({
       coreAvailable: async () => (await this.#rly0Core.status()).available,

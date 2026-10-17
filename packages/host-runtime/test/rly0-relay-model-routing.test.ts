@@ -128,6 +128,26 @@ describe("RLY/0 relay model routing", () => {
     expect(await router.rewriteThreadParams({ model: "gpt-5.5" })).toBeNull();
   });
 
+  it("matches no-account mode: the per-thread provider then asks for no login", async () => {
+    const { core } = fakeCore();
+    const router = new Rly0RelayModelRouter(core, {
+      providerRequiresOpenaiAuth: async () => false,
+    });
+    const next = await router.rewriteThreadParams({ model: "gpt-relay-1" });
+    expect(next).toMatchObject({
+      config: { "model_providers.rly0": { requires_openai_auth: false } },
+    });
+    const failing = new Rly0RelayModelRouter(core, {
+      providerRequiresOpenaiAuth: async () => {
+        throw new Error("unreadable");
+      },
+    });
+    // When the mode cannot be read, keep the normal (login) definition.
+    expect(await failing.rewriteThreadParams({ model: "gpt-relay-1" })).toMatchObject({
+      config: { "model_providers.rly0": { requires_openai_auth: true } },
+    });
+  });
+
   it("defines the provider on model-less resumes and tracks thread providers", async () => {
     const { core, calls } = fakeCore();
     const router = new Rly0RelayModelRouter(core);

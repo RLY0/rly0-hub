@@ -1312,3 +1312,23 @@ textarea.models {
   font-size: 15px;
   font-weight: 650;
 }
+
+/* ---------- 不登录 OpenAI 也能用 ---------- */
+.no-account {
+  gap: 12px;
+}
+.plan-lines {
+  margin: 0;
+  font: 400 13px/1.7 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--paper-100);
+}
+.plan-notes {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted-dark);
+  font-size: 13px;
+  line-height: 1.7;
+}

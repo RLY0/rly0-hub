@@ -480,7 +480,7 @@ describe("Auto-switch before the Codex quota runs out", () => {
       core,
       codex: codex as never,
     });
-    await service.handle("autoSwitch.set", {
+    await service.handle("accounts.autoSwitchSet", {
       enabled: true,
       remain5h: 15,
       remainWeekly: 10,
@@ -512,7 +512,7 @@ describe("Auto-switch before the Codex quota runs out", () => {
       core,
       codex: codex as never,
     });
-    await auto.handle("autoSwitch.set", {
+    await auto.handle("accounts.autoSwitchSet", {
       enabled: true,
       remain5h: 15,
       remainWeekly: 10,
@@ -522,5 +522,52 @@ describe("Auto-switch before the Codex quota runs out", () => {
     expect(done.alerts[0]).toMatchObject({ id: "switched", title: "已切换到 账号b" });
     expect(switched).toEqual(["bbbbbbbbbbbb", "bbbbbbbbbbbb"]);
     await fs.rm(autoRoot, { recursive: true, force: true });
+  });
+});
+
+describe("No-account mode from the Hub", () => {
+  it("offers only relay GPT models and needs an explicit confirmation", async () => {
+    const root = await tempDir();
+    const { core } = fakeCore([
+      relay("aaaaaaaaaaaa", "https://api.rly0.com/v1", {
+        models: ["gpt-6.1-sol", "claude-opus-5", "gpt-*"],
+      }),
+      relay("bbbbbbbbbbbb", "https://off.example/v1", { models: ["gpt-off"], enabled: false }),
+    ]);
+    Object.assign(core, {
+      proxyStatus: async () => ({
+        available: true,
+        running: true,
+        port: 25917,
+        baseUrl: "http://127.0.0.1:25917/v1",
+      }),
+    });
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root, CODEX_HOME: path.join(root, "codex") },
+      installRoot: root,
+      core,
+    });
+    expect(await service.handle("relay.noAccountStatus", {})).toMatchObject({
+      enabled: false,
+      models: ["gpt-6.1-sol"],
+    });
+    await expect(service.handle("relay.noAccountEnable", { model: "gpt-6.1-sol" })).rejects.toThrow(
+      "INVALID_PARAMS",
+    );
+    await expect(
+      service.handle("relay.noAccountEnable", { model: "gpt-off", confirmed: true }),
+    ).rejects.toThrow("NO_ACCOUNT_MODEL_UNKNOWN");
+    expect(
+      await service.handle("relay.noAccountEnable", { model: "gpt-6.1-sol", confirmed: true }),
+    ).toEqual({
+      ok: true,
+      noAccount: true,
+    });
+    expect(await service.handle("relay.noAccountStatus", {})).toMatchObject({
+      enabled: true,
+      model: "gpt-6.1-sol",
+    });
+    await service.handle("relay.noAccountDisable", {});
+    expect(await service.handle("relay.noAccountStatus", {})).toMatchObject({ enabled: false });
   });
 });

@@ -333,6 +333,41 @@ describe("Rly0RelayCodexConfigManager", () => {
     return configPath;
   }
 
+  it("no-account mode: shows its changes first, writes no login requirement, restores cleanly", async () => {
+    const original = ['model = "gpt-5.5"', 'approval_policy = "on-request"', ""].join("\n");
+    const configPath = await writeConfig(original);
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    const params = { baseUrl: BASE_URL, setDefault: true, model: "gpt-relay-1", noAccount: true };
+    const preview = await manager.preview(params);
+    expect(preview.changes).toEqual([
+      `[model_providers.rly0] base_url = "${BASE_URL}"`,
+      "[model_providers.rly0] requires_openai_auth = false",
+      'model_provider = "rly0" （原来没有）',
+      'model = "gpt-relay-1" （原来是 "gpt-5.5"）',
+    ]);
+    // Previewing writes nothing.
+    expect(await fs.readFile(configPath, "utf8")).toBe(original);
+
+    const applied = await manager.apply(params);
+    expect(applied.status).toMatchObject({
+      noAccount: true,
+      modelProvider: "rly0",
+      model: "gpt-relay-1",
+    });
+    const written = await fs.readFile(configPath, "utf8");
+    expect(written).toContain("requires_openai_auth = false");
+    expect(written).toContain('approval_policy = "on-request"');
+
+    await manager.restore();
+    const restored = await fs.readFile(configPath, "utf8");
+    expect(restored).not.toContain("rly0");
+    expect(restored).toContain('model = "gpt-5.5"');
+    expect((await manager.status()).noAccount).toBeUndefined();
+    await expect(
+      manager.apply({ baseUrl: BASE_URL, setDefault: false, noAccount: true } as never),
+    ).rejects.toThrow();
+  });
+
   it("reports a model_catalog_json override and never writes or removes one", async () => {
     const original = [
       'model_provider = "aimai1"',

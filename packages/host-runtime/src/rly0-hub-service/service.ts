@@ -43,6 +43,8 @@ import {
   RLY0_AUTO_SWITCH_DEFAULTS,
 } from "./auto-switch.js";
 import { Rly0CodexControl } from "./codex-control.js";
+import { noAccountStatus, relayCodexModels } from "./no-account.js";
+import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
 import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
@@ -126,6 +128,7 @@ export class Rly0HubService {
   readonly #installer: AgentInstaller;
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
+  readonly #codexConfig: Rly0RelayCodexConfigManager;
   readonly #relayLogos = new Map<
     string,
     Promise<{ logo: string | null; siteName: string | null }>
@@ -170,6 +173,7 @@ export class Rly0HubService {
       ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#state = new Rly0HubStateStore(environment);
+    this.#codexConfig = new Rly0RelayCodexConfigManager({ environment });
     this.#routes = this.#buildRoutes();
   }
 
@@ -287,6 +291,16 @@ export class Rly0HubService {
     };
   }
 
+  /** Only a GPT-family model some enabled relay lists; the proxy is the Hub's own. */
+  async #noAccountParams(model: string) {
+    const relays = await this.#core.listRelays();
+    if (!relayCodexModels(relays.available ? relays.relays : []).includes(model)) {
+      throw Object.assign(new Error("NO_ACCOUNT_MODEL_UNKNOWN"), { code: -32602 });
+    }
+    const baseUrl = await this.#router.ensureProxy();
+    return { baseUrl, setDefault: true, model, noAccount: true } as const;
+  }
+
   /** Switch the live Codex login and restart Codex when it is running so the switch takes effect. */
   async #switchAndRestart(id: string): Promise<{ switched: boolean; restarted: boolean }> {
     const result = await this.#core.switchAccount({ id });
@@ -369,10 +383,10 @@ export class Rly0HubService {
         return { ok: true };
       }),
       "alerts.check": route(empty, () => this.#checkAlerts()),
-      "autoSwitch.get": route(empty, async () =>
+      "accounts.autoSwitchGet": route(empty, async () =>
         cleanAutoSwitchSettings((await this.#state.read()).autoSwitch ?? RLY0_AUTO_SWITCH_DEFAULTS),
       ),
-      "autoSwitch.set": route(
+      "accounts.autoSwitchSet": route(
         z
           .object({
             enabled: z.boolean(),
@@ -387,6 +401,25 @@ export class Rly0HubService {
           return settings;
         },
       ),
+      "relay.noAccountStatus": route(empty, async () => {
+        const relays = await core.listRelays();
+        return noAccountStatus(this.#codexConfig, relays.available ? relays.relays : []);
+      }),
+      "relay.noAccountPreview": route(
+        z.object({ model: z.string().min(1).max(128) }).strict(),
+        async (p) => this.#codexConfig.preview(await this.#noAccountParams(p.model)),
+      ),
+      "relay.noAccountEnable": route(
+        z.object({ model: z.string().min(1).max(128), confirmed: z.literal(true) }).strict(),
+        async (p) => {
+          const result = await this.#codexConfig.apply(await this.#noAccountParams(p.model));
+          return { ok: result.ok, noAccount: result.status.noAccount === true };
+        },
+      ),
+      "relay.noAccountDisable": route(empty, async () => {
+        const result = await this.#codexConfig.restore();
+        return { ok: result.ok };
+      }),
       "accounts.switchAndRestart": route(rly0AccountsSwitchParamsSchema, (p) =>
         this.#switchAndRestart(p.id),
       ),

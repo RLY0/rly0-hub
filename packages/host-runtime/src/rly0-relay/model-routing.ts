@@ -21,6 +21,11 @@ export interface Rly0RelayModelRouterOptions {
    * local cache or snapshot: a stale catalog is exactly what hides new official models.
    */
   readonly loadOfficialModels?: () => Promise<Rly0OfficialCatalogRead>;
+  /**
+   * False in no-account mode: the per-thread provider definition must match the one written to
+   * config.toml, or Codex would ask for a login again.
+   */
+  readonly providerRequiresOpenaiAuth?: () => Promise<boolean>;
   readonly now?: () => number;
 }
 
@@ -104,6 +109,7 @@ export class Rly0RelayModelRouter {
     delegated: readonly string[];
   } | null = null;
   readonly #loadOfficialModels: (() => Promise<Rly0OfficialCatalogRead>) | undefined;
+  readonly #providerRequiresOpenaiAuth: (() => Promise<boolean>) | undefined;
   readonly #now: () => number;
   /** Entries on earlier pages of the `model/list` currently being paged through. */
   #pagedCount = 0;
@@ -119,6 +125,7 @@ export class Rly0RelayModelRouter {
   constructor(core: Rly0RelayRoutingCore, options: Rly0RelayModelRouterOptions = {}) {
     this.#core = core;
     this.#loadOfficialModels = options.loadOfficialModels;
+    this.#providerRequiresOpenaiAuth = options.providerRequiresOpenaiAuth;
     this.#now = options.now ?? Date.now;
   }
 
@@ -327,16 +334,24 @@ export class Rly0RelayModelRouter {
       } catch {
         return null;
       }
-      return this.#withProviderDefinition(params, baseUrl);
+      return this.#withProviderDefinition(params, baseUrl, await this.#requiresAuth());
     }
     const baseUrl = await this.ensureProxy();
     return {
-      ...this.#withProviderDefinition(params, baseUrl),
+      ...this.#withProviderDefinition(params, baseUrl, await this.#requiresAuth()),
       modelProvider: RLY0_CODEX_PROVIDER_ID,
     };
   }
 
-  #withProviderDefinition(params: JsonRecord, baseUrl: string): JsonRecord {
+  async #requiresAuth(): Promise<boolean> {
+    try {
+      return (await this.#providerRequiresOpenaiAuth?.()) ?? true;
+    } catch {
+      return true;
+    }
+  }
+
+  #withProviderDefinition(params: JsonRecord, baseUrl: string, requiresAuth: boolean): JsonRecord {
     const config = isRecord(params.config) ? params.config : {};
     return {
       ...params,
@@ -347,8 +362,8 @@ export class Rly0RelayModelRouter {
           base_url: baseUrl,
           wire_api: "responses",
           // Codex attaches its login so the proxy can hand official models back to the account;
-          // the proxy strips it before anything reaches a relay.
-          requires_openai_auth: true,
+          // the proxy strips it before anything reaches a relay. Not in no-account mode.
+          requires_openai_auth: requiresAuth,
         },
       },
     };

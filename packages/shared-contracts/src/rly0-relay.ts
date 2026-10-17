@@ -306,6 +306,11 @@ export const rly0RelayCodexConfigStatusResultSchema = z
     /** A previous apply recorded restore state under the RLY/0 Hub data directory. */
     applied: z.boolean(),
     setDefault: z.boolean().optional(),
+    /**
+     * No-account mode: `[model_providers.rly0]` has `requires_openai_auth = false`, so Codex runs
+     * relay models without an OpenAI login (only through RLY/0 Hub's local proxy).
+     */
+    noAccount: z.boolean().optional(),
     parseError: z.string().max(300).optional(),
     /**
      * Top-level `model_catalog_json` found in config.toml (left by another tool such as AiMaMi).
@@ -324,11 +329,17 @@ export const rly0RelayCodexConfigApplyParamsSchema = z
     baseUrl: rly0LocalProxyBaseUrlSchema,
     setDefault: z.boolean(),
     model: rly0RelayModelSchema.optional(),
+    /** No-account mode; only together with `setDefault` (the relay becomes Codex's provider). */
+    noAccount: z.boolean().optional(),
   })
   .strict()
   .refine((value) => !value.setDefault || value.model !== undefined, {
     message: "setDefault requires model",
     path: ["model"],
+  })
+  .refine((value) => !value.noAccount || value.setDefault, {
+    message: "noAccount requires setDefault",
+    path: ["noAccount"],
   });
 export type Rly0RelayCodexConfigApplyParams = z.infer<typeof rly0RelayCodexConfigApplyParamsSchema>;
 

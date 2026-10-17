@@ -662,7 +662,7 @@
 
     // Switch before the current account runs out (AiMaMi's 自动切换). Off by default.
     async function loadAutoSwitch() {
-      const settings = await call("autoSwitch.get").catch(() => null);
+      const settings = await call("accounts.autoSwitchGet").catch(() => null);
       if (!alive() || !settings) return;
       const percentSelect = (value, label) =>
         h(
@@ -681,7 +681,7 @@
         h("option", { value: "auto", selected: settings.mode === "auto" }, "直接切换并重启 Codex"),
       );
       const save = (enabled) =>
-        call("autoSwitch.set", {
+        call("accounts.autoSwitchSet", {
           enabled,
           remain5h: Number(h5.value),
           remainWeekly: Number(weekly.value),
@@ -1465,7 +1465,21 @@
         ],
       },
       "autostart.get": { supported: true, enabled: true },
-      "autoSwitch.get": { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask" },
+      "accounts.autoSwitchGet": { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask" },
+      "relay.noAccountStatus": {
+        enabled: false,
+        configPath: "C:/Users/me/.codex/config.toml",
+        models: ["gpt-6.1-sol", "gpt-5.5"],
+      },
+      "relay.noAccountPreview": {
+        configPath: "C:/Users/me/.codex/config.toml",
+        changes: [
+          '[model_providers.rly0] base_url = "http://127.0.0.1:25917/v1"',
+          "[model_providers.rly0] requires_openai_auth = false",
+          'model_provider = "rly0" （原来没有）',
+          'model = "gpt-6.1-sol" （原来是 "gpt-5.5"）',
+        ],
+      },
       "hub.state": { onboarded: !/[?&]wizard/.test(location.search) },
     };
     setTimeout(
