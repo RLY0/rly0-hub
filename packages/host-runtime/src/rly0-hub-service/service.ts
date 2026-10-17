@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 
 import {
+  rly0AccountsAddLoginStartParamsSchema,
   rly0AccountsImportCurrentParamsSchema,
   rly0AccountsRemoveParamsSchema,
   rly0AccountsRenameParamsSchema,
@@ -51,6 +52,7 @@ import { Rly0CodexControl } from "./codex-control.js";
 import { noAccountStatus, relayCodexModels } from "./no-account.js";
 import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
 import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
+import { Rly0HubAddLogin } from "./add-login.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
@@ -65,6 +67,7 @@ export const RLY0_HUB_LINKS = {
 } as const;
 
 const empty = z.object({}).strict();
+const addLoginIdParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/u) }).strict();
 const linkParams = z
   .object({ target: z.enum(["site", "recharge", "github", "nodejs", "releases", "keys"]) })
   .strict();
@@ -82,6 +85,8 @@ export interface Rly0HubServiceOptions {
   readonly codex?: Rly0CodexControl;
   readonly appearance?: Rly0AppearanceManager;
   readonly openUrl?: (url: string) => void;
+  /** "Add account" sign-ins; built from `core` when omitted. */
+  readonly addLogin?: Rly0HubAddLogin;
 }
 
 export function isRly0Relay(relay: Pick<Rly0Relay, "baseUrl">): boolean {
@@ -134,6 +139,7 @@ export class Rly0HubService {
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
   readonly #codexConfig: Rly0RelayCodexConfigManager;
+  readonly #addLogin: Rly0HubAddLogin;
   readonly #relayLogos = new Map<
     string,
     Promise<{ logo: string | null; siteName: string | null }>
@@ -179,6 +185,14 @@ export class Rly0HubService {
     });
     this.#state = new Rly0HubStateStore(environment);
     this.#codexConfig = new Rly0RelayCodexConfigManager({ environment });
+    this.#addLogin =
+      options.addLogin ??
+      new Rly0HubAddLogin({
+        environment,
+        ...(options.platform ? { platform: options.platform } : {}),
+        core: this.#core,
+        openUrl: (url) => (options.openUrl ?? openInBrowser)(url),
+      });
     this.#routes = this.#buildRoutes();
   }
 
@@ -317,6 +331,7 @@ export class Rly0HubService {
   }
 
   async dispose(): Promise<void> {
+    await this.#addLogin.close().catch(() => undefined);
     await this.#core.dispose();
   }
 
@@ -510,6 +525,12 @@ export class Rly0HubService {
       "accounts.importCurrent": route(rly0AccountsImportCurrentParamsSchema, (p) =>
         core.importCurrent(p),
       ),
+      // Sign in another ChatGPT account in a throw-away CODEX_HOME; the live login is untouched.
+      "accounts.addLoginStart": route(rly0AccountsAddLoginStartParamsSchema, (p) =>
+        this.#addLogin.start(p),
+      ),
+      "accounts.addLoginStatus": route(addLoginIdParams, (p) => this.#addLogin.status(p.id)),
+      "accounts.addLoginCancel": route(addLoginIdParams, (p) => this.#addLogin.cancel(p.id)),
 
       "agents.list": route(empty, () => ({
         agents: listRly0HubAgents(this.#options.environment, this.#options.platform),
