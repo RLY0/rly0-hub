@@ -27,6 +27,12 @@ import {
 import { z } from "zod";
 
 import { AgentInstaller } from "../rly0-agents/agent-installer.js";
+import { ClaudeIsolation } from "./claude-isolation.js";
+import {
+  sandboxConfigureSchema,
+  sandboxPrepareSchema,
+  sandboxSelectSchema,
+} from "@codexhost/shared-contracts";
 import { ClaudeCodeAuth } from "../rly0-agents/claude-code-auth.js";
 import { Rly0AppearanceManager } from "../rly0-appearance/index.js";
 import { WindowsRegistryAutostart } from "../rly0-appearance/windows-autostart.js";
@@ -181,6 +187,7 @@ export class Rly0HubService {
   readonly #agentRelays: Rly0AgentRelaySettings;
   readonly #officialModels: Rly0OfficialKeyModels;
   readonly #installer: AgentInstaller;
+  readonly #isolation: ClaudeIsolation;
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
   readonly #codexConfig: Rly0RelayCodexConfigManager;
@@ -230,6 +237,7 @@ export class Rly0HubService {
       environment,
       ...(options.platform ? { platform: options.platform } : {}),
     });
+    this.#isolation = new ClaudeIsolation(environment, options.platform ?? process.platform);
     this.#state = new Rly0HubStateStore(environment);
     this.#codexConfig = new Rly0RelayCodexConfigManager({ environment });
     this.#addLogin =
@@ -747,6 +755,19 @@ export class Rly0HubService {
           this.#options.platform,
         ),
       })),
+      "agents.isolation.status": route(empty, () => this.#isolation.status()),
+      "agents.isolation.configure": route(sandboxConfigureSchema, (p) =>
+        this.#isolation.configure(p),
+      ),
+      "agents.isolation.prepare": route(sandboxPrepareSchema, (p) => this.#isolation.prepare(p)),
+      "agents.isolation.cancel": route(empty, () => this.#isolation.cancel()),
+      "agents.isolation.forget": route(sandboxSelectSchema, (p) =>
+        this.#isolation.forget(p.project),
+      ),
+      "agents.isolation.disable": route(empty, () => this.#isolation.disable()),
+      "agents.isolation.login": route(sandboxSelectSchema, (p) => this.#isolation.login(p.project)),
+      "agents.isolation.dockerLogin": route(empty, () => this.#isolation.login()),
+      "agents.isolation.install": route(empty, () => this.#isolation.install()),
       "agents.installStart": route(rly0AgentIdParamsSchema, (p) => this.#installer.start(p.agent)),
       "agents.installStatus": route(rly0AgentIdParamsSchema, (p) =>
         this.#installer.status(p.agent),

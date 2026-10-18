@@ -64,6 +64,10 @@ export async function readClaudeTranscript(input: {
   const transcript = await findTranscript(input);
   if (!transcript) return null;
   const contents = await readFile(transcript, "utf8");
+  return parseClaudeTranscript(contents, input.sessionId);
+}
+
+export function parseClaudeTranscript(contents: string, sessionId: string): unknown[] {
   const messages: unknown[] = [];
   for (const line of contents.split("\n")) {
     if (line.trim().length === 0) continue;
@@ -81,7 +85,7 @@ export async function readClaudeTranscript(input: {
     ) {
       continue;
     }
-    messages.push({ ...entry, session_id: input.sessionId });
+    messages.push({ ...entry, session_id: sessionId });
   }
   return messages;
 }

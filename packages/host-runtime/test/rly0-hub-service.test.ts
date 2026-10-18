@@ -82,6 +82,16 @@ describe("RLY/0 Hub service", () => {
     });
     await expect(service.handle("constructor", {})).rejects.toThrow("METHOD_NOT_FOUND");
     await expect(service.handle("relay.test", { id: "../x" })).rejects.toThrow("INVALID_PARAMS");
+    await expect(
+      service.handle("agents.isolation.prepare", { project: "C:\\demo", name: "--injected" }),
+    ).rejects.toThrow("INVALID_PARAMS");
+    await expect(
+      service.handle("agents.isolation.configure", {
+        enabled: true,
+        runtimeRoot: "C:\\data",
+        proxy: "http://example.com:1234",
+      }),
+    ).rejects.toThrow("INVALID_PARAMS");
     await expect(service.handle("links.open", { target: "https://evil" })).rejects.toThrow(
       "INVALID_PARAMS",
     );
@@ -175,7 +185,6 @@ describe("Codex control from the Hub", () => {
     const control = new Rly0CodexControl({
       environment: { LOCALAPPDATA: root },
       installRoot: root,
-      backendReloadTimeoutMs: 50,
       platform: "win32",
       isAlive: (pid) => pid === 4242,
       fileExists: () => true,
@@ -205,7 +214,6 @@ describe("Codex control from the Hub", () => {
     const control = new Rly0CodexControl({
       environment: {},
       installRoot: "C:\\Hub",
-      backendReloadTimeoutMs: 50,
       platform: "win32",
       fileExists: () => true,
       startDetached: (file) => started.push(file),
@@ -420,6 +428,7 @@ describe("AI 助手 catalog and relay logos", () => {
 
 describe("Auto-switch before the Codex quota runs out", () => {
   const usage = (used5h: number, usedWeekly = 0, resetsAt = 1_800_000_000) => ({
+    fetchedAt: 1_799_999_900,
     windows: [
       { kind: "primary" as const, usedPercent: used5h, resetsAt },
       { kind: "secondary" as const, usedPercent: usedWeekly },

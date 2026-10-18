@@ -16,8 +16,38 @@ window.hubManagementMock = (() => {
   };
   let threads = [sample];
   let trash = [];
+  // Browser-only fixture. These operations never install Docker or access a real project.
+  let isolation = null;
+  const isolationRoot = "C:\\Users\\demo\\.rly0-hub\\sandbox-runtime";
   return ({ method, params: p }) => {
     switch (method) {
+      case "agents.isolation.status":
+        return {
+          supported: true,
+          dockerInstalled: true,
+          localClaudeInstalled: true,
+          settings: isolation,
+          defaultRuntimeRoot: isolationRoot,
+          suggestedProxy: "http://127.0.0.1:18888",
+          job: { phase: "idle" },
+          sandboxes: [],
+          projects: isolation?.projects.map((p) => ({ ...p, loggedIn: false, error: null })) || [],
+        };
+      case "agents.isolation.configure":
+        isolation = { version: 1, ...p, projects: isolation?.projects || [] };
+        return { ok: true, reloadRequired: true };
+      case "agents.isolation.prepare":
+        isolation.projects.push({ project: p.project, name: "preview-claude", id: "preview-only" });
+        return { started: true };
+      case "agents.isolation.forget":
+        isolation.projects = isolation.projects.filter((entry) => entry.project !== p.project);
+        return { ok: true };
+      case "agents.isolation.disable":
+        isolation.enabled = false;
+        return { ok: true };
+      case "agents.isolation.login":
+      case "agents.isolation.dockerLogin":
+        return { opened: true };
       case "proxy.settingsGet":
         return { settings: { mode: "system" } };
       case "proxy.settingsSet":

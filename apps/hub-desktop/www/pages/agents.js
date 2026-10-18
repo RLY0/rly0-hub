@@ -314,6 +314,7 @@ window.registerHubAgents = ({
     let agentRelays = {};
     let claudeAccounts = {};
     let officialKeys = [];
+    let isolation = null;
     // Agents whose relay is set up by hand (snippets): remembered for this page only.
     const manualChoice = new Map();
     let connections = null; // last report from the Codex side: { checkedAt, agents: { id: {...} } }
@@ -348,16 +349,25 @@ window.registerHubAgents = ({
     }
 
     async function load() {
-      const [list, relayList, selection, auth, status, keys] = await Promise.all([
+      const [list, relayList, selection, auth, status, keys, isolationStatus] = await Promise.all([
         call("agents.list").catch(() => null),
         call("relay.list").catch(() => null),
         call("agents.relays.get").catch(() => ({ claudeCode: null })),
         call("agents.claudeAccounts.list").catch(() => null),
         call("agents.connectionStatus").catch(() => null),
         call("agents.officialKeys.list").catch(() => null),
+        call("agents.isolation.status").catch(() => null),
       ]);
+      isolation = isolationStatus;
       officialKeys = (keys && keys.keys) || [];
       if (!alive()) return;
+      if (["installing", "preparing"].includes(isolation?.job?.phase)) {
+        const timer = setTimeout(() => {
+          pollers.delete(timer);
+          if (alive()) load();
+        }, 2500);
+        pollers.add(timer);
+      }
       connections = status && status.report;
       const all = ((relayList && relayList.relays) || []).filter((relay) => relay.hasKey);
       // Claude Code's own key is the Anthropic one; the other vendors' keys serve other agents.
@@ -405,6 +415,7 @@ window.registerHubAgents = ({
     }
 
     function card(agent) {
+      const isolated = agent.id === "claude-code" && isolation?.settings?.enabled;
       const element = h("section", {
         class: `m agent-card ${agent.category === "official" ? "span-6 wide" : "span-2"} ${agent.category} ${agent.installed ? "installed" : "dormant"}`,
       });
@@ -427,15 +438,35 @@ window.registerHubAgents = ({
           h(
             "span",
             { class: `tag ${agent.installed ? "ok" : ""}` },
-            agent.installed ? "已安装" : "未解锁",
+            agent.id === "claude-code"
+              ? agent.installed
+                ? "本地已安装"
+                : "本地未安装"
+              : agent.installed
+                ? "已安装"
+                : "未解锁",
           ),
         ),
         body,
       );
-      if (agent.installed) {
-        renderAccess(agent, body);
-        body.prepend(connectionLine(agent));
-      } else renderLocked(agent, body, element);
+      if (agent.id === "claude-code")
+        body.append(
+          window.renderClaudeIsolation({ h, call, toast, reload: load, status: isolation }),
+        );
+      const access = h("div");
+      body.append(access);
+      if (isolated) {
+        access.append(
+          h(
+            "p",
+            { class: "sub" },
+            "CodexHost 将使用授权项目的沙箱登录。请重新加载助手后检测连接；沙箱失败会停止任务。",
+          ),
+        );
+      } else if (agent.installed) {
+        renderAccess(agent, access);
+        access.prepend(connectionLine(agent));
+      } else renderLocked(agent, access, element);
       return element;
     }
 

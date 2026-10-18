@@ -8,7 +8,9 @@
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
   },
   "references": [
-    { "path": "../../harness-broker/tsconfig.json" },
+    {
+      "path": "../../harness-broker/tsconfig.json"
+    },
     {
       "path": "../../shared-contracts/tsconfig.json"
     },
@@ -17,6 +19,9 @@
     },
     {
       "path": "../../harness-discovery/tsconfig.json"
+    },
+    {
+      "path": "../../sandbox-runtime/tsconfig.json"
     }
   ],
   "include": ["src/**/*.ts"]
