@@ -3348,3 +3348,63 @@ select.input,
 .key-block {
   margin-top: 18px;
 }
+
+/* "Manage …" chips under an agent's choice. */
+.use-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.link-chip {
+  appearance: none;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 8px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  color: var(--paper-100);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease;
+}
+.link-chip:hover {
+  background: rgba(233, 233, 227, 0.08);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+  color: var(--paper-50);
+}
+.link-chip svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.link-chip-icon {
+  width: 22px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 6px;
+  background: rgba(233, 233, 227, 0.08);
+}
+.link-chip-arrow {
+  width: 14px;
+  height: 14px;
+  opacity: 0.55;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+.link-chip:hover .link-chip-arrow {
+  transform: translateX(2px);
+  opacity: 0.9;
+}

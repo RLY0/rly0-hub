@@ -243,6 +243,29 @@ window.registerHubAgents = ({
     };
   }
 
+  // Small "go manage it" chips under an agent's choice: icon, label, chevron.
+  const LINK_ICONS = {
+    account: '<circle cx="12" cy="8" r="3.5"/><path d="M5 19.5c1.3-3.3 3.7-5 7-5s5.7 1.7 7 5"/>',
+    relay: '<path d="M5 8h12l-3-3M19 16H7l3 3"/>',
+  };
+  function linkChip(icon, label, onclick) {
+    const glyph = (markup, cls) => {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      svg.setAttribute("class", cls);
+      svg.innerHTML = markup; // fixed markup
+      return svg;
+    };
+    return h(
+      "button",
+      { class: "link-chip", type: "button", onclick },
+      glyph(icon, "link-chip-icon"),
+      h("span", null, label),
+      glyph('<path d="M9 6l6 6-6 6"/>', "link-chip-arrow"),
+    );
+  }
+
   const VENDOR_LABELS = { openai: "OpenAI", anthropic: "Anthropic", google: "Gemini", xai: "xAI" };
 
   // Official agents and the model family they are built for.
@@ -699,23 +722,11 @@ window.registerHubAgents = ({
         const option = options.find((o) => o.value === current);
         const links = h(
           "div",
-          { class: "row use-links" },
-          h(
-            "button",
-            {
-              class: "btn quiet sm",
-              type: "button",
-              onclick: () => go("accounts", { tab: isClaude ? "claude" : "codex" }),
-            },
-            isClaude ? "管理 Claude 账号 →" : "管理官方 API Key →",
+          { class: "use-links" },
+          linkChip(LINK_ICONS.account, isClaude ? "管理 Claude 账号" : "管理官方 API Key", () =>
+            go("accounts", { tab: isClaude ? "claude" : "codex" }),
           ),
-          canRelay
-            ? h(
-                "button",
-                { class: "btn quiet sm", type: "button", onclick: () => go("relays") },
-                "管理中转站 →",
-              )
-            : null,
+          canRelay ? linkChip(LINK_ICONS.relay, "管理中转站", () => go("relays")) : null,
         );
         if (!option) {
           put(
