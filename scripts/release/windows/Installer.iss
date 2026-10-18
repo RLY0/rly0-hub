@@ -1,6 +1,9 @@
 ﻿[Setup]
 AppId={{B6760EFC-A68E-4309-BDA8-BC379D64E5FC}
-AppName=RLY0 Hub
+AppName=RLY/0 Hub
+AppVerName=RLY/0 Hub {#ProductVersion}
+AppPublisherURL=https://github.com/a1039861261-stack/rly0-hub
+ShowLanguageDialog=no
 AppVersion={#ProductVersion}
 AppPublisher=RLY0 Hub
 DefaultDirName={localappdata}\Programs\rly0-hub
@@ -23,6 +26,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=arm64
 ArchitecturesInstallIn64BitMode=arm64
 #endif
+
+[Languages]
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Files]
 Source: "{#PayloadRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
