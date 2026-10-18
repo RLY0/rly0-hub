@@ -8,7 +8,7 @@
 
 <sub>The installer is not code-signed yet. On first run Windows SmartScreen may say “Windows protected your PC / Unknown publisher”: click **More info → Run anyway**. Each release lists the installer's SHA-256 so you can verify the file.</sub>
 
-<img src="docs/imgs/hub/home.png" alt="RLY/0 Hub home" width="880">
+<img src="docs/imgs/hub/home.png" alt="RLY/0 Hub home" width="100%">
 
 </div>
 
@@ -25,32 +25,41 @@ command after you confirm).
 
 ## Screenshots
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/imgs/hub/accounts.png" alt="Codex accounts"></td>
-    <td width="50%"><img src="docs/imgs/hub/accounts-claude.png" alt="Claude accounts"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Codex accounts</b>: 5-hour / weekly quota, reset credits, one-click switch</td>
-    <td align="center"><b>Claude accounts</b>: subscription quota, official API key / subscription token</td>
-  </tr>
-  <tr>
-    <td><img src="docs/imgs/hub/agents.png" alt="Official agents"></td>
-    <td><img src="docs/imgs/hub/agents-community.png" alt="Third-party agents"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Agents</b>: choose the account / key / relay each agent uses</td>
-    <td align="center"><b>Third-party agents</b>: Pi, Hermes, OpenCode with one-click install</td>
-  </tr>
-  <tr>
-    <td><img src="docs/imgs/hub/relays.png" alt="Relays"></td>
-    <td><img src="docs/imgs/hub/update-popup.png" alt="Update prompt"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Relays</b>: enter URL and key; name, logo and models are detected</td>
-    <td align="center"><b>Auto update</b>: checked in the background, prompts when a new version is out</td>
-  </tr>
-</table>
+### Codex accounts
+
+5-hour / weekly quota, reset credits, one-click switch
+
+<img src="docs/imgs/hub/accounts.png" alt="Codex accounts" width="100%">
+
+### Claude accounts
+
+subscription quota, official API key / subscription token
+
+<img src="docs/imgs/hub/accounts-claude.png" alt="Claude accounts" width="100%">
+
+### Agents
+
+choose the account / key / relay each agent uses
+
+<img src="docs/imgs/hub/agents.png" alt="Agents" width="100%">
+
+### Third-party agents
+
+Pi, Hermes, OpenCode with one-click install
+
+<img src="docs/imgs/hub/agents-community.png" alt="Third-party agents" width="100%">
+
+### Relays
+
+enter URL and key; name, logo and models are detected
+
+<img src="docs/imgs/hub/relays.png" alt="Relays" width="100%">
+
+### Auto update
+
+checked in the background, prompts when a new version is out
+
+<img src="docs/imgs/hub/update-popup.png" alt="Auto update" width="100%">
 
 > Accounts and balances in the screenshots are demo data. The UI is currently Chinese-only.
 

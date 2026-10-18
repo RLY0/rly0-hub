@@ -8,7 +8,7 @@
 
 <sub>安装包暂未做代码签名，首次运行时 Windows 可能提示“已保护你的电脑 / 未知发布者”，点 **更多信息 → 仍要运行** 即可。每个版本的 SHA-256 写在 Release 说明里，可用来核对文件。</sub>
 
-<img src="docs/imgs/hub/home.png" alt="RLY/0 Hub 首页" width="880">
+<img src="docs/imgs/hub/home.png" alt="RLY/0 Hub 首页" width="100%">
 
 </div>
 
@@ -24,32 +24,41 @@ RLY/0 Hub 本身**不打包、不分发 Codex Desktop 或 Claude Code 等任何�
 
 ## 界面一览
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/imgs/hub/accounts.png" alt="账号：多个 Codex 账号与额度"></td>
-    <td width="50%"><img src="docs/imgs/hub/accounts-claude.png" alt="账号：Claude 账号与官方 Key"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Codex 多账号</b>：5 小时 / 每周额度、官方重置卡，一键切换</td>
-    <td align="center"><b>Claude 多账号</b>：订阅额度、官方 API Key / 订阅令牌</td>
-  </tr>
-  <tr>
-    <td><img src="docs/imgs/hub/agents.png" alt="AI 助手：官方 Agent"></td>
-    <td><img src="docs/imgs/hub/agents-community.png" alt="AI 助手：第三方 Agent"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>AI 助手</b>：每个助手选用哪个账号 / Key / 中转站</td>
-    <td align="center"><b>第三方助手</b>：Pi、Hermes、OpenCode 滑动解锁一键安装</td>
-  </tr>
-  <tr>
-    <td><img src="docs/imgs/hub/relays.png" alt="中转站"></td>
-    <td><img src="docs/imgs/hub/update-popup.png" alt="更新提示"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>中转站</b>：填地址和 Key，自动识别名称、图标和模型</td>
-    <td align="center"><b>自动更新</b>：后台检查，有新版本时弹窗提示</td>
-  </tr>
-</table>
+### Codex 多账号
+
+5 小时 / 每周额度、官方重置卡，一键切换
+
+<img src="docs/imgs/hub/accounts.png" alt="Codex 多账号" width="100%">
+
+### Claude 多账号
+
+订阅额度、官方 API Key / 订阅令牌
+
+<img src="docs/imgs/hub/accounts-claude.png" alt="Claude 多账号" width="100%">
+
+### AI 助手
+
+每个助手选用哪个账号 / Key / 中转站
+
+<img src="docs/imgs/hub/agents.png" alt="AI 助手" width="100%">
+
+### 第三方助手
+
+Pi、Hermes、OpenCode 滑动解锁一键安装
+
+<img src="docs/imgs/hub/agents-community.png" alt="第三方助手" width="100%">
+
+### 中转站
+
+填地址和 Key，自动识别名称、图标和模型
+
+<img src="docs/imgs/hub/relays.png" alt="中转站" width="100%">
+
+### 自动更新
+
+后台检查，有新版本时弹窗提示
+
+<img src="docs/imgs/hub/update-popup.png" alt="自动更新" width="100%">
 
 > 截图里的账号、余额均为演示数据。
 
