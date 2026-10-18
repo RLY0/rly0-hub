@@ -2,7 +2,11 @@
 
 # RLY/0 Hub
 
-**CodexHost's multi-harness hosting, plus multi-account management and other enhancements**
+**One window for Codex and the other AI coding agents: multiple accounts, relays, and one-click Claude Code / Pi / Hermes / OpenCode**
+
+[Download installer](https://github.com/a1039861261-stack/rly0-hub/releases/latest) · [中文](README.md)
+
+<img src="docs/imgs/hub/home.png" alt="RLY/0 Hub home" width="880">
 
 </div>
 
@@ -10,37 +14,64 @@
 
 **RLY/0 Hub** is a derivative of [CodexHost](https://github.com/BytePioneer-AI/codex-host) v0.10.2, forked at that
 version. CodexHost lets you run other Agent Harnesses (Pi, Claude Code, and more) natively inside **Codex Desktop**.
-RLY/0 Hub builds on top of that with multi-account management, thread management, relay injection, MCP / Skills
-management, maintenance tools, and other additions.
+RLY/0 Hub adds a standalone management window (living in the tray) for multiple accounts, relays, and installing and
+switching agents — switching an account or relay does not require restarting Codex.
 
 RLY/0 Hub **does not bundle or redistribute Codex Desktop, Claude Code, or any other third-party harness**. You
-install those yourself from their official sources; RLY/0 Hub only extends the Codex Desktop app you already have
-installed.
+install those yourself from their official sources (the Hub's one-click install only runs the official install
+command after you confirm).
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/imgs/hub/accounts.png" alt="Codex accounts"></td>
+    <td width="50%"><img src="docs/imgs/hub/accounts-claude.png" alt="Claude accounts"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Codex accounts</b>: 5-hour / weekly quota, reset credits, one-click switch</td>
+    <td align="center"><b>Claude accounts</b>: subscription quota, official API key / subscription token</td>
+  </tr>
+  <tr>
+    <td><img src="docs/imgs/hub/agents.png" alt="Official agents"></td>
+    <td><img src="docs/imgs/hub/agents-community.png" alt="Third-party agents"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Agents</b>: choose the account / key / relay each agent uses</td>
+    <td align="center"><b>Third-party agents</b>: Pi, Hermes, OpenCode with one-click install</td>
+  </tr>
+  <tr>
+    <td><img src="docs/imgs/hub/relays.png" alt="Relays"></td>
+    <td><img src="docs/imgs/hub/update-popup.png" alt="Update prompt"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Relays</b>: enter URL and key; name, logo and models are detected</td>
+    <td align="center"><b>Auto update</b>: checked in the background, prompts when a new version is out</td>
+  </tr>
+</table>
+
+> Accounts and balances in the screenshots are demo data. The UI is currently Chinese-only.
 
 ## Features
 
-These correspond to the settings pages actually implemented today; anything not implemented or only partially
-implemented is called out explicitly:
-
-- **Dashboard**: account / session / MCP service / Skills counts, current-account usage, data-directory health,
-  activity trends.
-- **Account management**:
-  - Read-only view of the currently signed-in Codex account and its quota (inherited from CodexHost).
-  - Multi-account save / switch / rename / delete — **requires the closed-source RLY/0 Core (`rly0-core`)**. Without
-    it, this section shows a notice; the rest of the app is unaffected.
-- **Thread management**: browse main/sub threads per project, with counts, sizes, active-day stats, batch selection
-  and per-thread export.
-- **Relay injection**: add / edit / test third-party model relays (API relay endpoints) and route requests by model
-  name; start a local proxy that only listens on `127.0.0.1`, write the Codex config (`[model_providers.rly0]`) in one
-  click, and restore the official config at any time. Relay keys are stored encrypted and only shown masked. The
-  routing and proxy logic live in the closed-source **RLY/0 Core**; without it the page shows "requires RLY/0 Core"
-  and the rest of the app keeps working.
-- **MCP management**: view, add, enable/disable MCP servers configured in `~/.codex/config.toml` (STDIO / HTTP).
-- **Skills management**: view installed / backed-up Skills, and import new ones.
-- **Maintenance tools**: system diagnostics, exporting a redacted debug log bundle (saved locally only), clearing
-  data, force-quitting / restarting Codex (all behind a confirmation step).
-- **Appearance**: theme (light/dark/system), UI language, accent color, launch-at-login, etc.
-- **Sponsorship**: a voluntary sponsorship entry point in the in-app "About" page — see below.
+- **Home**: current account quota, official reset credits, installed agents and relay balance at a glance.
+- **Accounts** (OpenAI · Codex / Anthropic · Claude / Google · Gemini / xAI · Grok tabs):
+  - Each vendor can be added three ways: web login, importing a login file (including Sub2API exports), or an
+    official API key.
+  - Codex and Claude support multiple saved accounts with one-click switching and 5-hour / weekly quota with reset
+    times; switching Codex accounts needs no restart.
+  - Optional automatic switch to the account with the most quota when one runs low (ask first, or switch directly).
+- **Relays**: adding a relay tests it, detects its name and logo, and lets you pick GPT models; the local proxy only
+  listens on `127.0.0.1`, routes by model name, and the official config can be restored in one click. Includes a
+  "use without an OpenAI login" mode.
+- **Agents**: Claude Code, Antigravity, Grok, OpenCode, Pi, Hermes, Cursor, Kiro and more; one-click install (runs the
+  official command in a visible terminal window), connection checks, and a per-agent choice of account / official
+  key / relay that takes effect immediately.
+- **Settings**: MCP servers, Skills, AGENTS.md instruction templates, thread management, maintenance (diagnostics,
+  redacted log bundle, restart Codex), appearance and launch-at-login, updates.
+- **Tray**: stays in the tray; the context menu switches accounts, opens Codex and toggles launch-at-login.
+- **Auto update**: checks GitHub Releases in the background, shows a prompt and a red dot on "Settings" when an update
+  is available.
 
 ## Open source and closed source
 
@@ -70,7 +101,7 @@ implemented is called out explicitly:
 ## Advertising disclosure
 
 The relay-injection page includes a recommended entry for **RLY/0 · Zero Relay** (<https://rly0.com>), operated by the
-author personally, clearly labeled as such in the UI, and **can be turned off**. This entry:
+author personally and always clearly labeled as such in the UI; clicking it only opens rly0.com. This entry:
 
 - does not change how any request is routed;
 - does not lock you into using that relay;

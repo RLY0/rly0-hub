@@ -2,7 +2,11 @@
 
 # RLY/0 Hub
 
-**在 CodexHost 的多 Harness 宿主能力之上，加上多账号管理等增强功能**
+**一个窗口管好 Codex 和各家 AI 编程助手：多账号、中转站、Claude Code / Pi / Hermes / OpenCode 一键接入**
+
+[下载安装包](https://github.com/a1039861261-stack/rly0-hub/releases/latest) · [English](README.en.md)
+
+<img src="docs/imgs/hub/home.png" alt="RLY/0 Hub 首页" width="880">
 
 </div>
 
@@ -10,28 +14,58 @@
 
 **RLY/0 Hub** 是从 [CodexHost](https://github.com/BytePioneer-AI/codex-host) v0.10.2
 分支出来的衍生软件。CodexHost 让你在 **Codex Desktop** 内原生运行 Pi、Claude Code 等其他 Agent Harness；
-RLY/0 Hub 在此基础上，加入了多账号管理、线程管理、中转注入、MCP / Skills 管理、维护工具等增强功能。
+RLY/0 Hub 在此基础上加了一个独立的管理窗口（托盘常驻），把多账号、中转站、AI 助手的安装与切换都放进来，
+切换账号或中转站时不用重启 Codex。
 
-RLY/0 Hub 本身**不打包、不分发 Codex Desktop 或 Claude Code 等任何第三方 Harness**，这些软件需要你自行从官方渠道安装。
-RLY/0 Hub 只是在你已安装的 Codex Desktop 中，以扩展的形式接入这些 Harness 并提供额外的管理界面。
+RLY/0 Hub 本身**不打包、不分发 Codex Desktop 或 Claude Code 等任何第三方 Harness**，这些软件需要你自行从官方渠道安装
+（Hub 里的"一键安装"也只是在你确认后调用官方安装命令）。
+
+## 界面一览
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/imgs/hub/accounts.png" alt="账号：多个 Codex 账号与额度"></td>
+    <td width="50%"><img src="docs/imgs/hub/accounts-claude.png" alt="账号：Claude 账号与官方 Key"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Codex 多账号</b>：5 小时 / 每周额度、官方重置卡，一键切换</td>
+    <td align="center"><b>Claude 多账号</b>：订阅额度、官方 API Key / 订阅令牌</td>
+  </tr>
+  <tr>
+    <td><img src="docs/imgs/hub/agents.png" alt="AI 助手：官方 Agent"></td>
+    <td><img src="docs/imgs/hub/agents-community.png" alt="AI 助手：第三方 Agent"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>AI 助手</b>：每个助手选用哪个账号 / Key / 中转站</td>
+    <td align="center"><b>第三方助手</b>：Pi、Hermes、OpenCode 滑动解锁一键安装</td>
+  </tr>
+  <tr>
+    <td><img src="docs/imgs/hub/relays.png" alt="中转站"></td>
+    <td><img src="docs/imgs/hub/update-popup.png" alt="更新提示"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>中转站</b>：填地址和 Key，自动识别名称、图标和模型</td>
+    <td align="center"><b>自动更新</b>：后台检查，有新版本时弹窗提示</td>
+  </tr>
+</table>
+
+> 截图里的账号、余额均为演示数据。
 
 ## 功能列表
 
-以下功能均对应设置页中已经实现的页面，未实现或仅部分实现的部分会明确标注：
-
-- **仪表盘**：账号、会话、MCP 服务、Skills 的统计概览；当前账户与额度、数据目录健康状态、活跃趋势等信息。
-- **账号管理**：
-  - 只读展示当前登录的 Codex 账号与额度（继承自 CodexHost）。
-  - 多账号保存、切换、改名、删除 —— **需要 RLY/0 Core（rly0-core）**，未安装 RLY/0 Core 时该区域会显示提示，不影响其余功能。
-- **线程管理**：按项目查看主线程 / 子线程，统计线程数、大小、活跃天数，支持批量勾选与单条导出。
-- **中转注入**：添加 / 编辑 / 测试第三方模型中转（API 中转站），按模型名路由到对应中转；启动仅监听 `127.0.0.1` 的本地代理，
-  一键写入 Codex 配置（`[model_providers.rly0]`）并可随时恢复官方配置。中转密钥加密保存、界面只显示掩码。
-  路由与本地代理逻辑位于 **RLY/0 Core（rly0-core）**；未安装 RLY/0 Core 时显示“需要 RLY/0 Core”，不会影响其他功能正常使用。
-- **MCP 管理**：查看、添加、启用/停用 `~/.codex/config.toml` 中配置的 MCP 服务（STDIO / HTTP）。
-- **Skills 管理**：查看已安装 / 已备份的 Skills，支持导入。
-- **维护工具**：系统诊断、导出脱敏调试日志包（仅保存到本地）、清理数据、强制关闭 / 重启 Codex（均需二次确认）。
-- **外观设置**：主题（浅色 / 深色 / 跟随系统）、界面语言、主题色、开机自启等。
-- **赞助**：应用内“关于”页提供自愿赞助入口，详见下文“赞助”一节。
+- **首页**：当前账号额度、官方重置卡、已装的 AI 助手和中转站余额一屏看完。
+- **账号**（OpenAI · Codex / Anthropic · Claude / Google · Gemini / xAI · Grok 四个标签）：
+  - 每家都能用三种方式添加：网页登录、导入登录文件（含 Sub2API 导出）、官方 API Key。
+  - Codex 与 Claude 支持保存多个账号一键切换，显示 5 小时 / 每周额度和重置时间；Codex 账号切换无需重启。
+  - 额度快用完时可自动切到额度最多的账号（先提醒或直接切换）。
+- **中转站**：添加中转时自动测试、识别名称和图标、勾选要用的 GPT 模型；本地代理只监听 `127.0.0.1`，
+  按模型名路由，可一键恢复官方配置。支持"不登录 OpenAI 也能用"模式。
+- **AI 助手**：Claude Code、Antigravity、Grok、OpenCode、Pi、Hermes、Cursor、Kiro 等；
+  一键安装（在可见的终端窗口中运行官方命令）、检测连接、为每个助手选择账号 / 官方 Key / 中转站，切换即时生效。
+- **设置**：MCP 服务、Skills、AGENTS.md 指令模板、线程管理、维护工具（诊断、脱敏日志包、重启 Codex）、
+  外观与开机自启、更新。
+- **托盘**：常驻托盘，右键菜单可快速切换账号、打开 Codex、开机自启。
+- **自动更新**：后台定期检查 GitHub Release，有新版本时弹窗并在侧边栏"设置"上显示红点。
 
 ## 开源与闭源
 
@@ -55,7 +89,7 @@ RLY/0 Hub 只是在你已安装的 Codex Desktop 中，以扩展的形式接入�
 ## 广告披露
 
 软件内“中转注入”页面提供的 **RLY/0 · 零号中转**（<https://rly0.com>）推荐位，是作者本人自营的服务，
-在界面上会明确标注为“作者自营”，并且**可以关闭**。该推荐位：
+在界面上始终明确标注为“作者自营”，点击只会打开 rly0.com。该推荐位：
 
 - 不会改变任何请求的路由方式；
 - 不会锁定或强制使用该中转站；

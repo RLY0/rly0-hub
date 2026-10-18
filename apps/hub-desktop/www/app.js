@@ -1576,8 +1576,8 @@
           ["antigravity", "Antigravity", "Google", "official", false, "none", false],
           ["grok", "Grok", "xAI", "official", false, "manual", false],
           ["opencode", "OpenCode", "OpenCode", "community", true, "manual", true],
-          ["pi", "Pi", "Pi", "community", true, "manual", false],
-          ["hermes", "Hermes", "Nous Research", "community", true, "none", false],
+          ["pi", "Pi", "Pi", "community", true, "manual", true],
+          ["hermes", "Hermes", "Nous Research", "community", true, "none", true],
           ["cursor-cli", "Cursor", "Cursor", "community", false, "none", false],
           ["kiro-cli", "Kiro", "AWS", "community", false, "none", false],
         ].map(([id, name, vendor, category, openSource, relay, installed]) => ({
@@ -1636,6 +1636,48 @@
               source: "snapshot",
             },
           },
+          {
+            id: "1123456789ab",
+            email: "team@example.com",
+            alias: "团队号",
+            plan: "team",
+            current: false,
+            lastUsage: {
+              windows: [
+                { kind: "primary", usedPercent: 8, resetsAt: Math.floor(Date.now() / 1000) + 3000 },
+                {
+                  kind: "secondary",
+                  usedPercent: 41,
+                  resetsAt: Math.floor(Date.now() / 1000) + 260000,
+                },
+              ],
+              resetCredits: 0,
+              source: "snapshot",
+            },
+          },
+          {
+            id: "2123456789ab",
+            email: "pro@example.com",
+            alias: "Pro 号",
+            plan: "pro",
+            current: false,
+            lastUsage: {
+              windows: [
+                {
+                  kind: "primary",
+                  usedPercent: 92,
+                  resetsAt: Math.floor(Date.now() / 1000) + 1500,
+                },
+                {
+                  kind: "secondary",
+                  usedPercent: 67,
+                  resetsAt: Math.floor(Date.now() / 1000) + 120000,
+                },
+              ],
+              resetCredits: 1,
+              source: "snapshot",
+            },
+          },
         ],
       },
       "relay.list": {
@@ -1646,7 +1688,7 @@
             name: "零号中转",
             baseUrl: "https://api.rly0.com/v1",
             protocol: "responses",
-            models: [],
+            models: ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
             enabled: true,
             hasKey: true,
             keyMask: "****9Zq1",
@@ -1656,7 +1698,7 @@
         ],
       },
       "proxy.status": { available: true, running: true, port: 25917 },
-      "codex.status": { running: false, canOpen: true },
+      "codex.status": { running: true, canOpen: true },
       "updates.status": {
         currentVersion: "0.10.2",
         latestVersion: "0.11.0",
@@ -1743,7 +1785,7 @@
       "agents.claudeCode.status": { installed: true, loggedIn: false },
       "agents.relays.get": { claudeCode: "aaaaaaaaaaaa" },
       "agents.installStatus": { state: "idle", automatic: true },
-      "accounts.current": { loggedIn: true, saved: false, email: "me@example.com", plan: "plus" },
+      "accounts.current": { loggedIn: true, saved: true, email: "me@example.com", plan: "plus" },
       "accounts.usageCurrent": {
         available: true,
         usage: {
