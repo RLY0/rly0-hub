@@ -8,9 +8,12 @@ import {
   rly0ThreadsListParamsSchema,
   rly0ThreadsMoveParamsSchema,
 } from "@codexhost/shared-contracts";
+import { spawn } from "node:child_process";
+import { promises as fs } from "node:fs";
 import { z } from "zod";
 
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "../rly0-maintenance/index.js";
+import { resolveRly0DiagnosticsDir } from "../rly0-maintenance/paths.js";
 import { Rly0InstructionsManager, rly0InstructionsRpcError } from "../rly0-instructions/index.js";
 import { Rly0McpManager, rly0McpRpcError } from "../rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "../rly0-skills/index.js";
@@ -43,6 +46,10 @@ export function createHubManagementRoutes(options: {
   core: Rly0CoreBridge;
   codex: Rly0CodexControl;
   updates?: Pick<HostUpdateCoordinator, "check">;
+  /** An update is downloading or installing: its installer folder is not cleared. */
+  updateBusy?: () => boolean;
+  /** Shows a folder in Explorer; the default runs `explorer.exe`. */
+  openFolder?: (directory: string) => void;
 }) {
   const { environment, core, codex } = options;
   const mcp = new Rly0McpManager({ environment });
@@ -50,7 +57,18 @@ export function createHubManagementRoutes(options: {
   const threads = new Rly0ThreadsManager({ environment });
   const instructions = new Rly0InstructionsManager({ environment });
   const content = z.string().max(64 * 1024);
-  const maintenance = new Rly0MaintenanceManager({ environment, core });
+  const maintenance = new Rly0MaintenanceManager({
+    environment,
+    core,
+    busyEntries: () => (options.updateBusy?.() ? ["updates"] : []),
+  });
+  const openFolder =
+    options.openFolder ??
+    ((directory: string) => {
+      const child = spawn("explorer.exe", [directory], { detached: true, stdio: "ignore" });
+      child.on("error", () => undefined);
+      child.unref();
+    });
   const updates = options.updates ?? { check: () => checkHubUpdate(options.installRoot) };
   const updateFailure = () => ({ code: -32000, message: "UPDATE_CHECK_FAILED" });
   return {
@@ -132,6 +150,34 @@ export function createHubManagementRoutes(options: {
     "maintenance.cacheInfo": route(empty, () => maintenance.cacheInfo(), rly0MaintenanceRpcError),
     "maintenance.clearCache": route(empty, () => maintenance.clearCache(), rly0MaintenanceRpcError),
     "maintenance.forceQuitCodex": route(empty, () => codex.forceQuit(), rly0MaintenanceRpcError),
+    "maintenance.openDiagnosticsFolder": route(
+      empty,
+      async () => {
+        const directory = resolveRly0DiagnosticsDir(environment);
+        await fs.mkdir(directory, { recursive: true });
+        openFolder(directory);
+        return { ok: true };
+      },
+      rly0MaintenanceRpcError,
+    ),
+    "maintenance.filtersGet": route(
+      empty,
+      async () => {
+        const filters = await core.filters();
+        return filters ? { available: true, ...filters } : { available: false };
+      },
+      rly0MaintenanceRpcError,
+    ),
+    "maintenance.filtersSet": route(
+      z
+        .object({ imageTool: z.boolean().optional(), webSearchTool: z.boolean().optional() })
+        .strict(),
+      async (p) => {
+        const filters = await core.filters(p);
+        return filters ? { available: true, ...filters } : { available: false };
+      },
+      rly0MaintenanceRpcError,
+    ),
     "maintenance.restartCodex": route(empty, () => codex.restart(), rly0MaintenanceRpcError),
     "updates.check": route(
       empty,

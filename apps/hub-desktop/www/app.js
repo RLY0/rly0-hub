@@ -532,7 +532,6 @@
     ["mcp", "MCP"],
     ["skills", "Skills"],
     ["threads", "线程"],
-    ["maintenance", "维护工具"],
     ["updates", "更新"],
   ];
   function settingsFrame(name, alive, options) {

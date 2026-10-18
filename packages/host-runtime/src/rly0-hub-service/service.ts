@@ -116,6 +116,8 @@ export interface Rly0HubServiceOptions {
   readonly core?: Rly0CoreBridge;
   readonly updates?: Pick<HostUpdateCoordinator, "check">;
   readonly codex?: Rly0CodexControl;
+  /** Ends Codex directly when the Launcher cannot (see `codex-processes.ts`); production only. */
+  readonly killCodexProcesses?: () => Promise<number>;
   readonly appearance?: Rly0AppearanceManager;
   readonly openUrl?: (url: string) => void;
   /** "Add account" sign-ins; built from `core` when omitted. */
@@ -215,6 +217,7 @@ export class Rly0HubService {
         environment,
         installRoot: options.installRoot,
         heartbeatAlive: () => codexHeartbeatAlive(resolveRly0DataDir(environment)),
+        ...(options.killCodexProcesses ? { killProcesses: options.killCodexProcesses } : {}),
         ...(options.platform ? { platform: options.platform } : {}),
       });
     this.#appearance =
@@ -547,6 +550,10 @@ export class Rly0HubService {
         installRoot: this.#options.installRoot,
         core,
         codex: this.#codex,
+        updateBusy: () =>
+          ["downloading", "verifying", "installing"].includes(
+            this.#updater?.progress().phase ?? "idle",
+          ),
         ...(this.#options.updates ? { updates: this.#options.updates } : {}),
       }),
       "home.summary": route(empty, async () => {

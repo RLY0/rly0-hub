@@ -30,6 +30,14 @@ export interface Rly0CodexControlOptions {
   readonly fileExists?: (file: string) => boolean;
   /** Whether the Codex side's heartbeat is fresh (Codex open through RLY/0 Hub). */
   readonly heartbeatAlive?: () => Promise<boolean>;
+  /**
+   * Ends Codex's processes directly (`codex-processes.ts`) when the Launcher cannot: Codex opened
+   * some other way, or the Launcher already exited. Returns how many were ended. Without it,
+   * quitting and restarting only work through the Launcher.
+   */
+  readonly killProcesses?: () => Promise<number>;
+  /** Pause between ending Codex and opening it again on a direct restart. */
+  readonly restartDelayMs?: number;
 }
 
 function processAlive(pid: number): boolean {
@@ -120,12 +128,25 @@ export class Rly0CodexControl {
     return { ok: true };
   }
 
-  async forceQuit(): Promise<{ ok: boolean }> {
-    return this.#request("quit");
+  /**
+   * Through the Launcher first; then whatever is left of Codex is ended directly (when allowed),
+   * so a Codex opened without the Launcher, or a stuck helper, also goes away.
+   */
+  async forceQuit(): Promise<{ ok: boolean; killed?: number }> {
+    const viaLauncher = (await this.#request("quit")).ok;
+    if (!this.#options.killProcesses) return { ok: viaLauncher };
+    const killed = await this.#options.killProcesses().catch(() => 0);
+    return { ok: viaLauncher || killed > 0, killed };
   }
 
+  /** Through the Launcher; otherwise end Codex directly and open it again. */
   async restart(): Promise<{ ok: boolean }> {
-    return this.#request("restart");
+    if ((await this.#request("restart")).ok) return { ok: true };
+    if (!this.#options.killProcesses) return { ok: false };
+    const killed = await this.#options.killProcesses().catch(() => 0);
+    if (killed === 0 && !(await this.status()).running) return { ok: false };
+    await new Promise((resolve) => setTimeout(resolve, this.#options.restartDelayMs ?? 1500));
+    return this.open();
   }
 
   async #request(action: "quit" | "restart"): Promise<{ ok: boolean }> {

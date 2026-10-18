@@ -4093,3 +4093,150 @@ select.input,
 .isolation-project > .btn {
   margin: 4px 6px 4px 0;
 }
+
+/* ---------- 维护工具: one card, one row per tool ---------- */
+.m.tools {
+  padding: 4px 0;
+}
+.tool {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  column-gap: 16px;
+  align-items: center;
+  padding: 18px 22px;
+}
+.tool + .tool {
+  box-shadow: inset 0 1px 0 var(--edge);
+}
+.tool-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  display: grid;
+  place-items: center;
+  background: var(--well);
+  color: var(--paper-100);
+}
+.tool-icon svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tool-icon.blue {
+  color: #7aa7ff;
+}
+.tool-icon.cyan {
+  color: #5cc8d6;
+}
+.tool-icon.amber {
+  color: var(--warn);
+}
+.tool-icon.violet {
+  color: #b48cff;
+}
+.tool-icon.red {
+  color: #ef6a55;
+  background: rgba(184, 50, 32, 0.16);
+}
+.tool-text h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--paper-100);
+}
+.tool-text p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted-dark);
+}
+.tool-meta {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--paper-100);
+  opacity: 0.75;
+}
+.tool-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.tool-detail {
+  grid-column: 2 / -1;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--well);
+}
+.tool-detail[hidden] {
+  display: none;
+}
+.tool-detail .row {
+  margin-top: 12px;
+}
+.diag-sum {
+  margin: 0 0 10px;
+  font-weight: 600;
+}
+.diag-sum.ok {
+  color: var(--ok);
+}
+.diag-sum.warn {
+  color: var(--warn);
+}
+.diag-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 280px));
+  gap: 8px 40px;
+}
+.diag-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted-dark);
+}
+.diag-list li::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted-dark);
+}
+.diag-list li.ok::before {
+  background: var(--ok);
+}
+.diag-list li.bad::before {
+  background: var(--warn);
+}
+.diag-list b {
+  margin-left: auto;
+  font-weight: 500;
+  color: var(--paper-100);
+}
+.diag-advice {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--paper-100);
+}
+@media (max-width: 720px) {
+  .tool {
+    grid-template-columns: 36px minmax(0, 1fr);
+    row-gap: 10px;
+    padding: 16px;
+  }
+  .tool-action {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+}

@@ -223,6 +223,41 @@ describe("Codex control from the Hub", () => {
   });
 });
 
+describe("Codex control without the Launcher", () => {
+  it("ends Codex directly, then opens it again on restart", async () => {
+    const started: string[] = [];
+    let kills = 0;
+    const control = new Rly0CodexControl({
+      environment: {},
+      installRoot: "C:\Hub",
+      platform: "win32",
+      fileExists: () => true,
+      startDetached: (file) => started.push(file),
+      heartbeatAlive: async () => kills === 0,
+      killProcesses: async () => {
+        kills += 1;
+        return 3;
+      },
+      restartDelayMs: 0,
+    });
+    expect(await control.forceQuit()).toEqual({ ok: true, killed: 3 });
+    expect(await control.restart()).toEqual({ ok: true });
+    expect(started).toHaveLength(1);
+    const idle = new Rly0CodexControl({
+      environment: {},
+      installRoot: "C:\Hub",
+      platform: "win32",
+      fileExists: () => true,
+      startDetached: (file) => started.push(file),
+      killProcesses: async () => 0,
+      restartDelayMs: 0,
+    });
+    expect(await idle.forceQuit()).toEqual({ ok: false, killed: 0 });
+    expect(await idle.restart()).toEqual({ ok: false });
+    expect(started).toHaveLength(1);
+  });
+});
+
 describe("Hub stdio protocol", () => {
   it("answers by id and hides error details", async () => {
     const input = new PassThrough();
