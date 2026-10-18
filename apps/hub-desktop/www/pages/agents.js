@@ -12,6 +12,8 @@ window.registerHubAgents = ({
   isRly0,
   isOfficialKey,
   LOGIN_ICONS,
+  countdown,
+  resetText,
   pollers,
   moneyBadge,
   rateBadge,
@@ -864,17 +866,16 @@ window.registerHubAgents = ({
       function drawOfficial() {
         put(quota);
         if (agent.id === "claude-code") {
-          const auth = claudeAuth;
           const usingKey = officialKey && claudeRelay === officialKey.id;
+          const panel = h("div", { class: "claude-accounts" });
           put(
             detail,
             usingKey
               ? h(
                   "div",
-                  { class: "row" },
+                  { class: "row key-row" },
                   h("span", { class: "sub" }, "正在用官方 API Key / 订阅令牌"),
                   h("span", { class: "spacer" }),
-                  loginMenu("换个方式", "btn quiet sm"),
                   h(
                     "button",
                     {
@@ -882,46 +883,17 @@ window.registerHubAgents = ({
                       type: "button",
                       onclick: () =>
                         call("agents.relays.set", { claudeCode: null }).then(() => {
-                          toast(auth && auth.loggedIn ? "已改回账号登录" : "已停用 API Key");
+                          toast("已停用 Key，改回账号登录");
                           load();
                         }, failed),
                     },
                     "停用 Key",
                   ),
                 )
-              : auth && auth.loggedIn
-                ? h(
-                    "div",
-                    { class: "row" },
-                    h(
-                      "span",
-                      { class: "sub" },
-                      `已登录 ${auth.email || ""}${auth.plan ? ` · ${auth.plan}` : ""}`,
-                    ),
-                    h("span", { class: "spacer" }),
-                    loginMenu("换个方式", "btn quiet sm"),
-                    h(
-                      "button",
-                      {
-                        class: "btn quiet sm",
-                        type: "button",
-                        onclick: () =>
-                          call("agents.claudeCode.logout").then(() => {
-                            toast("已退出登录");
-                            load();
-                          }, failed),
-                      },
-                      "退出登录",
-                    ),
-                  )
-                : h(
-                    "div",
-                    { class: "row" },
-                    h("span", { class: "sub" }, "还没登录"),
-                    h("span", { class: "spacer" }),
-                    loginMenu("登录官方账号"),
-                  ),
+              : null,
+            panel,
           );
+          drawClaudeAccounts(panel);
           return;
         }
         put(
@@ -944,18 +916,230 @@ window.registerHubAgents = ({
         );
       }
 
+      // Claude Code's sign-in replaces the live login, so the current one is saved first and the
+      // new one is saved as soon as it appears: the person ends up with both, one tap apart.
       async function login(kind) {
+        const before = await call("agents.claudeCode.status").catch(() => null);
+        if (before && before.loggedIn)
+          await call("agents.claudeAccounts.importCurrent", {}).catch(() => undefined);
+        const previous = before && before.loggedIn ? before.email || "" : null;
         const result = await call("agents.claudeCode.login", { mode: kind }).catch(() => null);
-        toast(result && result.started ? "已在浏览器打开登录页" : "没能开始登录");
+        toast(
+          result && result.started
+            ? "已在浏览器打开登录页，用要添加的 Claude 账号登录"
+            : "没能开始登录",
+        );
+        if (!result || !result.started) return;
+        const startedAt = Date.now();
         const timer = setInterval(async () => {
-          const status = await call("agents.claudeCode.status").catch(() => null);
-          if (status && status.loggedIn) {
+          if (Date.now() - startedAt > 5 * 60_000) {
             clearInterval(timer);
             pollers.delete(timer);
-            if (alive()) load();
+            return;
           }
+          const status = await call("agents.claudeCode.status").catch(() => null);
+          if (!status || !status.loggedIn) return;
+          if (previous !== null && (status.email || "") === previous) return;
+          clearInterval(timer);
+          pollers.delete(timer);
+          await call("agents.claudeAccounts.importCurrent", {}).then(
+            () => toast(`已添加 ${status.email || "Claude 账号"}，并切换到它`),
+            () => toast("已登录，但没能保存这个账号，可以点「保存当前登录」"),
+          );
+          if (alive()) load();
         }, 3000);
         pollers.add(timer);
+      }
+
+      // Saved Claude accounts, like the Codex accounts page: quota, switch, remove.
+      let claudeUsageRead = false;
+      async function drawClaudeAccounts(panel) {
+        const listed = await call("agents.claudeAccounts.list").catch(() => null);
+        if (!alive()) return;
+        const accounts = (listed && listed.accounts) || [];
+        const rows = accounts.map((account) => claudeAccountRow(account, panel));
+        const unsaved =
+          listed && listed.liveUnsaved
+            ? h(
+                "div",
+                { class: "claude-account current" },
+                h(
+                  "div",
+                  { class: "row" },
+                  h(
+                    "div",
+                    { class: "who" },
+                    h("b", null, (listed.live && listed.live.email) || "当前 Claude 登录"),
+                    h(
+                      "span",
+                      null,
+                      [
+                        listed.live && listed.live.plan ? listed.live.plan.toUpperCase() : null,
+                        "还没保存",
+                      ]
+                        .filter(Boolean)
+                        .join(" · "),
+                    ),
+                  ),
+                  h("span", { class: "spacer" }),
+                  h(
+                    "button",
+                    {
+                      class: "btn paper sm",
+                      type: "button",
+                      onclick: () =>
+                        call("agents.claudeAccounts.importCurrent", {}).then(() => {
+                          toast("已保存，之后可以一键切换");
+                          drawClaudeAccounts(panel);
+                        }, loginFailedClaude),
+                    },
+                    "保存",
+                  ),
+                ),
+              )
+            : null;
+        put(
+          panel,
+          h(
+            "div",
+            { class: "row" },
+            h("span", { class: "label" }, `Claude 账号 · ${accounts.length}`),
+            h("span", { class: "spacer" }),
+            loginMenu("+ 添加账号", "btn paper sm"),
+          ),
+          unsaved,
+          rows.length
+            ? rows
+            : unsaved
+              ? null
+              : h(
+                  "p",
+                  { class: "sub" },
+                  "还没登录 Claude 账号。点“添加账号”用 Claude Pro / Max 账号登录，可以添加多个，一键切换。",
+                ),
+        );
+        if (!claudeUsageRead && accounts.length) {
+          claudeUsageRead = true;
+          call("agents.claudeAccounts.usageAll").then(
+            () => alive() && drawClaudeAccounts(panel),
+            () => undefined,
+          );
+        }
+      }
+
+      const loginFailedClaude = (error) =>
+        toast(
+          error && error.message === "CLAUDE_IDENTITY_UNKNOWN"
+            ? "还读不到这个账号是谁：在 Codex 里用一次 Claude Code 后再保存"
+            : explain(error && error.message),
+        );
+
+      function claudeAccountRow(account, panel) {
+        const usage = account.lastUsage;
+        const bars =
+          usage && usage.windows && usage.windows.length
+            ? h(
+                "div",
+                { class: "claude-quota" },
+                usage.windows.map((w) => {
+                  const left = Math.max(0, Math.round(100 - w.usedPercent));
+                  return h(
+                    "div",
+                    { class: `claude-quota-item ${left <= 15 ? "low" : ""}` },
+                    h(
+                      "div",
+                      { class: "row" },
+                      h("span", null, w.kind === "primary" ? "5 小时" : "每周"),
+                      h("span", { class: "spacer" }),
+                      h("b", { class: "tabular" }, `剩 ${left}%`),
+                    ),
+                    h("div", { class: "bar" }, h("i", { style: { width: `${left}%` } })),
+                    w.resetsAt
+                      ? h("small", null, `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}`)
+                      : null,
+                  );
+                }),
+              )
+            : h(
+                "p",
+                { class: "sub" },
+                account.current ? "额度读取中…" : "额度：切换到这个账号后读取",
+              );
+        let confirmRemove = false;
+        const remove = h(
+          "button",
+          {
+            class: "btn quiet sm",
+            type: "button",
+            onclick: () => {
+              if (!confirmRemove) {
+                confirmRemove = true;
+                remove.textContent = "确认删除";
+                setTimeout(() => {
+                  confirmRemove = false;
+                  remove.textContent = "删除";
+                }, 3000);
+                return;
+              }
+              call("agents.claudeAccounts.remove", { id: account.id }).then(() => {
+                toast("已删除保存的账号（当前登录不受影响）");
+                drawClaudeAccounts(panel);
+              }, failed);
+            },
+          },
+          "删除",
+        );
+        return h(
+          "div",
+          { class: `claude-account ${account.current ? "current" : ""}` },
+          h(
+            "div",
+            { class: "row" },
+            h(
+              "div",
+              { class: "who" },
+              h("b", null, account.alias),
+              h(
+                "span",
+                null,
+                [
+                  account.email && account.email !== account.alias ? account.email : null,
+                  account.plan ? account.plan.toUpperCase() : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || " ",
+              ),
+            ),
+            h("span", { class: "spacer" }),
+            account.current ? h("span", { class: "tag ok" }, "使用中") : null,
+          ),
+          bars,
+          h(
+            "div",
+            { class: "row" },
+            account.current
+              ? null
+              : h(
+                  "button",
+                  {
+                    class: "btn paper sm",
+                    type: "button",
+                    onclick: () =>
+                      call("agents.claudeAccounts.switch", { id: account.id }).then((r) => {
+                        toast(
+                          r && r.switched
+                            ? `已切换到 ${account.alias}，Codex 里新开的 Claude Code 对话就用它，不用重启`
+                            : "已经是这个账号",
+                        );
+                        load();
+                      }, failed),
+                  },
+                  "切换到这个",
+                ),
+            h("span", { class: "spacer" }),
+            remove,
+          ),
+        );
       }
 
       async function drawRelay() {

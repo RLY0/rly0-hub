@@ -3252,3 +3252,43 @@ select.input,
   line-height: 1.55;
   color: var(--paper-100);
 }
+
+/* Claude Code accounts (official mode on the Claude Code card). */
+.claude-accounts {
+  display: grid;
+  gap: 10px;
+}
+.claude-account {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.claude-account.current {
+  box-shadow: inset 0 0 0 1px rgba(91, 208, 138, 0.35);
+}
+.claude-quota {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.claude-quota-item {
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted-dark);
+}
+.claude-quota-item b {
+  color: var(--paper-50);
+}
+.claude-quota-item .bar i {
+  background: var(--ok);
+}
+.claude-quota-item.low .bar i {
+  background: var(--warn);
+}
+.claude-quota-item small {
+  font-size: 11.5px;
+}

@@ -362,6 +362,22 @@ export class Rly0CoreBridge {
     return { available: true, ...response.result };
   }
 
+  /**
+   * Claude Code's saved accounts (`claude/*` in rly0-core): list, save the live login, switch,
+   * rename, remove and usage. Results carry identities and usage only, never tokens.
+   */
+  async claudeAccounts(
+    method: "list" | "importCurrent" | "switch" | "rename" | "remove" | "usage" | "usageAll",
+    params: Record<string, unknown> = {},
+  ): Promise<Record<string, unknown> | null> {
+    const response = await this.#client.request<Record<string, unknown>>(
+      `claude/${method}`,
+      params,
+      method.startsWith("usage") ? { timeoutMs: 60_000 } : {},
+    );
+    return response.available ? response.result : null;
+  }
+
   async rename(params: Rly0AccountsRenameParams): Promise<Rly0AccountsRenameResult> {
     const response = await this.#client.request<{ ok: boolean }>("accounts/rename", params);
     if (!response.available) return { available: false, ok: false };

@@ -156,6 +156,10 @@ function openInBrowser(url: string): void {
  * validated parameter shape; secrets (relay keys, sign-ins) stay inside rly0-core and the agents'
  * own CLIs.
  */
+function codedHubError(code: string): Error {
+  return Object.assign(new Error(code), { code: -32000 });
+}
+
 export class Rly0HubService {
   readonly #options: Rly0HubServiceOptions;
   readonly #core: Rly0CoreBridge;
@@ -673,6 +677,52 @@ export class Rly0HubService {
           report: await requestAgentCheck(resolveRly0DataDir(this.#options.environment)),
           codexRunning: true,
         };
+      }),
+      // Claude Code's own accounts, kept like Codex accounts (rly0-core encrypts them). Switching
+      // takes effect for new Claude Code conversations; no Codex restart.
+      "agents.claudeAccounts.list": route(empty, async () => {
+        const result = await core.claudeAccounts("list");
+        if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+        return result;
+      }),
+      "agents.claudeAccounts.importCurrent": route(
+        z.object({ alias: z.string().trim().min(1).max(40).optional() }).strict(),
+        async (p) => {
+          const result = await core.claudeAccounts(
+            "importCurrent",
+            p.alias ? { alias: p.alias } : {},
+          );
+          if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+          return result;
+        },
+      ),
+      "agents.claudeAccounts.switch": route(
+        z.object({ id: z.string().regex(/^[a-f0-9]{12}$/u) }).strict(),
+        async (p) => {
+          const result = await core.claudeAccounts("switch", { id: p.id });
+          if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+          // An account login means the official account, not a relay or API key.
+          if (result.switched) await this.#agentRelays.set({ claudeCode: null });
+          return result;
+        },
+      ),
+      "agents.claudeAccounts.rename": route(
+        z
+          .object({
+            id: z.string().regex(/^[a-f0-9]{12}$/u),
+            alias: z.string().trim().min(1).max(40),
+          })
+          .strict(),
+        async (p) => (await core.claudeAccounts("rename", p)) ?? { ok: false },
+      ),
+      "agents.claudeAccounts.remove": route(
+        z.object({ id: z.string().regex(/^[a-f0-9]{12}$/u) }).strict(),
+        async (p) => (await core.claudeAccounts("remove", p)) ?? { ok: false },
+      ),
+      "agents.claudeAccounts.usageAll": route(empty, async () => {
+        const result = await core.claudeAccounts("usageAll");
+        if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+        return result;
       }),
       "agents.relays.get": route(empty, () => this.#agentRelays.get()),
       "agents.relays.setAgent": route(

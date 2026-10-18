@@ -1496,6 +1496,41 @@
       },
       "proxy.status": { available: true, running: true, port: 25917 },
       "codex.status": { running: false, canOpen: true },
+      "agents.claudeAccounts.list": {
+        accounts: [
+          {
+            id: "0a1b2c3d4e5f",
+            alias: "me@example.com",
+            email: "me@example.com",
+            plan: "max",
+            current: true,
+            lastUsage: {
+              windows: [
+                {
+                  kind: "primary",
+                  usedPercent: 42,
+                  resetsAt: Math.floor(Date.now() / 1000) + 9000,
+                },
+                {
+                  kind: "secondary",
+                  usedPercent: 88,
+                  resetsAt: Math.floor(Date.now() / 1000) + 400000,
+                },
+              ],
+            },
+          },
+          {
+            id: "abcdefabcdef",
+            alias: "工作号",
+            email: "work@example.com",
+            plan: "pro",
+            current: false,
+          },
+        ],
+        liveLoggedIn: true,
+        liveUnsaved: false,
+      },
+      "agents.claudeAccounts.usageAll": { results: [] },
       "relay.balance": { available: true, ok: true, balance: 86.4, unit: "USD", rate: 0.3 },
       "agents.claudeCode.status": { installed: true, loggedIn: false },
       "agents.relays.get": { claudeCode: "aaaaaaaaaaaa" },
