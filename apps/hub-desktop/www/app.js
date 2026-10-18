@@ -865,16 +865,24 @@
                   class: "btn paper sm",
                   type: "button",
                   onclick: async () => {
-                    const r = await call("accounts.switch", { id: account.id }).catch(() => null);
+                    // Switch, then reload Codex's backend in place (no window restart).
+                    toast("正在切换…");
+                    const r = await call("accounts.switchAndRestart", { id: account.id }).catch(
+                      () => null,
+                    );
                     if (!r || !r.switched) {
                       toast("切换没有成功");
                       return;
                     }
-                    const codex = await call("codex.status").catch(() => null);
-                    if (codex && codex.running) {
-                      toast("已切换，正在重启 Codex 生效");
-                      call("codex.restart").catch(failed);
-                    } else toast("已切换，下次打开 Codex 生效");
+                    toast(
+                      r.reloaded === "reloaded"
+                        ? "已切换，Codex 不用重启，接着发消息就是新账号"
+                        : r.reloaded === "deferred"
+                          ? "已切换，Codex 正在回复，回复完自动换成新账号"
+                          : r.restarted
+                            ? "已切换，Codex 正在重启"
+                            : "已切换，下次打开 Codex 生效",
+                    );
                     load();
                   },
                 },

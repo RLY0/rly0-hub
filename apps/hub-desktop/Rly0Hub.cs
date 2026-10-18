@@ -155,9 +155,10 @@ internal sealed class HubContext : ApplicationContext {
             else if (balloonAction == "open") ShowPanel();
             else if (balloonAction == "switch" && balloonAccount != null)
                 SendInternal("accounts.switchAndRestart", new Dictionary<string, object> { { "id", balloonAccount } }, delegate (Dictionary<string, object> r) {
-                    object switched;
+                    object switched, reloaded;
                     bool ok = r != null && r.TryGetValue("switched", out switched) && switched is bool && (bool)switched;
-                    tray.ShowBalloonTip(4000, "RLY/0 Hub", ok ? "已切换账号，Codex 正在重启。" : "切换没有成功，请在 Hub 的账号页重试。", ToolTipIcon.None);
+                    bool hot = ok && r.TryGetValue("reloaded", out reloaded) && reloaded is string;
+                    tray.ShowBalloonTip(4000, "RLY/0 Hub", !ok ? "切换没有成功，请在 Hub 的账号页重试。" : hot ? "已切换账号，Codex 不用重启。" : "已切换账号，Codex 正在重启。", ToolTipIcon.None);
                 });
             balloonAction = null;
             balloonAccount = null;

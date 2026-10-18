@@ -200,6 +200,8 @@ import { createHash, randomUUID } from "node:crypto";
 import os from "node:os";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+
+import { BackendReloadChannel } from "./rly0-maintenance/backend-reload-channel.js";
 import type { Readable, Writable } from "node:stream";
 
 import type {
@@ -769,6 +771,8 @@ export class AppServerHost {
   #relayRefresh: Promise<void> | null = null;
   #relayWatchTimer: ReturnType<typeof setInterval> | undefined;
   #relaySettingsStamp = "";
+  /** The standalone Hub's requests to reload the official backend after an account switch. */
+  #backendReloadChannel: BackendReloadChannel | undefined;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
@@ -1107,7 +1111,14 @@ export class AppServerHost {
   /** Polls the Hub's agent-relay file; a change is applied to the next session at once. */
   #watchRelaySettings(): void {
     if (this.#relayWatchTimer) return;
+    this.#backendReloadChannel ??= new BackendReloadChannel(
+      path.dirname(this.#rly0AgentRelays.path()),
+    );
+    const channel = this.#backendReloadChannel;
     const check = (): void => {
+      void channel
+        .poll(async () => (await this.reloadOfficialBackend()).status)
+        .catch((error: unknown) => this.#diagnose(error));
       void fs
         .stat(this.#rly0AgentRelays.path())
         .then((stat) => `${stat.mtimeMs}:${stat.size}`)
@@ -1196,6 +1207,7 @@ export class AppServerHost {
   }
 
   async run(): Promise<number> {
+    this.#watchRelaySettings();
     try {
       await this.#repository.initialize();
     } catch (error) {

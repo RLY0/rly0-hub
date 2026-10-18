@@ -77,6 +77,7 @@ describe("RLY/0 Hub service", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core: fakeCore([]).core,
     });
     await expect(service.handle("constructor", {})).rejects.toThrow("METHOD_NOT_FOUND");
@@ -95,6 +96,7 @@ describe("RLY/0 Hub service", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core,
     });
     expect(await service.handle("balance.get", {})).toMatchObject({
@@ -108,6 +110,7 @@ describe("RLY/0 Hub service", () => {
     const none = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core: fakeCore([relay("aaaaaaaaaaaa", "https://other.example")]).core,
     });
     expect(await none.handle("balance.get", {})).toEqual({ configured: false });
@@ -119,6 +122,7 @@ describe("RLY/0 Hub service", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core: fakeCore([]).core,
       openUrl: (url) => opened.push(url),
     });
@@ -144,6 +148,7 @@ describe("RLY/0 Hub service", () => {
       new Rly0HubService({
         environment: { CODEXHOST_DATA_DIR: root, CODEX_HOME: path.join(root, "codex") },
         installRoot: root,
+        backendReloadTimeoutMs: 50,
         core: fakeCore([]).core,
         appearance,
       });
@@ -170,6 +175,7 @@ describe("Codex control from the Hub", () => {
     const control = new Rly0CodexControl({
       environment: { LOCALAPPDATA: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       platform: "win32",
       isAlive: (pid) => pid === 4242,
       fileExists: () => true,
@@ -199,6 +205,7 @@ describe("Codex control from the Hub", () => {
     const control = new Rly0CodexControl({
       environment: {},
       installRoot: "C:\\Hub",
+      backendReloadTimeoutMs: 50,
       platform: "win32",
       fileExists: () => true,
       startDetached: (file) => started.push(file),
@@ -272,6 +279,7 @@ describe("Hub tray notices", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core: fakeCore([]).core,
     });
     expect(await service.handle("hub.state", {})).toEqual({ onboarded: false });
@@ -316,6 +324,7 @@ describe("零号中转 first", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core: fakeCore([
         relay("aaaaaaaaaaaa", "https://other.example/v1"),
         relay("bbbbbbbbbbbb", "https://api.rly0.com/v1"),
@@ -366,6 +375,7 @@ describe("AI 助手 catalog and relay logos", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core: fakeCore([]).core,
       openUrl: (url) => opened.push(url),
     });
@@ -477,6 +487,7 @@ describe("Auto-switch before the Codex quota runs out", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core,
       codex: codex as never,
     });
@@ -509,6 +520,7 @@ describe("Auto-switch before the Codex quota runs out", () => {
     const auto = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: autoRoot },
       installRoot: autoRoot,
+      backendReloadTimeoutMs: 50,
       core,
       codex: codex as never,
     });
@@ -545,6 +557,7 @@ describe("No-account mode from the Hub", () => {
     const service = new Rly0HubService({
       environment: { CODEXHOST_DATA_DIR: root, CODEX_HOME: path.join(root, "codex") },
       installRoot: root,
+      backendReloadTimeoutMs: 50,
       core,
     });
     expect(await service.handle("relay.noAccountStatus", {})).toMatchObject({

@@ -31,7 +31,9 @@ import { ClaudeCodeAuth } from "../rly0-agents/claude-code-auth.js";
 import { Rly0AppearanceManager } from "../rly0-appearance/index.js";
 import { WindowsRegistryAutostart } from "../rly0-appearance/windows-autostart.js";
 import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
+import { requestBackendReload } from "../rly0-maintenance/backend-reload-channel.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
+import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { RLY0_RELAY_AGENTS, Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
@@ -84,6 +86,8 @@ type Handler = (params: unknown) => Promise<unknown>;
 export interface Rly0HubServiceOptions {
   readonly environment: NodeJS.ProcessEnv;
   readonly installRoot: string;
+  /** How long an account switch waits for Codex to reload its backend in place. */
+  readonly backendReloadTimeoutMs?: number;
   /** What "开机自启" registers; omitted when this build has no Hub executable. */
   readonly autostartCommand?: string;
   readonly platform?: NodeJS.Platform;
@@ -342,11 +346,25 @@ export class Rly0HubService {
   }
 
   /** Switch the live Codex login and restart Codex when it is running so the switch takes effect. */
-  async #switchAndRestart(id: string): Promise<{ switched: boolean; restarted: boolean }> {
+  /**
+   * Switches the saved account. When Codex is open, its official backend is reloaded in place
+   * (the window and conversations stay; a running reply finishes first). Only when the Codex side
+   * does not answer (an older build) is Codex restarted as before.
+   */
+  async #switchAndRestart(
+    id: string,
+  ): Promise<{ switched: boolean; restarted: boolean; reloaded?: "reloaded" | "deferred" }> {
     const result = await this.#core.switchAccount({ id });
     if (!result.available || !result.switched) return { switched: false, restarted: false };
     const codex = await this.#codex.status();
-    const restarted = codex.running ? (await this.#codex.restart()).ok : false;
+    if (!codex.running) return { switched: true, restarted: false };
+    const reload = await requestBackendReload(resolveRly0DataDir(this.#options.environment), {
+      timeoutMs: this.#options.backendReloadTimeoutMs ?? 15_000,
+    }).catch(() => null);
+    if (reload === "reloaded" || reload === "deferred") {
+      return { switched: true, restarted: false, reloaded: reload };
+    }
+    const restarted = (await this.#codex.restart()).ok;
     return { switched: true, restarted };
   }
 
