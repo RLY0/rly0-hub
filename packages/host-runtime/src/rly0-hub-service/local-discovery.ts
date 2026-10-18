@@ -17,6 +17,9 @@ import { RLY0_OFFICIAL_VENDORS, type Rly0OfficialVendor } from "../rly0-relay/of
  *   `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` + `ANTHROPIC_BASE_URL`, `CLAUDE_CODE_OAUTH_TOKEN`,
  *   `OPENAI_API_KEY` + `OPENAI_BASE_URL`, `GEMINI_API_KEY` / `GOOGLE_API_KEY`, `XAI_API_KEY`;
  * - Claude Code's `settings.json` `env` block (where cc-switch and most guides put a relay);
+ * - Claude Code's own stored login when it is a long-lived `claude setup-token` token: newer
+ *   versions keep it in Windows Credential Manager (`Claude Code-credentials…`), older ones in
+ *   `~/.claude/.credentials.json`;
  * - Codex's `config.toml` model providers and the API key in `auth.json`;
  * - `~/.gemini/.env` and Grok CLI's `~/.grok/user-settings.json`.
  *
@@ -51,6 +54,8 @@ export interface LocalDiscoveryOptions {
   readonly platform?: NodeJS.Platform;
   /** User environment variables saved in the registry; read with `reg.exe` when omitted. */
   readonly userEnvironment?: () => Promise<Record<string, string>>;
+  /** Claude Code's stored credentials (JSON); read from Credential Manager when omitted. */
+  readonly claudeCredentials?: () => Promise<string[]>;
 }
 
 const LOOPBACK = /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/iu;
@@ -146,6 +151,81 @@ function readRegistryEnvironment(): Promise<Record<string, string>> {
   });
 }
 
+/**
+ * Claude Code's entries in Windows Credential Manager (`Claude Code-credentials`, plus a hash
+ * suffix for a non-default config folder), read with CredEnumerate. Returns the stored JSON.
+ */
+function readClaudeCredentialManager(): Promise<string[]> {
+  const script = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class Rly0Cred {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  public struct CREDENTIAL {
+    public int Flags; public int Type; public string TargetName; public string Comment;
+    public long LastWritten; public int CredentialBlobSize; public IntPtr CredentialBlob;
+    public int Persist; public int AttributeCount; public IntPtr Attributes;
+    public string TargetAlias; public string UserName;
+  }
+  [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern bool CredEnumerate(string filter, int flags, out int count, out IntPtr creds);
+  [DllImport("advapi32.dll")] public static extern void CredFree(IntPtr buffer);
+  public static string[] Read(string filter) {
+    int count; IntPtr list;
+    if (!CredEnumerate(filter, 0, out count, out list)) return new string[0];
+    var result = new string[count];
+    for (int i = 0; i < count; i++) {
+      var item = (CREDENTIAL)Marshal.PtrToStructure(Marshal.ReadIntPtr(list, i * IntPtr.Size), typeof(CREDENTIAL));
+      var bytes = new byte[item.CredentialBlobSize];
+      if (item.CredentialBlobSize > 0) Marshal.Copy(item.CredentialBlob, bytes, 0, item.CredentialBlobSize);
+      result[i] = Convert.ToBase64String(bytes);
+    }
+    CredFree(list);
+    return result;
+  }
+}
+'@
+[Rly0Cred]::Read('Claude Code-credentials*') | ForEach-Object { Write-Output $_ }
+`;
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { windowsHide: true, timeout: 20_000, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        if (error) return resolve([]);
+        const out: string[] = [];
+        for (const line of String(stdout).split(/\r?\n/u)) {
+          const b64 = line.trim();
+          if (!/^[A-Za-z0-9+/=]{8,}$/u.test(b64)) continue;
+          const bytes = Buffer.from(b64, "base64");
+          // Written as UTF-8 by Claude Code; UTF-16 when set with cmdkey or other tools.
+          const text = bytes.includes(0) ? bytes.toString("utf16le") : bytes.toString("utf8");
+          out.push(text.replace(/\0+$/u, ""));
+        }
+        resolve(out);
+      },
+    );
+  });
+}
+
+/** A stored Claude Code login that is a long-lived `setup-token` token (no refresh token). */
+function setupTokenOf(json: string): string | null {
+  try {
+    const oauth = (JSON.parse(json.replace(/^\uFEFF/u, "")) as Record<string, unknown>)
+      .claudeAiOauth as Record<string, unknown> | undefined;
+    const token = oauth?.accessToken;
+    if (typeof token !== "string" || !token.startsWith("sk-ant-oat")) return null;
+    // A browser sign-in rotates its token with a refresh token; that one is an account login,
+    // which the Claude account list handles, not a key to keep.
+    return typeof oauth?.refreshToken === "string" && oauth.refreshToken ? null : token;
+  } catch {
+    return null;
+  }
+}
+
 export class Rly0LocalDiscovery {
   readonly #options: LocalDiscoveryOptions;
 
@@ -206,6 +286,19 @@ export class Rly0LocalDiscovery {
           true,
         );
     }
+
+    // Claude Code's stored login, when it is a setup-token token.
+    const stored = await (
+      this.#options.claudeCredentials ?? (windows ? readClaudeCredentialManager : async () => [])
+    )().catch(() => []);
+    for (const json of stored) {
+      const token = setupTokenOf(json);
+      if (token)
+        add(official("anthropic", token, "Windows 凭据管理器（Claude Code 登录）", "claude"));
+    }
+    const credentialsFile = await readText(path.join(claudeDir, ".credentials.json"));
+    const fileToken = credentialsFile ? setupTokenOf(credentialsFile) : null;
+    if (fileToken) add(official("anthropic", fileToken, "~/.claude/.credentials.json", "claude"));
 
     await this.#codex(add);
 

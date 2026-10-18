@@ -14,6 +14,8 @@ const RELAY = "sk-relay-" + "C".repeat(40) + "9999";
 const CODEX_RELAY = "sk-" + "D".repeat(40) + "7777";
 const GEMINI = "AIza" + "E".repeat(35);
 const XAI = "xai-" + "F".repeat(40);
+const SETUP = "sk-ant-oat01-" + "G".repeat(60) + "SETU";
+const BROWSER = "sk-ant-oat01-" + "H".repeat(60) + "BROW";
 
 let root: string;
 afterEach(async () => {
@@ -67,6 +69,11 @@ describe("finding what this computer already uses", () => {
       environment: environment(dir),
       platform: "win32",
       userEnvironment: async () => ({ ANTHROPIC_API_KEY: ANT }),
+      // Claude Code's stored logins: a setup-token token is taken, a browser sign-in is not.
+      claudeCredentials: async () => [
+        JSON.stringify({ claudeAiOauth: { accessToken: SETUP, expiresAt: 1 } }),
+        JSON.stringify({ claudeAiOauth: { accessToken: BROWSER, refreshToken: "sk-ant-ort01-x" } }),
+      ],
     });
     const items = await discovery.scan();
     const summary = items.map((i) => [i.kind, i.vendor, i.baseUrl, i.keyMask, i.agent]);
@@ -78,12 +85,14 @@ describe("finding what this computer already uses", () => {
         ["relay", "openai", "https://api.shuaiapi.example/v1", "····7777", "codex"],
         ["officialKey", "google", null, `····${GEMINI.slice(-4)}`, "gemini"],
         ["officialKey", "xai", null, `····${XAI.slice(-4)}`, "grok"],
+        ["officialKey", "anthropic", null, "····SETU", "claude"],
       ]),
     );
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(7);
+    expect(JSON.stringify(items)).not.toContain("BROW");
     expect(items.find((i) => i.kind === "relay" && i.agent === "codex")?.model).toBe("gpt-5.5");
     // The masked list never carries a value.
-    for (const secret of [OAT, ANT, RELAY, CODEX_RELAY, GEMINI, XAI])
+    for (const secret of [OAT, ANT, RELAY, CODEX_RELAY, GEMINI, XAI, SETUP])
       expect(JSON.stringify(items)).not.toContain(secret);
   });
 
