@@ -3570,13 +3570,47 @@ select.input,
     opacity: 0.7;
   }
 }
-@media (max-width: 860px) {
+/* Narrow window: 阿零 keeps the left column across both rows; the text and then the balance
+   with its button stack beside it, so the banner stays compact. */
+@media (max-width: 1000px) {
   .m.promo {
     grid-template-columns: 150px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    align-content: center;
+    row-gap: 14px;
+    min-height: 0;
+    padding: 22px 28px 22px 0;
+  }
+  .promo .mascot-stage {
+    grid-row: 1 / span 2;
+    min-height: 180px;
+  }
+  .promo .promo-text {
+    align-self: end;
   }
   .promo .promo-side {
-    grid-column: 1 / -1;
-    padding: 0 0 24px 24px;
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px 18px;
+    padding: 0;
+  }
+  .promo .promo-side .btn.promo-cta {
+    width: auto;
+    min-width: 120px;
+    margin: 0;
+  }
+}
+@media (max-width: 640px) {
+  .m.promo {
+    grid-template-columns: 110px minmax(0, 1fr);
+  }
+  .promo .mascot-stage {
+    min-height: 150px;
   }
 }
 

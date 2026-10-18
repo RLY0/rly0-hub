@@ -6,6 +6,8 @@
 
 [Download installer](https://github.com/RLY0/rly0-hub/releases/latest) · [中文](README.md)
 
+<sub>The installer is not code-signed yet. On first run Windows SmartScreen may say “Windows protected your PC / Unknown publisher”: click **More info → Run anyway**. Each release lists the installer's SHA-256 so you can verify the file.</sub>
+
 <img src="docs/imgs/hub/home.png" alt="RLY/0 Hub home" width="880">
 
 </div>

@@ -6,6 +6,8 @@
 
 [下载安装包](https://github.com/RLY0/rly0-hub/releases/latest) · [English](README.en.md)
 
+<sub>安装包暂未做代码签名，首次运行时 Windows 可能提示“已保护你的电脑 / 未知发布者”，点 **更多信息 → 仍要运行** 即可。每个版本的 SHA-256 写在 Release 说明里，可用来核对文件。</sub>
+
 <img src="docs/imgs/hub/home.png" alt="RLY/0 Hub 首页" width="880">
 
 </div>

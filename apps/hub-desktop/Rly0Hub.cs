@@ -657,16 +657,58 @@ internal sealed class PanelWindow : Form {
         Icon = icon;
         float scale;
         using (var g = Graphics.FromHwnd(IntPtr.Zero)) scale = Math.Max(1f, g.DpiX / 96f);
-        var work = Screen.PrimaryScreen.WorkingArea;
-        Size = new Size(Math.Min((int)(1240 * scale), work.Width * 9 / 10), Math.Min((int)(820 * scale), work.Height * 9 / 10));
+        boundsFile = Path.Combine(Path.GetDirectoryName(webviewData), "hub-window.json");
+        // Open on the screen under the pointer, unless that one is too narrow (a portrait side
+        // monitor): then the primary screen, so the window never starts squeezed.
+        var screen = Screen.FromPoint(Cursor.Position);
+        if (screen.WorkingArea.Width < (int)(1100 * scale)) screen = Screen.PrimaryScreen;
+        var work = screen.WorkingArea;
         MinimumSize = new Size(Math.Min((int)(760 * scale), work.Width * 9 / 10), Math.Min((int)(560 * scale), work.Height * 9 / 10));
-        StartPosition = FormStartPosition.CenterScreen;
+        StartPosition = FormStartPosition.Manual;
+        var size = new Size(Math.Min((int)(1240 * scale), work.Width * 9 / 10), Math.Min((int)(820 * scale), work.Height * 9 / 10));
+        Bounds = new Rectangle(work.Left + (work.Width - size.Width) / 2, work.Top + (work.Height - size.Height) / 2, size.Width, size.Height);
+        LoadBounds();
+        FormClosing += delegate { SaveBounds(); };
         BackColor = Color.FromArgb(13, 13, 11);
         browser.DefaultBackgroundColor = Color.FromArgb(13, 13, 11);
         browser.Dock = DockStyle.Fill;
         Controls.Add(browser);
         Load += Initialize;
         FormClosed += delegate { browser.Dispose(); };
+    }
+
+    private readonly string boundsFile;
+    private bool startMaximized;
+
+    // Last size and place, when it still fits well on a connected screen.
+    private void LoadBounds() {
+        try {
+            if (!File.Exists(boundsFile)) return;
+            var saved = Program.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(boundsFile));
+            var rect = new Rectangle(Convert.ToInt32(saved["x"]), Convert.ToInt32(saved["y"]), Convert.ToInt32(saved["w"]), Convert.ToInt32(saved["h"]));
+            if (rect.Width < MinimumSize.Width || rect.Height < MinimumSize.Height) return;
+            foreach (var s in Screen.AllScreens) {
+                var overlap = Rectangle.Intersect(s.WorkingArea, rect);
+                if (overlap.Width * 10 >= rect.Width * 7 && overlap.Height * 10 >= rect.Height * 7) {
+                    Bounds = rect;
+                    startMaximized = saved.ContainsKey("max") && Convert.ToBoolean(saved["max"]);
+                    return;
+                }
+            }
+        } catch { }
+    }
+
+    private void SaveBounds() {
+        try {
+            if (WindowState == FormWindowState.Minimized) return;
+            var rect = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            File.WriteAllText(boundsFile, Program.Json.Serialize(new { x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height, max = WindowState == FormWindowState.Maximized }));
+        } catch { }
+    }
+
+    protected override void OnShown(EventArgs e) {
+        base.OnShown(e);
+        if (startMaximized) WindowState = FormWindowState.Maximized;
     }
 
     protected override void OnHandleCreated(EventArgs e) {
