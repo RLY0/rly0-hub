@@ -621,6 +621,7 @@
   };
   Object.assign(pageApi, window.registerHubResources(pageApi));
   window.registerHubSystem(pageApi);
+  Object.assign(pageApi, window.registerHubDiscovery(pageApi));
   window.registerHubAgents(pageApi);
   const relayModule = window.registerHubRelays(pageApi);
   pageApi.relayStrip = relayModule.relayStrip;
@@ -682,6 +683,7 @@
           ),
         ),
       ),
+      pageApi.discoveryBanner(alive, () => go("accounts", { tab: accountTab })),
       body,
     );
     if (accountTab === "claude") pageApi.agentAccounts.claude(body, alive);
@@ -2034,6 +2036,51 @@
         ],
       },
       "hub.state": { onboarded: !/[?&]wizard/.test(location.search) },
+      "discovery.scan": {
+        coreAvailable: true,
+        items: [
+          {
+            id: "0123456789abcdef",
+            kind: "officialKey",
+            vendor: "anthropic",
+            name: "Claude 订阅令牌",
+            baseUrl: null,
+            keyMask: "····QwAA",
+            source: "环境变量 CLAUDE_CODE_OAUTH_TOKEN",
+            agent: "claude",
+            model: null,
+            state: "new",
+          },
+          {
+            id: "1123456789abcdef",
+            kind: "relay",
+            vendor: "openai",
+            name: "api.shuaiapi.com",
+            baseUrl: "https://api.shuaiapi.com/v1",
+            keyMask: "····7777",
+            source: "~/.codex/config.toml（custom）",
+            agent: "codex",
+            model: "gpt-5.5",
+            state: "new",
+          },
+          {
+            id: "2123456789abcdef",
+            kind: "relay",
+            vendor: "anthropic",
+            name: "relay.example.com",
+            baseUrl: "https://relay.example.com",
+            keyMask: "····9999",
+            source: "~/.claude/settings.json",
+            agent: "claude",
+            model: null,
+            state: "differs",
+          },
+        ],
+      },
+      "discovery.import": {
+        results: [{ id: "0123456789abcdef", ok: true }],
+        imported: 3,
+      },
     };
     setTimeout(
       () =>
