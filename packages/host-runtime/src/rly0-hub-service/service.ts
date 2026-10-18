@@ -55,6 +55,7 @@ import {
 } from "../rly0-relay/official-keys.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
+import { Rly0LocalDiscovery } from "./local-discovery.js";
 import { checkHubUpdate } from "./update-check.js";
 import { Rly0HubUpdater } from "./hub-updater.js";
 import type { UpdateCheckResult } from "@codexhost/shared-contracts";
@@ -188,6 +189,7 @@ export class Rly0HubService {
   readonly #backup: Rly0FirstRunBackup;
   readonly #agentRelays: Rly0AgentRelaySettings;
   readonly #officialModels: Rly0OfficialKeyModels;
+  readonly #discovery: Rly0LocalDiscovery;
   readonly #installer: AgentInstaller;
   readonly #isolation: ClaudeIsolation;
   readonly #claudeCode: ClaudeCodeAuth;
@@ -231,6 +233,10 @@ export class Rly0HubService {
     this.#backup = new Rly0FirstRunBackup({ environment });
     this.#agentRelays = new Rly0AgentRelaySettings({ environment });
     this.#officialModels = new Rly0OfficialKeyModels(environment);
+    this.#discovery = new Rly0LocalDiscovery({
+      environment,
+      ...(options.platform ? { platform: options.platform } : {}),
+    });
     this.#installer = new AgentInstaller({
       environment,
       ...(options.platform ? { platform: options.platform } : {}),
@@ -464,10 +470,87 @@ export class Rly0HubService {
     return { switched: true, restarted };
   }
 
+  /**
+   * Keys and relays already set up on this computer (see `local-discovery.ts`), each marked
+   * whether the Hub has it already. Values never leave this process.
+   */
+  async #discoveryScan(core: Rly0CoreBridge) {
+    const [items, relays] = await Promise.all([this.#discovery.scan(), core.listRelays()]);
+    const saved = relays.available ? relays.relays : [];
+    const last4 = (mask: string | null | undefined) => (mask ?? "").slice(-4);
+    const norm = (base: string) => base.toLowerCase().replace(/\/+$/u, "");
+    return {
+      coreAvailable: relays.available,
+      items: items.map((item) => {
+        const match = saved.find((relay) =>
+          item.kind === "officialKey"
+            ? officialVendorOf(relay) === item.vendor
+            : item.baseUrl !== null && norm(relay.baseUrl) === norm(item.baseUrl),
+        );
+        const state = !match
+          ? "new"
+          : match.hasKey && last4(match.keyMask) === last4(item.keyMask)
+            ? "saved"
+            : "differs";
+        return { ...item, state };
+      }),
+    };
+  }
+
+  async #discoveryImport(core: Rly0CoreBridge, ids: readonly string[]) {
+    const secrets = await this.#discovery.scanSecrets();
+    const relays = await core.listRelays();
+    if (!relays.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+    const results: { id: string; ok: boolean; error?: string }[] = [];
+    for (const id of ids) {
+      const item = secrets.find((entry) => entry.id === id);
+      if (!item) {
+        results.push({ id, ok: false, error: "DISCOVERY_ITEM_GONE" });
+        continue;
+      }
+      try {
+        if (item.kind === "officialKey") {
+          await this.#saveOfficialKey(core, item.vendor, item.secret, false);
+        } else if (item.baseUrl) {
+          const base = item.baseUrl.toLowerCase();
+          const existing = relays.relays.find(
+            (relay) => relay.baseUrl.toLowerCase().replace(/\/+$/u, "") === base,
+          );
+          if (existing) {
+            const updated = await core.updateRelay({ id: existing.id, apiKey: item.secret });
+            if (!updated.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+          } else {
+            // No models: Codex keeps going to this relay the way it did; routing models through
+            // the Hub is a choice made on the relay page.
+            const added = await core.addRelay({
+              name: item.name.slice(0, 40),
+              baseUrl: item.baseUrl,
+              apiKey: item.secret,
+              models: [],
+              enabled: true,
+            });
+            if (!added.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+          }
+        }
+        results.push({ id, ok: true });
+      } catch (error) {
+        const code =
+          error instanceof Error && /^[A-Z_]+$/u.test(error.message)
+            ? error.message
+            : "IMPORT_FAILED";
+        results.push({ id, ok: false, error: code });
+      }
+    }
+    await this.#ensureProxyForRelays().catch(() => undefined);
+    return { results, imported: results.filter((r) => r.ok).length };
+  }
+
   async #saveOfficialKey(
     core: Rly0CoreBridge,
     vendor: Rly0OfficialVendor,
     apiKey: string,
+    /** Make Claude Code use it now (typed in by hand); not when taken over from the computer. */
+    pin = true,
   ): Promise<Record<string, unknown>> {
     const spec = RLY0_OFFICIAL_VENDORS[vendor];
     const key = apiKey.trim();
@@ -499,7 +582,7 @@ export class Rly0HubService {
     const test = await core.testRelay({ id }).catch(() => null);
     const models = test && test.available && test.ok ? (test.models ?? []) : [];
     await this.#officialModels.set(vendor, models);
-    if (vendor === "anthropic") await this.#agentRelays.set({ claudeCode: id });
+    if (vendor === "anthropic" && pin) await this.#agentRelays.set({ claudeCode: id });
     await this.#ensureProxyForRelays().catch(() => undefined);
     return {
       ok: true,
@@ -890,6 +973,18 @@ export class Rly0HubService {
       }),
       // Official API keys of the four vendors (kept by rly0-core; models listed separately so
       // Codex's own requests never route to them).
+      "discovery.scan": route(empty, () => this.#discoveryScan(core)),
+      "discovery.import": route(
+        z
+          .object({
+            ids: z
+              .array(z.string().regex(/^[0-9a-f]{16}$/u))
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+        (p) => this.#discoveryImport(core, p.ids),
+      ),
       "agents.officialKeys.list": route(empty, async () => {
         const relays = await core.listRelays();
         const models = await this.#officialModels.read();

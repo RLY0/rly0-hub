@@ -4240,3 +4240,40 @@ select.input,
     justify-content: flex-start;
   }
 }
+
+/* ---------- Found on this computer: keys and relays the agents already use ---------- */
+.m.discover {
+  margin-bottom: 16px;
+  display: grid;
+  gap: 12px;
+}
+.m.discover[hidden] {
+  display: none;
+}
+.discover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.discover-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--well);
+}
+.discover-list input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+}
+.discover-list .who {
+  min-width: 0;
+}
+.discover-list .who span {
+  overflow-wrap: anywhere;
+}
