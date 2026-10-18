@@ -289,6 +289,113 @@
     .getElementById("star")
     .addEventListener("click", () => call("links.open", { target: "github" }).catch(failed));
 
+  /* ---------- Updates: checked in the background, shown as a dot on 设置 and a prompt ---------- */
+  let updateInfo = null;
+  let updatePromptShown = false;
+  const skippedVersion = () => {
+    try {
+      return localStorage.getItem("rly0.update.skip");
+    } catch {
+      return null;
+    }
+  };
+  function markUpdate() {
+    const available = Boolean(updateInfo && updateInfo.updateAvailable);
+    const rail = document.querySelector('.rail button[data-page="settings"]');
+    if (rail) {
+      rail.classList.toggle("has-update", available);
+      rail.title = available ? `有新版本 ${updateInfo.latestVersion}` : "";
+    }
+    document
+      .querySelectorAll(".settings-menu button")
+      .forEach((button) =>
+        button.classList.toggle("has-update", available && button.textContent === "更新"),
+      );
+  }
+  function showUpdatePrompt(force) {
+    if (!updateInfo || !updateInfo.updateAvailable) return;
+    if (!force && (updatePromptShown || skippedVersion() === updateInfo.latestVersion)) return;
+    updatePromptShown = true;
+    const ui = window.HubUI.dialog({
+      title: `发现新版本 ${updateInfo.latestVersion}`,
+      sub: `当前 ${updateInfo.currentVersion}，更新后功能和修复会立即生效`,
+    });
+    const notes = (updateInfo.releaseNotes || "").trim();
+    ui.body.append(
+      h(
+        "div",
+        { class: "update-hero" },
+        h("img", { src: "brand/rly0-ip-tight.svg", alt: "" }),
+        h(
+          "div",
+          { class: "who" },
+          h("b", null, "RLY/0 Hub 有更新了"),
+          h("span", null, `${updateInfo.currentVersion} → ${updateInfo.latestVersion}`),
+        ),
+      ),
+      notes
+        ? h(
+            "pre",
+            { class: "update-notes" },
+            notes.length > 1200 ? `${notes.slice(0, 1200)}…` : notes,
+          )
+        : h("p", { class: "sub" }, "这次更新的说明在发布页里。"),
+    );
+    ui.foot.append(
+      h(
+        "button",
+        {
+          class: "btn quiet",
+          type: "button",
+          onclick: () => {
+            try {
+              localStorage.setItem("rly0.update.skip", updateInfo.latestVersion);
+            } catch {
+              // Remembering the skip is a convenience only.
+            }
+            ui.close();
+          },
+        },
+        "跳过这个版本",
+      ),
+      h("span", { class: "spacer" }),
+      h("button", { class: "btn", type: "button", onclick: () => ui.close() }, "稍后"),
+      h(
+        "button",
+        {
+          class: "btn paper",
+          type: "button",
+          onclick: () => {
+            call("links.open", { target: "releases" }).then(
+              () => toast("已打开下载页：下载新版后解压覆盖到当前文件夹即可"),
+              failed,
+            );
+            ui.close();
+          },
+        },
+        "立即更新",
+      ),
+    );
+  }
+  async function checkUpdates(force) {
+    const result = await call("updates.status", force ? { force: true } : {}).catch(() => null);
+    if (!result || result.error) return result;
+    updateInfo = result;
+    markUpdate();
+    if (!document.hidden) showUpdatePrompt(false);
+    return result;
+  }
+  window.rly0Updates = {
+    check: checkUpdates,
+    prompt: () => showUpdatePrompt(true),
+    mark: markUpdate,
+  };
+  setTimeout(() => checkUpdates(false), 4000);
+  setInterval(() => checkUpdates(false), 30 * 60_000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && updateInfo && updateInfo.updateAvailable) showUpdatePrompt(false);
+  });
+
   /* ---------- Loading: 阿零 on a dark screen until the page's first answers arrive ---------- */
   const bootEl = document.getElementById("boot");
   let loadingSince = 0;
@@ -340,6 +447,7 @@
       ),
     );
     pageEl.append(h("div", { class: "settings-layout" }, menu, content));
+    if (window.rly0Updates) window.rly0Updates.mark();
     pages[section](content, alive, options);
   }
 
@@ -1549,6 +1657,21 @@
       },
       "proxy.status": { available: true, running: true, port: 25917 },
       "codex.status": { running: false, canOpen: true },
+      "updates.status": {
+        currentVersion: "0.10.2",
+        latestVersion: "0.11.0",
+        updateAvailable: true,
+        installation: null,
+        installationAvailable: false,
+        status: null,
+        releaseNotes: [
+          "· 首页阿零会眨眼、看鼠标了",
+          "· 后台自动检查更新",
+          "· 托盘菜单重新设计",
+        ].join(String.fromCharCode(10)),
+        releaseNotesUrl: null,
+        error: null,
+      },
       "agents.claudeAccounts.list": {
         accounts: [
           {

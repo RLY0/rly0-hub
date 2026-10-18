@@ -3408,3 +3408,235 @@ select.input,
   transform: translateX(2px);
   opacity: 0.9;
 }
+
+/* ---------- Banner v3: a big, living 阿零 on the left ---------- */
+.m.promo {
+  display: grid;
+  grid-template-columns: minmax(190px, 27%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+  min-height: 236px;
+  padding: 0 36px 0 0;
+}
+.promo .mascot-stage {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  min-height: 236px;
+  overflow: visible;
+}
+.promo .mascot-halo {
+  position: absolute;
+  left: 50%;
+  top: 54%;
+  width: 240px;
+  height: 240px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 236, 220, 0.34), rgba(255, 236, 220, 0) 66%);
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.promo .mascot-floor {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  width: 150px;
+  height: 18px;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(60, 10, 4, 0.55), rgba(60, 10, 4, 0) 70%);
+  pointer-events: none;
+}
+.mascot-art {
+  position: relative;
+  width: min(100%, 208px);
+  height: auto;
+  margin-bottom: 16px;
+  overflow: visible;
+  transform-origin: 50% 100%;
+  transform: translate(var(--lean-x, 0px), var(--lean-y, 0px)) rotate(var(--lean-r, 0deg));
+  transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  filter: drop-shadow(0 14px 22px rgba(70, 8, 0, 0.35));
+}
+.mascot-art .ip-eyes {
+  transform: translate(var(--eye-x, 0px), var(--eye-y, 0px));
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.mascot-art .ip-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    transform 0.25s ease,
+    opacity 0.15s ease;
+}
+.mascot-art.curious .ip-eye {
+  transform: scale(1.14);
+}
+.mascot-art .ip-happy {
+  opacity: 0;
+  fill: none;
+  stroke: #0d0d0b;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  transition: opacity 0.15s ease;
+}
+.mascot-art.happy .ip-eye {
+  opacity: 0;
+}
+.mascot-art.happy .ip-happy {
+  opacity: 1;
+}
+.promo .px-burst {
+  left: 50%;
+  top: 46%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mascot-art {
+    animation: ip-breathe 3.8s ease-in-out infinite;
+  }
+  .mascot-art.blink .ip-eye {
+    animation: ip-blink 0.2s ease-in-out;
+  }
+  .mascot-art .ip-led {
+    animation: ip-led 2.6s ease-in-out infinite;
+  }
+  .promo .mascot-stage.jump .mascot-art {
+    animation:
+      ip-hop 0.7s cubic-bezier(0.3, 0.7, 0.4, 1),
+      ip-breathe 3.8s ease-in-out 0.7s infinite;
+  }
+  .promo .mascot-halo {
+    animation: ip-halo 3.8s ease-in-out infinite;
+  }
+}
+@keyframes ip-breathe {
+  0%,
+  100% {
+    scale: 1 1;
+  }
+  45% {
+    scale: 1.025 0.975;
+  }
+  60% {
+    scale: 0.99 1.012;
+  }
+}
+@keyframes ip-blink {
+  45%,
+  55% {
+    transform: scaleY(0.08);
+  }
+}
+@keyframes ip-led {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes ip-hop {
+  0% {
+    scale: 1 1;
+    translate: 0 0;
+  }
+  18% {
+    scale: 1.08 0.9;
+    translate: 0 0;
+  }
+  45% {
+    scale: 0.95 1.06;
+    translate: 0 -16px;
+  }
+  70% {
+    scale: 1.04 0.96;
+    translate: 0 0;
+  }
+  100% {
+    scale: 1 1;
+    translate: 0 0;
+  }
+}
+@keyframes ip-halo {
+  50% {
+    opacity: 0.7;
+  }
+}
+@media (max-width: 860px) {
+  .m.promo {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+  .promo .promo-side {
+    grid-column: 1 / -1;
+    padding: 0 0 24px 24px;
+  }
+}
+
+/* Update available: a glowing dot on 设置 and on the 更新 tab; the update prompt. */
+.rail button.has-update,
+.settings-menu button.has-update {
+  position: relative;
+}
+.rail button.has-update::after,
+.settings-menu button.has-update::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--brand);
+  box-shadow: 0 0 0 3px rgba(184, 50, 32, 0.25);
+}
+.settings-menu button.has-update::after {
+  top: 6px;
+  right: 6px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rail button.has-update::after {
+    animation: update-dot 1.8s ease-in-out infinite;
+  }
+}
+@keyframes update-dot {
+  50% {
+    box-shadow: 0 0 0 7px rgba(184, 50, 32, 0);
+  }
+}
+.update-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: var(--r-md);
+  background: var(--well);
+}
+.update-hero img {
+  width: 56px;
+  height: 56px;
+}
+.update-notes {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--paper-100);
+}
+.update-ready {
+  color: var(--ok);
+  font-weight: 650;
+}

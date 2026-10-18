@@ -23,6 +23,8 @@ export interface Rly0HubState {
   readonly autoSwitchHandledFor?: string;
   /** Tray-notice thresholds; defaults when absent. */
   readonly alerts?: Rly0AlertSettings;
+  /** Hub version a tray "update available" notice was shown for. */
+  readonly updateNotifiedFor?: string;
 }
 
 function clean(value: unknown): Rly0HubState {
@@ -39,6 +41,9 @@ function clean(value: unknown): Rly0HubState {
       ? { autoSwitch: cleanAutoSwitchSettings(raw.autoSwitch) }
       : {}),
     ...(raw.alerts !== undefined ? { alerts: cleanAlertSettings(raw.alerts) } : {}),
+    ...(typeof raw.updateNotifiedFor === "string" && raw.updateNotifiedFor.length <= 40
+      ? { updateNotifiedFor: raw.updateNotifiedFor }
+      : {}),
     ...(typeof raw.autoSwitchHandledFor === "string" && raw.autoSwitchHandledFor.length <= 200
       ? { autoSwitchHandledFor: raw.autoSwitchHandledFor }
       : {}),

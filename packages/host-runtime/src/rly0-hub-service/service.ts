@@ -49,6 +49,8 @@ import {
 } from "../rly0-relay/official-keys.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
+import { checkHubUpdate } from "./update-check.js";
+import type { UpdateCheckResult } from "@codexhost/shared-contracts";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { apiKeyLogin, importLogin, parseLoginFile } from "./account-import.js";
 import {
@@ -291,8 +293,43 @@ export class Rly0HubService {
       switching ? { ...before, ...switching.state } : before,
       cleanAlertSettings(before.alerts ?? RLY0_ALERT_DEFAULTS),
     );
-    if (JSON.stringify(state) !== JSON.stringify(before)) await this.#state.update(state);
-    return { alerts: switching?.alert ? [switching.alert, ...alerts] : alerts };
+    // A new Hub version: one tray notice per version (the window also shows its own prompt).
+    const update = await this.#updateStatus(false).catch(() => null);
+    let next = state;
+    const extra: Rly0HubAlert[] = [];
+    if (
+      update?.updateAvailable &&
+      update.latestVersion &&
+      state.updateNotifiedFor !== update.latestVersion
+    ) {
+      extra.push({
+        id: "update",
+        title: `RLY/0 Hub ${update.latestVersion} 可以更新了`,
+        body: "点这里打开 Hub，查看更新内容并更新。",
+        action: "open",
+      });
+      next = { ...state, updateNotifiedFor: update.latestVersion };
+    }
+    if (JSON.stringify(next) !== JSON.stringify(before)) await this.#state.update(next);
+    return { alerts: [...(switching?.alert ? [switching.alert] : []), ...alerts, ...extra] };
+  }
+
+  #updateCache: { at: number; result: UpdateCheckResult } | null = null;
+  #updateRunning: Promise<UpdateCheckResult> | null = null;
+
+  /** Checks GitHub at most every 6 hours (or now when asked); the result is shared. */
+  async #updateStatus(force: boolean): Promise<UpdateCheckResult> {
+    const fresh = this.#updateCache && Date.now() - this.#updateCache.at < 6 * 60 * 60_000;
+    if (!force && fresh && this.#updateCache) return this.#updateCache.result;
+    this.#updateRunning ??= checkHubUpdate(this.#options.installRoot)
+      .then((result) => {
+        if (!result.error) this.#updateCache = { at: Date.now(), result };
+        return result;
+      })
+      .finally(() => {
+        this.#updateRunning = null;
+      });
+    return this.#updateRunning;
   }
 
   /** At most one notice (or switch) per account, window and reset time. */
@@ -509,6 +546,10 @@ export class Rly0HubService {
         return { ok: true };
       }),
       "alerts.check": route(empty, () => this.#checkAlerts()),
+      // Background update state for the window: cached, re-checked every 6 hours or on demand.
+      "updates.status": route(z.object({ force: z.boolean().optional() }).strict(), (p) =>
+        this.#updateStatus(p.force === true),
+      ),
       "accounts.autoSwitchGet": route(empty, async () =>
         cleanAutoSwitchSettings((await this.#state.read()).autoSwitch ?? RLY0_AUTO_SWITCH_DEFAULTS),
       ),

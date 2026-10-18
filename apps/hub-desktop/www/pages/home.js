@@ -63,57 +63,106 @@ window.registerHubHome = (api) => {
     ];
   }
 
+  // 阿零 drawn inline so the eyes can move (blink, follow the pointer, smile). Same artwork as
+  // brand/rly0-ip-on-dark.svg, with the eyes as their own layer over a solid body.
+  const IP_MARKUP =
+    '<g class="ip-led"><polygon fill="#321D1A" points="208.019,67.971 192.122,67.973 192.105,55.416 208.058,55.401"/><polygon fill="#7B2D21" points="206.926,67.971 192.121,67.973 192.105,55.416 206.963,55.401"/><polygon fill="#FE4C2E" points="205.192,67.971 192.119,67.973 192.105,55.416 205.224,55.401"/></g><g class="ip-body"><path fill="#E8E7E2" d="M140.209,185.084l-30.428-0.008l-0.014,4.978l4.053,0.027l-0.028,4.518l-10.271-0.038l0.007-9.484 l-16.996,0.004c-6.357-0.246-12.022-3.784-14.713-9.534c-3.168-6.77-1.165-14.588,4.593-19.223l-2.956-0.067 c-5.411-0.124-10.487-2.147-14.089-6.106c-7.474-8.214-5.697-20.863,3.513-26.869c-3.856-1.014-7.058-2.929-9.575-5.786 c-6.502-7.378-5.79-18.433,1.547-24.976c3.31-2.952,7.433-4.695,11.94-4.749l10.335-0.122c-7.811-4.262-11.087-13.515-7-21.504 c2.703-5.285,8.238-8.987,14.383-8.988l80.908-0.001c6.793,0,12.823,4.433,15.167,10.611c2.943,7.757-0.546,16.026-7.763,19.897 l10.056,0.092c5.292,0.049,10.198,2.277,13.716,6.208c4.243,4.741,5.657,11.227,3.658,17.3 c-1.992,6.051-6.925,10.425-13.151,12.013c4.824,3.135,7.898,8.411,8.162,14.081c0.275,5.911-2.371,11.488-7.146,15.086 c-3.245,2.46-7.03,3.698-11.122,3.805l-3.394,0.089c7.849,6.304,8.138,17.935,0.511,24.586c-3.122,2.722-7.028,4.154-11.271,4.154 l-16.344-0.001l-0.023,4.96l4.065,0.058l-0.048,4.477l-10.247,0L140.209,185.084z"/></g><g class="ip-eyes"><path class="ip-eye" fill="#0D0D0B" d="M140.566,114.217c0.007,2.726-2.473,4.448-4.817,4.537c-2.526,0.097-5.218-1.667-5.212-4.358l0.015-6.161 c0.006-2.583,2.573-4.248,4.945-4.263c2.447-0.015,5.046,1.728,5.053,4.363L140.566,114.217z"/><path class="ip-eye" fill="#0D0D0B" d="M119.493,114.179c-0.004,2.726-2.434,4.492-4.818,4.579c-2.514,0.092-5.224-1.66-5.218-4.365l0.014-6.158 c0.006-2.677,2.713-4.352,5.2-4.255c2.427,0.095,4.833,1.934,4.83,4.577L119.493,114.179z"/></g><g class="ip-happy"><path d="M109.8 114 Q114.6 106.5 119.4 114"/><path d="M130.8 114 Q135.6 106.5 140.4 114"/></g>';
+
   function mascot() {
-    const ip = h("img", { class: "mascot", src: "brand/rly0-ip-on-dark.svg", alt: "阿零" });
+    const ns = "http://www.w3.org/2000/svg";
+    const art = document.createElementNS(ns, "svg");
+    // Cropped to the character (see brand/rly0-ip-tight.svg) so it fills its area.
+    art.setAttribute("viewBox", "45.67 42.21 165.57 165.57");
+    art.setAttribute("class", "mascot-art");
+    art.setAttribute("role", "img");
+    art.setAttribute("aria-label", "阿零");
+    art.innerHTML = IP_MARKUP; // fixed markup
     const burst = h("div", { class: "px-burst", "aria-hidden": "true" });
     const stage = h(
       "button",
       { class: "mascot-stage", type: "button", "aria-label": "和阿零打个招呼" },
       h("span", { class: "mascot-halo", "aria-hidden": "true" }),
-      h("span", { class: "mascot-pad", "aria-hidden": "true" }),
-      ip,
+      h("span", { class: "mascot-floor", "aria-hidden": "true" }),
+      art,
       burst,
-      h(
-        "span",
-        { class: "px-track", "aria-hidden": "true" },
-        h("i", { class: "packet p1" }),
-        h("i", { class: "packet p2" }),
-        h("i", { class: "packet p3" }),
-      ),
     );
+
+    // Blinks at uneven moments (sometimes twice), like a living thing, not a metronome.
+    let blinkTimer = 0;
+    const blink = () => {
+      if (!stage.isConnected) return;
+      art.classList.remove("blink");
+      void art.getBoundingClientRect();
+      art.classList.add("blink");
+      const twice = Math.random() < 0.22;
+      if (twice)
+        setTimeout(() => {
+          art.classList.remove("blink");
+          void art.getBoundingClientRect();
+          art.classList.add("blink");
+        }, 260);
+      blinkTimer = setTimeout(blink, 2200 + Math.random() * 3800);
+    };
+    blinkTimer = setTimeout(blink, 1200);
+
+    // Eyes follow the pointer anywhere over the banner; they drift back to centre after a while.
+    let idle = 0;
+    const look = (x, y) => {
+      art.style.setProperty("--eye-x", `${x.toFixed(2)}px`);
+      art.style.setProperty("--eye-y", `${y.toFixed(2)}px`);
+    };
+    stage.lookAt = (clientX, clientY) => {
+      const box = art.getBoundingClientRect();
+      const dx = clientX - (box.left + box.width * 0.55);
+      const dy = clientY - (box.top + box.height * 0.42);
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const reach = Math.min(1, distance / 260);
+      look((dx / distance) * 3.4 * reach, (dy / distance) * 2.2 * reach);
+      clearTimeout(idle);
+      idle = setTimeout(() => look(0, 0), 2600);
+    };
+
+    // A click: a happy squint and a little hop, with a pixel burst.
     stage.addEventListener("click", () => {
       stage.classList.remove("jump");
+      art.classList.add("happy");
       void stage.offsetWidth;
       stage.classList.add("jump");
+      setTimeout(() => art.classList.remove("happy"), 1100);
       burst.replaceChildren();
-      for (let i = 0; i < 14; i += 1) {
+      for (let i = 0; i < 16; i += 1) {
         const px = h("i");
-        const angle = (Math.PI * 2 * i) / 14;
+        const angle = (Math.PI * 2 * i) / 16;
         px.style.setProperty(
           "--dx",
-          `${Math.round(Math.cos(angle) * (46 + Math.random() * 26))}px`,
+          `${Math.round(Math.cos(angle) * (70 + Math.random() * 40))}px`,
         );
         px.style.setProperty(
           "--dy",
-          `${Math.round(Math.sin(angle) * (40 + Math.random() * 22)) - 18}px`,
+          `${Math.round(Math.sin(angle) * (60 + Math.random() * 30)) - 30}px`,
         );
         burst.append(px);
       }
     });
+    stage.addEventListener("pointerenter", () => art.classList.add("curious"));
+    stage.addEventListener("pointerleave", () => art.classList.remove("curious"));
+    void blinkTimer;
     return stage;
   }
 
-  // 阿零 leans toward the pointer while it is over the banner.
+  // 阿零 leans toward the pointer and watches it while it is over the banner.
   function followPointer(banner) {
     banner.addEventListener("pointermove", (event) => {
       const box = banner.getBoundingClientRect();
       const x = (event.clientX - box.left) / box.width - 0.5;
       const y = (event.clientY - box.top) / box.height - 0.5;
-      banner.style.setProperty("--lean-x", `${(x * 14).toFixed(1)}px`);
-      banner.style.setProperty("--lean-r", `${(x * 8).toFixed(1)}deg`);
-      banner.style.setProperty("--lean-y", `${(y * 6).toFixed(1)}px`);
+      banner.style.setProperty("--lean-x", `${(x * 10).toFixed(1)}px`);
+      banner.style.setProperty("--lean-r", `${(x * 5).toFixed(1)}deg`);
+      banner.style.setProperty("--lean-y", `${(y * 4).toFixed(1)}px`);
       banner.style.setProperty("--mx", `${Math.round(event.clientX - box.left)}px`);
       banner.style.setProperty("--my", `${Math.round(event.clientY - box.top)}px`);
+      const stage = banner.querySelector(".mascot-stage");
+      if (stage && stage.lookAt) stage.lookAt(event.clientX, event.clientY);
     });
     banner.addEventListener("pointerleave", () => {
       banner.style.setProperty("--lean-x", "0px");

@@ -250,48 +250,67 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
   };
 
   pages.updates = (root, alive) => {
-    const result = h("div", { class: "sub" }, "点击检查，获取最新版本。");
+    const put = (element, ...items) =>
+      element.replaceChildren(...items.filter((item) => item !== null && item !== undefined));
+    const result = h("div", { class: "sub" }, "检查中…");
+    const actions = h("div", { class: "row" });
+    const check = async (force) => {
+      result.textContent = "检查中…";
+      const status = window.rly0Updates
+        ? await window.rly0Updates.check(force)
+        : await call("updates.status", { force }).catch(() => null);
+      if (!alive()) return;
+      if (!status || status.error || !status.latestVersion) {
+        result.replaceChildren(
+          h("p", null, `当前版本 ${(status && status.currentVersion) || "未知"}`),
+          h("p", null, "暂时连不上发布页，稍后会自动再试。"),
+        );
+        put(
+          actions,
+          button("重新检查", () => check(true)),
+          button("打开发布页", () => call("links.open", { target: "releases" })),
+        );
+        return;
+      }
+      result.replaceChildren(
+        h("p", null, `当前版本 ${status.currentVersion} · 最新版本 ${status.latestVersion}`),
+        h(
+          "p",
+          { class: status.updateAvailable ? "update-ready" : "" },
+          status.updateAvailable ? "有新版本可以更新" : "已经是最新版本",
+        ),
+      );
+      put(
+        actions,
+        status.updateAvailable
+          ? h(
+              "button",
+              {
+                class: "btn paper",
+                type: "button",
+                onclick: () => window.rly0Updates && window.rly0Updates.prompt(),
+              },
+              "查看并更新",
+            )
+          : null,
+        button("重新检查", () => check(true)),
+        button("打开发布页", () => call("links.open", { target: "releases" })),
+      );
+    };
     root.append(
       h(
         "section",
         { class: "m" },
         h("h2", null, "RLY/0 Hub 更新"),
         result,
+        actions,
         h(
-          "div",
-          { class: "row" },
-          button("检查更新", async () => {
-            result.textContent = "检查中…";
-            try {
-              const status = await call("updates.check");
-              if (!alive()) return;
-              result.replaceChildren(
-                ...[
-                  h("p", null, `当前版本 ${status.currentVersion}`),
-                  h(
-                    "p",
-                    null,
-                    status.latestVersion
-                      ? `最新版本 ${status.latestVersion}${status.updateAvailable ? "，可前往发布页下载" : "，已是最新"}`
-                      : "暂时无法检查，请前往发布页查看",
-                  ),
-                  status.error
-                    ? h("p", null, "无法确认完整更新信息，请稍后重试或查看发布页。")
-                    : null,
-                  status.releaseNotes
-                    ? h("p", { class: "release-copy" }, status.releaseNotes)
-                    : null,
-                ].filter(Boolean),
-              );
-            } catch (error) {
-              if (alive()) result.textContent = "检查失败，请稍后重试或查看发布页。";
-              throw error;
-            }
-          }),
-          button("打开发布页", () => call("links.open", { target: "releases" })),
+          "p",
+          { class: "sub" },
+          "Hub 在后台自动检查更新（每 6 小时一次）。有新版本时会弹窗提醒，侧边栏的“设置”也会亮起红点。",
         ),
-        h("p", { class: "sub" }, "检查无需启动 Codex。免安装版下载后手动替换；这里不会自动安装。"),
       ),
     );
+    void check(false);
   };
 };
