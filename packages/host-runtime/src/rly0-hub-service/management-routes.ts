@@ -147,6 +147,11 @@ export function createHubManagementRoutes(options: {
       () => maintenance.exportDiagnostics(),
       rly0MaintenanceRpcError,
     ),
+    "maintenance.startEndpointApp": route(
+      empty,
+      () => maintenance.startEndpointApp(),
+      rly0MaintenanceRpcError,
+    ),
     "maintenance.cacheInfo": route(empty, () => maintenance.cacheInfo(), rly0MaintenanceRpcError),
     "maintenance.clearCache": route(empty, () => maintenance.clearCache(), rly0MaintenanceRpcError),
     "maintenance.forceQuitCodex": route(empty, () => codex.forceQuit(), rly0MaintenanceRpcError),

@@ -18,6 +18,16 @@ import {
   type Rly0CodexProcessControl,
 } from "../../src/rly0-maintenance/index.js";
 
+// Diagnostics never reach the network in tests: the endpoint probe is replaced.
+const reachable = async () => ({
+  url: "https://chatgpt.com/backend-api/codex",
+  source: "default" as const,
+  providerId: "openai",
+  local: false,
+  reachable: true,
+  httpStatus: 401,
+});
+
 describe("Rly0MaintenanceManager", () => {
   let dataDir: string;
   let codexHome: string;
@@ -37,6 +47,7 @@ describe("Rly0MaintenanceManager", () => {
   describe("diagnostics", () => {
     it("collects advice codes for a fully missing CODEX_HOME and unavailable core", async () => {
       const manager = new Rly0MaintenanceManager({
+        checkEndpoint: reachable,
         environment: { CODEXHOST_DATA_DIR: dataDir, CODEX_HOME: path.join(codexHome, "missing") },
       });
       const result = rly0MaintenanceDiagnosticsResultSchema.parse(await manager.diagnostics());
@@ -56,6 +67,7 @@ describe("Rly0MaintenanceManager", () => {
     it("reports config.toml as invalid distinct from missing, and forwards an available core", async () => {
       await fs.writeFile(path.join(codexHome, "config.toml"), "model = = [broken\n", "utf8");
       const manager = new Rly0MaintenanceManager({
+        checkEndpoint: reachable,
         environment,
         core: {
           status: async () => ({
@@ -78,9 +90,33 @@ describe("Rly0MaintenanceManager", () => {
       });
     });
 
+    it("flags a Codex endpoint that does not answer", async () => {
+      const down = async () => ({
+        url: "http://127.0.0.1:17841/v1",
+        source: "openai_base_url" as const,
+        providerId: "openai",
+        local: true,
+        reachable: false,
+        failure: "REFUSED" as const,
+      });
+      const launched: string[] = [];
+      const manager = new Rly0MaintenanceManager({
+        // A home without any known bridge; never the real user profile.
+        environment: { ...environment, USERPROFILE: codexHome, LOCALAPPDATA: codexHome },
+        checkEndpoint: down,
+        launchApp: (app) => launched.push(app.id),
+      });
+      const result = rly0MaintenanceDiagnosticsResultSchema.parse(await manager.diagnostics());
+      expect(result.advice).toContain("CODEX_ENDPOINT_DOWN");
+      expect(result.codexEndpoint).toMatchObject({ local: true, reachable: false });
+      // Nothing recognized on that port: there is no app to start.
+      expect(await manager.startEndpointApp()).toEqual({ ok: false });
+      expect(launched).toEqual([]);
+    });
+
     it("never touches auth.json content", async () => {
       await fs.writeFile(path.join(codexHome, "auth.json"), '{"secret":"do-not-read"}', "utf8");
-      const manager = new Rly0MaintenanceManager({ environment });
+      const manager = new Rly0MaintenanceManager({ checkEndpoint: reachable, environment });
       const result = await manager.diagnostics();
       expect(JSON.stringify(result)).not.toContain("do-not-read");
       expect(result.authJsonExists).toBe(true);
@@ -89,7 +125,7 @@ describe("Rly0MaintenanceManager", () => {
 
   describe("cacheInfo / clearCache", () => {
     it("reports zero for a nonexistent cache directory", async () => {
-      const manager = new Rly0MaintenanceManager({ environment });
+      const manager = new Rly0MaintenanceManager({ checkEndpoint: reachable, environment });
       const result = rly0MaintenanceCacheInfoResultSchema.parse(await manager.cacheInfo());
       expect(result.totalBytes).toBe(0);
       expect(result.entries.every((entry) => !entry.exists)).toBe(true);
@@ -107,7 +143,7 @@ describe("Rly0MaintenanceManager", () => {
       await fs.mkdir(path.dirname(untouched), { recursive: true });
       await fs.writeFile(untouched, "{}", "utf8");
 
-      const manager = new Rly0MaintenanceManager({ environment });
+      const manager = new Rly0MaintenanceManager({ checkEndpoint: reachable, environment });
       const info = await manager.cacheInfo();
       expect(info.totalBytes).toBe(7);
 
@@ -128,6 +164,7 @@ describe("Rly0MaintenanceManager", () => {
         "utf8",
       );
       const manager = new Rly0MaintenanceManager({
+        checkEndpoint: reachable,
         environment,
         now: () => new Date("2026-09-30T01:02:03.000Z"),
       });
@@ -151,7 +188,7 @@ describe("Rly0MaintenanceManager", () => {
 
   describe("process control", () => {
     it("reports unsupported when no process control is wired up", async () => {
-      const manager = new Rly0MaintenanceManager({ environment });
+      const manager = new Rly0MaintenanceManager({ checkEndpoint: reachable, environment });
       expect(
         rly0MaintenanceProcessActionResultSchema.parse(await manager.forceQuitCodex()),
       ).toEqual({ supported: false });
@@ -173,7 +210,11 @@ describe("Rly0MaintenanceManager", () => {
           return false;
         },
       };
-      const manager = new Rly0MaintenanceManager({ environment, processControl: fake });
+      const manager = new Rly0MaintenanceManager({
+        checkEndpoint: reachable,
+        environment,
+        processControl: fake,
+      });
       expect(await manager.forceQuitCodex()).toEqual({ supported: true, ok: true });
       expect(await manager.restartCodex()).toEqual({ supported: true, ok: false });
       expect(forceQuitCalls).toBe(1);

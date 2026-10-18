@@ -32,8 +32,30 @@ export const rly0MaintenanceAdviceCodeSchema = z.enum([
   "CONFIG_TOML_INVALID",
   "SESSIONS_DIR_MISSING",
   "CORE_UNAVAILABLE",
+  /** Codex's model endpoint (from config.toml) does not answer: every turn hangs reconnecting. */
+  "CODEX_ENDPOINT_DOWN",
 ]);
 export type Rly0MaintenanceAdviceCode = z.infer<typeof rly0MaintenanceAdviceCodeSchema>;
+
+/** Where a new Codex turn sends model requests, and whether anything answers there. */
+export const rly0MaintenanceCodexEndpointSchema = z
+  .object({
+    /** Scheme, host and path only; never credentials or a query string. */
+    url: z.string().max(2048),
+    source: z.enum(["provider", "openai_base_url", "default"]),
+    providerId: z.string().max(128).nullable(),
+    local: z.boolean(),
+    reachable: z.boolean(),
+    failure: z.enum(["REFUSED", "TIMEOUT", "UNREACHABLE", "BAD_URL"]).optional(),
+    httpStatus: z.number().int().optional(),
+    /** A local bridge the Hub recognizes by its port and can start. */
+    app: z
+      .object({ id: z.enum(["codex-web-gpt"]), name: z.string().max(64) })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type Rly0MaintenanceCodexEndpoint = z.infer<typeof rly0MaintenanceCodexEndpointSchema>;
 
 export const rly0MaintenanceDiagnosticsParamsSchema = z.object({}).strict();
 export type Rly0MaintenanceDiagnosticsParams = z.infer<
@@ -51,6 +73,8 @@ export const rly0MaintenanceDiagnosticsResultSchema = z
     configTomlParses: z.boolean().nullable(),
     sessionsDirExists: z.boolean(),
     core: rly0CoreStatusResultSchema,
+    /** `null` when the check could not run at all. */
+    codexEndpoint: rly0MaintenanceCodexEndpointSchema.nullable().optional(),
     advice: z.array(rly0MaintenanceAdviceCodeSchema).max(16),
   })
   .strict();

@@ -14,6 +14,7 @@ import type {
 } from "@codexhost/shared-contracts";
 
 import { Rly0DashboardManager } from "../rly0-dashboard/index.js";
+import { checkCodexEndpoint, findEndpointApp, launchEndpointApp } from "./codex-endpoint.js";
 import {
   RLY0_MAINTENANCE_CACHE_ENTRY_NAMES,
   resolveRly0CacheEntryDir,
@@ -35,6 +36,10 @@ export interface Rly0MaintenanceManagerOptions {
   readonly core?: Rly0MaintenanceCoreStatusSource;
   readonly processControl?: Rly0CodexProcessControl;
   readonly now?: () => Date;
+  /** Replaces the network probe of Codex's model endpoint (tests). */
+  readonly checkEndpoint?: typeof checkCodexEndpoint;
+  /** Replaces starting a recognized local bridge (tests). */
+  readonly launchApp?: typeof launchEndpointApp;
   /** Cache entries in use right now (e.g. `updates` while an update downloads); not cleared. */
   readonly busyEntries?: () => readonly string[];
 }
@@ -92,6 +97,8 @@ export class Rly0MaintenanceManager {
   readonly #processControl: Rly0CodexProcessControl | undefined;
   readonly #now: () => Date;
   readonly #busyEntries: () => readonly string[];
+  readonly #checkEndpoint: typeof checkCodexEndpoint;
+  readonly #launchApp: typeof launchEndpointApp;
 
   constructor(options: Rly0MaintenanceManagerOptions = {}) {
     this.#environment = options.environment ?? process.env;
@@ -101,13 +108,20 @@ export class Rly0MaintenanceManager {
     this.#processControl = options.processControl;
     this.#now = options.now ?? (() => new Date());
     this.#busyEntries = options.busyEntries ?? (() => []);
+    this.#checkEndpoint = options.checkEndpoint ?? checkCodexEndpoint;
+    this.#launchApp = options.launchApp ?? launchEndpointApp;
   }
 
   async diagnostics(): Promise<Rly0MaintenanceDiagnosticsResult> {
     const health = await this.#dashboard.health();
-    const core: Rly0CoreStatusResult = this.#core
-      ? await this.#core.status()
-      : { available: false };
+    const [core, codexEndpoint] = await Promise.all([
+      this.#core
+        ? this.#core.status()
+        : Promise.resolve<Rly0CoreStatusResult>({ available: false }),
+      this.#checkEndpoint(path.join(health.codexHome, "config.toml"), this.#environment).catch(
+        () => null,
+      ),
+    ]);
     const advice: Rly0MaintenanceAdviceCode[] = [];
     if (!health.codexHomeExists) advice.push("CODEX_HOME_MISSING");
     if (!health.authJsonExists) advice.push("AUTH_JSON_MISSING");
@@ -115,12 +129,31 @@ export class Rly0MaintenanceManager {
     else if (health.configTomlParses === false) advice.push("CONFIG_TOML_INVALID");
     if (!health.sessionsDirExists) advice.push("SESSIONS_DIR_MISSING");
     if (!core.available) advice.push("CORE_UNAVAILABLE");
+    if (codexEndpoint && !codexEndpoint.reachable) advice.push("CODEX_ENDPOINT_DOWN");
     return {
       generatedAt: this.#now().toISOString(),
       ...health,
       core,
+      codexEndpoint,
       advice,
     };
+  }
+
+  /**
+   * Starts the local bridge Codex is configured to use, when the Hub recognizes it (only ever the
+   * app the endpoint's port belongs to, with its own autostart arguments). Returns false if none.
+   */
+  async startEndpointApp(): Promise<{ ok: boolean }> {
+    const health = await this.#dashboard.health();
+    const endpoint = await this.#checkEndpoint(
+      path.join(health.codexHome, "config.toml"),
+      this.#environment,
+    );
+    if (!endpoint || endpoint.reachable || !endpoint.local) return { ok: false };
+    const app = await findEndpointApp(endpoint.url, this.#environment);
+    if (!app) return { ok: false };
+    this.#launchApp(app);
+    return { ok: true };
   }
 
   async cacheInfo(): Promise<Rly0MaintenanceCacheInfoResult> {

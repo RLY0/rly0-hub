@@ -71,7 +71,16 @@ window.hubManagementMock = (() => {
       }
       case "maintenance.diagnostics":
         return {
-          advice: ["CONFIG_TOML_INVALID"],
+          advice: ["CONFIG_TOML_INVALID", "CODEX_ENDPOINT_DOWN"],
+          codexEndpoint: {
+            url: "http://127.0.0.1:17841/v1",
+            source: "openai_base_url",
+            providerId: "openai",
+            local: true,
+            reachable: false,
+            failure: "REFUSED",
+            app: { id: "codex-web-gpt", name: "Codex Web GPT" },
+          },
           codexHome: "C:/Users/demo/.codex",
           codexHomeExists: true,
           authJsonExists: true,
@@ -80,6 +89,8 @@ window.hubManagementMock = (() => {
           sessionsDirExists: true,
           core: { available: true, version: "0.1.0" },
         };
+      case "maintenance.startEndpointApp":
+        return { ok: true };
       case "maintenance.cacheInfo":
         return {
           totalBytes: 28311552,

@@ -161,8 +161,8 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
     search: '<circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/>',
     restart: '<path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M5 4v4h4"/>',
   };
-  const icon = (name, tone) => {
-    const el = h("span", { class: `tool-icon ${tone || ""}`, "aria-hidden": "true" });
+  const icon = (name) => {
+    const el = h("span", { class: "tool-icon", "aria-hidden": "true" });
     el.innerHTML = `<svg viewBox="0 0 24 24">${ICONS[name]}</svg>`;
     return el;
   };
@@ -174,13 +174,31 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
     SESSIONS_DIR_MISSING: "还没有会话记录（新装的 Codex 属正常）",
     CORE_UNAVAILABLE: "零号核心没有运行：多账号、中转和过滤暂不可用，重开 Hub 试试",
   };
+  // Where Codex sends model requests: host:port is enough to recognize it.
+  const endpointHost = (url) => {
+    try {
+      const u = new URL(url);
+      return u.hostname === "chatgpt.com" ? "ChatGPT 官方" : u.host;
+    } catch {
+      return "地址无效";
+    }
+  };
+  const endpointAdvice = (e) => {
+    const where = endpointHost(e.url);
+    if (e.failure === "BAD_URL") return `Codex 配置里的服务地址写错了（${e.url || "空"}）`;
+    if (e.app)
+      return `Codex 的请求发往 ${where}，那是 ${e.app.name} 的端口，但它没有运行：所以 Codex 一直“正在重新连接”`;
+    if (e.local)
+      return `Codex 的请求发往本机 ${where}，但那里没有程序在运行：打开对应的工具，或到“账号”“中转站”页重新选 Codex 的使用方式`;
+    return `连不上 ${where}${e.failure === "TIMEOUT" ? "（超时）" : ""}：检查网络或代理；如果平时要开代理/VPN 才能用，先打开它`;
+  };
 
   pages.maintenance = (root, alive) => {
-    const tool = ({ name, tone, title, text, action, detail }) =>
+    const tool = ({ name, title, text, action, detail }) =>
       h(
         "div",
         { class: "tool" },
-        icon(name, tone),
+        icon(name),
         h("div", { class: "tool-text" }, h("h3", null, title), h("p", null, text)),
         h("div", { class: "tool-action" }, action),
         detail || null,
@@ -233,8 +251,38 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         ],
         ["Codex", true, codex && codex.running ? "运行中" : "未运行", true],
       ];
-      const problems = d.advice.filter((code) => code !== "SESSIONS_DIR_MISSING");
+      const endpoint = d.codexEndpoint || null;
+      if (endpoint)
+        rows.splice(1, 0, [
+          "Codex 模型服务",
+          endpoint.reachable,
+          `${endpoint.reachable ? "连得上" : "连不上"} · ${endpointHost(endpoint.url)}`,
+        ]);
+      // The endpoint gets its own, specific advice line below.
+      const problems = d.advice.filter(
+        (code) => code !== "SESSIONS_DIR_MISSING" && code !== "CODEX_ENDPOINT_DOWN",
+      );
+      const endpointDown = Boolean(endpoint && !endpoint.reachable);
       const fixes = [];
+      if (endpointDown && endpoint.app)
+        fixes.push(
+          button(`启动 ${endpoint.app.name}`, async () => {
+            const result = await call("maintenance.startEndpointApp").catch(() => null);
+            if (!alive()) return;
+            if (!result || !result.ok) {
+              toast(`没能启动 ${endpoint.app.name}，请手动打开它`);
+              return;
+            }
+            toast(`正在启动 ${endpoint.app.name}，稍等几秒后自动复查`);
+            // Starting a bridge takes a while; re-check until it answers (about half a minute).
+            for (let i = 0; i < 10 && alive(); i += 1) {
+              await new Promise((resolve) => setTimeout(resolve, 4000));
+              const again = await call("maintenance.diagnostics").catch(() => null);
+              if (again && again.codexEndpoint && again.codexEndpoint.reachable) break;
+            }
+            if (alive()) await diagnose();
+          }),
+        );
       if (d.advice.includes("CONFIG_TOML_INVALID") && backup && backup.available)
         fixes.push(
           confirmButton("还原安装前的 Codex 设置", async () => {
@@ -255,7 +303,7 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         );
       if (codex && codex.running && (problems.length || proxyDown))
         fixes.push(confirmButton("重启 Codex", () => restart()));
-      const count = problems.length + (proxyDown ? 1 : 0);
+      const count = problems.length + (proxyDown ? 1 : 0) + (endpointDown ? 1 : 0);
       put(
         diagDetail,
         h(
@@ -275,10 +323,11 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
             ),
           ),
         ),
-        problems.length || proxyDown
+        count
           ? h(
               "ul",
               { class: "diag-advice" },
+              endpointDown ? h("li", null, endpointAdvice(endpoint)) : null,
               problems.map((code) => h("li", null, CHECK_TEXT[code] || "需要检查")),
               proxyDown
                 ? h("li", null, "已启用中转站，但本地代理没有运行，走中转的模型会失败")
@@ -395,15 +444,13 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         { class: "m tools" },
         tool({
           name: "diagnose",
-          tone: "blue",
           title: "系统诊断",
-          text: "一次检查 Codex 配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。",
+          text: "一次检查 Codex 能否连上模型服务、配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。",
           action: runDiag,
           detail: diagDetail,
         }),
         tool({
           name: "log",
-          tone: "cyan",
           title: "调试日志",
           text: "导出脱敏诊断包（运行状态、配置检查、缓存占用），只保存在本机，不会上传。反馈问题时可以附上。",
           action: exportLog,
@@ -411,7 +458,6 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         }),
         tool({
           name: "clean",
-          tone: "amber",
           title: "清理数据",
           text: h(
             "span",
@@ -423,21 +469,18 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         }),
         tool({
           name: "quit",
-          tone: "red",
           title: "强制关闭 Codex",
           text: "结束所有 Codex 相关进程（窗口、后台服务、插件进程），解决进程残留导致打不开或中转连不上。正在进行的任务会中断。",
           action: quit,
         }),
         tool({
           name: "image",
-          tone: "violet",
           title: "Image 声明过滤",
           text: "开启：发往中转站的请求去掉生图工具，避免不支持生图的中转返回 403。关闭：原样发送。官方账号不受影响，开启也不会新增生图能力。",
           action: imageSwitch,
         }),
         tool({
           name: "search",
-          tone: "blue",
           title: "Claude 联网搜索过滤",
           text: "开启：Claude Code 走中转时去掉内置联网搜索工具，避免不支持的中转报错。不影响 MCP 或插件里的搜索工具，Claude 官方登录不受影响。",
           action: searchSwitch,
@@ -445,7 +488,6 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         }),
         tool({
           name: "restart",
-          tone: "red",
           title: "重启 Codex",
           text: "关闭并重新打开 Codex，让配置变更生效或恢复异常状态。",
           action: confirmButton("重启", () => restart()),
