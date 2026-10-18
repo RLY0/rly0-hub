@@ -24,3 +24,20 @@ describe("Hermes runtime command (PM-managed installs)", () => {
     });
   });
 });
+
+describe("Hermes through an RLY/0 relay", () => {
+  it("lists the relay's models as Hermes custom-endpoint choices", async () => {
+    const { relayInventory } = await import("../src/hermes-inventory.js");
+    const inventory = relayInventory({
+      RLY0_HERMES_MODELS: JSON.stringify(["gpt-5.4", "claude-sonnet-4-5", "bad model!"]),
+      RLY0_HERMES_RELAY_NAME: "帅api",
+      HERMES_MODEL: "claude-sonnet-4-5",
+    });
+    expect(inventory?.models.map((m) => [m.modelId, m.label])).toEqual([
+      ["custom:gpt-5.4", "帅api / gpt-5.4"],
+      ["custom:claude-sonnet-4-5", "帅api / claude-sonnet-4-5"],
+    ]);
+    expect(inventory?.currentModelId).toBe("custom:claude-sonnet-4-5");
+    expect(relayInventory({})).toBeNull();
+  });
+});

@@ -205,6 +205,7 @@ import {
   AGENT_CHECK_REQUEST_FILE,
   AGENT_STATUS_FILE,
   BackendReloadChannel,
+  CODEX_HEARTBEAT_FILE,
   HubRequestChannel,
   writeJsonFile,
   type AgentConnectionStatus,
@@ -1158,7 +1159,17 @@ export class AppServerHost {
           return this.#refreshRelayOverlays();
         });
     };
-    this.#relayWatchTimer = setInterval(check, 2000);
+    // Heartbeat for the standalone Hub: "Codex is open through RLY/0 Hub" (see codex-control).
+    const heartbeat = path.join(path.dirname(this.#rly0AgentRelays.path()), CODEX_HEARTBEAT_FILE);
+    const beat = (): void => {
+      if (this.#closeRequested) return;
+      void writeJsonFile(heartbeat, { pid: process.pid, at: Date.now() }).catch(() => undefined);
+    };
+    beat();
+    this.#relayWatchTimer = setInterval(() => {
+      check();
+      beat();
+    }, 2000);
     this.#relayWatchTimer.unref?.();
   }
 
@@ -1247,7 +1258,9 @@ export class AppServerHost {
         if (!relay || !choice) continue;
         const url = pinnedRelayUrl(proxyBaseUrl, relay.id);
         if (id === "hermes") {
-          next.set(id, (environment) => hermesRelayEnvironment(environment, url, choice.model));
+          next.set(id, (environment) =>
+            hermesRelayEnvironment(environment, url, choice.model, relay.models, relay.name),
+          );
         } else if (id === "opencode") {
           next.set(id, (environment) =>
             opencodeRelayEnvironment(environment, url, relay.models, choice.model),
@@ -1256,7 +1269,7 @@ export class AppServerHost {
           const directory = path.join(path.dirname(this.#rly0AgentRelays.path()), "agent-relays");
           await fs.mkdir(directory, { recursive: true });
           const file = path.join(directory, `pi-${relay.id}.ts`);
-          await fs.writeFile(file, piRelayExtension(url, relay.models), "utf8");
+          await fs.writeFile(file, piRelayExtension(url, relay.models, relay.name), "utf8");
           next.set(id, (environment) => piRelayEnvironment(environment, file, choice.model));
         }
       }

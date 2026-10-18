@@ -81,9 +81,6 @@ type AgentAvailability = Partial<Record<ExternalRendererAgent, RendererAgentAvai
 
 export const CONTROL_ATTRIBUTE = "data-codexhost-agent-control";
 const AGENT_MENU_WIDTH = 224;
-// Below this many enabled Agents, the picker stays a flat list — grouping
-// only earns its keep once there are enough Harnesses to make scanning slow.
-const AGENT_GROUP_CTA_THRESHOLD = 5;
 
 interface AgentOptionControl {
   row: HTMLElement;
@@ -564,8 +561,8 @@ export function mountRendererAgentPicker(
         continue;
       }
       seen.add(agent);
-      const section = groupPreference.sectionOf(entry.agent, notInstalled.has(agent));
-      (section === "more" ? nextMore : nextMain).push(agent);
+      // RLY/0: no folded "More Agents" group; every agent is listed, installed ones first.
+      nextMain.push(agent);
     }
 
     // Defensive: an enabled Agent the preference store hasn't recorded yet
@@ -594,7 +591,8 @@ export function mountRendererAgentPicker(
         .filter((el): el is HTMLDivElement => !!el),
     );
     const showMoreGroup = moreAgents.length > 0;
-    const showCta = !showMoreGroup && enabledAgents.length > AGENT_GROUP_CTA_THRESHOLD;
+    // "管理 →" (opens RLY/0 Hub) stays at the bottom of the list.
+    const showCta = !showMoreGroup;
     moreToggle.style.display = showMoreGroup ? "flex" : "none";
     morePanel.style.display = showMoreGroup && moreOpen ? "flex" : "none";
     cta.style.display = showCta ? "flex" : "none";

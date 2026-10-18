@@ -3228,3 +3228,27 @@ select.input,
 .dot.bad {
   background: var(--warn);
 }
+
+/* Codex button: green dot while Codex runs (then it restarts Codex). */
+.codex-fab.running .pulse {
+  background: #2f9e5f;
+  box-shadow: 0 0 0 3px rgba(47, 158, 95, 0.22);
+}
+/* Home: AI agent chips stay one line each and fill the row evenly. */
+.chip-grid {
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+}
+.agent-chip .who b,
+.agent-chip .who span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.login-steps {
+  margin: 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 10px;
+  line-height: 1.55;
+  color: var(--paper-100);
+}

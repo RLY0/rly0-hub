@@ -318,7 +318,9 @@ function parseAvailableModels(response: Record<string, unknown>): PiNativeModel[
   const models = data.models.flatMap((model) => {
     const parsed = parseNativeModel(model, "catalog");
     if (!parsed || !isRecord(model)) return [];
-    return [{ ...parsed, reasoning: model.reasoning === true }];
+    const name =
+      typeof model.name === "string" && model.name.trim() ? model.name.trim().slice(0, 120) : null;
+    return [{ ...parsed, reasoning: model.reasoning === true, ...(name ? { name } : {}) }];
   });
   if (data.models.length > 0 && models.length === 0) {
     throw new PiRpcFaultError("protocolError", "Pi RPC catalog contains no readable Models");

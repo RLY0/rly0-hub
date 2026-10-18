@@ -16,6 +16,8 @@ export interface PiNativeModelRef {
 
 export interface PiNativeModel extends PiNativeModelRef {
   reasoning: boolean;
+  /** Display name Pi reports; used for RLY/0 Hub's relay provider (`rly0`), named after the relay. */
+  name?: string;
 }
 
 const PI_MODEL_REF_PREFIX = "pi-model-v1.";
@@ -136,7 +138,10 @@ export function normalizePiModelCatalog(
     byRef.set(ref.id, {
       model: {
         ref,
-        label: `${native.provider} / ${native.id}`,
+        label:
+          native.provider === "rly0" && native.name
+            ? native.name
+            : `${native.provider} / ${native.id}`,
       },
       reasoning: native.reasoning,
     });

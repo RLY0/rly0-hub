@@ -136,7 +136,7 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
         "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash",
       ),
     ],
-    loginCommand: "hermes",
+    loginCommand: "hermes model",
     detectionCommand: "hermes",
   },
   qoder: {

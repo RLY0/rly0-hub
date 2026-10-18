@@ -32,6 +32,7 @@ import { Rly0AppearanceManager } from "../rly0-appearance/index.js";
 import { WindowsRegistryAutostart } from "../rly0-appearance/windows-autostart.js";
 import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
 import {
+  codexHeartbeatAlive,
   readAgentStatus,
   requestAgentCheck,
   requestBackendReload,
@@ -190,6 +191,7 @@ export class Rly0HubService {
       new Rly0CodexControl({
         environment,
         installRoot: options.installRoot,
+        heartbeatAlive: () => codexHeartbeatAlive(resolveRly0DataDir(environment)),
         ...(options.platform ? { platform: options.platform } : {}),
       });
     this.#appearance =
@@ -361,13 +363,14 @@ export class Rly0HubService {
     const result = await this.#core.switchAccount({ id });
     if (!result.available || !result.switched) return { switched: false, restarted: false };
     const codex = await this.#codex.status();
-    if (!codex.running) return { switched: true, restarted: false };
+    // Ask the Codex side even when Codex does not look open: it answers if it is there.
     const reload = await requestBackendReload(resolveRly0DataDir(this.#options.environment), {
-      timeoutMs: this.#options.backendReloadTimeoutMs ?? 15_000,
+      timeoutMs: codex.running ? (this.#options.backendReloadTimeoutMs ?? 15_000) : 5_000,
     }).catch(() => null);
     if (reload === "reloaded" || reload === "deferred") {
       return { switched: true, restarted: false, reloaded: reload };
     }
+    if (!codex.running) return { switched: true, restarted: false };
     const restarted = (await this.#codex.restart()).ok;
     return { switched: true, restarted };
   }

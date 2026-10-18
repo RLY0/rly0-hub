@@ -28,6 +28,8 @@ export interface Rly0CodexControlOptions {
   readonly isAlive?: (pid: number) => boolean;
   readonly startDetached?: (executable: string) => void;
   readonly fileExists?: (file: string) => boolean;
+  /** Whether the Codex side's heartbeat is fresh (Codex open through RLY/0 Hub). */
+  readonly heartbeatAlive?: () => Promise<boolean>;
 }
 
 function processAlive(pid: number): boolean {
@@ -104,7 +106,12 @@ export class Rly0CodexControl {
   async status(): Promise<Rly0CodexStatus> {
     const canOpen =
       this.#windows() && (this.#options.fileExists ?? existsSync)(this.#startExecutable());
-    return { running: (await this.#descriptor()) !== null, canOpen };
+    // The Launcher's descriptor, or the Codex side's own heartbeat (the Launcher may have exited
+    // while Codex keeps running).
+    const running =
+      (await this.#descriptor()) !== null ||
+      (await (this.#options.heartbeatAlive ?? (() => Promise.resolve(false)))());
+    return { running, canOpen };
   }
 
   async open(): Promise<{ ok: boolean }> {

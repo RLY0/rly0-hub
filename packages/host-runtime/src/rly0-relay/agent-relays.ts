@@ -131,6 +131,8 @@ export function hermesRelayEnvironment(
   base: NodeJS.ProcessEnv,
   url: string,
   model: string | null,
+  models: readonly string[] = [],
+  relayName = "RLY/0",
 ): NodeJS.ProcessEnv {
   return {
     ...base,
@@ -141,6 +143,9 @@ export function hermesRelayEnvironment(
     OPENAI_BASE_URL: url,
     OPENAI_API_KEY: CLAUDE_CODE_RELAY_TOKEN,
     ...(model ? { HERMES_MODEL: model } : {}),
+    // The relay's models become Hermes' model list in Codex (see the Hermes adapter).
+    RLY0_HERMES_MODELS: JSON.stringify(models.filter((m) => !m.endsWith("*")).slice(0, 200)),
+    RLY0_HERMES_RELAY_NAME: relayName,
   };
 }
 
@@ -168,7 +173,11 @@ export function opencodeRelayEnvironment(
 }
 
 /** Pi's private extension that registers the relay as the `rly0` provider. */
-export function piRelayExtension(url: string, models: readonly string[]): string {
+export function piRelayExtension(
+  url: string,
+  models: readonly string[],
+  relayName = "RLY/0",
+): string {
   const listed = models.filter((m) => !m.endsWith("*")).slice(0, 200);
   const provider = {
     baseUrl: url,
@@ -176,7 +185,7 @@ export function piRelayExtension(url: string, models: readonly string[]): string
     apiKey: "$RLY0_RELAY_TOKEN",
     models: listed.map((id) => ({
       id,
-      name: id,
+      name: `${relayName} / ${id}`,
       api: "openai-completions",
       baseUrl: url,
       reasoning: /^(?:gpt-5|o[134]|claude|gemini-(?:2\.5|3)|grok-4)/iu.test(id),

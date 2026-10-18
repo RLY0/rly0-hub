@@ -240,6 +240,27 @@ window.registerHubAgents = ({
     };
   }
 
+  // What to do in each agent's own terminal to sign in.
+  const TERMINAL_LOGIN_STEPS = {
+    pi: [
+      "终端里会出现 Pi 的界面，底部有输入框。",
+      "输入 /login 然后回车，选一个服务商（如 OpenAI、Anthropic），按提示在浏览器里登录或粘贴 API Key。",
+      "看到登录成功后，按 Ctrl+C 两次退出，关闭窗口。",
+      "回到 Hub 点「检测连接」，显示连接正常就能在 Codex 里用了。",
+    ],
+    hermes: [
+      "第一次运行 Hermes 会问「Help improve Hermes?」，直接按回车（不发送数据）。",
+      "接着选择模型服务商（如 OpenRouter、OpenAI、Anthropic），按提示登录或粘贴 API Key，再选一个模型。",
+      "完成后关闭窗口。",
+      "回到 Hub 点「检测连接」，显示连接正常就能在 Codex 里用了。",
+    ],
+    opencode: [
+      "终端里会打开 OpenCode。",
+      "输入 /connect（或 /login）回车，选服务商并登录。",
+      "完成后关闭窗口，回到 Hub 点「检测连接」。",
+    ],
+  };
+
   // Official agents and the model family they are built for.
   const NATIVE_MODELS = {
     "claude-code": { family: "Claude", pattern: /^(?:anthropic\/)?claude/iu },
@@ -752,10 +773,48 @@ window.registerHubAgents = ({
         );
       }
 
+      // Third-party agents sign in inside their own terminal UI; say what to do there first.
       function openTerminalLogin(done) {
-        call("agents.openLogin", { agent: agent.id }).then(
-          (r) => toast(r.ok ? done : "没能打开终端"),
-          failed,
+        const steps = TERMINAL_LOGIN_STEPS[agent.id] || [
+          "在打开的终端窗口里按提示登录。",
+          "登录完成后关闭终端窗口。",
+        ];
+        const ui = window.HubUI.dialog({
+          title: `登录 ${agent.name} 官方账号`,
+          sub: "会打开一个终端窗口，在里面完成登录",
+        });
+        put(
+          ui.body,
+          h(
+            "ol",
+            { class: "login-steps" },
+            steps.map((step) => h("li", null, step)),
+          ),
+          h(
+            "p",
+            { class: "sub" },
+            "更简单的办法：不用登录，直接把接入方式选成「零号中转」或其他中转站，选好默认模型就能用。",
+          ),
+        );
+        put(
+          ui.foot,
+          h("span", { class: "spacer" }),
+          h("button", { class: "btn quiet", type: "button", onclick: () => ui.close() }, "取消"),
+          h(
+            "button",
+            {
+              class: "btn paper",
+              type: "button",
+              onclick: () => {
+                ui.close();
+                call("agents.openLogin", { agent: agent.id }).then(
+                  (r) => toast(r.ok ? done : "没能打开终端"),
+                  failed,
+                );
+              },
+            },
+            "打开终端",
+          ),
         );
       }
 

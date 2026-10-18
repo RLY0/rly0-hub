@@ -237,21 +237,45 @@
   const fabText = document.getElementById("codexFabText");
   const fabDot = document.getElementById("codexFabDot");
   let codexRunning = false;
+  // Not running: open Codex. Running (green dot): restart it, after a confirmation tap.
+  let restartArmed = false;
   function openCodex() {
+    if (codexRunning) {
+      if (!restartArmed) {
+        restartArmed = true;
+        fabText.textContent = "再点一次确认重启";
+        setTimeout(() => {
+          restartArmed = false;
+          refreshCodexState();
+        }, 3000);
+        return;
+      }
+      restartArmed = false;
+      fabText.textContent = "正在重启…";
+      call("codex.restart").then((r) => {
+        toast(r.ok ? "Codex 正在重启" : "没能重启 Codex，请手动关闭后再点这里打开");
+        setTimeout(refreshCodexState, 5000);
+      }, failed);
+      return;
+    }
     call("codex.open").then((r) => {
-      toast(r.ok ? (codexRunning ? "已切到 Codex" : "正在打开 Codex") : "没有找到 Codex 启动器");
-      setTimeout(refreshCodexState, 2500);
+      toast(r.ok ? "正在打开 Codex" : "没有找到 Codex 启动器");
+      setTimeout(refreshCodexState, 4000);
     }, failed);
   }
   async function refreshCodexState() {
+    if (restartArmed) return;
     const status = await call("codex.status").catch(() => null);
     codexRunning = Boolean(status && status.running);
-    fabText.textContent = codexRunning ? "切到 Codex" : "打开 Codex";
+    fabText.textContent = codexRunning ? "重启 Codex" : "打开 Codex";
     fabDot.classList.toggle("off", !codexRunning);
+    fabEl.classList.toggle("running", codexRunning);
+    fabEl.title = codexRunning ? "Codex 正在运行，点一下重启" : "打开 Codex";
   }
+  const fabEl = document.getElementById("codexFab");
   document.getElementById("codexFab").addEventListener("click", openCodex);
   setTimeout(refreshCodexState, 600);
-  setInterval(() => document.hidden || refreshCodexState(), 15000);
+  setInterval(() => document.hidden || refreshCodexState(), 5000);
   document
     .getElementById("ad")
     .addEventListener("click", () => call("links.open", { target: "site" }).catch(failed));

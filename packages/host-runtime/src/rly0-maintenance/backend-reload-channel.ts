@@ -14,6 +14,27 @@ export const BACKEND_RELOAD_REQUEST_FILE = "codex-reload-request.json";
 export const BACKEND_RELOAD_RESULT_FILE = "codex-reload-result.json";
 export const AGENT_CHECK_REQUEST_FILE = "agent-check-request.json";
 export const AGENT_STATUS_FILE = "agent-status.json";
+/** Written every few seconds by the Codex side while it runs: `{ pid, at }`. */
+export const CODEX_HEARTBEAT_FILE = "codex-heartbeat.json";
+const HEARTBEAT_FRESH_MS = 10_000;
+
+/** Hub side: is the Codex side (Codex opened through RLY/0 Hub) alive right now? */
+export async function codexHeartbeatAlive(
+  dataDirectory: string,
+  now = Date.now(),
+): Promise<boolean> {
+  const value = await readJson(path.join(dataDirectory, CODEX_HEARTBEAT_FILE));
+  const at = value?.at;
+  const pid = value?.pid;
+  if (typeof at !== "number" || now - at > HEARTBEAT_FRESH_MS) return false;
+  if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
 
 export type BackendReloadStatus = "reloaded" | "deferred" | "failed";
 

@@ -233,6 +233,41 @@ export function resolveHermesRuntime(
   return lookup;
 }
 
+/**
+ * RLY/0 Hub routes Hermes through a relay as its `custom` endpoint. Hermes' own inventory does
+ * not list a bare custom endpoint's models, so the relay's models (passed in by the Host) are
+ * the catalog; `custom:<model>` is Hermes' choice id for them.
+ */
+export function relayInventory(environment?: NodeJS.ProcessEnv): HermesInventory | null {
+  const raw = environment?.RLY0_HERMES_MODELS;
+  if (!raw) return null;
+  let models: unknown;
+  try {
+    models = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(models)) return null;
+  const relayName = environment?.RLY0_HERMES_RELAY_NAME?.trim() || "RLY/0";
+  const list = models
+    .filter(
+      (model): model is string => typeof model === "string" && /^[\w.:/@+-]{1,128}$/u.test(model),
+    )
+    .slice(0, 200)
+    .map((model) => ({
+      modelId: `custom:${model}`,
+      label: `${relayName} / ${model}`,
+      provider: "custom",
+      available: true,
+    }));
+  if (!list.length) return null;
+  const current = environment?.HERMES_MODEL?.trim();
+  return {
+    models: list,
+    currentModelId: current ? `custom:${current}` : (list[0]?.modelId ?? null),
+  };
+}
+
 export class HermesInventoryError extends Error {}
 export class HermesInventoryTimeoutError extends HermesInventoryError {
   constructor() {
@@ -353,6 +388,8 @@ export async function readHermesModelInventory(
   timeoutMs = 20_000,
   options: { environment?: NodeJS.ProcessEnv; platform?: NodeJS.Platform } = {},
 ): Promise<HermesInventory> {
+  const relay = relayInventory(options.environment);
+  if (relay) return relay;
   const platform = options.platform ?? process.platform;
   const candidates = [
     (await resolveHermesRuntime(hermesExecutable, options.environment)) ?? "",
