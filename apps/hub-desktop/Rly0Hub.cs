@@ -665,7 +665,13 @@ internal sealed class PanelWindow : Form {
         var work = screen.WorkingArea;
         MinimumSize = new Size(Math.Min((int)(760 * scale), work.Width * 9 / 10), Math.Min((int)(560 * scale), work.Height * 9 / 10));
         StartPosition = FormStartPosition.Manual;
-        var size = new Size(Math.Min((int)(1240 * scale), work.Width * 9 / 10), Math.Min((int)(820 * scale), work.Height * 9 / 10));
+        // Most of the screen by default (never smaller than the design size), centred.
+        var size = new Size(
+            Math.Min(Math.Max((int)(1240 * scale), work.Width * 4 / 5), work.Width * 92 / 100),
+            Math.Min(Math.Max((int)(820 * scale), work.Height * 86 / 100), work.Height * 92 / 100));
+        // Large screens get a larger interface, so text is not tiny in a big window.
+        float logicalWidth = work.Width / scale;
+        zoom = logicalWidth >= 2400 ? 1.25 : logicalWidth >= 1900 ? 1.1 : 1.0;
         Bounds = new Rectangle(work.Left + (work.Width - size.Width) / 2, work.Top + (work.Height - size.Height) / 2, size.Width, size.Height);
         LoadBounds();
         FormClosing += delegate { SaveBounds(); };
@@ -679,12 +685,20 @@ internal sealed class PanelWindow : Form {
 
     private readonly string boundsFile;
     private bool startMaximized;
+    private double zoom = 1.0;
+    internal static readonly double[] ZoomSteps = { 0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6 };
+
+    private static double ClampZoom(double value) {
+        return Math.Max(0.8, Math.Min(1.6, Math.Round(value, 2)));
+    }
 
     // Last size and place, when it still fits well on a connected screen.
     private void LoadBounds() {
         try {
             if (!File.Exists(boundsFile)) return;
             var saved = Program.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(boundsFile));
+            if (!saved.ContainsKey("v") || Convert.ToInt32(saved["v"]) != 2) return;
+            if (saved.ContainsKey("zoom")) zoom = ClampZoom(Convert.ToDouble(saved["zoom"]));
             var rect = new Rectangle(Convert.ToInt32(saved["x"]), Convert.ToInt32(saved["y"]), Convert.ToInt32(saved["w"]), Convert.ToInt32(saved["h"]));
             if (rect.Width < MinimumSize.Width || rect.Height < MinimumSize.Height) return;
             foreach (var s in Screen.AllScreens) {
@@ -702,8 +716,26 @@ internal sealed class PanelWindow : Form {
         try {
             if (WindowState == FormWindowState.Minimized) return;
             var rect = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-            File.WriteAllText(boundsFile, Program.Json.Serialize(new { x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height, max = WindowState == FormWindowState.Maximized }));
+            File.WriteAllText(boundsFile, Program.Json.Serialize(new { v = 2, x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height, max = WindowState == FormWindowState.Maximized, zoom = zoom }));
         } catch { }
+    }
+
+    private bool HandleWindowMessage(string json) {
+        Dictionary<string, object> message;
+        try { message = Program.Json.Deserialize<Dictionary<string, object>>(json); } catch { return false; }
+        if (message == null || !message.ContainsKey("method") || !message.ContainsKey("id")) return false;
+        string method = message["method"] as string, id = message["id"] as string;
+        if (id == null || (method != "window.zoomGet" && method != "window.zoomSet")) return false;
+        if (method == "window.zoomSet") {
+            var parameters = message.ContainsKey("params") ? message["params"] as Dictionary<string, object> : null;
+            double next;
+            try { next = parameters != null && parameters.ContainsKey("zoom") ? Convert.ToDouble(parameters["zoom"]) : zoom; } catch { next = zoom; }
+            zoom = ClampZoom(next);
+            browser.ZoomFactor = zoom;
+            SaveBounds();
+        }
+        Post(Program.Json.Serialize(new { id = id, result = new { zoom = zoom, steps = ZoomSteps } }));
+        return true;
     }
 
     protected override void OnShown(EventArgs e) {
@@ -737,7 +769,10 @@ internal sealed class PanelWindow : Form {
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
-            core.Settings.IsZoomControlEnabled = false;
+            // Ctrl + wheel and Ctrl +/-/0 zoom; the choice is remembered with the window.
+            core.Settings.IsZoomControlEnabled = true;
+            browser.ZoomFactor = zoom;
+            browser.ZoomFactorChanged += delegate { zoom = ClampZoom(browser.ZoomFactor); };
             core.SetVirtualHostNameToFolderMapping(Program.PageHost, www, CoreWebView2HostResourceAccessKind.DenyCors);
             core.NewWindowRequested += delegate (object s, CoreWebView2NewWindowRequestedEventArgs e) { e.Handled = true; };
             core.PermissionRequested += delegate (object s, CoreWebView2PermissionRequestedEventArgs e) { e.State = CoreWebView2PermissionState.Deny; };
@@ -754,6 +789,7 @@ internal sealed class PanelWindow : Form {
             };
             core.WebMessageReceived += delegate (object s, CoreWebView2WebMessageReceivedEventArgs e) {
                 if (!e.Source.StartsWith(Program.PageUrl, StringComparison.Ordinal)) return;
+                if (HandleWindowMessage(e.WebMessageAsJson)) return;
                 owner.FromPage(e.WebMessageAsJson);
             };
             core.NavigationCompleted += delegate (object s, CoreWebView2NavigationCompletedEventArgs e) {

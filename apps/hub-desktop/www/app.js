@@ -1306,6 +1306,50 @@
         );
       })
       .catch(() => undefined);
+    // Interface size: the window's zoom (also Ctrl + wheel, Ctrl +/-/0), remembered by the shell.
+    const sizeCard = h("section", { class: "m span-6" });
+    const SIZES = [
+      [0.9, "小"],
+      [1, "标准"],
+      [1.1, "大"],
+      [1.25, "较大"],
+      [1.4, "特大"],
+    ];
+    const drawSizes = (zoom) => {
+      sizeCard.replaceChildren(
+        h(
+          "div",
+          { class: "who" },
+          h("b", null, "界面大小"),
+          h("span", null, `当前 ${Math.round(zoom * 100)}%，也可以按住 Ctrl 滚动鼠标滚轮调整`),
+        ),
+        h(
+          "div",
+          { class: "zoom-steps", role: "radiogroup", "aria-label": "界面大小" },
+          SIZES.map(([value, label]) =>
+            h(
+              "button",
+              {
+                type: "button",
+                role: "radio",
+                class: Math.abs(zoom - value) < 0.01 ? "on" : "",
+                "aria-checked": String(Math.abs(zoom - value) < 0.01),
+                onclick: () =>
+                  call("window.zoomSet", { zoom: value }).then(
+                    (r) => alive() && drawSizes(r.zoom),
+                    failed,
+                  ),
+              },
+              h("b", null, label),
+              h("span", null, `${Math.round(value * 100)}%`),
+            ),
+          ),
+        ),
+      );
+    };
+    call("window.zoomGet")
+      .then((r) => alive() && r && drawSizes(r.zoom))
+      .catch(() => undefined);
     const autostart = h("section", { class: "m tone agent span-3" });
     const about = h(
       "section",
@@ -1326,6 +1370,7 @@
       h(
         "div",
         { class: "grid compact" },
+        sizeCard,
         autostart,
         about,
         alertCard,
@@ -1809,6 +1854,8 @@
       },
       "proxy.status": { available: true, running: true, port: 25917 },
       "codex.status": { running: true, canOpen: true },
+      "window.zoomGet": { zoom: 1.25, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
+      "window.zoomSet": { zoom: 1.1, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
       "updates.install": {
         phase: "downloading",
         version: "0.11.1",
