@@ -3292,3 +3292,41 @@ select.input,
 .claude-quota-item small {
   font-size: 11.5px;
 }
+
+/* 账号 page tabs (Codex / Claude Code / other agents). */
+.account-tabs {
+  display: inline-flex;
+  margin-bottom: 18px;
+}
+.page-head {
+  margin-bottom: 14px;
+}
+.key-card {
+  margin-bottom: 4px;
+}
+.tag.warn {
+  color: var(--warn);
+}
+.agent-login-card {
+  gap: 14px;
+}
+
+/* AI 助手: one "使用" choice per installed agent. */
+.use-field {
+  max-width: 460px;
+}
+.use-field .pick {
+  width: 100%;
+  height: 46px;
+  font-size: 14.5px;
+}
+.use-links {
+  gap: 6px;
+}
+.key-block:not(:empty) {
+  margin-bottom: 18px;
+}
+.pick-option:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

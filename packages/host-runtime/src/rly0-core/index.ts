@@ -367,13 +367,14 @@ export class Rly0CoreBridge {
    * rename, remove and usage. Results carry identities and usage only, never tokens.
    */
   async claudeAccounts(
-    method: "list" | "importCurrent" | "switch" | "rename" | "remove" | "usage" | "usageAll",
+    method:
+      "list" | "importCurrent" | "switch" | "rename" | "remove" | "usage" | "usageAll" | "keyInfo",
     params: Record<string, unknown> = {},
   ): Promise<Record<string, unknown> | null> {
     const response = await this.#client.request<Record<string, unknown>>(
       `claude/${method}`,
       params,
-      method.startsWith("usage") ? { timeoutMs: 60_000 } : {},
+      method.startsWith("usage") || method === "keyInfo" ? { timeoutMs: 60_000 } : {},
     );
     return response.available ? response.result : null;
   }

@@ -182,7 +182,7 @@
     home: "首页",
     agents: "AI 助手",
     relays: "中转站",
-    accounts: "Codex 账号",
+    accounts: "账号",
     backup: "备份",
     support: "支持",
     settings: "设置",
@@ -405,6 +405,7 @@
   pageApi.relayLogo = relayModule.relayLogo;
   window.registerHubHome(pageApi);
   window.registerHubInstructions(pageApi);
+  pageApi.agentAccounts = window.registerHubAgentAccounts(pageApi);
 
   const STEP = {
     installingNode: "正在安装 Node.js",
@@ -431,7 +432,41 @@
     NOT_DETECTED: "安装后仍找不到 npm，请安装含 npm 的 Node.js 后重试",
   };
 
-  pages.accounts = (root, alive) => {
+  // 账号: one tab per agent family; Codex accounts, Claude Code accounts, other agents' logins.
+  const ACCOUNT_TABS = [
+    ["codex", "Codex"],
+    ["claude", "Claude Code"],
+    ["others", "其他助手"],
+  ];
+  let accountTab = "codex";
+  pages.accounts = (root, alive, options) => {
+    if (options && options.tab) accountTab = options.tab;
+    const body = h("div", { class: "account-tab-body" });
+    root.append(
+      h(
+        "nav",
+        { class: "settings-menu account-tabs", "aria-label": "账号分类" },
+        ACCOUNT_TABS.map(([id, label]) =>
+          h(
+            "button",
+            {
+              type: "button",
+              class: id === accountTab ? "on" : "",
+              "aria-current": id === accountTab ? "page" : null,
+              onclick: () => go("accounts", { tab: id }),
+            },
+            label,
+          ),
+        ),
+      ),
+      body,
+    );
+    if (accountTab === "claude") pageApi.agentAccounts.claude(body, alive);
+    else if (accountTab === "others") pageApi.agentAccounts.others(body, alive);
+    else codexAccountsPage(body, alive);
+  };
+
+  function codexAccountsPage(root, alive) {
     const list = h("div", { class: "grid compact" });
     const head = h(
       "div",
@@ -924,7 +959,7 @@
       },
       () => undefined,
     );
-  };
+  }
 
   pages.backup = (root, alive) => {
     const module = h("section", { class: "m span-6" }, h("div", { class: "sub" }, "读取中…"));
@@ -1531,6 +1566,25 @@
         liveUnsaved: false,
       },
       "agents.claudeAccounts.usageAll": { results: [] },
+      "agents.claudeCode.keyInfo": {
+        info: {
+          kind: "subscription",
+          last4: "ab12",
+          email: "me@example.com",
+          plan: "max",
+          valid: true,
+          usage: {
+            windows: [
+              { kind: "primary", usedPercent: 20, resetsAt: Math.floor(Date.now() / 1000) + 6000 },
+              {
+                kind: "secondary",
+                usedPercent: 55,
+                resetsAt: Math.floor(Date.now() / 1000) + 300000,
+              },
+            ],
+          },
+        },
+      },
       "relay.balance": { available: true, ok: true, balance: 86.4, unit: "USD", rate: 0.3 },
       "agents.claudeCode.status": { installed: true, loggedIn: false },
       "agents.relays.get": { claudeCode: "aaaaaaaaaaaa" },

@@ -46,6 +46,7 @@ import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { apiKeyLogin, importLogin, parseLoginFile } from "./account-import.js";
 import {
   importClaudeCredentials,
+  isAnthropicOfficial,
   parseClaudeImport,
   saveAnthropicApiKey,
 } from "./claude-official.js";
@@ -719,6 +720,14 @@ export class Rly0HubService {
         z.object({ id: z.string().regex(/^[a-f0-9]{12}$/u) }).strict(),
         async (p) => (await core.claudeAccounts("remove", p)) ?? { ok: false },
       ),
+      // What the saved official key/subscription token is: account and usage for a token,
+      // validity for an API key. The key itself stays in rly0-core.
+      "agents.claudeCode.keyInfo": route(empty, async () => {
+        const relays = await core.listRelays();
+        const entry = relays.available ? relays.relays.find(isAnthropicOfficial) : undefined;
+        if (!entry) return { info: null };
+        return { info: await core.claudeAccounts("keyInfo", { relayId: entry.id }) };
+      }),
       "agents.claudeAccounts.usageAll": route(empty, async () => {
         const result = await core.claudeAccounts("usageAll");
         if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");

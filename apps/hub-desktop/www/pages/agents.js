@@ -1,7 +1,8 @@
 "use strict";
 // "AI 助手" page: official agents of the model vendors, then third-party agents. Each card shows
-// the vendor's logo, installs with a slide-to-unlock control and a progress bar, and lets the
-// person pick how the agent connects: its own account, 零号中转, or another relay.
+// the vendor's logo, installs with a slide-to-unlock control and a progress bar, and once
+// installed only chooses what it uses (an account, the official key, or a relay). Logins and
+// relays are added on the 账号 and 中转站 pages.
 window.registerHubAgents = ({
   pages,
   h,
@@ -11,7 +12,7 @@ window.registerHubAgents = ({
   explain,
   isRly0,
   isOfficialKey,
-  LOGIN_ICONS,
+  go,
   countdown,
   resetText,
   pollers,
@@ -242,27 +243,6 @@ window.registerHubAgents = ({
     };
   }
 
-  // What to do in each agent's own terminal to sign in.
-  const TERMINAL_LOGIN_STEPS = {
-    pi: [
-      "终端里会出现 Pi 的界面，底部有输入框。",
-      "输入 /login 然后回车，选一个服务商（如 OpenAI、Anthropic），按提示在浏览器里登录或粘贴 API Key。",
-      "看到登录成功后，按 Ctrl+C 两次退出，关闭窗口。",
-      "回到 Hub 点「检测连接」，显示连接正常就能在 Codex 里用了。",
-    ],
-    hermes: [
-      "第一次运行 Hermes 会问「Help improve Hermes?」，直接按回车（不发送数据）。",
-      "接着选择模型服务商（如 OpenRouter、OpenAI、Anthropic），按提示登录或粘贴 API Key，再选一个模型。",
-      "完成后关闭窗口。",
-      "回到 Hub 点「检测连接」，显示连接正常就能在 Codex 里用了。",
-    ],
-    opencode: [
-      "终端里会打开 OpenCode。",
-      "输入 /connect（或 /login）回车，选服务商并登录。",
-      "完成后关闭窗口，回到 Hub 点「检测连接」。",
-    ],
-  };
-
   // Official agents and the model family they are built for.
   const NATIVE_MODELS = {
     "claude-code": { family: "Claude", pattern: /^(?:anthropic\/)?claude/iu },
@@ -271,16 +251,6 @@ window.registerHubAgents = ({
   };
 
   /* ---------- Page ---------- */
-  const LOGIN_ERRORS = {
-    API_KEY_INVALID: "Key 格式不对，Anthropic 的 Key 以 sk-ant- 开头",
-    AUTH_FILE_INVALID: "这个文件不是有效的 JSON",
-    AUTH_FILE_NOT_A_LOGIN:
-      "文件里没有 Claude 登录（支持 .credentials.json 和 Sub2API 导出的 Claude 账号）",
-    RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
-  };
-  const loginFailed = (error) =>
-    toast(LOGIN_ERRORS[error && error.message] || explain(error && error.message));
-
   const sectionHead = (kind, title, hint, count) =>
     h(
       "div",
@@ -317,7 +287,9 @@ window.registerHubAgents = ({
     let claudeRelay = null;
     // Third-party agents RLY/0 Hub routes itself: { agentId: { relayId, model } }.
     let agentRelays = {};
-    let claudeAuth = null;
+    let claudeAccounts = {};
+    // Agents whose relay is set up by hand (snippets): remembered for this page only.
+    const manualChoice = new Map();
     let connections = null; // last report from the Codex side: { checkedAt, agents: { id: {...} } }
     const balances = new Map();
     const checkButton = h(
@@ -354,7 +326,7 @@ window.registerHubAgents = ({
         call("agents.list").catch(() => null),
         call("relay.list").catch(() => null),
         call("agents.relays.get").catch(() => ({ claudeCode: null })),
-        call("agents.claudeCode.status").catch(() => null),
+        call("agents.claudeAccounts.list").catch(() => null),
         call("agents.connectionStatus").catch(() => null),
       ]);
       if (!alive()) return;
@@ -364,7 +336,7 @@ window.registerHubAgents = ({
       relays = all.filter((relay) => relay.enabled && !isOfficialKey(relay));
       claudeRelay = selection.claudeCode;
       agentRelays = selection.agents || {};
-      claudeAuth = auth;
+      claudeAccounts = auth || {};
       const agents = (list && list.agents) || [];
       // Installed first; within each, the catalogue order (open source before closed).
       const order = (items) =>
@@ -587,52 +559,70 @@ window.registerHubAgents = ({
       );
     }
 
-    // A file the person picks, read as text (login files are small).
-    function pickFile(onText) {
-      const input = h("input", { type: "file", accept: ".json,application/json", hidden: true });
-      input.addEventListener("change", () => {
-        const file = input.files && input.files[0];
-        input.remove();
-        if (!file) return;
-        if (file.size > 256 * 1024) {
-          toast("文件太大，不像是登录文件");
-          return;
-        }
-        file.text().then(onText);
-      });
-      document.body.append(input);
-      input.click();
-    }
-
+    // "使用": one choice per installed agent: a saved account, the official key, its own login,
+    // or a relay. Logins and relays are added on the 账号 and 中转站 pages; this only switches.
     function renderAccess(agent, body) {
-      // An official agent runs only its own vendor's models, so it can use a relay only when the
-      // relay offers them (Claude Code → Claude). Third-party agents can use any relay.
       const native = NATIVE_MODELS[agent.id];
       const fits = (relay) => !native || relay.models.some((model) => native.pattern.test(model));
-      const nativeTip = (relay) =>
-        relay.models.length
-          ? `${relay.name} 没有 ${native.family} 模型，${agent.name} 只能用原生的 ${native.family} 模型`
-          : `${relay.name} 还没读出模型，先到「中转站」页点“编辑 / 选模型”测试一次`;
-      const zero = relays.find((relay) => isRly0(relay) && fits(relay));
-      const zeroAny = relays.find((relay) => isRly0(relay));
-      const others = relays.filter((relay) => !isRly0(relay) && fits(relay));
-      const othersAny = relays.filter((relay) => !isRly0(relay));
+      const isClaude = agent.id === "claude-code";
+      const thirdParty = !isClaude && agent.relay === "auto";
       const canRelay = agent.relay !== "none";
-      let mode = "official";
-      let relay = null;
-      const thirdParty = agent.id !== "claude-code" && agent.relay === "auto";
-      const savedId =
-        agent.id === "claude-code"
-          ? claudeRelay && !(officialKey && claudeRelay === officialKey.id)
-            ? claudeRelay
-            : null
-          : thirdParty && agentRelays[agent.id]
-            ? agentRelays[agent.id].relayId
-            : null;
-      if (savedId) {
-        relay = relays.find((r) => r.id === savedId) || null;
-        mode = relay ? (isRly0(relay) ? "rly0" : "other") : "official";
+      const options = [];
+      if (isClaude) {
+        for (const account of claudeAccounts.accounts || [])
+          options.push({
+            value: `acct:${account.id}`,
+            label: `Claude 账号 · ${account.alias}`,
+            account,
+          });
+        if (claudeAccounts.liveUnsaved)
+          options.push({
+            value: "live",
+            label: `Claude 账号 · ${(claudeAccounts.live && claudeAccounts.live.email) || "当前登录"}（未保存）`,
+          });
+        if (officialKey) options.push({ value: "key", label: "官方 API Key / 订阅令牌" });
+      } else {
+        options.push({ value: "own", label: "自己的登录（官方账号）" });
       }
+      const sortedRelays = [...relays].sort((a, b) => Number(isRly0(b)) - Number(isRly0(a)));
+      if (canRelay)
+        for (const relay of sortedRelays)
+          options.push({
+            value: `relay:${relay.id}`,
+            label: `${isRly0(relay) ? "零号中转" : relay.name}${fits(relay) ? "" : `（没有 ${native.family} 模型）`}`,
+            relay,
+            disabled: !fits(relay),
+          });
+
+      // What is in use now.
+      let current = null;
+      if (isClaude) {
+        if (claudeRelay && officialKey && claudeRelay === officialKey.id) current = "key";
+        else if (claudeRelay) current = `relay:${claudeRelay}`;
+        else {
+          const live = (claudeAccounts.accounts || []).find((a) => a.current);
+          current = live ? `acct:${live.id}` : claudeAccounts.liveUnsaved ? "live" : null;
+        }
+      } else if (thirdParty && agentRelays[agent.id])
+        current = `relay:${agentRelays[agent.id].relayId}`;
+      else current = manualChoice.get(agent.id) || "own";
+      if (current && !options.some((o) => o.value === current)) current = null;
+
+      const detail = h("div", { class: "access-detail" });
+      const select = h(
+        "select",
+        { class: "input use-select", "aria-label": `${agent.name} 使用` },
+        current ? null : h("option", { value: "", selected: true }, "还没有可用的登录"),
+        options.map((o) =>
+          h(
+            "option",
+            { value: o.value, selected: o.value === current, disabled: o.disabled },
+            o.label,
+          ),
+        ),
+      );
+      select.addEventListener("change", () => choose(select.value));
+
       // A default model for agents that need one; the relay's first model when none is saved.
       const defaultModel = (target) => {
         const saved = agentRelays[agent.id];
@@ -640,528 +630,111 @@ window.registerHubAgents = ({
         const usable = target.models.filter((m) => !m.endsWith("*"));
         return usable.find((m) => /^gpt-5/iu.test(m)) || usable[0] || null;
       };
-      const detail = h("div", { class: "access-detail" });
-      const quota = h("div", { class: "quota-line" });
-      const segment = h("div", { class: "segment", role: "radiogroup", "aria-label": "接入方式" });
 
-      const choose = async (nextMode, nextRelay) => {
-        mode = nextMode;
-        relay = nextRelay;
-        if (thirdParty) {
-          const model = mode === "official" ? null : defaultModel(relay);
-          await call("agents.relays.setAgent", {
-            agent: agent.id,
-            relayId: mode === "official" ? null : relay.id,
-            model,
-          }).then((next) => {
-            agentRelays = (next && next.agents) || {};
+      async function choose(value) {
+        const option = options.find((o) => o.value === value);
+        if (!option) return;
+        try {
+          if (value.startsWith("acct:")) {
+            const r = await call("agents.claudeAccounts.switch", { id: option.account.id });
             toast(
-              mode === "official"
-                ? "已改为官方账号"
+              r && r.switched
+                ? `已切换到 ${option.account.alias}，新开的 Claude Code 对话生效`
+                : "已经是这个账号",
+            );
+          } else if (value === "live") {
+            await call("agents.relays.set", { claudeCode: null });
+            toast("已改用当前的 Claude 登录");
+          } else if (value === "key") {
+            await call("agents.relays.set", { claudeCode: officialKey.id });
+            toast("已改用官方 API Key / 订阅令牌");
+          } else if (value === "own") {
+            if (thirdParty)
+              await call("agents.relays.setAgent", { agent: agent.id, relayId: null });
+            manualChoice.set(agent.id, "own");
+            toast(`${agent.name} 改用自己的登录`);
+          } else if (value.startsWith("relay:")) {
+            const relay = option.relay;
+            if (isClaude) await call("agents.relays.set", { claudeCode: relay.id });
+            else if (thirdParty)
+              await call("agents.relays.setAgent", {
+                agent: agent.id,
+                relayId: relay.id,
+                model: defaultModel(relay),
+              });
+            else manualChoice.set(agent.id, value);
+            toast(
+              agent.relay === "manual"
+                ? `按下面的方法把 ${agent.name} 接到 ${relay.name}`
                 : `已接入 ${relay.name}，Codex 里新开的 ${agent.name} 对话直接生效`,
             );
-          }, failed);
-        } else if (agent.relay === "auto") {
-          await call("agents.relays.set", {
-            claudeCode: mode === "official" ? null : relay.id,
-          }).then(
-            () =>
-              toast(
-                mode === "official"
-                  ? "已改为官方账号"
-                  : `已接入 ${relay.name}，Codex 里新开的对话直接生效，不用重启`,
-              ),
-            failed,
-          );
-          claudeRelay = mode === "official" ? null : relay.id;
+          }
+        } catch (error) {
+          failed(error);
         }
-        draw();
-      };
+        load();
+      }
 
-      function draw() {
-        // Every way in is always shown; one that cannot be used yet is grey with a hint.
-        const option = (key, label, blocked, onclick) =>
+      async function drawDetail() {
+        const option = options.find((o) => o.value === current);
+        const links = h(
+          "div",
+          { class: "row use-links" },
           h(
             "button",
             {
+              class: "btn quiet sm",
               type: "button",
-              role: "radio",
-              "aria-checked": String(mode === key),
-              "aria-disabled": blocked ? "true" : null,
-              "data-tip": blocked || null,
-              class: `${mode === key ? "on" : ""} ${blocked ? "off" : ""}`,
-              onclick: () => (blocked ? toast(blocked) : onclick()),
+              onclick: () => go("accounts", { tab: isClaude ? "claude" : "others" }),
             },
-            label,
-          );
-        const unsupported = canRelay ? null : `${agent.name} 暂时不能接中转站，只能用官方账号`;
-        put(
-          segment,
-          option("official", "官方账号", null, () => choose("official", null)),
-          option(
-            "rly0",
-            "零号中转",
-            unsupported ||
-              (zero
-                ? null
-                : zeroAny
-                  ? nativeTip(zeroAny)
-                  : "还没添加零号中转，先去「中转站」页接入"),
-            () => choose("rly0", zero),
+            isClaude ? "管理 Claude 账号 →" : "登录官方账号 →",
           ),
-          option(
-            "other",
-            others.length === 1 ? others[0].name : "其他中转",
-            unsupported ||
-              (others.length
-                ? null
-                : othersAny.length
-                  ? othersAny.length === 1
-                    ? nativeTip(othersAny[0])
-                    : `已添加的中转站都没有 ${native ? native.family : ""} 模型`
-                  : "还没添加其他中转站，可以在「中转站」页添加"),
-            () => choose("other", relay && !isRly0(relay) ? relay : others[0]),
-          ),
+          canRelay
+            ? h(
+                "button",
+                { class: "btn quiet sm", type: "button", onclick: () => go("relays") },
+                "管理中转站 →",
+              )
+            : null,
         );
-        if (mode === "official") drawOfficial();
-        else drawRelay();
-      }
-
-      function loginMenu(label, className) {
-        const claude = agent.id === "claude-code";
-        return window.HubUI.menuButton(
-          label,
-          [
-            {
-              icon: LOGIN_ICONS.web,
-              title: "网页登录",
-              desc: claude
-                ? "在浏览器登录 Claude 账号（Pro / Max）"
-                : "打开终端，按提示在浏览器里登录",
-              onSelect: () =>
-                claude ? login("claudeai") : openTerminalLogin("已打开终端，按提示登录"),
-            },
-            {
-              icon: LOGIN_ICONS.file,
-              title: "导入登录文件",
-              desc: claude ? ".credentials.json 或 Sub2API 导出的 Claude 账号" : "这个助手不支持",
-              disabled: !claude,
-              tip: `${agent.name} 不支持导入登录文件，用网页登录或 API Key`,
-              onSelect: () =>
-                pickFile((content) =>
-                  call("agents.claudeCode.importCredentials", { content }).then((result) => {
-                    toast(
-                      result.token
-                        ? "已导入 Claude 令牌，Codex 里新开的 Claude Code 对话会用它"
-                        : result.backup
-                          ? "已导入，原来的登录文件已备份"
-                          : "已导入 Claude 登录",
-                    );
-                    load();
-                  }, loginFailed),
-                ),
-            },
-            {
-              icon: LOGIN_ICONS.key,
-              title: "官方 API Key",
-              desc: claude
-                ? "API Key 或 claude setup-token 生成的令牌（sk-ant-…）"
-                : "在终端里选择 API Key 方式",
-              onSelect: () =>
-                claude ? showKeyForm() : openTerminalLogin("已打开终端，选择 API Key 方式登录"),
-            },
-          ],
-          { className: className || "btn paper sm" },
-        );
-      }
-
-      // Third-party agents sign in inside their own terminal UI; say what to do there first.
-      function openTerminalLogin(done) {
-        const steps = TERMINAL_LOGIN_STEPS[agent.id] || [
-          "在打开的终端窗口里按提示登录。",
-          "登录完成后关闭终端窗口。",
-        ];
-        const ui = window.HubUI.dialog({
-          title: `登录 ${agent.name} 官方账号`,
-          sub: "会打开一个终端窗口，在里面完成登录",
-        });
-        put(
-          ui.body,
-          h(
-            "ol",
-            { class: "login-steps" },
-            steps.map((step) => h("li", null, step)),
-          ),
-          h(
-            "p",
-            { class: "sub" },
-            "更简单的办法：不用登录，直接把接入方式选成「零号中转」或其他中转站，选好默认模型就能用。",
-          ),
-        );
-        put(
-          ui.foot,
-          h("span", { class: "spacer" }),
-          h("button", { class: "btn quiet", type: "button", onclick: () => ui.close() }, "取消"),
-          h(
-            "button",
-            {
-              class: "btn paper",
-              type: "button",
-              onclick: () => {
-                ui.close();
-                call("agents.openLogin", { agent: agent.id }).then(
-                  (r) => toast(r.ok ? done : "没能打开终端"),
-                  failed,
-                );
-              },
-            },
-            "打开终端",
-          ),
-        );
-      }
-
-      function showKeyForm() {
-        const key = h("input", {
-          class: "input",
-          type: "password",
-          placeholder: "sk-ant-api… 或 setup-token 生成的 sk-ant-oat…",
-          autocomplete: "off",
-          spellcheck: "false",
-          "aria-label": "Anthropic API Key",
-        });
-        const save = () =>
-          call("agents.claudeCode.setApiKey", { apiKey: key.value.trim() }).then(() => {
-            toast("已保存，Codex 里新开的 Claude Code 对话用这个 Key");
-            load();
-          }, loginFailed);
-        key.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") save();
-        });
-        put(
-          detail,
-          h(
-            "div",
-            { class: "key-form" },
+        if (!option) {
+          put(
+            detail,
             h(
               "p",
               { class: "sub" },
-              "API Key 和 claude setup-token 生成的订阅令牌都可以。加密保存在本机，只发给 Anthropic 官方，界面上不会再显示。",
+              isClaude
+                ? "还没有 Claude 账号或中转站。先到「账号 → Claude Code」添加账号，或到「中转站」接入零号。"
+                : "先登录官方账号，或接入一个中转站。",
             ),
-            h(
-              "div",
-              { class: "row" },
-              key,
-              h("button", { class: "btn paper sm", type: "button", onclick: save }, "保存"),
-              h(
-                "button",
-                { class: "btn quiet sm", type: "button", onclick: () => drawOfficial() },
-                "取消",
-              ),
-            ),
-          ),
-        );
-        key.focus();
-      }
-
-      function drawOfficial() {
-        put(quota);
-        if (agent.id === "claude-code") {
-          const usingKey = officialKey && claudeRelay === officialKey.id;
-          const panel = h("div", { class: "claude-accounts" });
-          put(
-            detail,
-            usingKey
-              ? h(
-                  "div",
-                  { class: "row key-row" },
-                  h("span", { class: "sub" }, "正在用官方 API Key / 订阅令牌"),
-                  h("span", { class: "spacer" }),
-                  h(
-                    "button",
-                    {
-                      class: "btn quiet sm",
-                      type: "button",
-                      onclick: () =>
-                        call("agents.relays.set", { claudeCode: null }).then(() => {
-                          toast("已停用 Key，改回账号登录");
-                          load();
-                        }, failed),
-                    },
-                    "停用 Key",
-                  ),
-                )
-              : null,
-            panel,
+            links,
           );
-          drawClaudeAccounts(panel);
           return;
         }
-        put(
-          detail,
-          h(
-            "div",
-            { class: "row" },
-            agent.canOpenLogin ? loginMenu("登录官方账号") : null,
-            h("span", { class: "spacer" }),
-            h(
-              "button",
-              {
-                class: "btn quiet sm",
-                type: "button",
-                onclick: () => call("links.agentDocs", { agent: agent.id }).catch(failed),
-              },
-              "官方说明",
-            ),
-          ),
-        );
-      }
-
-      // Claude Code's sign-in replaces the live login, so the current one is saved first and the
-      // new one is saved as soon as it appears: the person ends up with both, one tap apart.
-      async function login(kind) {
-        const before = await call("agents.claudeCode.status").catch(() => null);
-        if (before && before.loggedIn)
-          await call("agents.claudeAccounts.importCurrent", {}).catch(() => undefined);
-        const previous = before && before.loggedIn ? before.email || "" : null;
-        const result = await call("agents.claudeCode.login", { mode: kind }).catch(() => null);
-        toast(
-          result && result.started
-            ? "已在浏览器打开登录页，用要添加的 Claude 账号登录"
-            : "没能开始登录",
-        );
-        if (!result || !result.started) return;
-        const startedAt = Date.now();
-        const timer = setInterval(async () => {
-          if (Date.now() - startedAt > 5 * 60_000) {
-            clearInterval(timer);
-            pollers.delete(timer);
-            return;
-          }
-          const status = await call("agents.claudeCode.status").catch(() => null);
-          if (!status || !status.loggedIn) return;
-          if (previous !== null && (status.email || "") === previous) return;
-          clearInterval(timer);
-          pollers.delete(timer);
-          await call("agents.claudeAccounts.importCurrent", {}).then(
-            () => toast(`已添加 ${status.email || "Claude 账号"}，并切换到它`),
-            () => toast("已登录，但没能保存这个账号，可以点「保存当前登录」"),
+        if (option.account) {
+          put(
+            detail,
+            claudeQuota(option.account) || h("p", { class: "sub" }, "额度读取中…"),
+            links,
           );
-          if (alive()) load();
-        }, 3000);
-        pollers.add(timer);
-      }
-
-      // Saved Claude accounts, like the Codex accounts page: quota, switch, remove.
-      let claudeUsageRead = false;
-      async function drawClaudeAccounts(panel) {
-        const listed = await call("agents.claudeAccounts.list").catch(() => null);
-        if (!alive()) return;
-        const accounts = (listed && listed.accounts) || [];
-        const rows = accounts.map((account) => claudeAccountRow(account, panel));
-        const unsaved =
-          listed && listed.liveUnsaved
-            ? h(
-                "div",
-                { class: "claude-account current" },
-                h(
-                  "div",
-                  { class: "row" },
-                  h(
-                    "div",
-                    { class: "who" },
-                    h("b", null, (listed.live && listed.live.email) || "当前 Claude 登录"),
-                    h(
-                      "span",
-                      null,
-                      [
-                        listed.live && listed.live.plan ? listed.live.plan.toUpperCase() : null,
-                        "还没保存",
-                      ]
-                        .filter(Boolean)
-                        .join(" · "),
-                    ),
-                  ),
-                  h("span", { class: "spacer" }),
-                  h(
-                    "button",
-                    {
-                      class: "btn paper sm",
-                      type: "button",
-                      onclick: () =>
-                        call("agents.claudeAccounts.importCurrent", {}).then(() => {
-                          toast("已保存，之后可以一键切换");
-                          drawClaudeAccounts(panel);
-                        }, loginFailedClaude),
-                    },
-                    "保存",
-                  ),
-                ),
-              )
-            : null;
-        put(
-          panel,
-          h(
-            "div",
-            { class: "row" },
-            h("span", { class: "label" }, `Claude 账号 · ${accounts.length}`),
-            h("span", { class: "spacer" }),
-            loginMenu("+ 添加账号", "btn paper sm"),
-          ),
-          unsaved,
-          rows.length
-            ? rows
-            : unsaved
-              ? null
-              : h(
+          return;
+        }
+        if (!option.relay) {
+          put(
+            detail,
+            option.value === "own" && !isClaude
+              ? h(
                   "p",
                   { class: "sub" },
-                  "还没登录 Claude 账号。点“添加账号”用 Claude Pro / Max 账号登录，可以添加多个，一键切换。",
-                ),
-        );
-        if (!claudeUsageRead && accounts.length) {
-          claudeUsageRead = true;
-          call("agents.claudeAccounts.usageAll").then(
-            () => alive() && drawClaudeAccounts(panel),
-            () => undefined,
+                  `用 ${agent.name} 自己登录的服务商。还没登录的话，点下面“登录官方账号”。`,
+                )
+              : null,
+            links,
           );
+          return;
         }
-      }
-
-      const loginFailedClaude = (error) =>
-        toast(
-          error && error.message === "CLAUDE_IDENTITY_UNKNOWN"
-            ? "还读不到这个账号是谁：在 Codex 里用一次 Claude Code 后再保存"
-            : explain(error && error.message),
-        );
-
-      function claudeAccountRow(account, panel) {
-        const usage = account.lastUsage;
-        const bars =
-          usage && usage.windows && usage.windows.length
-            ? h(
-                "div",
-                { class: "claude-quota" },
-                usage.windows.map((w) => {
-                  const left = Math.max(0, Math.round(100 - w.usedPercent));
-                  return h(
-                    "div",
-                    { class: `claude-quota-item ${left <= 15 ? "low" : ""}` },
-                    h(
-                      "div",
-                      { class: "row" },
-                      h("span", null, w.kind === "primary" ? "5 小时" : "每周"),
-                      h("span", { class: "spacer" }),
-                      h("b", { class: "tabular" }, `剩 ${left}%`),
-                    ),
-                    h("div", { class: "bar" }, h("i", { style: { width: `${left}%` } })),
-                    w.resetsAt
-                      ? h("small", null, `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}`)
-                      : null,
-                  );
-                }),
-              )
-            : h(
-                "p",
-                { class: "sub" },
-                account.current ? "额度读取中…" : "额度：切换到这个账号后读取",
-              );
-        let confirmRemove = false;
-        const remove = h(
-          "button",
-          {
-            class: "btn quiet sm",
-            type: "button",
-            onclick: () => {
-              if (!confirmRemove) {
-                confirmRemove = true;
-                remove.textContent = "确认删除";
-                setTimeout(() => {
-                  confirmRemove = false;
-                  remove.textContent = "删除";
-                }, 3000);
-                return;
-              }
-              call("agents.claudeAccounts.remove", { id: account.id }).then(() => {
-                toast("已删除保存的账号（当前登录不受影响）");
-                drawClaudeAccounts(panel);
-              }, failed);
-            },
-          },
-          "删除",
-        );
-        return h(
-          "div",
-          { class: `claude-account ${account.current ? "current" : ""}` },
-          h(
-            "div",
-            { class: "row" },
-            h(
-              "div",
-              { class: "who" },
-              h("b", null, account.alias),
-              h(
-                "span",
-                null,
-                [
-                  account.email && account.email !== account.alias ? account.email : null,
-                  account.plan ? account.plan.toUpperCase() : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ") || " ",
-              ),
-            ),
-            h("span", { class: "spacer" }),
-            account.current ? h("span", { class: "tag ok" }, "使用中") : null,
-          ),
-          bars,
-          h(
-            "div",
-            { class: "row" },
-            account.current
-              ? null
-              : h(
-                  "button",
-                  {
-                    class: "btn paper sm",
-                    type: "button",
-                    onclick: () =>
-                      call("agents.claudeAccounts.switch", { id: account.id }).then((r) => {
-                        toast(
-                          r && r.switched
-                            ? `已切换到 ${account.alias}，Codex 里新开的 Claude Code 对话就用它，不用重启`
-                            : "已经是这个账号",
-                        );
-                        load();
-                      }, failed),
-                  },
-                  "切换到这个",
-                ),
-            h("span", { class: "spacer" }),
-            remove,
-          ),
-        );
-      }
-
-      async function drawRelay() {
-        const picker =
-          mode === "other" && others.length > 1
-            ? h(
-                "select",
-                {
-                  class: "input",
-                  "aria-label": "选择中转站",
-                  onchange: (event) =>
-                    choose(
-                      "other",
-                      others.find((r) => r.id === event.target.value),
-                    ),
-                },
-                others.map((r) =>
-                  h("option", { value: r.id, selected: relay && r.id === relay.id }, r.name),
-                ),
-              )
-            : null;
-        const auto = agent.relay === "auto";
+        const relay = option.relay;
+        const quota = h("div", { class: "quota-line" }, h("span", { class: "sub" }, "额度读取中…"));
         const usableModels = relay.models.filter((m) => !m.endsWith("*"));
         const modelPicker =
           thirdParty && usableModels.length
@@ -1193,58 +766,69 @@ window.registerHubAgents = ({
               ? h(
                   "p",
                   { class: "warn-text" },
-                  `${relay.name} 还没读出模型，先到「中转站」页点“编辑 / 选模型”测试一次`,
+                  `${relay.name} 还没读出模型，先到「中转站」页点“编辑 / 选模型”`,
                 )
               : null;
         put(
           detail,
+          quota,
           modelPicker,
-          relay && !fits(relay)
-            ? h("p", { class: "warn-text" }, `${nativeTip(relay)}。请改回官方账号或换一个中转站。`)
-            : null,
-          picker,
-          auto
+          agent.relay === "manual"
             ? h(
-                "p",
-                { class: "sub" },
-                "已自动接入：Codex 里新开的对话会通过这个中转站运行，不改你电脑上的配置。",
-              )
-            : h(
                 "details",
                 { class: "manual", open: true },
                 h("summary", null, "接入方法"),
                 h("p", { class: "sub" }, `把 ${KEY_PLACEHOLDER} 换成你在中转站后台复制的密钥。`),
                 snippets(agent, relay).map(([title, text]) => codeBlock(title, text)),
-                isRly0(relay)
-                  ? h(
-                      "button",
-                      {
-                        class: "btn quiet sm",
-                        type: "button",
-                        onclick: () => call("links.open", { target: "keys" }).catch(failed),
-                      },
-                      "打开零号「API 密钥」页",
-                    )
-                  : null,
+              )
+            : h(
+                "p",
+                { class: "sub" },
+                "已自动接入：新开的对话通过这个中转站运行，不改你电脑上的配置。",
               ),
+          links,
         );
-        put(quota, h("span", { class: "sub" }, "额度读取中…"));
         const balance = await balanceOf(relay);
         if (!alive()) return;
-        if (balance && balance.available && balance.ok) {
+        if (balance && balance.available && balance.ok)
           put(
             quota,
-            h("span", { class: "label" }, relay.name),
             moneyBadge(balance.balance, balance.unit),
             typeof balance.rate === "number" ? rateBadge(balance.rate) : null,
           );
-        } else {
+        else
           put(quota, h("span", { class: "sub" }, balance ? explain(balance.error) : "读不到余额"));
-        }
       }
 
-      put(body, h("span", { class: "label" }, "接入方式"), segment, quota, detail);
-      draw();
+      put(body, h("label", { class: "field use-field" }, h("span", null, "使用"), select), detail);
+      drawDetail();
+    }
+
+    function claudeQuota(account) {
+      const usage = account.lastUsage;
+      if (!usage || !usage.windows || !usage.windows.length) return null;
+      return h(
+        "div",
+        { class: "claude-quota" },
+        usage.windows.map((w) => {
+          const left = Math.max(0, Math.round(100 - w.usedPercent));
+          return h(
+            "div",
+            { class: `claude-quota-item ${left <= 15 ? "low" : ""}` },
+            h(
+              "div",
+              { class: "row" },
+              h("span", null, w.kind === "primary" ? "5 小时" : "每周"),
+              h("span", { class: "spacer" }),
+              h("b", { class: "tabular" }, `剩 ${left}%`),
+            ),
+            h("div", { class: "bar" }, h("i", { style: { width: `${left}%` } })),
+            w.resetsAt
+              ? h("small", null, `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}`)
+              : null,
+          );
+        }),
+      );
     }
 
     load();
