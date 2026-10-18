@@ -3,7 +3,7 @@
  * Every TypeScript consumer derives its repository URLs from these constants so the
  * updater can never be pointed back at the upstream CodexHost repository by accident.
  */
-export const RLY0_GITHUB_REPOSITORY = "a1039861261-stack/rly0-hub";
+export const RLY0_GITHUB_REPOSITORY = "RLY0/rly0-hub";
 export const RLY0_GITHUB_REPOSITORY_URL = `https://github.com/${RLY0_GITHUB_REPOSITORY}`;
 export const RLY0_GITHUB_ISSUES_URL = `${RLY0_GITHUB_REPOSITORY_URL}/issues`;
 export const RLY0_GITHUB_ISSUES_NEW_URL = `${RLY0_GITHUB_ISSUES_URL}/new`;

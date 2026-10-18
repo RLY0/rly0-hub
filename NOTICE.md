@@ -1,6 +1,6 @@
 # NOTICE
 
-RLY/0 Hub（仓库：<https://github.com/a1039861261-stack/rly0-hub>）是基于
+RLY/0 Hub（仓库：<https://github.com/RLY0/rly0-hub>）是基于
 **CodexHost**（<https://github.com/BytePioneer-AI/codex-host>，v0.10.2）修改的衍生作品。
 
 - CodexHost 以 **GNU Lesser General Public License v3.0（LGPL-3.0）** 发布。
@@ -12,7 +12,7 @@ RLY/0 Hub（仓库：<https://github.com/a1039861261-stack/rly0-hub>）是基于
 1. **用户可见品牌**：设置界面、关于页、Star 提示、Windows 对话框标题等处的 “CodexHost” 改为
    “RLY/0 Hub”（中英文界面统一），图标改为 RLY/0 品牌图形标，配色改为 RLY/0 品牌色。
 2. **仓库与更新源**：发布页、Issue 链接、GitHub Release 更新检查 / 下载地址、npm 包元数据中的仓库地址
-   全部改为 `a1039861261-stack/rly0-hub`，更新器不会再从上游仓库下载安装包。
+   全部改为 `RLY0/rly0-hub`，更新器不会再从上游仓库下载安装包。
 3. **Windows 安装器**：应用名与发布者改为 “RLY0 Hub”，默认安装目录改为
    `{localappdata}\Programs\rly0-hub`，并使用新的 AppId，可与 CodexHost 并存安装。
 4. **用户数据目录**：默认数据目录由 `~/.codexhost` 改为 `~/.rly0-hub`（本机与远端 SSH 主机均适用），

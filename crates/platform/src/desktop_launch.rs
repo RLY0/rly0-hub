@@ -32,7 +32,7 @@ pub type DesktopProcess = super::windows_desktop::WindowsDesktopProcess;
 pub type DesktopProcess = Child;
 
 const CODEXHOST_RELEASES_LATEST_URL: &str =
-    "https://github.com/a1039861261-stack/rly0-hub/releases/latest";
+    "https://github.com/RLY0/rly0-hub/releases/latest";
 const REMOTE_SSH_MANAGED_ENV: &str = "CODEXHOST_REMOTE_SSH_MANAGED";
 const REMOTE_PROFILE_ONLY_ENVIRONMENT: [&str; 3] = [
     "CODEX_INSTALL_DIR",

@@ -585,7 +585,7 @@ describe("npm package release", () => {
     expect(result.stderr).toContain("Launcher exited after ready");
     expect(result.stdout).toContain(
       "⭐ If this project helps you, please give us a Star ⭐\n" +
-        "https://github.com/a1039861261-stack/rly0-hub",
+        "https://github.com/RLY0/rly0-hub",
     );
     expect(readme).toContain("On Windows, the command remains attached until Codex Desktop exits");
     expect(readme).toContain("process trees of completed commands");
@@ -618,7 +618,7 @@ describe("npm package release", () => {
     expect(result.stderr).not.toContain("Launcher exited after ready");
     expect(result.stdout).toBe(
       "⭐ If this project helps you, please give us a Star ⭐\n" +
-        "https://github.com/a1039861261-stack/rly0-hub\n",
+        "https://github.com/RLY0/rly0-hub\n",
     );
   });
 
@@ -628,7 +628,7 @@ describe("npm package release", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toBe(
       "⭐ 如果这个项目对你有帮助，请给我们一个 Star ⭐\n" +
-        "https://github.com/a1039861261-stack/rly0-hub\n",
+        "https://github.com/RLY0/rly0-hub\n",
     );
   });
 
@@ -639,12 +639,12 @@ describe("npm package release", () => {
     expect(colored.status, colored.stderr).toBe(0);
     expect(colored.stdout).toBe(
       "\u001B[33m⭐ If this project helps you, please give us a Star ⭐\u001B[0m\n" +
-        "\u001B[36mhttps://github.com/a1039861261-stack/rly0-hub\u001B[0m\n",
+        "\u001B[36mhttps://github.com/RLY0/rly0-hub\u001B[0m\n",
     );
     expect(plain.status, plain.stderr).toBe(0);
     expect(plain.stdout).toBe(
       "⭐ If this project helps you, please give us a Star ⭐\n" +
-        "https://github.com/a1039861261-stack/rly0-hub\n",
+        "https://github.com/RLY0/rly0-hub\n",
     );
   });
 

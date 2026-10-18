@@ -118,7 +118,7 @@ function release(version = "1.2.3"): CodexhostLatestRelease {
   return {
     version,
     releaseNotes: `Release ${version}`,
-    releaseNotesUrl: `https://github.com/a1039861261-stack/rly0-hub/releases/tag/v${version}`,
+    releaseNotesUrl: `https://github.com/RLY0/rly0-hub/releases/tag/v${version}`,
     assets: [],
   };
 }
@@ -249,14 +249,14 @@ describe("Host update coordinator", () => {
       fetchLatest: async () => ({
         version: "1.2.3",
         releaseNotes: "Release 1.2.3",
-        releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
+        releaseNotesUrl: "https://github.com/RLY0/rly0-hub/releases/tag/v1.2.3",
         assets: [
           {
             name: "codexhost-1.2.3-macos-arm64.dmg",
             size: bytes.length,
             digest: `sha256:${digest(bytes)}`,
             downloadUrl:
-              "https://github.com/a1039861261-stack/rly0-hub/releases/download/v1.2.3/codexhost-1.2.3-macos-arm64.dmg",
+              "https://github.com/RLY0/rly0-hub/releases/download/v1.2.3/codexhost-1.2.3-macos-arm64.dmg",
           },
         ],
       }),

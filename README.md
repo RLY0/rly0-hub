@@ -4,7 +4,7 @@
 
 **一个窗口管好 Codex 和各家 AI 编程助手：多账号、中转站、Claude Code / Pi / Hermes / OpenCode 一键接入**
 
-[下载安装包](https://github.com/a1039861261-stack/rly0-hub/releases/latest) · [English](README.en.md)
+[下载安装包](https://github.com/RLY0/rly0-hub/releases/latest) · [English](README.en.md)
 
 <img src="docs/imgs/hub/home.png" alt="RLY/0 Hub 首页" width="880">
 
@@ -112,7 +112,7 @@ RLY/0 Hub 的“关于”设置页提供了**自愿性质**的赞助入口，支
 环境要求：官方 Codex Desktop、Node.js 22.19+ 或 24、Rust。
 
 ```bash
-git clone https://github.com/a1039861261-stack/rly0-hub
+git clone https://github.com/RLY0/rly0-hub
 cd rly0-hub
 npm ci
 npm start

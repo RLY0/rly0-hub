@@ -308,7 +308,7 @@ describe("Renderer fixed Model request client", () => {
         updateAvailable: true,
         installationAvailable: true,
         releaseNotes: "Safer updates",
-        releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
+        releaseNotesUrl: "https://github.com/RLY0/rly0-hub/releases/tag/v1.2.3",
         status: null,
         error: null,
       })
@@ -850,7 +850,7 @@ describe("Renderer fixed Model request client", () => {
       updateAvailable: true,
       installationAvailable: true,
       releaseNotes: "Safer updates",
-      releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
+      releaseNotesUrl: "https://github.com/RLY0/rly0-hub/releases/tag/v1.2.3",
       status: null,
       error: null,
       artifactUrl: "https://example.com/update.exe",

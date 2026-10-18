@@ -4,7 +4,7 @@
 
 **One window for Codex and the other AI coding agents: multiple accounts, relays, and one-click Claude Code / Pi / Hermes / OpenCode**
 
-[Download installer](https://github.com/a1039861261-stack/rly0-hub/releases/latest) · [中文](README.md)
+[Download installer](https://github.com/RLY0/rly0-hub/releases/latest) · [中文](README.md)
 
 <img src="docs/imgs/hub/home.png" alt="RLY/0 Hub home" width="880">
 
@@ -127,7 +127,7 @@ feature. This README does not include a payment QR code — see the in-app "Abou
 Requirements: official Codex Desktop, Node.js 22.19+ or 24, and Rust.
 
 ```bash
-git clone https://github.com/a1039861261-stack/rly0-hub
+git clone https://github.com/RLY0/rly0-hub
 cd rly0-hub
 npm ci
 npm start

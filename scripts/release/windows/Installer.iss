@@ -2,7 +2,7 @@
 AppId={{B6760EFC-A68E-4309-BDA8-BC379D64E5FC}
 AppName=RLY/0 Hub
 AppVerName=RLY/0 Hub {#ProductVersion}
-AppPublisherURL=https://github.com/a1039861261-stack/rly0-hub
+AppPublisherURL=https://github.com/RLY0/rly0-hub
 ShowLanguageDialog=no
 AppVersion={#ProductVersion}
 AppPublisher=RLY0 Hub

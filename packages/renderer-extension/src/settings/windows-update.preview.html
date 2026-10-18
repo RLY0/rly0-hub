@@ -666,7 +666,7 @@
   }
 
   // packages/renderer-extension/src/settings/connections-page.ts
-  var CODEXHOST_GITHUB_ISSUES_NEW_URL = "https://github.com/a1039861261-stack/rly0-hub/issues/new";
+  var CODEXHOST_GITHUB_ISSUES_NEW_URL = "https://github.com/RLY0/rly0-hub/issues/new";
   var HARNESS_INSTALL_URLS = Object.freeze({
     pi: "https://pi.dev/",
     "claude-code": "https://code.claude.com/docs/en/quickstart",
@@ -1433,7 +1433,7 @@ ${error.stderrTail}`] : []
   }
 
   // packages/renderer-extension/src/settings/pages.ts
-  var CODEXHOST_GITHUB_REPOSITORY_URL = "https://github.com/a1039861261-stack/rly0-hub";
+  var CODEXHOST_GITHUB_REPOSITORY_URL = "https://github.com/RLY0/rly0-hub";
   var CODEXHOST_RELEASES_LATEST_URL = `${CODEXHOST_GITHUB_REPOSITORY_URL}/releases/latest`;
   var CODEXHOST_NPM_MANUAL_UPDATE_COMMAND = "npm install -g @codexhost/cli@latest";
   function rendererUserAgentData(navigator) {
@@ -1450,7 +1450,7 @@ ${error.stderrTail}`] : []
     const hints = navigator ? rendererUserAgentData(navigator) : void 0;
     const identity = `${hints?.architecture ?? ""} ${hints?.platform ?? ""} ${navigator?.platform ?? ""} ${navigator?.userAgent ?? ""}`;
     const architecture2 = /arm64|aarch64|\barm\b/iu.test(identity) ? "arm64" : "x64";
-    return `https://github.com/a1039861261-stack/rly0-hub/releases/download/v${version}/codexhost-${version}-windows-${architecture2}.exe`;
+    return `https://github.com/RLY0/rly0-hub/releases/download/v${version}/codexhost-${version}-windows-${architecture2}.exe`;
   }
   function panelIconName(view) {
     if (view === "failed" || view === "error") return "alert";
@@ -2090,7 +2090,7 @@ ${error.stderrTail}`] : []
   var messages = rendererSettingsMessages("zh-CN");
   var updateClient = {
     async checkUpdate() {
-      return { currentVersion: "0.3.5", installation, latestVersion: "0.3.6", updateAvailable: true, installationAvailable: true, releaseNotes: "## \u672C\u6B21\u53D1\u5E03\n\n- \u6539\u8FDB Windows \u66F4\u65B0\u4F53\u9A8C\n- \u4FEE\u590D\u82E5\u5E72\u7A33\u5B9A\u6027\u95EE\u9898", releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v0.3.6", status: null, error: null };
+      return { currentVersion: "0.3.5", installation, latestVersion: "0.3.6", updateAvailable: true, installationAvailable: true, releaseNotes: "## \u672C\u6B21\u53D1\u5E03\n\n- \u6539\u8FDB Windows \u66F4\u65B0\u4F53\u9A8C\n- \u4FEE\u590D\u82E5\u5E72\u7A33\u5B9A\u6027\u95EE\u9898", releaseNotesUrl: "https://github.com/RLY0/rly0-hub/releases/tag/v0.3.6", status: null, error: null };
     },
     async startUpdate() {
       throw new Error("Windows preview must use the manual update path");

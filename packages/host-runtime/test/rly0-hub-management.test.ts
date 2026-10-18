@@ -187,7 +187,7 @@ describe("independent Hub management", () => {
     const fetchLatest = vi.fn(async () => ({
       version: "0.10.3",
       releaseNotes: "New",
-      releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v0.10.3",
+      releaseNotesUrl: "https://github.com/RLY0/rly0-hub/releases/tag/v0.10.3",
       assets: [],
     }));
     expect(await checkHubUpdate(root, fetchLatest)).toMatchObject({

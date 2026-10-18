@@ -216,7 +216,7 @@ function updateCheck(status: UpdateStatus | null = null): UpdateCheckResult {
     updateAvailable: true,
     installationAvailable: true,
     releaseNotes: "Safer updates",
-    releaseNotesUrl: "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
+    releaseNotesUrl: "https://github.com/RLY0/rly0-hub/releases/tag/v1.2.3",
     status,
     error: null,
   };
@@ -1158,7 +1158,7 @@ describe("Renderer Connections page", () => {
     expect(visibleText(content)).toContain("startup");
     const issueLink = descendants(content).find(
       ({ tagName, href }) =>
-        tagName === "a" && href === "https://github.com/a1039861261-stack/rly0-hub/issues/new",
+        tagName === "a" && href === "https://github.com/RLY0/rly0-hub/issues/new",
     );
     expect(issueLink).toBeDefined();
     const copyButton = descendants(
@@ -1497,7 +1497,7 @@ describe("Renderer Updates page", () => {
 
     await vi.waitFor(() => {
       expect(releaseLink.href).toBe(
-        "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
+        "https://github.com/RLY0/rly0-hub/releases/tag/v1.2.3",
       );
     });
 
@@ -1511,7 +1511,7 @@ describe("Renderer Updates page", () => {
     });
     expect(descendants(content)).toContain(releaseLink);
     expect(releaseLink.href).toBe(
-      "https://github.com/a1039861261-stack/rly0-hub/releases/tag/v1.2.3",
+      "https://github.com/RLY0/rly0-hub/releases/tag/v1.2.3",
     );
 
     cleanup?.();
@@ -1607,7 +1607,7 @@ describe("Renderer Updates page", () => {
         ({ tagName, href }) =>
           tagName === "a" &&
           href ===
-            "https://github.com/a1039861261-stack/rly0-hub/releases/download/v1.2.3/codexhost-1.2.3-windows-x64.exe",
+            "https://github.com/RLY0/rly0-hub/releases/download/v1.2.3/codexhost-1.2.3-windows-x64.exe",
       );
       expect(link).toMatchObject({ target: "_blank", rel: "noopener noreferrer" });
     }
@@ -1640,11 +1640,11 @@ describe("Renderer Updates page", () => {
     expect(visibleText(content)).toContain("请给我们一个 Star");
     const repository = descendants(content).find(
       ({ tagName, href }) =>
-        tagName === "a" && href === "https://github.com/a1039861261-stack/rly0-hub",
+        tagName === "a" && href === "https://github.com/RLY0/rly0-hub",
     );
     expect(repository).toMatchObject({ target: "_blank", rel: "noopener noreferrer" });
     expect(visibleNotesText(repository as FakeElement)).toContain(
-      "https://github.com/a1039861261-stack/rly0-hub",
+      "https://github.com/RLY0/rly0-hub",
     );
 
     cleanup?.();
@@ -1696,7 +1696,7 @@ describe("Renderer Updates page", () => {
     expect(visibleText(starBanner)).toContain("如果 RLY/0 Hub 帮到了你，请在 GitHub 点个 Star");
     const starLink = descendants(starBanner).find(({ tagName }) => tagName === "a");
     expect(starLink).toMatchObject({
-      href: "https://github.com/a1039861261-stack/rly0-hub",
+      href: "https://github.com/RLY0/rly0-hub",
       target: "_blank",
       rel: "noopener noreferrer",
     });

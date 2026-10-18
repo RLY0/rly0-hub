@@ -131,7 +131,7 @@ describe("RLY/0 Hub service", () => {
     await service.handle("links.open", { target: "nodejs" });
     expect(opened).toEqual([
       "https://rly0.com/purchase?tab=recharge",
-      "https://github.com/a1039861261-stack/rly0-hub",
+      "https://github.com/RLY0/rly0-hub",
       "https://nodejs.org",
     ]);
   });
