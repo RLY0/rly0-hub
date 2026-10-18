@@ -35,6 +35,8 @@ export interface Rly0MaintenanceManagerOptions {
   readonly core?: Rly0MaintenanceCoreStatusSource;
   readonly processControl?: Rly0CodexProcessControl;
   readonly now?: () => Date;
+  /** Cache entries in use right now (e.g. `updates` while an update downloads); not cleared. */
+  readonly busyEntries?: () => readonly string[];
 }
 
 interface DirStats {
@@ -89,6 +91,7 @@ export class Rly0MaintenanceManager {
   readonly #core: Rly0MaintenanceCoreStatusSource | undefined;
   readonly #processControl: Rly0CodexProcessControl | undefined;
   readonly #now: () => Date;
+  readonly #busyEntries: () => readonly string[];
 
   constructor(options: Rly0MaintenanceManagerOptions = {}) {
     this.#environment = options.environment ?? process.env;
@@ -97,6 +100,7 @@ export class Rly0MaintenanceManager {
     this.#core = options.core;
     this.#processControl = options.processControl;
     this.#now = options.now ?? (() => new Date());
+    this.#busyEntries = options.busyEntries ?? (() => []);
   }
 
   async diagnostics(): Promise<Rly0MaintenanceDiagnosticsResult> {
@@ -135,8 +139,9 @@ export class Rly0MaintenanceManager {
     const info = await this.cacheInfo();
     let clearedBytes = 0;
     const clearedEntries: string[] = [];
+    const busy = this.#busyEntries();
     for (const entry of info.entries) {
-      if (!entry.exists || entry.sizeBytes === 0) continue;
+      if (!entry.exists || entry.sizeBytes === 0 || busy.includes(entry.name)) continue;
       await fs.rm(resolveRly0CacheEntryDir(this.#environment, entry.name), {
         recursive: true,
         force: true,

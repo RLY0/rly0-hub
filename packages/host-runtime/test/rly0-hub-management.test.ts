@@ -20,6 +20,7 @@ async function fixture(options: Pick<Rly0HubServiceOptions, "updates"> = {}) {
   await fs.mkdir(codexHome);
   const core = {
     status: async () => ({ available: false }),
+    filters: async () => null,
     getProxySettings: () => ({ mode: "system" }),
     setProxySettings: async (settings: unknown) => ({ settings, coreRestarted: false }),
   } as unknown as Rly0CoreBridge;
@@ -143,6 +144,19 @@ describe("independent Hub management", () => {
     expect(await fs.stat(result.filePath)).toBeDefined();
     expect(await service.handle("maintenance.forceQuitCodex", {})).toEqual({ ok: false });
     expect(await service.handle("maintenance.restartCodex", {})).toEqual({ ok: false });
+  });
+
+  it("clears downloaded installers when idle and reports filters without a core", async () => {
+    const { service } = await fixture();
+    const updates = path.join(root, "hub", "updates");
+    await fs.mkdir(updates, { recursive: true });
+    await fs.writeFile(path.join(updates, "setup.exe"), "installer");
+    expect(await service.handle("maintenance.clearCache", {})).toMatchObject({
+      clearedEntries: ["updates"],
+    });
+    await expect(fs.stat(updates)).rejects.toThrow();
+    expect(await service.handle("maintenance.filtersGet", {})).toEqual({ available: false });
+    await expect(service.handle("maintenance.filtersSet", { imageTool: "on" })).rejects.toThrow();
   });
 
   it("routes proxy settings and update checks without leaking error details", async () => {

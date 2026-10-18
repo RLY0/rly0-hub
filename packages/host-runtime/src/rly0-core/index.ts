@@ -590,6 +590,29 @@ export class Rly0CoreBridge {
     return sanitizeProxyStatus(response.result);
   }
 
+  /**
+   * Request filters the core's proxy applies to relay traffic (`filters/*`). `null` when the core
+   * is missing or too old to have them.
+   */
+  async filters(set?: {
+    imageTool?: boolean | undefined;
+    webSearchTool?: boolean | undefined;
+  }): Promise<{ imageTool: boolean; webSearchTool: boolean } | null> {
+    try {
+      const response = await this.#client.request<{ imageTool?: unknown; webSearchTool?: unknown }>(
+        set ? "filters/set" : "filters/get",
+        set ?? {},
+      );
+      if (!response.available) return null;
+      return {
+        imageTool: response.result?.imageTool === true,
+        webSearchTool: response.result?.webSearchTool === true,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async dispose(): Promise<void> {
     await this.#client.dispose();
   }

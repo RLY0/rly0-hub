@@ -16,6 +16,7 @@ window.hubManagementMock = (() => {
   };
   let threads = [sample];
   let trash = [];
+  const filters = { imageTool: false, webSearchTool: false };
   return ({ method, params: p }) => {
     switch (method) {
       case "proxy.settingsGet":
@@ -69,14 +70,38 @@ window.hubManagementMock = (() => {
         return { movedCount: moved.length, failed: [] };
       }
       case "maintenance.diagnostics":
-        return { advice: [], codexHome: "C:/Users/demo/.codex" };
+        return {
+          advice: ["CONFIG_TOML_INVALID"],
+          codexHome: "C:/Users/demo/.codex",
+          codexHomeExists: true,
+          authJsonExists: true,
+          configTomlExists: true,
+          configTomlParses: false,
+          sessionsDirExists: true,
+          core: { available: true, version: "0.1.0" },
+        };
       case "maintenance.cacheInfo":
-        return { totalBytes: 2048, entries: [{ name: "cache", fileCount: 2, sizeBytes: 2048 }] };
+        return {
+          totalBytes: 28311552,
+          entries: [{ name: "updates", fileCount: 1, sizeBytes: 28311552 }],
+        };
       case "maintenance.clearCache":
-        return { clearedBytes: 2048 };
+        return { clearedBytes: 28311552, clearedEntries: ["updates"] };
       case "maintenance.exportDiagnostics":
-        return { filePath: "C:/Users/demo/.rly0-hub/diagnostics/preview.json" };
+        return { filePath: "C:/Users/demo/.rly0-hub/diagnostics/rly0-diag-preview.json" };
+      case "maintenance.openDiagnosticsFolder":
+        return { ok: true };
+      case "maintenance.filtersGet":
+        return {
+          available: true,
+          imageTool: filters.imageTool,
+          webSearchTool: filters.webSearchTool,
+        };
+      case "maintenance.filtersSet":
+        Object.assign(filters, p);
+        return { available: true, ...filters };
       case "maintenance.forceQuitCodex":
+        return { ok: true, killed: 4 };
       case "maintenance.restartCodex":
         return { ok: true };
       case "updates.check":

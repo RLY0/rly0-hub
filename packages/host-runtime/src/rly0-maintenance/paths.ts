@@ -15,10 +15,11 @@ export function resolveRly0DiagnosticsDir(environment: NodeJS.ProcessEnv): strin
 }
 
 /**
- * The only directories under `~/.rly0-hub` that "clear cache" is allowed to touch. Never
+ * The only directories under `~/.rly0-hub` that "clear cache" is allowed to touch: caches and
+ * downloaded update installers (`updates`, skipped while an update is in progress). Never
  * `~/.codex`, and never the `diagnostics` directory (that holds exports the user asked for).
  */
-export const RLY0_MAINTENANCE_CACHE_ENTRY_NAMES = ["cache", "tmp"] as const;
+export const RLY0_MAINTENANCE_CACHE_ENTRY_NAMES = ["cache", "tmp", "updates"] as const;
 
 export function resolveRly0CacheEntryDir(environment: NodeJS.ProcessEnv, name: string): string {
   return path.join(resolveRly0DataDir(environment), name);

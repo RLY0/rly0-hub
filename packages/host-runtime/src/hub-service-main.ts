@@ -4,6 +4,7 @@ import {
   resolveRly0HubAutostartCommand,
   resolveRly0InstallRoot,
 } from "./rly0-appearance/hub-autostart.js";
+import { killCodexProcesses } from "./rly0-hub-service/codex-processes.js";
 import { Rly0HubService } from "./rly0-hub-service/service.js";
 import { serveRly0HubStdio } from "./rly0-hub-service/stdio-server.js";
 
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
   const service = new Rly0HubService({
     environment,
     installRoot,
+    killCodexProcesses: () => killCodexProcesses({ environment, installRoot }),
     ...(autostartCommand ? { autostartCommand } : {}),
   });
   await service.start().catch(() => undefined);
