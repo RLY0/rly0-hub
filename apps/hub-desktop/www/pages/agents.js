@@ -268,6 +268,18 @@ window.registerHubAgents = ({
       h("span", { class: "count-pill tabular" }, count),
     );
 
+  // What a failed connection check means, in plain words (the raw message stays below it).
+  function connectionHint(agent, entry) {
+    const text = `${entry.code || ""} ${entry.message || ""}`;
+    if (entry.status === "notInstalled")
+      return "Codex 那边还找不到它。刚装好的话点上面的“检测连接”，还不行就重启一次 Codex";
+    if (/AUTH|auth_required|not configured|no provider|No API key|No models available/iu.test(text))
+      return "还没有可用的模型来源：接入方式选零号中转或其他中转，或者登录官方账号";
+    if (/interpreter not found/iu.test(text))
+      return `${agent.name} 的运行环境没找到，可能是安装没完成，点“再装一次”或检测连接重试`;
+    return "连接失败，下面是具体原因";
+  }
+
   pages.agents = (root, alive) => {
     const official = h("div", { class: "grid compact agent-grid" });
     const community = h("div", { class: "grid compact agent-grid" });
@@ -283,16 +295,47 @@ window.registerHubAgents = ({
     // Third-party agents RLY/0 Hub routes itself: { agentId: { relayId, model } }.
     let agentRelays = {};
     let claudeAuth = null;
+    let connections = null; // last report from the Codex side: { checkedAt, agents: { id: {...} } }
     const balances = new Map();
+    const checkButton = h(
+      "button",
+      { class: "btn sm", type: "button", onclick: () => checkConnections() },
+      "检测连接",
+    );
+
+    // The Codex side runs each agent's own check (the one its agent picker uses) on request.
+    async function checkConnections() {
+      checkButton.disabled = true;
+      checkButton.textContent = "检测中…";
+      const result = await call("agents.checkConnections").catch(() => null);
+      checkButton.disabled = false;
+      checkButton.textContent = "检测连接";
+      if (!alive()) return;
+      if (result && result.codexRunning === false) {
+        toast("Codex 没在运行，打开 Codex 后再检测");
+        return;
+      }
+      if (!result || !result.report) {
+        toast("Codex 没有回应，请确认 Codex 是从 RLY/0 Hub 启动的");
+        return;
+      }
+      const failedCount = Object.values(result.report.agents).filter(
+        (entry) => entry.status !== "ready",
+      ).length;
+      toast(failedCount ? `检测完成，${failedCount} 个助手连不上` : "检测完成，全部正常");
+      load();
+    }
 
     async function load() {
-      const [list, relayList, selection, auth] = await Promise.all([
+      const [list, relayList, selection, auth, status] = await Promise.all([
         call("agents.list").catch(() => null),
         call("relay.list").catch(() => null),
         call("agents.relays.get").catch(() => ({ claudeCode: null })),
         call("agents.claudeCode.status").catch(() => null),
+        call("agents.connectionStatus").catch(() => null),
       ]);
       if (!alive()) return;
+      connections = status && status.report;
       const all = ((relayList && relayList.relays) || []).filter((relay) => relay.hasKey);
       officialKey = all.find(isOfficialKey) || null;
       relays = all.filter((relay) => relay.enabled && !isOfficialKey(relay));
@@ -319,6 +362,7 @@ window.registerHubAgents = ({
         officialHead,
         sectionHead("official", "官方 Agent", "模型厂商自家的编程助手", ready(officials)),
       );
+      officialHead.firstChild.insertBefore(checkButton, officialHead.firstChild.lastChild);
       put(
         communityHead,
         sectionHead("community", "第三方 Agent", "社区和独立团队做的，开源在前", ready(others)),
@@ -364,9 +408,48 @@ window.registerHubAgents = ({
         ),
         body,
       );
-      if (agent.installed) renderAccess(agent, body);
-      else renderLocked(agent, body, element);
+      if (agent.installed) {
+        renderAccess(agent, body);
+        body.prepend(connectionLine(agent));
+      } else renderLocked(agent, body, element);
       return element;
+    }
+
+    // Connection state from the last check the Codex side ran (diagnostics live here now).
+    function connectionLine(agent) {
+      const entry = connections && connections.agents[agent.id];
+      if (!entry)
+        return h(
+          "div",
+          { class: "conn-line" },
+          h("span", { class: "dot" }),
+          h("span", { class: "sub" }, "还没检测连接，点上面的“检测连接”"),
+        );
+      if (entry.status === "ready")
+        return h(
+          "div",
+          { class: "conn-line ok" },
+          h("span", { class: "dot ok" }),
+          h("span", null, "连接正常，Codex 里可以直接用"),
+        );
+      return h(
+        "div",
+        { class: "conn-line bad" },
+        h(
+          "div",
+          { class: "row" },
+          h("span", { class: "dot bad" }),
+          h("b", null, connectionHint(agent, entry)),
+        ),
+        entry.message || entry.code
+          ? h(
+              "details",
+              { class: "manual" },
+              h("summary", null, "具体原因"),
+              codeBlock(entry.code || "错误", entry.message || entry.code),
+            )
+          : null,
+      );
     }
 
     function manualHelp(agent) {

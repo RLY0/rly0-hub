@@ -174,7 +174,13 @@ export function piRelayExtension(url: string, models: readonly string[]): string
     baseUrl: url,
     api: "openai-completions",
     apiKey: "$RLY0_RELAY_TOKEN",
-    models: listed.map((id) => ({ id, name: id, api: "openai-completions", baseUrl: url })),
+    models: listed.map((id) => ({
+      id,
+      name: id,
+      api: "openai-completions",
+      baseUrl: url,
+      reasoning: /^(?:gpt-5|o[134]|claude|gemini-(?:2\.5|3)|grok-4)/iu.test(id),
+    })),
   };
   return [
     "// Written by RLY/0 Hub: routes Pi through the relay chosen in the Hub.",

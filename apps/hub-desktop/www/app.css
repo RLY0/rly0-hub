@@ -3200,3 +3200,31 @@ select.input,
 .line-money .money-badge b {
   color: var(--paper-50);
 }
+
+/* Connection state on installed agent cards (from the Codex side's check). */
+.conn-line {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  font-size: 13px;
+}
+.conn-line:not(.bad) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.conn-line.ok {
+  color: var(--ok);
+}
+.conn-line.bad {
+  box-shadow: inset 0 0 0 1px rgba(230, 180, 80, 0.35);
+  color: var(--warn);
+}
+.conn-line.bad b {
+  font-weight: 650;
+}
+.dot.bad {
+  background: var(--warn);
+}

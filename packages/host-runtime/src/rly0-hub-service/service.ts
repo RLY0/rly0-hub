@@ -31,7 +31,11 @@ import { ClaudeCodeAuth } from "../rly0-agents/claude-code-auth.js";
 import { Rly0AppearanceManager } from "../rly0-appearance/index.js";
 import { WindowsRegistryAutostart } from "../rly0-appearance/windows-autostart.js";
 import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
-import { requestBackendReload } from "../rly0-maintenance/backend-reload-channel.js";
+import {
+  readAgentStatus,
+  requestAgentCheck,
+  requestBackendReload,
+} from "../rly0-maintenance/backend-reload-channel.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { RLY0_RELAY_AGENTS, Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
@@ -655,6 +659,18 @@ export class Rly0HubService {
           return result;
         },
       ),
+      // Connection checks run on the Codex side (it owns the agents); the Hub shows them.
+      "agents.connectionStatus": route(empty, async () => ({
+        report: await readAgentStatus(resolveRly0DataDir(this.#options.environment)),
+      })),
+      "agents.checkConnections": route(empty, async () => {
+        const codex = await this.#codex.status();
+        if (!codex.running) return { report: null, codexRunning: false };
+        return {
+          report: await requestAgentCheck(resolveRly0DataDir(this.#options.environment)),
+          codexRunning: true,
+        };
+      }),
       "agents.relays.get": route(empty, () => this.#agentRelays.get()),
       "agents.relays.setAgent": route(
         z

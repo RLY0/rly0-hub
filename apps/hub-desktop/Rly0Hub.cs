@@ -52,6 +52,13 @@ internal static class Program {
             if (arg == "--background") background = true;
             else if (arg == "--exit") exit = true;
         }
+        // The launcher's "Codex is already running" question, in RLY/0's own style.
+        // Exit codes: 10 restart Codex, 11 retry, 12 cancel.
+        if (args.Length >= 1 && args[0] == "--ask-codex-restart") {
+            bool english = args.Length >= 2 && args[1] == "en";
+            string bin = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+            return BrandDialog.AskCodexRestart(Path.Combine(bin, "rly0-hub.ico"), english);
+        }
         if (exit) {
             IntPtr target = FindWindow(null, ControlTitle);
             if (target != IntPtr.Zero) PostMessage(target, ExitMessage, IntPtr.Zero, IntPtr.Zero);
@@ -342,6 +349,134 @@ internal sealed class HubContext : ApplicationContext {
         job.Dispose();
         control.Dispose(); tray.Dispose(); balanceTimer.Dispose(); alertTimer.Dispose(); dispatch.Dispose();
         ExitThread();
+    }
+}
+
+/// <summary>
+/// A small borderless dialog in RLY/0's style (dark surface, rounded corners, 阿零, one light
+/// primary button) for the launcher's questions, instead of the system's TaskDialog.
+/// </summary>
+internal static class BrandDialog {
+    private static readonly Color Back = Color.FromArgb(30, 30, 26);
+    private static readonly Color Edge = Color.FromArgb(62, 62, 54);
+    private static readonly Color Ink = Color.FromArgb(245, 245, 240);
+    private static readonly Color Muted = Color.FromArgb(160, 160, 152);
+    private static readonly Color Paper = Color.FromArgb(233, 233, 227);
+    private static readonly Color Well = Color.FromArgb(46, 46, 40);
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+    [DllImport("user32.dll")] private static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
+
+    internal static int AskCodexRestart(string iconPath, bool english) {
+        int result = 12;
+        string title = english ? "Codex is already running" : "Codex 已在运行";
+        string body = english
+            ? "This Codex was not started by RLY/0 Hub. To use RLY/0 Hub, Codex needs a restart. Your conversations are kept."
+            : "当前 Codex 不是由 RLY/0 Hub 启动的。要使用 RLY/0 Hub，需要重新启动一次 Codex，对话记录不会丢。";
+        using (var form = new Form()) {
+            float k;
+            using (var probe = form.CreateGraphics()) k = probe.DpiX / 96f;
+            Func<int, int> px = v => (int)Math.Round(v * k);
+            form.FormBorderStyle = FormBorderStyle.None;
+            form.StartPosition = FormStartPosition.CenterScreen;
+            form.BackColor = Back;
+            form.ClientSize = new Size(px(600), px(234));
+            form.ShowInTaskbar = true;
+            form.TopMost = true;
+            form.Text = "RLY/0 Hub";
+            form.KeyPreview = true;
+            form.Font = new Font("Microsoft YaHei UI", 10f);
+            try { form.Icon = new Icon(iconPath); } catch { }
+            form.Paint += delegate (object sender, PaintEventArgs e) {
+                using (var pen = new Pen(Edge)) e.Graphics.DrawRectangle(pen, 0, 0, form.ClientSize.Width - 1, form.ClientSize.Height - 1);
+            };
+            form.HandleCreated += delegate {
+                try { int round = 2; DwmSetWindowAttribute(form.Handle, 33, ref round, sizeof(int)); } catch { }
+            };
+            MouseEventHandler drag = delegate (object sender, MouseEventArgs e) {
+                if (e.Button != MouseButtons.Left) return;
+                ReleaseCapture();
+                SendMessage(form.Handle, 0xA1, (IntPtr)2, IntPtr.Zero); // move the window
+            };
+            form.MouseDown += drag;
+
+            var picture = new PictureBox { Location = new Point(px(28), px(30)), Size = new Size(px(60), px(60)), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Back };
+            picture.Image = LargestIconFrame(iconPath);
+            picture.MouseDown += drag;
+            var heading = new Label { Text = title, ForeColor = Ink, BackColor = Back, Font = new Font("Microsoft YaHei UI", 15f, FontStyle.Bold), AutoSize = true, Location = new Point(px(108), px(28)) };
+            heading.MouseDown += drag;
+            var text = new Label { Text = body, ForeColor = Muted, BackColor = Back, Font = new Font("Microsoft YaHei UI", 10f), Location = new Point(px(110), px(70)), Size = new Size(px(460), px(72)) };
+            text.MouseDown += drag;
+            var close = Button(english ? "×" : "×", false, new Rectangle(px(556), px(12), px(32), px(32)));
+            close.Click += delegate { result = 12; form.Close(); };
+            var retry = Button(english ? "I've quit Codex, try again" : "我已退出，重试", false, new Rectangle(px(110), px(156), px(180), px(46)));
+            retry.Click += delegate { result = 11; form.Close(); };
+            var restart = Button(english ? "Restart Codex for me (recommended)" : "自动退出并重新启动（推荐）", true, new Rectangle(px(302), px(156), px(270), px(46)));
+            restart.Click += delegate { result = 10; form.Close(); };
+            form.Controls.AddRange(new Control[] { picture, heading, text, close, retry, restart });
+            form.KeyDown += delegate (object sender, KeyEventArgs e) {
+                if (e.KeyCode == Keys.Escape) { result = 12; form.Close(); }
+                else if (e.KeyCode == Keys.Enter) { result = 10; form.Close(); }
+            };
+            form.Shown += delegate { form.Activate(); restart.Focus(); };
+            Application.Run(form);
+        }
+        return result;
+    }
+
+    /// <summary>The icon's largest frame; PNG frames are decoded directly (Icon cannot).</summary>
+    private static Image LargestIconFrame(string iconPath) {
+        try {
+            byte[] bytes = File.ReadAllBytes(iconPath);
+            int count = BitConverter.ToUInt16(bytes, 4), best = -1, bestSize = 0;
+            for (int i = 0; i < count; i++) {
+                int entry = 6 + i * 16;
+                int size = bytes[entry] == 0 ? 256 : bytes[entry];
+                if (size > bestSize) { bestSize = size; best = entry; }
+            }
+            if (best < 0) return null;
+            int length = BitConverter.ToInt32(bytes, best + 8), offset = BitConverter.ToInt32(bytes, best + 12);
+            var stream = new MemoryStream(bytes, offset, length);
+            return Image.FromStream(stream);
+        } catch {
+            return null;
+        }
+    }
+
+    private static Control Button(string label, bool primary, Rectangle bounds) {
+        var button = new Label {
+            Text = label,
+            Bounds = bounds,
+            TextAlign = ContentAlignment.MiddleCenter,
+            Cursor = Cursors.Hand,
+            Font = new Font("Microsoft YaHei UI", label == "×" ? 13f : 10f, FontStyle.Bold),
+            ForeColor = primary ? Color.FromArgb(13, 13, 11) : Ink,
+            BackColor = Back,
+        };
+        bool hover = false;
+        button.MouseEnter += delegate { hover = true; button.Invalidate(); };
+        button.MouseLeave += delegate { hover = false; button.Invalidate(); };
+        button.Paint += delegate (object sender, PaintEventArgs e) {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Back);
+            Color fill = primary ? (hover ? Color.White : Paper) : (hover ? Color.FromArgb(58, 58, 51) : (label == "×" ? Back : Well));
+            var r = new Rectangle(0, 0, button.Width - 1, button.Height - 1);
+            using (var path = Rounded(r, 10)) using (var brush = new SolidBrush(fill)) g.FillPath(brush, path);
+            TextRenderer.DrawText(g, button.Text, button.Font, r, button.ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+        return button;
+    }
+
+    private static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int radius) {
+        int d = radius * 2;
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        path.AddArc(r.X, r.Y, d, d, 180, 90);
+        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 }
 

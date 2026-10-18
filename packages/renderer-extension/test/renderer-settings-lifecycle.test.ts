@@ -221,7 +221,7 @@ describe("Renderer Settings lifecycle", () => {
     return { ownerWindow, client, openSettings, shell, button, listeners, store };
   }
 
-  it("opens the Hub on rail activation and keeps only Codex-dependent tools", async () => {
+  it("opens the Hub on rail activation and has no Codex-side menu", async () => {
     const f = hubFixture(true);
     const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
       getHubClient: () => f.client,
@@ -238,10 +238,8 @@ describe("Renderer Settings lifecycle", () => {
     onOpen?.(f.button as unknown as HTMLButtonElement);
     await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(1));
     expect(f.openSettings).not.toHaveBeenCalled();
-    const preventDefault = vi.fn();
-    f.listeners.get("contextmenu")?.({ preventDefault });
-    expect(preventDefault).toHaveBeenCalled();
-    expect(f.openSettings).toHaveBeenCalledWith(f.button, "connections");
+    // No Codex-side menu any more: right-click does nothing, everything lives in the Hub.
+    expect(f.listeners.get("contextmenu")).toBeUndefined();
     lifecycle.dispose();
   });
 

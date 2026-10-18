@@ -2,7 +2,12 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { access } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { sanitizeDiagnosticTail } from "@codexhost/harness-adapter";
-import { inventoryPythonCandidates, venvPythonFromShim } from "./hermes-inventory.js";
+import {
+  hermesPythonInvocation,
+  inventoryPythonCandidates,
+  resolveHermesRuntime,
+  venvPythonFromShim,
+} from "./hermes-inventory.js";
 import { prepareGatewayDelegation } from "./gateway-delegation.js";
 import { withTimeout, HermesTransportError } from "./acp-transport.js";
 
@@ -51,10 +56,12 @@ export class HermesGatewayTransport {
     environment: NodeJS.ProcessEnv,
   ): Promise<string | null> {
     const shim = await venvPythonFromShim(executable);
+    const runtime = await resolveHermesRuntime(executable, environment);
     const candidates = [
       ...new Set(
         [
           environment.CODEXHOST_HERMES_GATEWAY_PYTHON,
+          runtime,
           shim,
           ...inventoryPythonCandidates(executable),
         ].filter((candidate): candidate is string => !!candidate),
@@ -91,21 +98,23 @@ export class HermesGatewayTransport {
   }
   async start(): Promise<void> {
     if (this.#child || this.#closed) throw new Error("Hermes gateway cannot be started twice");
-    const child = spawn(
+    const invocation = hermesPythonInvocation(
       this.python,
-      ["-I", "-u", "-c", (this.#delegation?.bootstrap ?? "") + GATEWAY_LAUNCH],
-      {
-        cwd: this.cwd,
-        env: {
-          ...process.env,
-          ...(this.#delegation?.environment ?? this.environment),
-          HERMES_TUI_TOOL_PROGRESS: "all",
-        },
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-        detached: process.platform !== "win32",
-      },
+      (this.#delegation?.bootstrap ?? "") + GATEWAY_LAUNCH,
+      ["-I", "-u"],
     );
+    const child = spawn(this.python, invocation.args, {
+      cwd: this.cwd,
+      env: {
+        ...process.env,
+        ...(this.#delegation?.environment ?? this.environment),
+        ...invocation.environment,
+        HERMES_TUI_TOOL_PROGRESS: "all",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      detached: process.platform !== "win32",
+    });
     this.#child = child;
     this.#processClosed = new Promise((resolve) => child.once("close", () => resolve()));
     child.stderr.on("data", (data: Buffer) => {

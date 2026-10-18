@@ -124,6 +124,115 @@ export interface HermesInventory {
   currentModelId: string | null;
 }
 
+/**
+ * Current Hermes installs (2026 installer: PM-managed Python, launchers in
+ * %LOCALAPPDATA%\hermes\bin) have no venv next to the launcher. Their launcher
+ * prints the exact launch command instead: `hermes --print-runtime-command`
+ * → `[python, "-I", "-c", "<bootstrap>; runpy.run_module('hermes_cli.main', …)"]`.
+ * The bootstrap (dependency selection) is kept and the module entry is
+ * replaced by code passed through CODEXHOST_HERMES_CODE.
+ */
+export interface HermesRuntimeLaunch {
+  readonly python: string;
+  /** Python statements that prepare Hermes' import path; empty for venv installs. */
+  readonly prelude: string;
+}
+
+const runtimePreludes = new Map<string, string>();
+const runtimeLookups = new Map<string, Promise<string | null>>();
+
+/** Prelude registered for an interpreter found through `--print-runtime-command`. */
+export function hermesRuntimePrelude(python: string): string {
+  return runtimePreludes.get(python) ?? "";
+}
+
+/** Arguments and environment that run `code` in Hermes' own runtime. */
+export function hermesPythonInvocation(
+  python: string,
+  code: string,
+  flags: readonly string[] = ["-I"],
+): { args: string[]; environment: NodeJS.ProcessEnv } {
+  const prelude = hermesRuntimePrelude(python);
+  if (!prelude) return { args: [...flags, "-c", code], environment: {} };
+  return {
+    args: [
+      ...flags,
+      "-c",
+      `${prelude}exec(compile(os.environ['CODEXHOST_HERMES_CODE'], '<codexhost>', 'exec'))`,
+    ],
+    environment: { CODEXHOST_HERMES_CODE: code },
+  };
+}
+
+export function parseHermesRuntimeCommand(output: string): HermesRuntimeLaunch | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(output.trim().split(/\r?\n/u).pop() ?? "");
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(value) || value.length < 4) return null;
+  const [python, isolate, flag, bootstrap] = value as unknown[];
+  if (typeof python !== "string" || isolate !== "-I" || flag !== "-c") return null;
+  if (typeof bootstrap !== "string") return null;
+  const entry = bootstrap.lastIndexOf("runpy.run_module(");
+  if (entry < 0) return null;
+  return { python, prelude: bootstrap.slice(0, entry) };
+}
+
+/** Asks the launcher for its runtime; null for installs whose launcher predates this. */
+export function resolveHermesRuntime(
+  hermesExecutable: string,
+  environment?: NodeJS.ProcessEnv,
+  timeoutMs = 15_000,
+): Promise<string | null> {
+  const cached = runtimeLookups.get(hermesExecutable);
+  if (cached) return cached;
+  const lookup = new Promise<string | null>((resolve) => {
+    const windowsScript = /\.(cmd|bat)$/iu.test(hermesExecutable);
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(hermesExecutable, ["--print-runtime-command"], {
+        env: { ...process.env, ...environment },
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+        shell: windowsScript,
+      });
+    } catch {
+      resolve(null);
+      return;
+    }
+    let stdout = "";
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, timeoutMs);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const launch = code === 0 ? parseHermesRuntimeCommand(stdout) : null;
+      if (!launch) {
+        resolve(null);
+        return;
+      }
+      runtimePreludes.set(launch.python, launch.prelude);
+      resolve(launch.python);
+    });
+  });
+  // Failed lookups are retried next time (Hermes may be installed or repaired meanwhile).
+  runtimeLookups.set(hermesExecutable, lookup);
+  void lookup.then((python) => {
+    if (!python) runtimeLookups.delete(hermesExecutable);
+  });
+  return lookup;
+}
+
 export class HermesInventoryError extends Error {}
 export class HermesInventoryTimeoutError extends HermesInventoryError {
   constructor() {
@@ -180,9 +289,10 @@ function runProbe(
   environment?: NodeJS.ProcessEnv,
 ): Promise<HermesInventory> {
   return new Promise((resolve, reject) => {
-    const child = spawn(pythonExecutable, ["-I", "-c", INVENTORY_PROBE_SCRIPT], {
+    const invocation = hermesPythonInvocation(pythonExecutable, INVENTORY_PROBE_SCRIPT);
+    const child = spawn(pythonExecutable, invocation.args, {
       cwd: path.dirname(pythonExecutable),
-      env: { ...process.env, ...environment },
+      env: { ...process.env, ...environment, ...invocation.environment },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -245,6 +355,7 @@ export async function readHermesModelInventory(
 ): Promise<HermesInventory> {
   const platform = options.platform ?? process.platform;
   const candidates = [
+    (await resolveHermesRuntime(hermesExecutable, options.environment)) ?? "",
     (await venvPythonFromShim(hermesExecutable, platform)) ?? "",
     ...inventoryPythonCandidates(hermesExecutable, platform),
   ].filter((candidate, index, all) => candidate.length > 0 && all.indexOf(candidate) === index);

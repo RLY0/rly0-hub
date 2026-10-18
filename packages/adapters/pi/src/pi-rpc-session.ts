@@ -313,16 +313,17 @@ function parseAvailableModels(response: Record<string, unknown>): PiNativeModel[
   if (!data || !Array.isArray(data.models)) {
     throw new PiRpcFaultError("protocolError", "Pi RPC Model catalog response has no models");
   }
-  return data.models.map((model) => {
+  // Custom providers (extensions, models.json) may leave `reasoning` out, and one odd entry must
+  // not take the whole catalog down: unreadable entries are skipped, a missing flag means false.
+  const models = data.models.flatMap((model) => {
     const parsed = parseNativeModel(model, "catalog");
-    if (!parsed || !isRecord(model) || typeof model.reasoning !== "boolean") {
-      throw new PiRpcFaultError(
-        "protocolError",
-        "Pi RPC catalog contains a Model without reasoning capability",
-      );
-    }
-    return { ...parsed, reasoning: model.reasoning };
+    if (!parsed || !isRecord(model)) return [];
+    return [{ ...parsed, reasoning: model.reasoning === true }];
   });
+  if (data.models.length > 0 && models.length === 0) {
+    throw new PiRpcFaultError("protocolError", "Pi RPC catalog contains no readable Models");
+  }
+  return models;
 }
 
 function assistantText(value: unknown): string | null {

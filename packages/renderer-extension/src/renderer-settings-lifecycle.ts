@@ -94,7 +94,6 @@ export function installRendererSettingsLifecycle(
   let hubAvailable: boolean | null = options.getHubClient ? null : false;
   let checkedHubClient: RendererHubClient | null = null;
   let hubRequest: Promise<void> | null = null;
-  const toolRoots = new WeakSet<HTMLElement>();
 
   const openHub = async (): Promise<void> => {
     const client = options.getHubClient?.();
@@ -103,30 +102,9 @@ export function installRendererSettingsLifecycle(
     if (!result.ok) throw new Error("HUB_OPEN_FAILED");
   };
 
-  const bindCodexTools = (): void => {
-    const root = trigger?.root;
-    if (!root || !hubAvailable || toolRoots.has(root)) return;
-    toolRoots.add(root);
-    root
-      .querySelector("button")
-      ?.setAttribute(
-        "aria-description",
-        locale === "zh-CN"
-          ? "右键打开 Codex 内工具：连接、账号登录、会话导入、界面偏好"
-          : "Right-click for Codex tools: connections, sign-in, session import and preferences",
-      );
-    root.addEventListener(
-      "contextmenu",
-      (event) => {
-        event.preventDefault();
-        shell?.openSettings(
-          root.querySelector<HTMLButtonElement>("button") ?? undefined,
-          "connections",
-        );
-      },
-      { signal: lifecycleController.signal },
-    );
-  };
+  // Everything that used to open inside Codex (connections, sign-in, session import,
+  // preferences) now lives in the standalone RLY/0 Hub, so there is no right-click menu here.
+  const bindCodexTools = (): void => undefined;
 
   const mount = (): {
     shell: RendererSettingsShell | null;
@@ -166,9 +144,9 @@ export function installRendererSettingsLifecycle(
     if (nextShell && hubAvailable) {
       const openTools = nextShell.openSettings.bind(nextShell);
       nextShell.openSettings = (opener, pageId) => {
-        if (pageId && (CODEX_ONLY_SETTINGS_PAGES as readonly string[]).includes(pageId))
-          return openTools(opener, pageId);
-        void openHub().catch(() => undefined);
+        // Every entry (the rail icon, the agent picker's "管理" and "!") opens the Hub; the
+        // Codex-side pages appear only when the Hub cannot be opened at all.
+        void openHub().catch(() => openTools(opener, pageId));
         return true;
       };
     }

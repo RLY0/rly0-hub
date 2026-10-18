@@ -279,8 +279,34 @@ fn choice_dialog(
     Ok(selected)
 }
 
+/// Asks through RLY/0 Hub's own styled dialog (`rly0-hub.exe --ask-codex-restart`) when the Hub
+/// window sits next to this launcher; `None` when it is missing or did not answer.
+fn branded_running_desktop_prompt(english: bool) -> Option<RunningDesktopChoice> {
+    let hub = std::env::current_exe().ok()?.parent()?.join("rly0-hub.exe");
+    if !hub.is_file() {
+        return None;
+    }
+    let status = std::process::Command::new(hub)
+        .arg("--ask-codex-restart")
+        .arg(if english { "en" } else { "zh" })
+        .status()
+        .ok()?;
+    match status.code() {
+        Some(10) => Some(RunningDesktopChoice::Restart),
+        Some(11) => Some(RunningDesktopChoice::Retry),
+        Some(12) => Some(RunningDesktopChoice::Cancel),
+        _ => None,
+    }
+}
+
 pub fn prompt_running_desktop() -> RunningDesktopChoice {
-    let text = running_desktop_text_for_locale(&user_locale_name());
+    let locale = user_locale_name();
+    let text = running_desktop_text_for_locale(&locale);
+    if let Some(choice) =
+        branded_running_desktop_prompt(text.instruction == ENGLISH_RUNNING_DESKTOP_TEXT.instruction)
+    {
+        return choice;
+    }
     let result = choice_dialog(
         text.instruction,
         text.content,

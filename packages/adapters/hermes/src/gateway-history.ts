@@ -15,6 +15,7 @@ import {
   type JsonValue,
 } from "@codexhost/shared-contracts";
 import { GATEWAY_HISTORY_SCRIPT } from "./gateway-history-script.js";
+import { hermesPythonInvocation } from "./hermes-inventory.js";
 
 type Row = Record<string, unknown>;
 export interface GatewayHistoryData {
@@ -236,9 +237,13 @@ export class HermesGatewayHistory {
 
   #run(input: Row): Promise<Row> {
     return new Promise((resolve, reject) => {
-      const child = spawn(this.options.python, ["-I", "-u", "-c", GATEWAY_HISTORY_SCRIPT], {
+      const invocation = hermesPythonInvocation(this.options.python, GATEWAY_HISTORY_SCRIPT, [
+        "-I",
+        "-u",
+      ]);
+      const child = spawn(this.options.python, invocation.args, {
         cwd: this.options.cwd,
-        env: { ...process.env, ...this.options.environment },
+        env: { ...process.env, ...this.options.environment, ...invocation.environment },
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });

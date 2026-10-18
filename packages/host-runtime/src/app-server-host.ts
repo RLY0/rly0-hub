@@ -201,7 +201,14 @@ import os from "node:os";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { BackendReloadChannel } from "./rly0-maintenance/backend-reload-channel.js";
+import {
+  AGENT_CHECK_REQUEST_FILE,
+  AGENT_STATUS_FILE,
+  BackendReloadChannel,
+  HubRequestChannel,
+  writeJsonFile,
+  type AgentConnectionStatus,
+} from "./rly0-maintenance/backend-reload-channel.js";
 import type { Readable, Writable } from "node:stream";
 
 import type {
@@ -733,6 +740,18 @@ class OrderedWriter {
   }
 }
 
+/** Agents the Hub's AI 助手 page shows (and checks connections for). */
+const HUB_LISTED_AGENTS = new Set([
+  "claude-code",
+  "antigravity",
+  "grok",
+  "opencode",
+  "pi",
+  "hermes",
+  "cursor-cli",
+  "kiro-cli",
+]);
+
 /** Agents whose sessions RLY/0 Hub can route through a relay. */
 const RELAY_CAPABLE_AGENTS = new Set(["claude-code", "pi", "hermes", "opencode"]);
 
@@ -773,6 +792,8 @@ export class AppServerHost {
   #relaySettingsStamp = "";
   /** The standalone Hub's requests to reload the official backend after an account switch. */
   #backendReloadChannel: BackendReloadChannel | undefined;
+  /** The Hub's "check connections" requests (diagnostics now live in the Hub). */
+  #agentCheckChannel: HubRequestChannel | undefined;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
@@ -1115,7 +1136,15 @@ export class AppServerHost {
       path.dirname(this.#rly0AgentRelays.path()),
     );
     const channel = this.#backendReloadChannel;
+    this.#agentCheckChannel ??= new HubRequestChannel(
+      path.dirname(this.#rly0AgentRelays.path()),
+      AGENT_CHECK_REQUEST_FILE,
+    );
+    const agentChannel = this.#agentCheckChannel;
     const check = (): void => {
+      void agentChannel
+        .poll((id) => this.#writeAgentStatus(id))
+        .catch((error: unknown) => this.#diagnose(error));
       void channel
         .poll(async () => (await this.reloadOfficialBackend()).status)
         .catch((error: unknown) => this.#diagnose(error));
@@ -1131,6 +1160,48 @@ export class AppServerHost {
     };
     this.#relayWatchTimer = setInterval(check, 2000);
     this.#relayWatchTimer.unref?.();
+  }
+
+  /**
+   * Checks every agent the Hub lists (the same inspection Codex's agent picker uses) and writes
+   * the outcome for the Hub's AI 助手 page. Messages are the adapters' own diagnostics.
+   */
+  async #writeAgentStatus(requestId: string | null): Promise<void> {
+    await this.#waitForPlugins();
+    const agents: Record<string, AgentConnectionStatus> = {};
+    await Promise.all(
+      [...this.#externalAdapters]
+        .filter(([id]) => HUB_LISTED_AGENTS.has(id))
+        .map(async ([id, adapter]) => {
+          try {
+            const inspection = await Promise.race([
+              adapter.inspect({ refresh: true }),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("Connection check timed out")), 45_000),
+              ),
+            ]);
+            const parsed = harnessInspectionSchema.safeParse(inspection);
+            if (!parsed.success) {
+              agents[id] = { status: "error", message: "Invalid inspection result" };
+            } else if (parsed.data.status === "ready") {
+              agents[id] = { status: "ready" };
+            } else {
+              agents[id] = {
+                status: parsed.data.status,
+                code: parsed.data.error.code,
+                message: parsed.data.error.message,
+              };
+            }
+          } catch (error) {
+            agents[id] = { status: "error", message: errorMessage(error).slice(0, 600) };
+          }
+        }),
+    );
+    await writeJsonFile(path.join(path.dirname(this.#rly0AgentRelays.path()), AGENT_STATUS_FILE), {
+      requestId,
+      checkedAt: Date.now(),
+      agents,
+    });
   }
 
   #refreshRelayOverlays(): Promise<void> {
