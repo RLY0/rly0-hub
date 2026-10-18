@@ -50,6 +50,7 @@ import {
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import { checkHubUpdate } from "./update-check.js";
+import { Rly0HubUpdater } from "./hub-updater.js";
 import type { UpdateCheckResult } from "@codexhost/shared-contracts";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { apiKeyLogin, importLogin, parseLoginFile } from "./account-import.js";
@@ -314,6 +315,32 @@ export class Rly0HubService {
     return { alerts: [...(switching?.alert ? [switching.alert] : []), ...alerts, ...extra] };
   }
 
+  #updater: Rly0HubUpdater | null = null;
+
+  #hubUpdater(): Rly0HubUpdater {
+    this.#updater ??= new Rly0HubUpdater({
+      installRoot: this.#options.installRoot,
+      downloadDir: path.join(resolveRly0DataDir(this.#options.environment), "updates"),
+    });
+    return this.#updater;
+  }
+
+  /**
+   * Downloads and installs the latest version. Codex holds the bundled runtime open, so it is
+   * closed first (only when the window confirmed it) and the installer opens it again.
+   */
+  async #installUpdate(closeCodex: boolean) {
+    const codex = await this.#codex.status();
+    if (codex.running) {
+      if (!closeCodex) return { ...this.#hubUpdater().progress(), needsCodexClose: true };
+      await this.#codex.forceQuit().catch(() => ({ ok: false }));
+      // Give Codex a moment to let go of the files; the installer closes what is still open.
+      for (let i = 0; i < 20 && (await this.#codex.status()).running; i += 1)
+        await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return { ...this.#hubUpdater().start({ reopenCodex: codex.running }), needsCodexClose: false };
+  }
+
   #updateCache: { at: number; result: UpdateCheckResult } | null = null;
   #updateRunning: Promise<UpdateCheckResult> | null = null;
 
@@ -550,6 +577,10 @@ export class Rly0HubService {
       "updates.status": route(z.object({ force: z.boolean().optional() }).strict(), (p) =>
         this.#updateStatus(p.force === true),
       ),
+      "updates.install": route(z.object({ closeCodex: z.boolean().optional() }).strict(), (p) =>
+        this.#installUpdate(p.closeCodex === true),
+      ),
+      "updates.progress": route(empty, () => this.#hubUpdater().progress()),
       "accounts.autoSwitchGet": route(empty, async () =>
         cleanAutoSwitchSettings((await this.#state.read()).autoSwitch ?? RLY0_AUTO_SWITCH_DEFAULTS),
       ),

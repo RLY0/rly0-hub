@@ -365,17 +365,126 @@
         {
           class: "btn paper",
           type: "button",
-          onclick: () => {
-            call("links.open", { target: "releases" }).then(
-              () => toast("已打开下载页：下载新版后解压覆盖到当前文件夹即可"),
-              failed,
-            );
-            ui.close();
-          },
+          onclick: () => installUpdate(ui, false),
         },
         "立即更新",
       ),
     );
+  }
+
+  /* One-click update: download in the window, verify, then the installer replaces the files and
+     opens the Hub again. Codex holds the runtime open, so it is closed first (after asking). */
+  const UPDATE_ERRORS = {
+    UPDATE_NONE: "已经是最新版本了。",
+    UPDATE_ASSET_MISSING: "这个版本的发布页里没有安装包。",
+    UPDATE_ASSET_UNVERIFIED: "安装包缺少校验信息，为了安全没有安装。",
+    UPDATE_VERIFY_FAILED: "下载的文件校验不通过，可能下载出错了，请重试。",
+    UPDATE_DOWNLOAD_FAILED: "下载失败，检查一下网络后重试。",
+    UPDATE_UNSUPPORTED: "这个系统不支持自动更新。",
+  };
+  function megabytes(bytes) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+  async function installUpdate(ui, closeCodex) {
+    let first;
+    try {
+      first = await call("updates.install", closeCodex ? { closeCodex: true } : {});
+    } catch (error) {
+      failed(error);
+      return;
+    }
+    if (first.needsCodexClose) {
+      ui.body.replaceChildren(
+        h(
+          "div",
+          { class: "update-hero" },
+          h("img", { src: "brand/rly0-ip-tight.svg", alt: "" }),
+          h(
+            "div",
+            { class: "who" },
+            h("b", null, "需要先关闭 Codex"),
+            h("span", null, "更新会替换 Codex 正在用的文件。装好后会自动重新打开 Codex。"),
+          ),
+        ),
+      );
+      ui.foot.replaceChildren(
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn", type: "button", onclick: () => ui.close() }, "稍后"),
+        h(
+          "button",
+          { class: "btn paper", type: "button", onclick: () => installUpdate(ui, true) },
+          "关闭 Codex 并更新",
+        ),
+      );
+      return;
+    }
+    const bar = h("i");
+    const label = h("b", null, "正在准备…");
+    const detail = h("span", null, "");
+    ui.body.replaceChildren(
+      h(
+        "div",
+        { class: "update-hero" },
+        h("img", { src: "brand/rly0-ip-tight.svg", alt: "" }),
+        h("div", { class: "who" }, label, detail),
+      ),
+      h("div", { class: "update-progress" }, bar),
+    );
+    ui.foot.replaceChildren(h("span", { class: "spacer" }));
+    const show = (state) => {
+      if (state.phase === "downloading") {
+        const total = state.totalBytes || 0;
+        const ratio = total ? Math.min(1, state.downloadedBytes / total) : 0;
+        label.textContent = `正在下载 ${state.version || ""}`.trim();
+        detail.textContent = total
+          ? `${megabytes(state.downloadedBytes)} / ${megabytes(total)}`
+          : megabytes(state.downloadedBytes);
+        bar.style.width = `${Math.round(ratio * 100)}%`;
+      } else if (state.phase === "verifying") {
+        label.textContent = "正在校验安装包";
+        detail.textContent = "确认文件和发布页上的一致";
+        bar.style.width = "100%";
+      } else if (state.phase === "installing") {
+        label.textContent = "正在安装";
+        detail.textContent = "Hub 会关闭片刻，装好后自动重新打开";
+        bar.style.width = "100%";
+        bar.parentElement.classList.add("done");
+      }
+    };
+    show(first);
+    const timer = setInterval(async () => {
+      const state = await call("updates.progress").catch(() => null);
+      if (!state) return;
+      show(state);
+      if (state.phase === "error") {
+        clearInterval(timer);
+        label.textContent = "更新没有完成";
+        detail.textContent = UPDATE_ERRORS[state.error] || "出了点问题，请重试。";
+        ui.foot.replaceChildren(
+          h(
+            "button",
+            {
+              class: "btn quiet",
+              type: "button",
+              onclick: () => {
+                call("links.open", { target: "releases" }).catch(failed);
+                ui.close();
+              },
+            },
+            "去下载页手动下载",
+          ),
+          h("span", { class: "spacer" }),
+          h("button", { class: "btn", type: "button", onclick: () => ui.close() }, "关闭"),
+          h(
+            "button",
+            { class: "btn paper", type: "button", onclick: () => installUpdate(ui, closeCodex) },
+            "重试",
+          ),
+        );
+      } else if (state.phase === "installing") {
+        clearInterval(timer);
+      }
+    }, 400);
   }
   async function checkUpdates(force) {
     const result = await call("updates.status", force ? { force: true } : {}).catch(() => null);
@@ -1700,6 +1809,21 @@
       },
       "proxy.status": { available: true, running: true, port: 25917 },
       "codex.status": { running: true, canOpen: true },
+      "updates.install": {
+        phase: "downloading",
+        version: "0.11.1",
+        downloadedBytes: 0,
+        totalBytes: 27338348,
+        error: null,
+        needsCodexClose: false,
+      },
+      "updates.progress": {
+        phase: "downloading",
+        version: "0.11.1",
+        downloadedBytes: 11534336,
+        totalBytes: 27338348,
+        error: null,
+      },
       "updates.status": {
         currentVersion: "0.10.2",
         latestVersion: "0.11.0",

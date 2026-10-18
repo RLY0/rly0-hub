@@ -3992,3 +3992,33 @@ select.input,
     width: 170px;
   }
 }
+
+/* In-app update progress */
+.update-progress {
+  height: 8px;
+  margin-top: 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.update-progress i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #e8e7e2, #ffffff);
+  transition: width 0.35s ease;
+}
+.update-progress.done i {
+  background: linear-gradient(90deg, #3ecf8e, #6fe3ae);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .update-progress.done i {
+    animation: update-pulse 1.2s ease-in-out infinite;
+  }
+}
+@keyframes update-pulse {
+  50% {
+    opacity: 0.6;
+  }
+}

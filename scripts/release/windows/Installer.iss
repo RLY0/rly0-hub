@@ -15,6 +15,9 @@ OutputBaseFilename={#OutputBaseFilename}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+; An in-app update runs silently while the Hub or Codex may hold files: close them, don't restart.
+CloseApplications=force
+RestartApplications=no
 UninstallDisplayName=RLY0 Hub
 SetupIconFile=..\..\..\crates\launcher\assets\codexhost.ico
 UninstallDisplayIcon={app}\bin\rly0-hub.exe
@@ -44,6 +47,9 @@ Name: "{userdesktop}\RLY0 Hub"; Filename: "{app}\bin\rly0-hub.exe"; WorkingDir: 
 
 [Run]
 Filename: "{app}\bin\rly0-hub.exe"; Description: "打开 RLY/0 Hub"; Flags: nowait postinstall skipifsilent
+; In-app updates (silent): open the Hub again, and Codex if the update had to close it.
+Filename: "{app}\bin\rly0-hub.exe"; Flags: nowait; Check: HasFlag('RELAUNCH')
+Filename: "{app}\bin\codexhost-start.exe"; Flags: nowait skipifdoesntexist; Check: HasFlag('REOPENCODEX')
 
 [UninstallRun]
 ; Close the tray app before its files are removed.
@@ -60,6 +66,12 @@ Name: "{app}"
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+// /RELAUNCH=1 and /REOPENCODEX=1 on the command line, passed by the Hub's own updater.
+function HasFlag(Name: String): Boolean;
+begin
+  Result := ExpandConstant('{param:' + Name + '|0}') = '1';
+end;
+
 // An update while the tray app runs would hit locked files: ask it to exit first.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var

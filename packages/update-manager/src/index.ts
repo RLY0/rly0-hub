@@ -4,6 +4,7 @@ export type {
   ArtifactDownloadResult,
   ArtifactSource,
 } from "./artifact.js";
+export { downloadArtifact, verifyDownloadedArtifact } from "./artifact.js";
 export {
   UPDATE_RUNTIME_ENV,
   defaultUpdateStateDirectory,
