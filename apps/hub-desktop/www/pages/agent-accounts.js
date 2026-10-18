@@ -23,10 +23,10 @@ window.registerHubAgentAccounts = ({
         .filter((item) => item !== null && item !== undefined && item !== false),
     );
   const LOGIN_ERRORS = {
-    API_KEY_INVALID: "Key 格式不对，Anthropic 的 Key / 令牌以 sk-ant- 开头",
+    API_KEY_INVALID: "Key 格式不对，请检查是不是这家的官方 Key",
     AUTH_FILE_INVALID: "这个文件不是有效的 JSON",
     AUTH_FILE_NOT_A_LOGIN:
-      "文件里没有 Claude 登录（支持 .credentials.json 和 Sub2API 导出的 Claude 账号）",
+      "文件里没有这家的登录或 Key（支持官方登录文件和 Sub2API 导出的账号 JSON）",
     RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
     CLAUDE_IDENTITY_UNKNOWN: "还读不到这个账号是谁：在 Codex 里用一次 Claude Code 后再保存",
     CLAUDE_NOT_LOGGED_IN: "Claude Code 还没登录",
@@ -115,8 +115,8 @@ window.registerHubAgentAccounts = ({
           [
             {
               icon: LOGIN_ICONS.web,
-              title: "网页登录 Claude 账号",
-              desc: "Pro / Max 账号，可以添加多个",
+              title: "网页登录",
+              desc: "在浏览器里登录 Claude 账号（Pro / Max），可以添加多个",
               onSelect: () => webLogin(),
             },
             {
@@ -135,8 +135,8 @@ window.registerHubAgentAccounts = ({
             },
             {
               icon: LOGIN_ICONS.key,
-              title: "官方 API Key / 订阅令牌",
-              desc: "sk-ant-api… 按量计费，或 claude setup-token 生成的 sk-ant-oat…",
+              title: "官方 API Key",
+              desc: "Anthropic 的 sk-ant- Key，或 claude setup-token 生成的令牌",
               onSelect: () => keySection.openForm(),
             },
           ],
@@ -488,18 +488,63 @@ window.registerHubAgentAccounts = ({
   }
 
   /* ---------- Google · Gemini and xAI · Grok ---------- */
-  function vendorTab(root, alive, { vendor, agentId, agentName, intro }) {
+  function vendorTab(root, alive, options) {
+    const { vendor, agentId, agentName, intro, webDesc, fileDesc, keyDesc } = options;
     const login = h("div", { class: "grid compact" });
+    const keySection = vendorKey(vendor, alive);
+    let agent = null;
+    // Same three ways as Codex and Claude: web sign-in, a login file, an official API key.
+    const webLogin = () => {
+      if (!agent || !agent.installed) {
+        toast(`先在「AI 助手」页装好 ${agentName}`);
+        return;
+      }
+      call("agents.openLogin", { agent: agentId }).then(
+        (r) => toast(r.ok ? "已打开终端，按提示在浏览器里登录" : "没能打开终端"),
+        failed,
+      );
+    };
     root.append(
-      h("div", { class: "row page-head" }, h("span", { class: "sub" }, intro)),
+      h(
+        "div",
+        { class: "row page-head" },
+        h("span", { class: "sub" }, intro),
+        h("span", { class: "spacer" }),
+        window.HubUI.menuButton(
+          "+ 添加",
+          [
+            { icon: LOGIN_ICONS.web, title: "网页登录", desc: webDesc, onSelect: webLogin },
+            {
+              icon: LOGIN_ICONS.file,
+              title: "导入登录文件",
+              desc: fileDesc,
+              onSelect: () =>
+                pickFile((content) =>
+                  call("agents.officialKeys.importFile", { vendor, content }).then(() => {
+                    toast("已从文件导入 Key");
+                    root.replaceChildren();
+                    vendorTab(root, alive, options);
+                  }, loginFailed),
+                ),
+            },
+            {
+              icon: LOGIN_ICONS.key,
+              title: "官方 API Key",
+              desc: keyDesc,
+              onSelect: () => keySection.openForm(),
+            },
+          ],
+          { align: "right" },
+        ),
+      ),
       login,
-      vendorKey(vendor, alive).element,
+      keySection.element,
     );
     call("agents.list")
       .catch(() => null)
       .then((result) => {
         if (!alive()) return;
-        const agent = ((result && result.agents) || []).find((a) => a.id === agentId);
+        agent = ((result && result.agents) || []).find((a) => a.id === agentId) || null;
         put(
           login,
           h(
@@ -554,6 +599,9 @@ window.registerHubAgentAccounts = ({
       agentName: "Antigravity",
       intro:
         "Google 的官方助手 Antigravity 用 Google 账号登录；Gemini API Key 也能给 Pi、Hermes 等助手用。",
+      webDesc: "用 Antigravity 在浏览器里登录 Google 账号",
+      fileDesc: "Sub2API 导出的 Gemini / Antigravity 账号 JSON",
+      keyDesc: "Google AI Studio 的 Gemini Key（AIza…）",
     });
   const grok = (root, alive) =>
     vendorTab(root, alive, {
@@ -561,6 +609,9 @@ window.registerHubAgentAccounts = ({
       agentId: "grok",
       agentName: "Grok",
       intro: "xAI 的官方助手 Grok 用 xAI 账号登录；xAI API Key 也能给 Pi、Hermes 等助手用。",
+      webDesc: "用 Grok 在浏览器里登录 xAI 账号",
+      fileDesc: "Sub2API 导出的 Grok 账号 JSON",
+      keyDesc: "xAI 控制台的 Key（xai-…）",
     });
   const openaiKey = (root, alive) => {
     root.append(vendorKey("openai", alive).element);

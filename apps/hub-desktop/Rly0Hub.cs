@@ -52,6 +52,28 @@ internal static class Program {
             if (arg == "--background") background = true;
             else if (arg == "--exit") exit = true;
         }
+        // Design check of the tray menu without starting the Hub (shown for a few seconds).
+        if (args.Length >= 1 && args[0] == "--preview-menu") {
+            var menu = HubMenu.Create();
+            HubMenu.Add(menu, "", "打开 RLY/0 Hub", delegate { });
+            HubMenu.Add(menu, "", "打开 Codex", delegate { });
+            HubMenu.Add(menu, "", "充值零号中转", delegate { });
+            menu.Items.Add(new ToolStripSeparator());
+            var toggle = new ToolStripMenuItem("开机自启") { CheckOnClick = false, Tag = "toggle", Checked = true };
+            HubMenu.SetGlyph(toggle, "");
+            menu.Items.Add(toggle);
+            toggle.Padding = new Padding(48, 11, 64, 11);
+            HubMenu.Add(menu, "", "Star 支持", delegate { });
+            menu.Items.Add(new ToolStripSeparator());
+            HubMenu.Add(menu, "", "退出", delegate { });
+            var host = new Form { ShowInTaskbar = false, FormBorderStyle = FormBorderStyle.None, Size = new Size(1, 1), StartPosition = FormStartPosition.Manual, Location = new Point(300, 200) };
+            host.Shown += delegate { menu.Show(new Point(320, 220)); };
+            var timer = new System.Windows.Forms.Timer { Interval = 4000 };
+            timer.Tick += delegate { timer.Stop(); menu.Close(); host.Close(); };
+            timer.Start();
+            Application.Run(host);
+            return 0;
+        }
         // The launcher's "Codex is already running" question, in RLY/0's own style.
         // Exit codes: 10 restart Codex, 11 retry, 12 cancel.
         if (args.Length >= 1 && args[0] == "--ask-codex-restart") {
@@ -142,7 +164,7 @@ internal sealed class HubContext : ApplicationContext {
             SendInternal("autostart.set", new Dictionary<string, object> { { "enabled", next } }, ApplyAutostart);
         };
         menu.Items.Add(autostartItem);
-        autostartItem.Padding = new Padding(48, 9, 64, 9);
+        autostartItem.Padding = new Padding(48, 11, 64, 11);
         HubMenu.Add(menu, "\uE734", "Star 支持", delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "github" } }, null); });
         menu.Items.Add(new ToolStripSeparator());
         HubMenu.Add(menu, "\uE711", "退出", delegate { Quit(); });
@@ -502,6 +524,10 @@ internal static class HubMenu {
             Padding = new Padding(6, 6, 6, 6),
             Font = new Font("Microsoft YaHei UI", 10f),
         };
+        // Room for the icon tile, the text and the autostart switch (scaled for the screen's DPI).
+        float k;
+        using (var probe = Graphics.FromHwnd(IntPtr.Zero)) k = probe.DpiX / 96f;
+        menu.MinimumSize = new Size((int)(236 * k), 0);
         menu.ItemAdded += delegate (object s, ToolStripItemEventArgs e) {
             e.Item.ForeColor = Ink;
             if (!(e.Item is ToolStripSeparator)) {
@@ -534,7 +560,7 @@ internal static class HubMenu {
         item.Click += click;
         SetGlyph(item, glyph);
         menu.Items.Add(item);
-        item.Padding = new Padding(48, 9, 26, 9);
+        item.Padding = new Padding(48, 11, 26, 11);
         return item;
     }
 
@@ -551,46 +577,51 @@ internal static class HubMenu {
             }
         }
         protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) {
-            if (!e.Item.Selected || !e.Item.Enabled) return;
             var g = e.Graphics;
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            var r = new Rectangle(2, 1, e.Item.Width - 4, e.Item.Height - 2);
-            using (var path = Rounded(r, 7)) using (var brush = new SolidBrush(Hover)) g.FillPath(brush, path);
+            if (e.Item.Selected && e.Item.Enabled) {
+                var r = new Rectangle(2, 1, e.Item.Width - 4, e.Item.Height - 2);
+                using (var path = Rounded(r, 7)) using (var brush = new SolidBrush(Hover)) g.FillPath(brush, path);
+            }
+            var item = e.Item as ToolStripMenuItem;
+            if (item != null && "toggle".Equals(item.Tag)) {
+                // A small switch at the right edge shows on/off (drawn here: text drawing is clipped).
+                // Against the menu's visible width: an item may report more than is shown.
+                int right = Math.Min(e.Item.Width, e.ToolStrip.ClientSize.Width - e.Item.Bounds.Left) - 12;
+                var track = new Rectangle(right - 34, (e.Item.Height - 18) / 2, 34, 18);
+                using (var path = Rounded(track, 9))
+                using (var brush = new SolidBrush(item.Checked ? Color.FromArgb(91, 208, 138) : Color.FromArgb(70, 70, 62)))
+                    g.FillPath(brush, path);
+                int knob = item.Checked ? track.Right - 16 : track.Left + 2;
+                using (var brush = new SolidBrush(Ink)) g.FillEllipse(brush, knob, track.Top + 2, 14, 14);
+            }
         }
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) {
             string glyph;
             if (Glyphs.TryGetValue(e.Item, out glyph)) {
                 var g = e.Graphics;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                int size = Math.Min(e.Item.Height - 10, 28);
+                const int size = 28;
                 var tile = new Rectangle(10, (e.Item.Height - size) / 2, size, size);
                 using (var path = Rounded(tile, 7))
                 using (var brush = new SolidBrush(e.Item.Selected ? Color.FromArgb(70, 70, 62) : Color.FromArgb(48, 48, 42)))
                     g.FillPath(brush, path);
-                using (var font = new Font(IconFont, 10.5f))
-                    TextRenderer.DrawText(g, glyph, font, tile, Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                using (var font = new Font(IconFont, 11f))
+                    TextRenderer.DrawText(g, glyph, font, tile, Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
             }
             bool header = "header".Equals(e.Item.Tag);
             var item = e.Item as ToolStripMenuItem;
             bool check = item != null && item.Checked;
-            var r = e.TextRectangle;
+            bool toggle = item != null && "toggle".Equals(item.Tag);
+            // The text sits right of the icon tile (the system's text box ignores our padding).
+            int left = Glyphs.ContainsKey(e.Item) ? 50 : 14;
+            var r = new Rectangle(left, 0, Math.Max(10, e.Item.Width - left - (toggle ? 56 : 14)), e.Item.Height);
             if (header) {
                 using (var bold = new Font(e.TextFont, FontStyle.Bold))
                     TextRenderer.DrawText(e.Graphics, e.Text, bold, r, Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
                 return;
             }
-            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, r, e.Item.Enabled ? Ink : Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
-            if (item != null && item.CheckOnClick == false && item.Tag is string && (string)item.Tag == "toggle") {
-                // A small switch at the right edge shows on/off.
-                var g = e.Graphics;
-                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                var track = new Rectangle(e.Item.Width - 44, (e.Item.Height - 16) / 2, 30, 16);
-                using (var path = Rounded(track, 8))
-                using (var brush = new SolidBrush(check ? Color.FromArgb(91, 208, 138) : Color.FromArgb(70, 70, 62)))
-                    g.FillPath(brush, path);
-                int knob = check ? track.Right - 14 : track.Left + 2;
-                using (var brush = new SolidBrush(Ink)) g.FillEllipse(brush, knob, track.Top + 2, 12, 12);
-            }
+            TextRenderer.DrawText(e.Graphics, e.Text, e.TextFont, r, e.Item.Enabled ? Ink : Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis);
         }
         protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e) {
             using (var pen = new Pen(Edge)) {

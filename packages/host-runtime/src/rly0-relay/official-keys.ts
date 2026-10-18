@@ -117,3 +117,53 @@ export class Rly0OfficialKeyModels {
 function cleanModelId(model: string): string {
   return model.replace(/^models\//u, "").trim();
 }
+
+/** Sub2API platform names that belong to each vendor. */
+const EXPORT_PLATFORMS: Readonly<Record<Rly0OfficialVendor, readonly string[]>> = {
+  openai: ["openai"],
+  anthropic: ["anthropic", "claude"],
+  google: ["gemini", "google", "antigravity"],
+  xai: ["grok", "xai"],
+};
+
+/**
+ * The vendor's key in a Sub2API account export (`{"accounts":[{"platform","credentials"}]}`),
+ * or a bare `{"api_key": …}` JSON. Throws AUTH_FILE_* codes the page explains.
+ */
+export function keyFromAccountExport(content: string, vendor: Rly0OfficialVendor): string {
+  let value: unknown;
+  try {
+    value = JSON.parse(content.replace(/^﻿/u, ""));
+  } catch {
+    throw Object.assign(new Error("AUTH_FILE_INVALID"), { code: -32000 });
+  }
+  const record = (typeof value === "object" && value !== null ? value : {}) as Record<
+    string,
+    unknown
+  >;
+  const pick = (credentials: Record<string, unknown>): string | null => {
+    for (const key of ["api_key", "apiKey", "access_token", "setup_token", "key"]) {
+      const candidate = credentials[key];
+      if (
+        typeof candidate === "string" &&
+        RLY0_OFFICIAL_VENDORS[vendor].pattern.test(candidate.trim())
+      )
+        return candidate.trim();
+    }
+    return null;
+  };
+  if (Array.isArray(record.accounts)) {
+    for (const item of record.accounts) {
+      if (typeof item !== "object" || item === null) continue;
+      const account = item as Record<string, unknown>;
+      if (!EXPORT_PLATFORMS[vendor].includes(String(account.platform ?? "").toLowerCase()))
+        continue;
+      const found = pick((account.credentials ?? {}) as Record<string, unknown>);
+      if (found) return found;
+    }
+  } else {
+    const found = pick(record);
+    if (found) return found;
+  }
+  throw Object.assign(new Error("AUTH_FILE_NOT_A_LOGIN"), { code: -32000 });
+}

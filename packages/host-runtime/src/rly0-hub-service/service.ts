@@ -41,9 +41,11 @@ import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { RLY0_RELAY_AGENTS, Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import {
+  keyFromAccountExport,
   officialVendorOf,
   RLY0_OFFICIAL_VENDORS,
   Rly0OfficialKeyModels,
+  type Rly0OfficialVendor,
 } from "../rly0-relay/official-keys.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
@@ -385,6 +387,52 @@ export class Rly0HubService {
     if (!codex.running) return { switched: true, restarted: false };
     const restarted = (await this.#codex.restart()).ok;
     return { switched: true, restarted };
+  }
+
+  async #saveOfficialKey(
+    core: Rly0CoreBridge,
+    vendor: Rly0OfficialVendor,
+    apiKey: string,
+  ): Promise<Record<string, unknown>> {
+    const spec = RLY0_OFFICIAL_VENDORS[vendor];
+    const key = apiKey.trim();
+    if (!spec.pattern.test(key)) throw codedHubError("API_KEY_INVALID");
+    const relays = await core.listRelays();
+    if (!relays.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+    const existing = relays.relays.find((relay) => officialVendorOf(relay) === vendor);
+    let id: string;
+    if (existing) {
+      const updated = await core.updateRelay({
+        id: existing.id,
+        apiKey: key,
+        enabled: true,
+        models: [],
+      });
+      if (!updated.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+      id = existing.id;
+    } else {
+      const added = await core.addRelay({
+        name: spec.name,
+        baseUrl: spec.baseUrl,
+        apiKey: key,
+        models: [],
+        enabled: true,
+      });
+      if (!added.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+      id = added.id;
+    }
+    const test = await core.testRelay({ id }).catch(() => null);
+    const models = test && test.available && test.ok ? (test.models ?? []) : [];
+    await this.#officialModels.set(vendor, models);
+    if (vendor === "anthropic") await this.#agentRelays.set({ claudeCode: id });
+    await this.#ensureProxyForRelays().catch(() => undefined);
+    return {
+      ok: true,
+      id,
+      valid: Boolean(test && test.available && test.ok),
+      error: test && test.available && !test.ok ? (test.error ?? null) : null,
+      modelCount: models.length,
+    };
   }
 
   async dispose(): Promise<void> {
@@ -767,47 +815,20 @@ export class Rly0HubService {
             apiKey: z.string().min(1).max(400),
           })
           .strict(),
-        async (p) => {
-          const spec = RLY0_OFFICIAL_VENDORS[p.vendor];
-          const key = p.apiKey.trim();
-          if (!spec.pattern.test(key)) throw codedHubError("API_KEY_INVALID");
-          const relays = await core.listRelays();
-          if (!relays.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
-          const existing = relays.relays.find((relay) => officialVendorOf(relay) === p.vendor);
-          let id: string;
-          if (existing) {
-            const updated = await core.updateRelay({
-              id: existing.id,
-              apiKey: key,
-              enabled: true,
-              models: [],
-            });
-            if (!updated.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
-            id = existing.id;
-          } else {
-            const added = await core.addRelay({
-              name: spec.name,
-              baseUrl: spec.baseUrl,
-              apiKey: key,
-              models: [],
-              enabled: true,
-            });
-            if (!added.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
-            id = added.id;
-          }
-          const test = await core.testRelay({ id }).catch(() => null);
-          const models = test && test.available && test.ok ? (test.models ?? []) : [];
-          await this.#officialModels.set(p.vendor, models);
-          if (p.vendor === "anthropic") await this.#agentRelays.set({ claudeCode: id });
-          await this.#ensureProxyForRelays().catch(() => undefined);
-          return {
-            ok: true,
-            id,
-            valid: Boolean(test && test.available && test.ok),
-            error: test && test.available && !test.ok ? (test.error ?? null) : null,
-            modelCount: models.length,
-          };
-        },
+        (p) => this.#saveOfficialKey(core, p.vendor, p.apiKey),
+      ),
+      // A Sub2API account export: the vendor's key in it is saved like a typed one.
+      "agents.officialKeys.importFile": route(
+        z
+          .object({
+            vendor: z.enum(["openai", "anthropic", "google", "xai"]),
+            content: z
+              .string()
+              .min(2)
+              .max(256 * 1024),
+          })
+          .strict(),
+        (p) => this.#saveOfficialKey(core, p.vendor, keyFromAccountExport(p.content, p.vendor)),
       ),
       "agents.officialKeys.info": route(
         z.object({ vendor: z.enum(["openai", "anthropic", "google", "xai"]) }).strict(),

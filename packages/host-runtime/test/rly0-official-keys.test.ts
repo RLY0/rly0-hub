@@ -5,6 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  keyFromAccountExport,
   officialVendorOf,
   Rly0OfficialKeyModels,
   RLY0_OFFICIAL_VENDORS,
@@ -31,12 +32,36 @@ describe("official vendor API keys", () => {
       xai: ["grok-4"],
     });
     // A vendor key's relay entry lists no models; agents get the official list instead.
-    expect(await store.modelsFor({ baseUrl: "https://api.x.ai/v1", models: [] })).toEqual(["grok-4"]);
-    expect(await store.modelsFor({ baseUrl: "https://api.rly0.com/v1", models: ["gpt-5"] })).toEqual([
-      "gpt-5",
+    expect(await store.modelsFor({ baseUrl: "https://api.x.ai/v1", models: [] })).toEqual([
+      "grok-4",
     ]);
+    expect(
+      await store.modelsFor({ baseUrl: "https://api.rly0.com/v1", models: ["gpt-5"] }),
+    ).toEqual(["gpt-5"]);
     await store.set("xai", null);
     expect((await store.read()).xai).toBeUndefined();
     await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  it("takes the vendor's key out of a Sub2API account export", () => {
+    const exported = JSON.stringify({
+      type: "sub2api-data",
+      accounts: [
+        { platform: "openai", credentials: { access_token: "eyJ" } },
+        {
+          platform: "gemini",
+          type: "apikey",
+          credentials: { api_key: "AIzaSyA-abcdefghijklmnopqrstuvwxyz012" },
+        },
+        { platform: "grok", credentials: { api_key: "xai-abcdefghijklmnopqrstuvwxyz" } },
+      ],
+    });
+    expect(keyFromAccountExport(exported, "google")).toBe("AIzaSyA-abcdefghijklmnopqrstuvwxyz012");
+    expect(keyFromAccountExport(exported, "xai")).toBe("xai-abcdefghijklmnopqrstuvwxyz");
+    expect(() => keyFromAccountExport(exported, "anthropic")).toThrow("AUTH_FILE_NOT_A_LOGIN");
+    expect(() => keyFromAccountExport("nope", "xai")).toThrow("AUTH_FILE_INVALID");
+    expect(
+      keyFromAccountExport(JSON.stringify({ api_key: "xai-abcdefghijklmnopqrstuvwxyz" }), "xai"),
+    ).toBe("xai-abcdefghijklmnopqrstuvwxyz");
   });
 });

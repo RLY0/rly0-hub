@@ -501,7 +501,7 @@
         "保存当前登录",
       ),
       window.HubUI.menuButton(
-        "+ 添加账号",
+        "+ 添加",
         [
           {
             icon: LOGIN_ICONS.web,
@@ -582,7 +582,11 @@
           apiKey: key.value.trim(),
           ...(name.value.trim() ? { alias: name.value.trim() } : {}),
         }).then(() => {
-          toast("API Key 账号已保存，切换到它后 Codex 用这个 Key");
+          // The same key also serves other agents (Pi, Hermes, OpenCode) as the OpenAI key.
+          call("agents.officialKeys.set", { vendor: "openai", apiKey: key.value.trim() }).catch(
+            () => undefined,
+          );
+          toast("API Key 已保存：切换到它后 Codex 用它，Pi、Hermes 等助手也能选它");
           addStatus.replaceChildren();
           load();
         }, loginFailed);
