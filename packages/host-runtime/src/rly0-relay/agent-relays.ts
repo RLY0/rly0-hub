@@ -189,6 +189,11 @@ export function piRelayExtension(
       api: "openai-completions",
       baseUrl: url,
       reasoning: /^(?:gpt-5|o[134]|claude|gemini-(?:2\.5|3)|grok-4)/iu.test(id),
+      // Pi reads these for every model (e.g. `input.includes("image")`); leaving them out crashes it.
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200_000,
+      maxTokens: 32_000,
     })),
   };
   return [

@@ -40,6 +40,11 @@ import {
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { RLY0_RELAY_AGENTS, Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
+import {
+  officialVendorOf,
+  RLY0_OFFICIAL_VENDORS,
+  Rly0OfficialKeyModels,
+} from "../rly0-relay/official-keys.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
@@ -169,6 +174,7 @@ export class Rly0HubService {
   readonly #router: Rly0RelayModelRouter;
   readonly #backup: Rly0FirstRunBackup;
   readonly #agentRelays: Rly0AgentRelaySettings;
+  readonly #officialModels: Rly0OfficialKeyModels;
   readonly #installer: AgentInstaller;
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
@@ -209,6 +215,7 @@ export class Rly0HubService {
     this.#router = new Rly0RelayModelRouter(this.#core);
     this.#backup = new Rly0FirstRunBackup({ environment });
     this.#agentRelays = new Rly0AgentRelaySettings({ environment });
+    this.#officialModels = new Rly0OfficialKeyModels(environment);
     this.#installer = new AgentInstaller({
       environment,
       ...(options.platform ? { platform: options.platform } : {}),
@@ -733,6 +740,122 @@ export class Rly0HubService {
         if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");
         return result;
       }),
+      // Official API keys of the four vendors (kept by rly0-core; models listed separately so
+      // Codex's own requests never route to them).
+      "agents.officialKeys.list": route(empty, async () => {
+        const relays = await core.listRelays();
+        const models = await this.#officialModels.read();
+        const keys = (relays.available ? relays.relays : []).flatMap((relay) => {
+          const vendor = officialVendorOf(relay);
+          return vendor && relay.hasKey
+            ? [
+                {
+                  vendor,
+                  id: relay.id,
+                  keyMask: relay.keyMask ?? null,
+                  models: models[vendor] ?? [],
+                },
+              ]
+            : [];
+        });
+        return { keys };
+      }),
+      "agents.officialKeys.set": route(
+        z
+          .object({
+            vendor: z.enum(["openai", "anthropic", "google", "xai"]),
+            apiKey: z.string().min(1).max(400),
+          })
+          .strict(),
+        async (p) => {
+          const spec = RLY0_OFFICIAL_VENDORS[p.vendor];
+          const key = p.apiKey.trim();
+          if (!spec.pattern.test(key)) throw codedHubError("API_KEY_INVALID");
+          const relays = await core.listRelays();
+          if (!relays.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+          const existing = relays.relays.find((relay) => officialVendorOf(relay) === p.vendor);
+          let id: string;
+          if (existing) {
+            const updated = await core.updateRelay({
+              id: existing.id,
+              apiKey: key,
+              enabled: true,
+              models: [],
+            });
+            if (!updated.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+            id = existing.id;
+          } else {
+            const added = await core.addRelay({
+              name: spec.name,
+              baseUrl: spec.baseUrl,
+              apiKey: key,
+              models: [],
+              enabled: true,
+            });
+            if (!added.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+            id = added.id;
+          }
+          const test = await core.testRelay({ id }).catch(() => null);
+          const models = test && test.available && test.ok ? (test.models ?? []) : [];
+          await this.#officialModels.set(p.vendor, models);
+          if (p.vendor === "anthropic") await this.#agentRelays.set({ claudeCode: id });
+          await this.#ensureProxyForRelays().catch(() => undefined);
+          return {
+            ok: true,
+            id,
+            valid: Boolean(test && test.available && test.ok),
+            error: test && test.available && !test.ok ? (test.error ?? null) : null,
+            modelCount: models.length,
+          };
+        },
+      ),
+      "agents.officialKeys.info": route(
+        z.object({ vendor: z.enum(["openai", "anthropic", "google", "xai"]) }).strict(),
+        async (p) => {
+          const relays = await core.listRelays();
+          const relay = relays.available
+            ? relays.relays.find((entry) => officialVendorOf(entry) === p.vendor && entry.hasKey)
+            : undefined;
+          if (!relay) return { info: null };
+          if (p.vendor === "anthropic")
+            return { info: await core.claudeAccounts("keyInfo", { relayId: relay.id }) };
+          const test = await core.testRelay({ id: relay.id }).catch(() => null);
+          const ok = Boolean(test && test.available && test.ok);
+          if (ok && test && test.available && test.models?.length)
+            await this.#officialModels.set(p.vendor, test.models);
+          return {
+            info: {
+              kind: "apiKey",
+              keyMask: relay.keyMask ?? null,
+              ...(ok
+                ? { valid: true }
+                : test && test.available && test.error === "RELAY_UNAUTHORIZED"
+                  ? { valid: false }
+                  : {}),
+              ...(test && test.available && !test.ok && test.error ? { error: test.error } : {}),
+              modelCount: (await this.#officialModels.read())[p.vendor]?.length ?? 0,
+            },
+          };
+        },
+      ),
+      "agents.officialKeys.remove": route(
+        z.object({ vendor: z.enum(["openai", "anthropic", "google", "xai"]) }).strict(),
+        async (p) => {
+          const relays = await core.listRelays();
+          const relay = relays.available
+            ? relays.relays.find((entry) => officialVendorOf(entry) === p.vendor)
+            : undefined;
+          if (relay) await core.removeRelay({ id: relay.id });
+          await this.#officialModels.set(p.vendor, null);
+          const selection = await this.#agentRelays.get();
+          if (relay && selection.claudeCode === relay.id)
+            await this.#agentRelays.set({ claudeCode: null });
+          for (const [agent, choice] of Object.entries(selection.agents ?? {}))
+            if (relay && choice?.relayId === relay.id)
+              await this.#agentRelays.setAgent(agent as "pi" | "hermes" | "opencode", null);
+          return { ok: true };
+        },
+      ),
       "agents.relays.get": route(empty, () => this.#agentRelays.get()),
       "agents.relays.setAgent": route(
         z

@@ -232,6 +232,18 @@ window.registerHubRelays = ({
           boxes.set(model, box);
           return h("label", { class: "model-check" }, box, h("span", null, model));
         }),
+        // Every other model is listed too; only GPT models can go into Codex's menu.
+        others.map((model) =>
+          h(
+            "label",
+            {
+              class: "model-check off",
+              "data-tip": "不是 GPT 模型，不能放进 Codex 菜单；Claude Code、Pi 等助手可以用",
+            },
+            h("input", { type: "checkbox", disabled: true }),
+            h("span", null, model),
+          ),
+        ),
       );
       put(
         result,
@@ -247,28 +259,30 @@ window.registerHubRelays = ({
           ),
         ),
         h("label", { class: "field" }, h("span", null, "名称（自动识别，可改）"), name),
-        gpt.length
+        models.length
           ? h(
               "div",
               { class: "field" },
               h(
                 "div",
                 { class: "row" },
-                h("span", null, "显示在 Codex 模型菜单里的 GPT 模型"),
+                h("span", null, "勾选要显示在 Codex 模型菜单里的模型（只有 GPT 系列能勾）"),
                 h("span", { class: "spacer" }),
-                count,
-                h("label", { class: "model-check all" }, all, h("span", null, "全选")),
+                gpt.length ? count : null,
+                gpt.length
+                  ? h("label", { class: "model-check all" }, all, h("span", null, "全选"))
+                  : null,
               ),
               list,
+              others.length
+                ? h(
+                    "p",
+                    { class: "sub" },
+                    `灰色的 ${others.length} 个不是 GPT 模型，不进 Codex 菜单，但 Claude Code、Pi、Hermes 等助手可以用。`,
+                  )
+                : null,
             )
-          : h("p", { class: "sub" }, "这个中转站没有 GPT 系列模型，Codex 菜单里不会多出模型。"),
-        others.length
-          ? h(
-              "p",
-              { class: "sub" },
-              `另有 ${others.length} 个其他模型（Claude、Gemini 等），给 Claude Code 等 AI 助手用。`,
-            )
-          : null,
+          : h("p", { class: "sub" }, "这个中转站没有返回模型列表。"),
       );
       syncAll();
       picked = { name, boxes, others };

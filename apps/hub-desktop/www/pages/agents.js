@@ -243,6 +243,8 @@ window.registerHubAgents = ({
     };
   }
 
+  const VENDOR_LABELS = { openai: "OpenAI", anthropic: "Anthropic", google: "Gemini", xai: "xAI" };
+
   // Official agents and the model family they are built for.
   const NATIVE_MODELS = {
     "claude-code": { family: "Claude", pattern: /^(?:anthropic\/)?claude/iu },
@@ -288,6 +290,7 @@ window.registerHubAgents = ({
     // Third-party agents RLY/0 Hub routes itself: { agentId: { relayId, model } }.
     let agentRelays = {};
     let claudeAccounts = {};
+    let officialKeys = [];
     // Agents whose relay is set up by hand (snippets): remembered for this page only.
     const manualChoice = new Map();
     let connections = null; // last report from the Codex side: { checkedAt, agents: { id: {...} } }
@@ -322,17 +325,20 @@ window.registerHubAgents = ({
     }
 
     async function load() {
-      const [list, relayList, selection, auth, status] = await Promise.all([
+      const [list, relayList, selection, auth, status, keys] = await Promise.all([
         call("agents.list").catch(() => null),
         call("relay.list").catch(() => null),
         call("agents.relays.get").catch(() => ({ claudeCode: null })),
         call("agents.claudeAccounts.list").catch(() => null),
         call("agents.connectionStatus").catch(() => null),
+        call("agents.officialKeys.list").catch(() => null),
       ]);
+      officialKeys = (keys && keys.keys) || [];
       if (!alive()) return;
       connections = status && status.report;
       const all = ((relayList && relayList.relays) || []).filter((relay) => relay.hasKey);
-      officialKey = all.find(isOfficialKey) || null;
+      // Claude Code's own key is the Anthropic one; the other vendors' keys serve other agents.
+      officialKey = all.find((relay) => /\/\/api\.anthropic\.com/iu.test(relay.baseUrl)) || null;
       relays = all.filter((relay) => relay.enabled && !isOfficialKey(relay));
       claudeRelay = selection.claudeCode;
       agentRelays = selection.agents || {};
@@ -583,6 +589,20 @@ window.registerHubAgents = ({
         if (officialKey) options.push({ value: "key", label: "官方 API Key / 订阅令牌" });
       } else {
         options.push({ value: "own", label: "自己的登录（官方账号）" });
+        // Third-party agents can run on any vendor's official API key saved on 账号.
+        if (thirdParty)
+          for (const key of officialKeys)
+            options.push({
+              value: `relay:${key.id}`,
+              label: `${VENDOR_LABELS[key.vendor] || key.vendor} 官方 API Key`,
+              relay: {
+                id: key.id,
+                name: VENDOR_LABELS[key.vendor] || key.vendor,
+                models: key.models,
+                baseUrl: "",
+              },
+              official: true,
+            });
       }
       const sortedRelays = [...relays].sort((a, b) => Number(isRly0(b)) - Number(isRly0(a)));
       if (canRelay)
@@ -685,9 +705,9 @@ window.registerHubAgents = ({
             {
               class: "btn quiet sm",
               type: "button",
-              onclick: () => go("accounts", { tab: isClaude ? "claude" : "others" }),
+              onclick: () => go("accounts", { tab: isClaude ? "claude" : "codex" }),
             },
-            isClaude ? "管理 Claude 账号 →" : "登录官方账号 →",
+            isClaude ? "管理 Claude 账号 →" : "管理官方 API Key →",
           ),
           canRelay
             ? h(
@@ -788,6 +808,13 @@ window.registerHubAgents = ({
               ),
           links,
         );
+        if (option.official) {
+          put(
+            quota,
+            h("span", { class: "sub" }, "官方 API Key · 按用量计费，账单在官方控制台查看"),
+          );
+          return;
+        }
         const balance = await balanceOf(relay);
         if (!alive()) return;
         if (balance && balance.available && balance.ok)

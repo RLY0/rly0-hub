@@ -140,6 +140,12 @@ function optionalField<Name extends string>(
   return value === undefined ? {} : ({ [name]: value } as Partial<Record<Name, string>>);
 }
 
+function detail(error: HarnessError): string {
+  const message =
+    typeof error.message === "string" ? error.message.replace(/\s+/gu, " ").trim() : "";
+  return message ? `: ${message.slice(0, 240)}` : "";
+}
+
 export function mapExternalThreadHarnessError(
   error: HarnessError,
   operation: "create" | "read" | "resume" | "fork" | "turn",
@@ -158,13 +164,17 @@ export function mapExternalThreadHarnessError(
     case "notInstalled":
     case "unavailable":
     case "authenticationRequired":
-      return { code: -32077, message: "External Harness is unavailable" };
+      return { code: -32077, message: `External Harness is unavailable${detail(error)}` };
     case "nativeFailure":
     case "protocolError":
     case "processExited":
     case "internalError":
     case "invalidState":
-      return { code: -32076, message: `External Thread ${operation} failed` };
+      // The adapter's own (already sanitized) reason, so the person can see why it failed.
+      return {
+        code: -32076,
+        message: `External Thread ${operation} failed${detail(error)}`,
+      };
   }
 }
 

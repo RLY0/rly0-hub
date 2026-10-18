@@ -210,6 +210,7 @@ import {
   writeJsonFile,
   type AgentConnectionStatus,
 } from "./rly0-maintenance/backend-reload-channel.js";
+import { officialVendorOf, Rly0OfficialKeyModels } from "./rly0-relay/official-keys.js";
 import type { Readable, Writable } from "node:stream";
 
 import type {
@@ -1257,19 +1258,26 @@ export class AppServerHost {
         const relay = usable(choice?.relayId);
         if (!relay || !choice) continue;
         const url = pinnedRelayUrl(proxyBaseUrl, relay.id);
+        // An official vendor key lists its models apart from the relay entry (see official-keys).
+        const models = await new Rly0OfficialKeyModels(
+          this.#options.environment ?? process.env,
+        ).modelsFor(relay);
+        const label = officialVendorOf(relay)
+          ? relay.name.replace(/ ?官方 API Key$/u, "")
+          : relay.name;
         if (id === "hermes") {
           next.set(id, (environment) =>
-            hermesRelayEnvironment(environment, url, choice.model, relay.models, relay.name),
+            hermesRelayEnvironment(environment, url, choice.model, models, label),
           );
         } else if (id === "opencode") {
           next.set(id, (environment) =>
-            opencodeRelayEnvironment(environment, url, relay.models, choice.model),
+            opencodeRelayEnvironment(environment, url, models, choice.model),
           );
         } else if (id === "pi") {
           const directory = path.join(path.dirname(this.#rly0AgentRelays.path()), "agent-relays");
           await fs.mkdir(directory, { recursive: true });
           const file = path.join(directory, `pi-${relay.id}.ts`);
-          await fs.writeFile(file, piRelayExtension(url, relay.models, relay.name), "utf8");
+          await fs.writeFile(file, piRelayExtension(url, models, label), "utf8");
           next.set(id, (environment) => piRelayEnvironment(environment, file, choice.model));
         }
       }

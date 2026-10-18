@@ -141,10 +141,16 @@
     key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/>',
     terminal: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M12 15h5"/>',
   };
-  /** Claude Code's official Anthropic key, stored by rly0-core like a relay. */
+  /** A vendor's official API key, stored by rly0-core like a relay (managed on 账号, not 中转站). */
+  const OFFICIAL_KEY_HOSTS = [
+    "api.anthropic.com",
+    "api.openai.com",
+    "generativelanguage.googleapis.com",
+    "api.x.ai",
+  ];
   const isOfficialKey = (relay) => {
     try {
-      return new URL(relay.baseUrl).hostname.toLowerCase() === "api.anthropic.com";
+      return OFFICIAL_KEY_HOSTS.includes(new URL(relay.baseUrl).hostname.toLowerCase());
     } catch {
       return false;
     }
@@ -434,9 +440,10 @@
 
   // 账号: one tab per agent family; Codex accounts, Claude Code accounts, other agents' logins.
   const ACCOUNT_TABS = [
-    ["codex", "Codex"],
-    ["claude", "Claude Code"],
-    ["others", "其他助手"],
+    ["codex", "OpenAI · Codex"],
+    ["claude", "Anthropic · Claude"],
+    ["gemini", "Google · Gemini"],
+    ["grok", "xAI · Grok"],
   ];
   let accountTab = "codex";
   pages.accounts = (root, alive, options) => {
@@ -462,8 +469,15 @@
       body,
     );
     if (accountTab === "claude") pageApi.agentAccounts.claude(body, alive);
-    else if (accountTab === "others") pageApi.agentAccounts.others(body, alive);
-    else codexAccountsPage(body, alive);
+    else if (accountTab === "gemini") pageApi.agentAccounts.gemini(body, alive);
+    else if (accountTab === "grok") pageApi.agentAccounts.grok(body, alive);
+    else {
+      codexAccountsPage(body, alive);
+      // The OpenAI platform key, for agents other than Codex (Pi, Hermes, OpenCode…).
+      const keyArea = h("div", { class: "vendor-key-area" });
+      body.append(keyArea);
+      pageApi.agentAccounts.openaiKey(keyArea, alive);
+    }
   };
 
   function codexAccountsPage(root, alive) {
@@ -1566,6 +1580,19 @@
         liveUnsaved: false,
       },
       "agents.claudeAccounts.usageAll": { results: [] },
+      "agents.officialKeys.list": {
+        keys: [
+          {
+            vendor: "xai",
+            id: "bbbbbbbbbbbb",
+            keyMask: "****Ab12",
+            models: ["grok-4", "grok-4-fast"],
+          },
+        ],
+      },
+      "agents.officialKeys.info": {
+        info: { kind: "apiKey", keyMask: "****Ab12", valid: true, modelCount: 2 },
+      },
       "agents.claudeCode.keyInfo": {
         info: {
           kind: "subscription",

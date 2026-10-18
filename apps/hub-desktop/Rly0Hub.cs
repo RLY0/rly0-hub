@@ -131,21 +131,21 @@ internal sealed class HubContext : ApplicationContext {
         control = new ControlWindow(ShowPanel, Quit);
         tray = new NotifyIcon { Icon = icon, Text = "RLY/0 Hub", Visible = true };
         var menu = HubMenu.Create();
-        menu.Items.Add(HubMenu.Header("RLY/0 Hub", "零号中转出品"));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("打开 RLY/0 Hub", null, delegate { ShowPanel(); });
-        menu.Items.Add("打开 Codex", null, delegate { SendInternal("codex.open", null, null); });
-        menu.Items.Add("充值", null, delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "recharge" } }, null); });
+        HubMenu.Add(menu, "\uE80F", "打开 RLY/0 Hub", delegate { ShowPanel(); });
+        HubMenu.Add(menu, "\uE756", "打开 Codex", delegate { SendInternal("codex.open", null, null); });
+        HubMenu.Add(menu, "\uE8C7", "充值零号中转", delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "recharge" } }, null); });
         menu.Items.Add(new ToolStripSeparator());
         autostartItem = new ToolStripMenuItem("开机自启") { CheckOnClick = false, Tag = "toggle" };
+        HubMenu.SetGlyph(autostartItem, "\uE7E8");
         autostartItem.Click += delegate {
             bool next = !autostartItem.Checked;
             SendInternal("autostart.set", new Dictionary<string, object> { { "enabled", next } }, ApplyAutostart);
         };
         menu.Items.Add(autostartItem);
-        autostartItem.Padding = new Padding(10, 7, 64, 7);
-        menu.Items.Add("Star 支持", null, delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "github" } }, null); });
-        menu.Items.Add("退出", null, delegate { Quit(); });
+        autostartItem.Padding = new Padding(48, 9, 64, 9);
+        HubMenu.Add(menu, "\uE734", "Star 支持", delegate { SendInternal("links.open", new Dictionary<string, object> { { "target", "github" } }, null); });
+        menu.Items.Add(new ToolStripSeparator());
+        HubMenu.Add(menu, "\uE711", "退出", delegate { Quit(); });
         menu.Opening += delegate { SendInternal("autostart.get", null, ApplyAutostart); };
         tray.ContextMenuStrip = menu;
         tray.MouseClick += delegate (object s, MouseEventArgs e) { if (e.Button == MouseButtons.Left) ShowPanel(); };
@@ -518,9 +518,27 @@ internal static class HubMenu {
         return menu;
     }
 
-    internal static ToolStripItem Header(string title, string sub) {
-        return new ToolStripLabel(title + "   " + sub) { Tag = "header", Enabled = false, Padding = new Padding(10, 6, 10, 6) };
+    private static readonly Dictionary<ToolStripItem, string> Glyphs = new Dictionary<ToolStripItem, string>();
+    private static readonly string IconFont = PickIconFont();
+
+    private static string PickIconFont() {
+        using (var fonts = new System.Drawing.Text.InstalledFontCollection())
+            foreach (var family in fonts.Families)
+                if (family.Name == "Segoe Fluent Icons") return family.Name;
+        return "Segoe MDL2 Assets";
     }
+
+    /// <summary>A menu entry with an icon tile (a Segoe Fluent/MDL2 glyph) left of its text.</summary>
+    internal static ToolStripMenuItem Add(ContextMenuStrip menu, string glyph, string text, EventHandler click) {
+        var item = new ToolStripMenuItem(text);
+        item.Click += click;
+        SetGlyph(item, glyph);
+        menu.Items.Add(item);
+        item.Padding = new Padding(48, 9, 26, 9);
+        return item;
+    }
+
+    internal static void SetGlyph(ToolStripItem item, string glyph) { Glyphs[item] = glyph; }
 
     private sealed class Painter : ToolStripRenderer {
         protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) {
@@ -540,6 +558,18 @@ internal static class HubMenu {
             using (var path = Rounded(r, 7)) using (var brush = new SolidBrush(Hover)) g.FillPath(brush, path);
         }
         protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) {
+            string glyph;
+            if (Glyphs.TryGetValue(e.Item, out glyph)) {
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                int size = Math.Min(e.Item.Height - 10, 28);
+                var tile = new Rectangle(10, (e.Item.Height - size) / 2, size, size);
+                using (var path = Rounded(tile, 7))
+                using (var brush = new SolidBrush(e.Item.Selected ? Color.FromArgb(70, 70, 62) : Color.FromArgb(48, 48, 42)))
+                    g.FillPath(brush, path);
+                using (var font = new Font(IconFont, 10.5f))
+                    TextRenderer.DrawText(g, glyph, font, tile, Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+            }
             bool header = "header".Equals(e.Item.Tag);
             var item = e.Item as ToolStripMenuItem;
             bool check = item != null && item.Checked;

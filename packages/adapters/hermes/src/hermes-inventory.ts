@@ -444,7 +444,8 @@ export function catalogModelsFromInventory(inventory: HermesInventory): {
     }
     models.push({
       ref,
-      label: `${model.provider} / ${model.label}`,
+      // RLY/0 relay models already carry the relay's name ("AIHub / gpt-5.5").
+      label: model.provider === "custom" ? model.label : `${model.provider} / ${model.label}`,
       description: `Provider: ${model.provider}`,
     });
   }

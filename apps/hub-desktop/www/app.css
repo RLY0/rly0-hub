@@ -3330,3 +3330,21 @@ select.input,
   opacity: 0.4;
   cursor: not-allowed;
 }
+.model-check.off {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.vendor-key-area {
+  margin-top: 26px;
+}
+.add-key .row.wide .input {
+  flex: 1;
+}
+.empty-key {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.key-block {
+  margin-top: 18px;
+}
