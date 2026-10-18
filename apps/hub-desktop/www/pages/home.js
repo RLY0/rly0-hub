@@ -87,23 +87,45 @@ window.registerHubHome = (api) => {
       burst,
     );
 
-    // Blinks at uneven moments (sometimes twice), like a living thing, not a metronome.
-    let blinkTimer = 0;
-    const blink = () => {
-      if (!stage.isConnected) return;
-      art.classList.remove("blink");
+    // Every few seconds the eyes put on a little show: blinks most often, and now and then a
+    // big exaggerated act (darting, popping wide, rolling, going cross-eyed, dozing off…).
+    const ACTS = [
+      ["blink", 260, 26],
+      ["blink2", 560, 12],
+      ["dart", 1500, 10],
+      ["pop", 1400, 10],
+      ["roll", 1300, 9],
+      ["jelly", 950, 9],
+      ["cross", 1500, 8],
+      ["sleepy", 2600, 7],
+      ["squint", 1100, 9],
+    ];
+    const ACT_CLASSES = ACTS.map(([name]) => `act-${name}`);
+    let actTimer = 0;
+    let busy = false;
+    const play = (name, duration) => {
+      art.classList.remove(...ACT_CLASSES, "happy");
       void art.getBoundingClientRect();
-      art.classList.add("blink");
-      const twice = Math.random() < 0.22;
-      if (twice)
-        setTimeout(() => {
-          art.classList.remove("blink");
-          void art.getBoundingClientRect();
-          art.classList.add("blink");
-        }, 260);
-      blinkTimer = setTimeout(blink, 2200 + Math.random() * 3800);
+      art.classList.add(`act-${name}`);
+      busy = true;
+      setTimeout(() => {
+        art.classList.remove(`act-${name}`);
+        busy = false;
+      }, duration);
     };
-    blinkTimer = setTimeout(blink, 1200);
+    let last = "";
+    const nextAct = () => {
+      if (!stage.isConnected) return;
+      if (!busy && !document.hidden) {
+        const pool = ACTS.filter(([name]) => name !== last || name === "blink");
+        let roll = Math.random() * pool.reduce((sum, act) => sum + act[2], 0);
+        const act = pool.find((item) => (roll -= item[2]) < 0) || pool[0];
+        last = act[0];
+        play(act[0], act[1]);
+      }
+      actTimer = setTimeout(nextAct, 1800 + Math.random() * 2600);
+    };
+    actTimer = setTimeout(nextAct, 900);
 
     // Eyes follow the pointer anywhere over the banner; they drift back to centre after a while.
     let idle = 0;
@@ -117,14 +139,23 @@ window.registerHubHome = (api) => {
       const dy = clientY - (box.top + box.height * 0.42);
       const distance = Math.max(1, Math.hypot(dx, dy));
       const reach = Math.min(1, distance / 260);
-      look((dx / distance) * 3.4 * reach, (dy / distance) * 2.2 * reach);
+      look((dx / distance) * 7 * reach, (dy / distance) * 4.5 * reach);
       clearTimeout(idle);
       idle = setTimeout(() => look(0, 0), 2600);
     };
 
     // A click: a happy squint and a little hop, with a pixel burst.
+    let clicks = [];
     stage.addEventListener("click", () => {
+      const now = Date.now();
+      clicks = clicks.filter((t) => now - t < 1200).concat(now);
+      if (clicks.length >= 3) {
+        clicks = [];
+        play("dizzy", 1900);
+        return;
+      }
       stage.classList.remove("jump");
+      art.classList.remove(...ACT_CLASSES);
       art.classList.add("happy");
       void stage.offsetWidth;
       stage.classList.add("jump");
@@ -146,7 +177,7 @@ window.registerHubHome = (api) => {
     });
     stage.addEventListener("pointerenter", () => art.classList.add("curious"));
     stage.addEventListener("pointerleave", () => art.classList.remove("curious"));
-    void blinkTimer;
+    void actTimer;
     return stage;
   }
 

@@ -1568,6 +1568,7 @@
           email: "me@example.com",
           plan: "plus",
           current: true,
+          saved: true,
         },
       },
       "agents.list": {
