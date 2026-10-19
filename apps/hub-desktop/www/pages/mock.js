@@ -91,6 +91,61 @@ window.hubManagementMock = (() => {
         };
       case "maintenance.startEndpointApp":
         return { ok: true };
+      case "maintenance.modelCheck":
+        return {
+          configModel: "gpt-6.1-sol",
+          profileModel: false,
+          rejection: {
+            model: "gpt-6.1-sol",
+            at: "2026-10-19T08:07:21.104Z",
+            message:
+              "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.",
+          },
+          choices: [
+            { slug: "gpt-6-sol", name: "GPT-6-Sol" },
+            { slug: "gpt-6-luna", name: "GPT-6-Luna" },
+            { slug: "gpt-5.6-sol", name: "GPT-5.6-Sol" },
+          ],
+        };
+      case "maintenance.setModel":
+        return { ok: true, backupPath: "C:/Users/demo/.codex/config.toml.bak-rly0-model-preview" };
+      case "maintenance.chatRepairScan":
+        return {
+          available: true,
+          reason: "ok",
+          broken: 2,
+          deleted: 1,
+          items: [
+            {
+              id: "2a6773ea-31cf-443c-bc30-18b009efef60",
+              issue: "missing",
+              title: "啥情况这是 而且更新也很慢",
+              harnessId: "claude-code",
+              updatedAt: "2026-10-18T15:09:48.280Z",
+            },
+            {
+              id: "5b7c1d2e-0000-4000-8000-000000000001",
+              issue: "outdated",
+              title: "检查项目测试",
+              harnessId: "claude-code",
+              updatedAt: "2026-10-17T13:33:22.000Z",
+            },
+            {
+              id: "5b7c1d2e-0000-4000-8000-000000000002",
+              issue: "deleted",
+              title: "测试任务",
+              harnessId: "claude-code",
+              updatedAt: "2026-10-15T16:40:08.000Z",
+            },
+          ],
+        };
+      case "maintenance.chatRepair":
+        return {
+          ok: true,
+          repaired: p && p.includeDeleted ? 3 : 2,
+          codexRestarted: true,
+          reopenFailed: false,
+        };
       case "maintenance.cacheInfo":
         return {
           totalBytes: 28311552,

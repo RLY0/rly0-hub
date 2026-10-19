@@ -16,6 +16,12 @@ import type {
 import { Rly0DashboardManager } from "../rly0-dashboard/index.js";
 import { checkCodexEndpoint, findEndpointApp, launchEndpointApp } from "./codex-endpoint.js";
 import {
+  checkCodexModel,
+  setCodexModel,
+  type CodexModelCheckResult,
+  type CodexModelSetResult,
+} from "./codex-model.js";
+import {
   RLY0_MAINTENANCE_CACHE_ENTRY_NAMES,
   resolveRly0CacheEntryDir,
   resolveRly0DiagnosticsDir,
@@ -154,6 +160,16 @@ export class Rly0MaintenanceManager {
     if (!app) return { ok: false };
     this.#launchApp(app);
     return { ok: true };
+  }
+
+  /** Was the newest Codex task refused because of its model, and what can it use instead. */
+  async modelCheck(): Promise<CodexModelCheckResult> {
+    return checkCodexModel((await this.#dashboard.health()).codexHome);
+  }
+
+  /** Default model for new Codex tasks; only from Codex's own list, config.toml backed up. */
+  async setModel(slug: string): Promise<CodexModelSetResult> {
+    return setCodexModel((await this.#dashboard.health()).codexHome, slug, this.#now);
   }
 
   async cacheInfo(): Promise<Rly0MaintenanceCacheInfoResult> {

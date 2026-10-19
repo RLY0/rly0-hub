@@ -13,6 +13,7 @@ import { promises as fs } from "node:fs";
 import { z } from "zod";
 
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "../rly0-maintenance/index.js";
+import { ChatRepair } from "../rly0-maintenance/chat-repair.js";
 import { resolveRly0DiagnosticsDir } from "../rly0-maintenance/paths.js";
 import { Rly0InstructionsManager, rly0InstructionsRpcError } from "../rly0-instructions/index.js";
 import { Rly0McpManager, rly0McpRpcError } from "../rly0-mcp/index.js";
@@ -57,6 +58,7 @@ export function createHubManagementRoutes(options: {
   const threads = new Rly0ThreadsManager({ environment });
   const instructions = new Rly0InstructionsManager({ environment });
   const content = z.string().max(64 * 1024);
+  const chatRepair = new ChatRepair({ environment, codex });
   const maintenance = new Rly0MaintenanceManager({
     environment,
     core,
@@ -155,6 +157,18 @@ export function createHubManagementRoutes(options: {
     "maintenance.cacheInfo": route(empty, () => maintenance.cacheInfo(), rly0MaintenanceRpcError),
     "maintenance.clearCache": route(empty, () => maintenance.clearCache(), rly0MaintenanceRpcError),
     "maintenance.forceQuitCodex": route(empty, () => codex.forceQuit(), rly0MaintenanceRpcError),
+    "maintenance.modelCheck": route(empty, () => maintenance.modelCheck(), rly0MaintenanceRpcError),
+    "maintenance.setModel": route(
+      z.object({ model: z.string().min(1).max(80) }).strict(),
+      (p) => maintenance.setModel(p.model),
+      rly0MaintenanceRpcError,
+    ),
+    "maintenance.chatRepairScan": route(empty, () => chatRepair.scan(), rly0MaintenanceRpcError),
+    "maintenance.chatRepair": route(
+      z.object({ includeDeleted: z.boolean().optional() }).strict(),
+      (p) => chatRepair.repair(p),
+      rly0MaintenanceRpcError,
+    ),
     "maintenance.openDiagnosticsFolder": route(
       empty,
       async () => {

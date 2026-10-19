@@ -4174,6 +4174,19 @@ select.input,
   font-weight: 500;
   color: var(--paper-100);
 }
+/* 修复聊天记录: titles are long, one per line. */
+.diag-list.chat-list {
+  grid-template-columns: minmax(0, 640px);
+}
+.chat-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-list b {
+  flex: none;
+}
 .diag-advice {
   margin: 12px 0 0;
   padding-left: 18px;

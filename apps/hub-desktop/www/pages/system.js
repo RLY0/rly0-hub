@@ -160,6 +160,7 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
       '<rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9.5" cy="9.5" r="1.6"/><path d="M5 18l5-5 3 3 2-2 4 4"/>',
     search: '<circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/>',
     restart: '<path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M5 4v4h4"/>',
+    chats: '<path d="M4 5h12v9H8l-4 3z"/><path d="M9 9.5l2 2 3.5-3.5"/><path d="M19 9v9l-3-2h-5"/>',
   };
   const icon = (name) => {
     const el = h("span", { class: "tool-icon", "aria-hidden": "true" });
@@ -211,12 +212,13 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
     async function diagnose() {
       put(diagDetail, h("p", { class: "sub" }, "正在检查…"));
       diagDetail.hidden = false;
-      const [d, codex, proxy, backup, relays] = await Promise.all([
+      const [d, codex, proxy, backup, relays, model] = await Promise.all([
         call("maintenance.diagnostics").catch(() => null),
         call("codex.status").catch(() => null),
         call("proxy.status").catch(() => null),
         call("backup.status").catch(() => null),
         call("relay.list").catch(() => null),
+        call("maintenance.modelCheck").catch(() => null),
       ]);
       if (!alive()) return;
       if (!d) {
@@ -257,6 +259,17 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
           "Codex 模型服务",
           endpoint.reachable,
           `${endpoint.reachable ? "连得上" : "连不上"} · ${endpointHost(endpoint.url)}`,
+        ]);
+      // A service that answers can still refuse every task because of the model name.
+      // Only meaningful once the service answers: fix the connection first, then the model.
+      const rejection = endpoint && !endpoint.reachable ? null : model && model.rejection;
+      if (model && (model.configModel || rejection))
+        rows.splice(endpoint ? 2 : 1, 0, [
+          "Codex 模型",
+          !rejection,
+          rejection
+            ? `被拒 · ${rejection.model || model.configModel || "未知"}`
+            : model.configModel || "默认",
         ]);
       // The endpoint gets its own, specific advice line below.
       const problems = d.advice.filter(
@@ -301,9 +314,53 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
             await diagnose();
           }),
         );
-      if (codex && codex.running && (problems.length || proxyDown))
+      let modelFix = null;
+      if (rejection) {
+        if (model.profileModel) {
+          modelFix = h(
+            "p",
+            { class: "sub" },
+            "这个模型是 Codex 配置里当前 profile 指定的，请在 config.toml 的对应 profile 里修改。",
+          );
+        } else if (model.choices.length) {
+          const preferred =
+            model.choices.find((c) => c.slug === model.configModel) ||
+            model.choices.find((c) => !c.slug.includes("/")) ||
+            model.choices[0];
+          const select = h(
+            "select",
+            { class: "input", "aria-label": "换用的模型" },
+            model.choices.map((c) =>
+              h("option", { value: c.slug, selected: c.slug === preferred.slug }, c.name),
+            ),
+          );
+          modelFix = h(
+            "div",
+            { class: "row" },
+            select,
+            confirmButton("换成这个模型", async () => {
+              const result = await call("maintenance.setModel", { model: select.value }).catch(
+                () => null,
+              );
+              if (!alive()) return;
+              if (!result || !result.ok) {
+                toast("没能修改 Codex 配置");
+                return;
+              }
+              toast("已修改，原配置已备份。重启 Codex 后生效");
+              await diagnose();
+            }),
+          );
+        }
+        if (endpoint && endpoint.local)
+          fixes.push(
+            button("Codex Web GPT 下载页", () => call("links.open", { target: "codexWebGpt" })),
+          );
+      }
+      if (codex && codex.running && (problems.length || proxyDown || rejection))
         fixes.push(confirmButton("重启 Codex", () => restart()));
-      const count = problems.length + (proxyDown ? 1 : 0) + (endpointDown ? 1 : 0);
+      const count =
+        problems.length + (proxyDown ? 1 : 0) + (endpointDown ? 1 : 0) + (rejection ? 1 : 0);
       put(
         diagDetail,
         h(
@@ -332,8 +389,16 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
               proxyDown
                 ? h("li", null, "已启用中转站，但本地代理没有运行，走中转的模型会失败")
                 : null,
+              rejection
+                ? h(
+                    "li",
+                    null,
+                    `Codex 能连上模型服务，但任务被拒绝了：${rejection.message}。换一个它支持的模型；如果用的是 Codex Web GPT，旧版本不认识新的模型名，也可以先升级它。已经开着的任务请在 Codex 的模型选择器里换掉 ${rejection.model || "这个模型"}。`,
+                  )
+                : null,
             )
           : null,
+        modelFix,
         fixes.length ? h("div", { class: "row" }, fixes) : null,
       );
     }
@@ -370,6 +435,121 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         ? `当前可释放 ${bytes(info.totalBytes)}`
         : "当前没有可清理的数据";
     }
+
+    /* 修复聊天记录（旧版 CodexHost 里的 Claude Code 等助手会话） */
+    const chatMeta = h("span", { class: "tool-meta" }, "");
+    const chatDetail = h("div", { class: "tool-detail", hidden: true });
+    const AGENT_NAMES = {
+      "claude-code": "Claude Code",
+      codex: "Codex",
+      gemini: "Gemini",
+      grok: "Grok",
+      pi: "Pi",
+      hermes: "Hermes",
+      opencode: "OpenCode",
+    };
+    const chatItem = (item) =>
+      h(
+        "li",
+        { class: "bad" },
+        h("span", null, item.title || "未命名会话"),
+        h(
+          "b",
+          null,
+          `${AGENT_NAMES[item.harnessId] || item.harnessId || "助手"} · ${
+            item.issue === "outdated"
+              ? "有更新没同步"
+              : item.issue === "deleted"
+                ? "已删除"
+                : item.issue === "format"
+                  ? "不能继续聊"
+                  : "打不开"
+          }`,
+        ),
+      );
+    async function repairChats(includeDeleted) {
+      const status = await call("codex.status").catch(() => null);
+      if (status && status.running) toast("正在关闭 Codex，修复后会自动重新打开…");
+      const result = await call("maintenance.chatRepair", { includeDeleted }).catch(() => null);
+      if (!alive()) return;
+      if (!result || !result.ok) {
+        toast(
+          result && result.reason === "CODEX_STILL_RUNNING"
+            ? "Codex 没能关闭，请先用“强制关闭 Codex”再修复"
+            : "修复没有完成，请重开 Hub 后再试",
+        );
+      } else if (!result.repaired && !result.fixedOnCodexStart) {
+        toast("没有需要修复的聊天记录");
+      } else {
+        // Re-encoding model choices happens inside Codex's backend when it opens.
+        waitingForCodex = result.fixedOnCodexStart > 0 && !result.codexRestarted;
+        toast(
+          [
+            result.repaired ? `已修复 ${result.repaired} 条聊天记录` : "",
+            waitingForCodex ? `${result.fixedOnCodexStart} 条会在打开 Codex 时自动修好` : "",
+            result.reopenFailed
+              ? "请手动打开 Codex"
+              : result.codexRestarted
+                ? "Codex 正在重新打开"
+                : "",
+          ]
+            .filter(Boolean)
+            .join("，"),
+        );
+      }
+      await scanChats(true);
+    }
+    let waitingForCodex = false;
+    async function scanChats(show) {
+      const scan = await call("maintenance.chatRepairScan").catch(() => null);
+      if (!alive()) return;
+      if (!scan || !scan.available) {
+        chatMeta.textContent = scan ? "这台电脑没有旧版 CodexHost 的聊天记录" : "";
+        chatRepair.disabled = !scan;
+        if (show) put(chatDetail, h("p", { class: "diag-sum ok" }, "没有需要修复的聊天记录"));
+        return;
+      }
+      const formatOnly =
+        scan.broken > 0 && scan.items.every((i) => i.issue === "format" || i.issue === "deleted");
+      if (formatOnly && waitingForCodex) {
+        chatMeta.textContent = "打开 Codex 后自动完成修复";
+        if (!show) return;
+        chatDetail.hidden = false;
+        put(
+          chatDetail,
+          h(
+            "p",
+            { class: "diag-sum ok" },
+            `已找回。还有 ${scan.broken} 条的模型设置会在下次打开 Codex 时自动转换，之后就能继续聊。`,
+          ),
+        );
+        return;
+      }
+      chatMeta.textContent = scan.broken
+        ? `发现 ${scan.broken} 条打不开或不能继续聊的聊天记录`
+        : "聊天记录都能正常打开";
+      if (!show) return;
+      chatDetail.hidden = false;
+      const listed = scan.items.filter((item) => item.issue !== "deleted");
+      put(
+        chatDetail,
+        h(
+          "p",
+          { class: `diag-sum ${scan.broken ? "warn" : "ok"}` },
+          scan.broken ? `${scan.broken} 条聊天记录需要修复` : "没有需要修复的聊天记录",
+        ),
+        listed.length ? h("ul", { class: "diag-list chat-list" }, listed.map(chatItem)) : null,
+        h(
+          "div",
+          { class: "row" },
+          scan.broken ? confirmButton(`修复 ${scan.broken} 条`, () => repairChats(false)) : null,
+          scan.deleted
+            ? confirmButton(`同时找回在 Hub 里删掉的 ${scan.deleted} 条`, () => repairChats(true))
+            : null,
+        ),
+      );
+    }
+    const chatRepair = button("检查并修复", () => scanChats(true));
 
     /* 过滤开关（零号核心的本地代理执行，只作用于发往中转站的请求） */
     const filterSwitch = (key, label) =>
@@ -445,9 +625,21 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         tool({
           name: "diagnose",
           title: "系统诊断",
-          text: "一次检查 Codex 能否连上模型服务、配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。",
+          text: "一次检查 Codex 能否连上模型服务、模型是否被拒、配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。",
           action: runDiag,
           detail: diagDetail,
+        }),
+        tool({
+          name: "chats",
+          title: "修复聊天记录",
+          text: h(
+            "span",
+            null,
+            "找回旧版 CodexHost 里和 Claude Code 等助手的聊天：点开报 no rollout found、一片空白，或模型显示“自定义”发不出消息的那种。会先关闭 Codex，修复后自动重新打开；不删除任何记录。",
+            chatMeta,
+          ),
+          action: chatRepair,
+          detail: chatDetail,
         }),
         tool({
           name: "log",
@@ -496,6 +688,7 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
     );
     void loadCache();
     void loadFilters();
+    void scanChats(false);
   };
 
   pages.updates = (root, alive) => {

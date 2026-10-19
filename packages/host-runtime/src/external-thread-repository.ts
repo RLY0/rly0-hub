@@ -32,6 +32,7 @@ import {
   projectExternalSnapshot,
 } from "./external-subagent-threads.js";
 import { importLegacyCodexHostData } from "./legacy-codexhost-import.js";
+import { canonicalTransportModelId } from "./legacy-transport-canonical.js";
 
 export interface ExternalThreadStore {
   initialize(): Promise<void>;
@@ -101,7 +102,7 @@ export function defaultMappingStoreDirectory(environment: NodeJS.ProcessEnv): st
 export function createProductionExternalThreadStore(
   environment: NodeJS.ProcessEnv,
 ): ExternalThreadStore {
-  importLegacyCodexHostData(environment);
+  importLegacyCodexHostData(environment, { canonicalize: canonicalTransportModelId });
   return new MappingStore({ directory: defaultMappingStoreDirectory(environment) });
 }
 

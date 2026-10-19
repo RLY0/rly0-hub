@@ -90,12 +90,15 @@ export const RLY0_HUB_LINKS = {
   nodejs: "https://nodejs.org",
   releases: RLY0_GITHUB_RELEASES_LATEST_URL,
   keys: "https://rly0.com/keys",
+  codexWebGpt: "https://github.com/miuuyy/codex-chatgpt-web/releases",
 } as const;
 
 const empty = z.object({}).strict();
 const addLoginIdParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/u) }).strict();
 const linkParams = z
-  .object({ target: z.enum(["site", "recharge", "github", "nodejs", "releases", "keys"]) })
+  .object({
+    target: z.enum(["site", "recharge", "github", "nodejs", "releases", "keys", "codexWebGpt"]),
+  })
   .strict();
 
 type Handler = (params: unknown) => Promise<unknown>;
