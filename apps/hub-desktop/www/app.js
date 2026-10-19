@@ -1322,7 +1322,7 @@
           "div",
           { class: "who" },
           h("b", null, "界面大小"),
-          h("span", null, `当前 ${Math.round(zoom * 100)}%，也可以按住 Ctrl 滚动鼠标滚轮调整`),
+          h("span", null, `当前 ${Math.round(zoom * 100)}%，只对这次有效；重开 Hub 会回到默认的“大”（110%）`),
         ),
         h(
           "div",
@@ -1855,7 +1855,7 @@
       },
       "proxy.status": { available: true, running: true, port: 25917 },
       "codex.status": { running: true, canOpen: true },
-      "window.zoomGet": { zoom: 1.25, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
+      "window.zoomGet": { zoom: 1.1, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
       "window.zoomSet": { zoom: 1.1, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
       "updates.install": {
         phase: "downloading",

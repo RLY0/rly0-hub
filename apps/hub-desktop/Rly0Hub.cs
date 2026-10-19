@@ -657,7 +657,6 @@ internal sealed class PanelWindow : Form {
         Icon = icon;
         float scale;
         using (var g = Graphics.FromHwnd(IntPtr.Zero)) scale = Math.Max(1f, g.DpiX / 96f);
-        boundsFile = Path.Combine(Path.GetDirectoryName(webviewData), "hub-window.json");
         // Open on the screen under the pointer, unless that one is too narrow (a portrait side
         // monitor): then the primary screen, so the window never starts squeezed.
         var screen = Screen.FromPoint(Cursor.Position);
@@ -665,16 +664,17 @@ internal sealed class PanelWindow : Form {
         var work = screen.WorkingArea;
         MinimumSize = new Size(Math.Min((int)(760 * scale), work.Width * 9 / 10), Math.Min((int)(560 * scale), work.Height * 9 / 10));
         StartPosition = FormStartPosition.Manual;
-        // Most of the screen by default (never smaller than the design size), centred.
-        var size = new Size(
-            Math.Min(Math.Max((int)(1240 * scale), work.Width * 4 / 5), work.Width * 92 / 100),
-            Math.Min(Math.Max((int)(820 * scale), work.Height * 86 / 100), work.Height * 92 / 100));
-        // Large screens get a larger interface, so text is not tiny in a big window.
-        float logicalWidth = work.Width / scale;
-        zoom = logicalWidth >= 2400 ? 1.25 : logicalWidth >= 1900 ? 1.1 : 1.0;
+        // Every start: the default size at the design proportions (1240 x 820), as large as fits in
+        // 80% x 86% of the screen, centred, at the default interface size. Nothing is restored
+        // from the last run, so a window dragged half off-screen or squeezed never comes back.
+        const double ratio = 1240.0 / 820.0;
+        int width = (int)Math.Min(work.Width * 0.80, work.Height * 0.86 * ratio);
+        width = Math.Max(width, Math.Min((int)(1240 * scale), work.Width * 92 / 100));
+        int height = (int)(width / ratio);
+        if (height > work.Height * 92 / 100) { height = work.Height * 92 / 100; width = (int)(height * ratio); }
+        var size = new Size(width, height);
+        zoom = DefaultZoom;
         Bounds = new Rectangle(work.Left + (work.Width - size.Width) / 2, work.Top + (work.Height - size.Height) / 2, size.Width, size.Height);
-        LoadBounds();
-        FormClosing += delegate { SaveBounds(); };
         BackColor = Color.FromArgb(13, 13, 11);
         browser.DefaultBackgroundColor = Color.FromArgb(13, 13, 11);
         browser.Dock = DockStyle.Fill;
@@ -683,41 +683,13 @@ internal sealed class PanelWindow : Form {
         FormClosed += delegate { browser.Dispose(); };
     }
 
-    private readonly string boundsFile;
-    private bool startMaximized;
-    private double zoom = 1.0;
+    /// <summary>The interface size every start opens at: 110% ("大").</summary>
+    internal const double DefaultZoom = 1.1;
+    private double zoom = DefaultZoom;
     internal static readonly double[] ZoomSteps = { 0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6 };
 
     private static double ClampZoom(double value) {
         return Math.Max(0.8, Math.Min(1.6, Math.Round(value, 2)));
-    }
-
-    // Last size and place, when it still fits well on a connected screen.
-    private void LoadBounds() {
-        try {
-            if (!File.Exists(boundsFile)) return;
-            var saved = Program.Json.Deserialize<Dictionary<string, object>>(File.ReadAllText(boundsFile));
-            if (!saved.ContainsKey("v") || Convert.ToInt32(saved["v"]) != 2) return;
-            if (saved.ContainsKey("zoom")) zoom = ClampZoom(Convert.ToDouble(saved["zoom"]));
-            var rect = new Rectangle(Convert.ToInt32(saved["x"]), Convert.ToInt32(saved["y"]), Convert.ToInt32(saved["w"]), Convert.ToInt32(saved["h"]));
-            if (rect.Width < MinimumSize.Width || rect.Height < MinimumSize.Height) return;
-            foreach (var s in Screen.AllScreens) {
-                var overlap = Rectangle.Intersect(s.WorkingArea, rect);
-                if (overlap.Width * 10 >= rect.Width * 7 && overlap.Height * 10 >= rect.Height * 7) {
-                    Bounds = rect;
-                    startMaximized = saved.ContainsKey("max") && Convert.ToBoolean(saved["max"]);
-                    return;
-                }
-            }
-        } catch { }
-    }
-
-    private void SaveBounds() {
-        try {
-            if (WindowState == FormWindowState.Minimized) return;
-            var rect = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
-            File.WriteAllText(boundsFile, Program.Json.Serialize(new { v = 2, x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height, max = WindowState == FormWindowState.Maximized, zoom = zoom }));
-        } catch { }
     }
 
     private bool HandleWindowMessage(string json) {
@@ -730,9 +702,9 @@ internal sealed class PanelWindow : Form {
             var parameters = message.ContainsKey("params") ? message["params"] as Dictionary<string, object> : null;
             double next;
             try { next = parameters != null && parameters.ContainsKey("zoom") ? Convert.ToDouble(parameters["zoom"]) : zoom; } catch { next = zoom; }
+            // For this run only; the next start opens at the default size again.
             zoom = ClampZoom(next);
             browser.ZoomFactor = zoom;
-            SaveBounds();
         }
         Post(Program.Json.Serialize(new { id = id, result = new { zoom = zoom, steps = ZoomSteps } }));
         return true;
@@ -740,7 +712,6 @@ internal sealed class PanelWindow : Form {
 
     protected override void OnShown(EventArgs e) {
         base.OnShown(e);
-        if (startMaximized) WindowState = FormWindowState.Maximized;
     }
 
     protected override void OnHandleCreated(EventArgs e) {
@@ -769,10 +740,11 @@ internal sealed class PanelWindow : Form {
             core.Settings.IsPasswordAutosaveEnabled = false;
             core.Settings.IsGeneralAutofillEnabled = false;
             core.Settings.AreDefaultContextMenusEnabled = false;
-            // Ctrl + wheel and Ctrl +/-/0 zoom; the choice is remembered with the window.
-            core.Settings.IsZoomControlEnabled = true;
+            // A fixed interface scale: no Ctrl + wheel / Ctrl +/- / pinch zoom drifting it.
+            // "界面大小" in Settings is the only way to change it.
+            core.Settings.IsZoomControlEnabled = false;
+            try { core.Settings.IsPinchZoomEnabled = false; } catch { }
             browser.ZoomFactor = zoom;
-            browser.ZoomFactorChanged += delegate { zoom = ClampZoom(browser.ZoomFactor); };
             core.SetVirtualHostNameToFolderMapping(Program.PageHost, www, CoreWebView2HostResourceAccessKind.DenyCors);
             core.NewWindowRequested += delegate (object s, CoreWebView2NewWindowRequestedEventArgs e) { e.Handled = true; };
             core.PermissionRequested += delegate (object s, CoreWebView2PermissionRequestedEventArgs e) { e.State = CoreWebView2PermissionState.Deny; };
