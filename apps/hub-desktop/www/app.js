@@ -1322,7 +1322,11 @@
           "div",
           { class: "who" },
           h("b", null, "界面大小"),
-          h("span", null, `当前 ${Math.round(zoom * 100)}%，只对这次有效；重开 Hub 会回到默认的“大”（110%）`),
+          h(
+            "span",
+            null,
+            `当前 ${Math.round(zoom * 100)}%，只对这次有效；重开 Hub 会回到默认的“大”（110%）`,
+          ),
         ),
         h(
           "div",
