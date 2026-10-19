@@ -24,27 +24,12 @@ window.registerHubResources = ({ pages, h, call, toast, failed }) => {
   const field = (label, input) => h("label", { class: "field" }, h("span", null, label), input);
   const input = (placeholder) => h("input", { class: "input", placeholder });
   function confirmButton(text, action) {
-    let armed = false;
-    let timer;
+    let confirmTap = () => true;
     const el = button(text, async () => {
-      if (!armed) {
-        armed = true;
-        el.textContent = "确认" + text;
-        clearTimeout(timer);
-        timer = setTimeout(() => {
-          armed = false;
-          el.textContent = text;
-        }, 4000);
-        return;
-      }
-      armed = false;
-      clearTimeout(timer);
-      try {
-        await action();
-      } finally {
-        el.textContent = text;
-      }
+      if (!confirmTap()) return;
+      await action();
     });
+    confirmTap = window.HubUI.armable(el, { armedText: `确认${text}` });
     return el;
   }
 

@@ -242,21 +242,22 @@
   /* ---------- Open Codex: a floating button at the top and a rail entry ---------- */
   const fabText = document.getElementById("codexFabText");
   const fabDot = document.getElementById("codexFabDot");
+  const fabEl = document.getElementById("codexFab");
   let codexRunning = false;
   // Not running: open Codex. Running (green dot): restart it, after a confirmation tap.
   let restartArmed = false;
+  const confirmRestart = window.HubUI.armable(fabEl, {
+    armedText: "再点一次确认重启",
+    textEl: fabText,
+    onExpire: () => {
+      restartArmed = false;
+      refreshCodexState();
+    },
+  });
   function openCodex() {
     if (codexRunning) {
-      if (!restartArmed) {
-        restartArmed = true;
-        fabText.textContent = "再点一次确认重启";
-        setTimeout(() => {
-          restartArmed = false;
-          refreshCodexState();
-        }, 3000);
-        return;
-      }
-      restartArmed = false;
+      restartArmed = !confirmRestart();
+      if (restartArmed) return;
       fabText.textContent = "正在重启…";
       call("codex.restart").then((r) => {
         toast(r.ok ? "Codex 正在重启" : "没能重启 Codex，请手动关闭后再点这里打开");
@@ -278,7 +279,6 @@
     fabEl.classList.toggle("running", codexRunning);
     fabEl.title = codexRunning ? "Codex 正在运行，点一下重启" : "打开 Codex";
   }
-  const fabEl = document.getElementById("codexFab");
   document.getElementById("codexFab").addEventListener("click", openCodex);
   setTimeout(refreshCodexState, 600);
   setInterval(() => document.hidden || refreshCodexState(), 5000);
@@ -1088,22 +1088,14 @@
     }
 
     function card(account) {
-      let confirmRemove = false;
+      let confirmTap = () => true;
       const remove = h(
         "button",
         {
           class: "btn quiet sm",
           type: "button",
           onclick: () => {
-            if (!confirmRemove) {
-              confirmRemove = true;
-              remove.textContent = "确认删除";
-              setTimeout(() => {
-                confirmRemove = false;
-                remove.textContent = "删除";
-              }, 3000);
-              return;
-            }
+            if (!confirmTap()) return;
             call("accounts.remove", { id: account.id }).then(() => {
               toast("已删除");
               load();
@@ -1112,6 +1104,7 @@
         },
         "删除",
       );
+      confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
       return h(
         "section",
         { class: `m span-3 ${account.current ? "tone" : ""}` },
@@ -1210,24 +1203,14 @@
         );
         return;
       }
-      let armed = false;
+      let confirmTap = () => true;
       const restore = h(
         "button",
         {
           class: "btn",
           type: "button",
           onclick: async () => {
-            if (!armed) {
-              armed = true;
-              restore.textContent = "确认恢复";
-              restore.classList.add("red");
-              setTimeout(() => {
-                armed = false;
-                restore.textContent = "恢复到安装前";
-                restore.classList.remove("red");
-              }, 4000);
-              return;
-            }
+            if (!confirmTap()) return;
             const result = await call("backup.restore").catch(() => null);
             toast(result && result.ok ? "已恢复。重启 Codex 后生效" : "恢复没有成功");
             load();
@@ -1235,6 +1218,7 @@
         },
         "恢复到安装前",
       );
+      confirmTap = window.HubUI.armable(restore, { armedText: "确认恢复" });
       module.replaceChildren(
         h("span", { class: "label" }, "Backup"),
         h(

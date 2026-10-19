@@ -141,22 +141,14 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed }) => {
     }
 
     function clearButton() {
-      let armed = false;
+      let confirmTap = () => true;
       const button = h(
         "button",
         {
           class: "btn quiet",
           type: "button",
           onclick: () => {
-            if (!armed) {
-              armed = true;
-              button.textContent = "确认清空";
-              setTimeout(() => {
-                armed = false;
-                button.textContent = "清空";
-              }, 3000);
-              return;
-            }
+            if (!confirmTap()) return;
             call("instructions.clear").then(() => {
               toast("已清空 Hub 管理的那一段");
               load();
@@ -165,6 +157,7 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed }) => {
         },
         "清空",
       );
+      confirmTap = window.HubUI.armable(button, { armedText: "确认清空" });
       return button;
     }
 

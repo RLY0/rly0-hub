@@ -313,5 +313,39 @@ window.HubUI = (() => {
     return { panel, body, foot, close };
   }
 
-  return { menuButton, enhanceSelect, closeLayer, dialog };
+  /**
+   * Two-step confirm for destructive buttons. The first tap arms the button: it turns brand red
+   * with its confirm text and a thin bar running out until it disarms on its own (`ms`); a second
+   * tap in that time goes ahead. Call the returned function at the top of the click handler:
+   *   if (!confirmTap()) return;
+   * `textEl` is the part whose text changes (the button itself by default).
+   */
+  function armable(el, { armedText, ms = 4000, textEl, onExpire } = {}) {
+    const target = textEl || el;
+    let timer = null;
+    let original = "";
+    const reset = () => {
+      clearTimeout(timer);
+      timer = null;
+      target.textContent = original;
+      el.classList.remove("armed");
+    };
+    return () => {
+      if (timer !== null) {
+        reset();
+        return true;
+      }
+      original = target.textContent;
+      target.textContent = armedText;
+      el.style.setProperty("--arm-ms", `${ms}ms`);
+      el.classList.add("armed");
+      timer = setTimeout(() => {
+        reset();
+        if (onExpire) onExpire();
+      }, ms);
+      return false;
+    };
+  }
+
+  return { menuButton, enhanceSelect, closeLayer, dialog, armable };
 })();

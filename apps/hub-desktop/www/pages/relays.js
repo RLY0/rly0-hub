@@ -576,22 +576,14 @@ window.registerHubRelays = ({
     function card(relay) {
       const element = h("section", { class: `m span-3 relay-card ${isRly0(relay) ? "tone" : ""}` });
       const money_ = h("div", { class: "quota-line" }, h("span", { class: "sub" }, "余额读取中…"));
-      let confirmRemove = false;
+      let confirmTap = () => true;
       const remove = h(
         "button",
         {
           class: "btn quiet sm",
           type: "button",
           onclick: () => {
-            if (!confirmRemove) {
-              confirmRemove = true;
-              remove.textContent = "确认删除";
-              setTimeout(() => {
-                confirmRemove = false;
-                remove.textContent = "删除";
-              }, 3000);
-              return;
-            }
+            if (!confirmTap()) return;
             call("relay.remove", { id: relay.id }).then(() => {
               toast("已删除");
               load();
@@ -600,6 +592,7 @@ window.registerHubRelays = ({
         },
         "删除",
       );
+      confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
       const toggle = h("button", {
         class: "switch",
         type: "button",

@@ -238,22 +238,14 @@ window.registerHubAgentAccounts = ({
     }
 
     function accountRow(account) {
-      let confirmRemove = false;
+      let confirmTap = () => true;
       const remove = h(
         "button",
         {
           class: "btn quiet sm",
           type: "button",
           onclick: () => {
-            if (!confirmRemove) {
-              confirmRemove = true;
-              remove.textContent = "确认删除";
-              setTimeout(() => {
-                confirmRemove = false;
-                remove.textContent = "删除";
-              }, 3000);
-              return;
-            }
+            if (!confirmTap()) return;
             call("agents.claudeAccounts.remove", { id: account.id }).then(() => {
               toast("已删除保存的账号（当前登录不受影响）");
               load();
@@ -262,6 +254,7 @@ window.registerHubAgentAccounts = ({
         },
         "删除",
       );
+      confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
       return h(
         "div",
         { class: `claude-account ${account.current ? "current" : ""}` },
@@ -410,22 +403,14 @@ window.registerHubAgentAccounts = ({
           : info.valid === false
             ? h("span", { class: "tag warn" }, "已失效")
             : h("span", { class: "tag" }, "未能验证");
-      let confirmRemove = false;
+      let confirmTap = () => true;
       const remove = h(
         "button",
         {
           class: "btn quiet sm",
           type: "button",
           onclick: () => {
-            if (!confirmRemove) {
-              confirmRemove = true;
-              remove.textContent = "确认删除";
-              setTimeout(() => {
-                confirmRemove = false;
-                remove.textContent = "删除";
-              }, 3000);
-              return;
-            }
+            if (!confirmTap()) return;
             call("agents.officialKeys.remove", { vendor }).then(() => {
               toast("已删除这个 Key");
               load();
@@ -434,6 +419,7 @@ window.registerHubAgentAccounts = ({
         },
         "删除",
       );
+      confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
       put(
         card,
         h(
