@@ -4145,7 +4145,8 @@ select.input,
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 280px));
+  /* One column in a narrow card instead of overflowing it. */
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 280px));
   gap: 8px 40px;
 }
 .diag-list li {
@@ -4169,8 +4170,15 @@ select.input,
 .diag-list li.bad::before {
   background: var(--warn);
 }
+.diag-list span {
+  flex: none;
+}
+/* Long values (an address, a model name) wrap on the right instead of leaving the card. */
 .diag-list b {
   margin-left: auto;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
   font-weight: 500;
   color: var(--paper-100);
 }
@@ -4179,6 +4187,7 @@ select.input,
   grid-template-columns: minmax(0, 640px);
 }
 .chat-list span {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
