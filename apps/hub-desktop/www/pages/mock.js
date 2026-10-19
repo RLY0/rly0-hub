@@ -162,6 +162,13 @@ window.hubManagementMock = (() => {
         return { clearedBytes: 28311552, clearedEntries: ["updates"] };
       case "maintenance.exportDiagnostics":
         return { filePath: "C:/Users/demo/.rly0-hub/diagnostics/rly0-diag-preview.json" };
+      case "window.capture":
+        return { folder: "feedback-20261019-120000" };
+      case "maintenance.exportFeedback":
+        return {
+          folderPath: "C:/Users/demo/.rly0-hub/diagnostics/" + p.folder,
+          files: ["screen.png", "diagnostics.json", "errors.json"],
+        };
       case "maintenance.openDiagnosticsFolder":
         return { ok: true };
       case "maintenance.filtersGet":

@@ -10,8 +10,11 @@ import type {
   Rly0MaintenanceClearCacheResult,
   Rly0MaintenanceDiagnosticsResult,
   Rly0MaintenanceExportDiagnosticsResult,
+  Rly0MaintenanceExportFeedbackParams,
+  Rly0MaintenanceExportFeedbackResult,
   Rly0MaintenanceProcessActionResult,
 } from "@codexhost/shared-contracts";
+import { rly0MaintenanceExportFeedbackParamsSchema } from "@codexhost/shared-contracts";
 
 import { Rly0DashboardManager } from "../rly0-dashboard/index.js";
 import { checkCodexEndpoint, findEndpointApp, launchEndpointApp } from "./codex-endpoint.js";
@@ -82,6 +85,9 @@ async function statDir(directory: string): Promise<DirStats> {
   }
   return { exists, sizeBytes, fileCount };
 }
+
+/** What a feedback folder holds; `screen.png` comes from the Hub window. */
+const FEEDBACK_FILES = ["screen.png", "diagnostics.json", "errors.json"];
 
 function timestampForFilename(date: Date): string {
   return date
@@ -201,11 +207,8 @@ export class Rly0MaintenanceManager {
     return { clearedBytes, clearedEntries };
   }
 
-  /**
-   * Writes a sanitized JSON diagnostics bundle to `~/.rly0-hub/diagnostics/rly0-diag-<ts>.json`.
-   * Never sent anywhere; the file only ever leaves the machine if the user copies it themselves.
-   */
-  async exportDiagnostics(): Promise<Rly0MaintenanceExportDiagnosticsResult> {
+  /** Everything the diagnostics export holds, already sanitized. */
+  async #diagnosticsPayload(): Promise<unknown> {
     const [diagnostics, cache] = await Promise.all([this.diagnostics(), this.cacheInfo()]);
     const payload = {
       exportedAt: this.#now().toISOString(),
@@ -215,7 +218,15 @@ export class Rly0MaintenanceManager {
       diagnostics,
       cache,
     };
-    const sanitized = sanitizeDiagnosticsValue(payload, os.homedir());
+    return sanitizeDiagnosticsValue(payload, os.homedir());
+  }
+
+  /**
+   * Writes a sanitized JSON diagnostics bundle to `~/.rly0-hub/diagnostics/rly0-diag-<ts>.json`.
+   * Never sent anywhere; the file only ever leaves the machine if the user copies it themselves.
+   */
+  async exportDiagnostics(): Promise<Rly0MaintenanceExportDiagnosticsResult> {
+    const sanitized = await this.#diagnosticsPayload();
     const directory = resolveRly0DiagnosticsDir(this.#environment);
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     const filePath = path.join(directory, `rly0-diag-${timestampForFilename(this.#now())}.json`);
@@ -223,6 +234,29 @@ export class Rly0MaintenanceManager {
     await fs.writeFile(filePath, content, { encoding: "utf8", mode: 0o600 });
     const stat = await fs.stat(filePath);
     return { filePath, sizeBytes: stat.size };
+  }
+
+  /**
+   * "反馈问题": the diagnostics bundle plus the page's recent errors (sanitized like the export),
+   * written next to the screenshot the Hub window saved in `~/.rly0-hub/diagnostics/<folder>`.
+   * The folder must be named `feedback-yyyyMMdd-HHmmss`; it may not exist yet when the screenshot
+   * failed. Local only, never uploaded.
+   */
+  async exportFeedback(
+    params: Rly0MaintenanceExportFeedbackParams,
+  ): Promise<Rly0MaintenanceExportFeedbackResult> {
+    const { folder, errors } = rly0MaintenanceExportFeedbackParamsSchema.parse(params);
+    const directory = path.join(resolveRly0DiagnosticsDir(this.#environment), folder);
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const write = (name: string, value: unknown) =>
+      fs.writeFile(path.join(directory, name), `${JSON.stringify(value, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+    await write("diagnostics.json", await this.#diagnosticsPayload());
+    await write("errors.json", sanitizeDiagnosticsValue(errors, os.homedir()));
+    const files = (await fs.readdir(directory)).filter((name) => FEEDBACK_FILES.includes(name));
+    return { folderPath: directory, files };
   }
 
   async forceQuitCodex(): Promise<Rly0MaintenanceProcessActionResult> {

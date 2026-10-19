@@ -394,6 +394,11 @@ for (const width of WIDTHS) {
         JSON.stringify(result, null, 2),
       );
       expect(errors, JSON.stringify(errors, null, 2)).toEqual([]);
+      if (target.id === "maintenance") {
+        // 反馈问题 must be reachable and, in mock mode, end with a saved path and its folder button.
+        expect(clicked).toContain("反馈问题#1");
+        expect(clicked).toContain("打开文件夹#1");
+      }
     });
   }
 }

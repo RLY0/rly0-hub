@@ -5,6 +5,20 @@
 (() => {
   const webview = window.chrome && window.chrome.webview;
 
+  /* ---------- Recent errors, kept in memory for "反馈问题" (only saved when asked) ---------- */
+  const recentErrors = [];
+  function noteError(kind, detail) {
+    const text = `${new Date().toISOString()} ${kind}: ${String(detail)}`;
+    recentErrors.push(text.slice(0, 500));
+    if (recentErrors.length > 50) recentErrors.shift();
+  }
+  window.addEventListener("error", (event) =>
+    noteError("error", (event.error && event.error.stack) || event.message),
+  );
+  window.addEventListener("unhandledrejection", (event) =>
+    noteError("unhandledrejection", (event.reason && event.reason.stack) || event.reason),
+  );
+
   /* ---------- Bridge ---------- */
   const pending = new Map();
   let sequence = 0;
@@ -21,9 +35,14 @@
       const id = `w${++sequence}`;
       const timer = setTimeout(() => {
         pending.delete(id);
+        noteError(`call ${method}`, "TIMEOUT");
         reject(new Error("TIMEOUT"));
       }, 180000);
-      pending.set(id, { resolve, reject, timer });
+      const failCall = (error) => {
+        noteError(`call ${method}`, error && error.message);
+        reject(error);
+      };
+      pending.set(id, { resolve, reject: failCall, timer });
       const message = { id, method, params: params || {} };
       if (serviceReady) post(message);
       else queue.push(message);
@@ -602,6 +621,7 @@
     pages,
     h,
     call,
+    recentErrors: () => recentErrors.slice(),
     toast,
     failed,
     explain,

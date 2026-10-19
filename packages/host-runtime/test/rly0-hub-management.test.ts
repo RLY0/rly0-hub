@@ -48,6 +48,18 @@ describe("independent Hub management", () => {
     await expect(
       service.handle("threads.trash", { relPaths: ["../rollout-x.jsonl"] }),
     ).rejects.toThrow("INVALID_PARAMS");
+    await expect(
+      service.handle("maintenance.exportFeedback", { folder: "../x", errors: [] }),
+    ).rejects.toThrow("INVALID_PARAMS");
+    await expect(
+      service.handle("maintenance.exportFeedback", {
+        folder: "feedback-20261019-080910",
+        errors: ["x".repeat(501)],
+      }),
+    ).rejects.toThrow("INVALID_PARAMS");
+    await expect(
+      service.handle("maintenance.openDiagnosticsFolder", { folder: "..\\..\\Windows" }),
+    ).rejects.toThrow("INVALID_PARAMS");
     await expect(service.handle("skills.deactivate", { name: "../outside" })).rejects.toThrow(
       "INVALID_PARAMS",
     );

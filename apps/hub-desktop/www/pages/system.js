@@ -1,5 +1,15 @@
 "use strict";
-window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButton, go }) => {
+window.registerHubSystem = ({
+  pages,
+  h,
+  call,
+  toast,
+  failed,
+  button,
+  confirmButton,
+  go,
+  recentErrors,
+}) => {
   const bytes = (n) => `${((n || 0) / 1024 / 1024).toFixed(1)} MB`;
   pages.network = (root, alive) => {
     const mode = h(
@@ -420,6 +430,36 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         ),
       );
     });
+    // 反馈问题: the window's screenshot, the diagnostics package and the page's recent errors in
+    // one folder (~/.rly0-hub/diagnostics/feedback-…). Without a screenshot the rest still saves.
+    const feedbackFolder = () => {
+      const pad = (n) => String(n).padStart(2, "0");
+      const d = new Date();
+      return `feedback-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    };
+    const feedback = button("反馈问题", async () => {
+      const shot = await call("window.capture").catch(() => null);
+      const folder = shot && shot.folder ? shot.folder : feedbackFolder();
+      const result = await call("maintenance.exportFeedback", { folder, errors: recentErrors() });
+      if (!alive()) return;
+      logDetail.hidden = false;
+      put(
+        logDetail,
+        h("p", { class: "sub wrap" }, `已保存到 ${result.folderPath}`),
+        h(
+          "p",
+          { class: "sub" },
+          shot && shot.folder
+            ? "包含窗口截图、诊断包和最近的出错记录，已去掉邮箱、密钥和用户名。"
+            : "这次没能截图，只保存了诊断包和最近的出错记录。",
+        ),
+        h(
+          "div",
+          { class: "row" },
+          button("打开文件夹", () => call("maintenance.openDiagnosticsFolder", { folder })),
+        ),
+      );
+    });
 
     /* 清理数据 */
     const cleanSize = h("span", { class: "tool-meta" }, "");
@@ -644,8 +684,8 @@ window.registerHubSystem = ({ pages, h, call, toast, failed, button, confirmButt
         tool({
           name: "log",
           title: "调试日志",
-          text: "导出脱敏诊断包（运行状态、配置检查、缓存占用），只保存在本机，不会上传。反馈问题时可以附上。",
-          action: exportLog,
+          text: "导出脱敏诊断包（运行状态、配置检查、缓存占用），只保存在本机，不会上传。“反馈问题”另外保存当前窗口截图和最近的出错记录，同样只在本机，提交反馈时自己附上。",
+          action: [exportLog, feedback],
           detail: logDetail,
         }),
         tool({

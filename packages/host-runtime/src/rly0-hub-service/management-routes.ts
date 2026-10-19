@@ -1,4 +1,6 @@
 import {
+  rly0MaintenanceExportFeedbackParamsSchema,
+  rly0MaintenanceFeedbackFolderSchema,
   rly0McpAddParamsSchema,
   rly0McpRemoveParamsSchema,
   rly0McpSetEnabledParamsSchema,
@@ -10,6 +12,7 @@ import {
 } from "@codexhost/shared-contracts";
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "../rly0-maintenance/index.js";
@@ -149,6 +152,11 @@ export function createHubManagementRoutes(options: {
       () => maintenance.exportDiagnostics(),
       rly0MaintenanceRpcError,
     ),
+    "maintenance.exportFeedback": route(
+      rly0MaintenanceExportFeedbackParamsSchema,
+      (p) => maintenance.exportFeedback(p),
+      rly0MaintenanceRpcError,
+    ),
     "maintenance.startEndpointApp": route(
       empty,
       () => maintenance.startEndpointApp(),
@@ -169,10 +177,12 @@ export function createHubManagementRoutes(options: {
       (p) => chatRepair.repair(p),
       rly0MaintenanceRpcError,
     ),
+    // Without a folder: the diagnostics directory; with one: that feedback report inside it.
     "maintenance.openDiagnosticsFolder": route(
-      empty,
-      async () => {
-        const directory = resolveRly0DiagnosticsDir(environment);
+      z.object({ folder: rly0MaintenanceFeedbackFolderSchema.optional() }).strict(),
+      async (p) => {
+        const base = resolveRly0DiagnosticsDir(environment);
+        const directory = p.folder ? path.join(base, p.folder) : base;
         await fs.mkdir(directory, { recursive: true });
         openFolder(directory);
         return { ok: true };

@@ -9,6 +9,8 @@ import {
   rly0MaintenanceClearCacheResultSchema,
   rly0MaintenanceDiagnosticsResultSchema,
   rly0MaintenanceExportDiagnosticsResultSchema,
+  rly0MaintenanceExportFeedbackParamsSchema,
+  rly0MaintenanceExportFeedbackResultSchema,
   rly0MaintenanceProcessActionResultSchema,
 } from "@codexhost/shared-contracts";
 
@@ -183,6 +185,75 @@ describe("Rly0MaintenanceManager", () => {
         expect(content).toContain("<home>");
       }
       expect(JSON.parse(content)).toMatchObject({ diagnostics: { configTomlParses: true } });
+    });
+  });
+
+  describe("exportFeedback", () => {
+    const folder = "feedback-20261019-080910";
+
+    it("writes sanitized diagnostics and errors into the named feedback folder", async () => {
+      const manager = new Rly0MaintenanceManager({ checkEndpoint: reachable, environment });
+      const home = os.homedir();
+      const result = rly0MaintenanceExportFeedbackResultSchema.parse(
+        await manager.exportFeedback({
+          folder,
+          errors: [
+            `TypeError: x is undefined at ${path.join(home, "app.js")}:1`,
+            "call relay.add failed for admin@example.com with Bearer abc.def-123",
+            "sk-abcdefghijklmnop leaked",
+          ],
+        }),
+      );
+      expect(result.folderPath).toBe(path.join(dataDir, "diagnostics", folder));
+      expect(result.files.sort()).toEqual(["diagnostics.json", "errors.json"]);
+      const errors = JSON.parse(
+        await fs.readFile(path.join(result.folderPath, "errors.json"), "utf8"),
+      ) as string[];
+      expect(errors).toHaveLength(3);
+      expect(errors[0]).toContain("<home>");
+      expect(errors[0]).not.toContain(home);
+      expect(errors[1]).toBe("call relay.add failed for <email> with Bearer <redacted>");
+      expect(errors[2]).toBe("sk-<redacted> leaked");
+      const diagnostics = JSON.parse(
+        await fs.readFile(path.join(result.folderPath, "diagnostics.json"), "utf8"),
+      ) as { diagnostics: unknown };
+      expect(diagnostics.diagnostics).toBeDefined();
+    });
+
+    it("keeps the screenshot the Hub window saved and lists it", async () => {
+      const directory = path.join(dataDir, "diagnostics", folder);
+      await fs.mkdir(directory, { recursive: true });
+      await fs.writeFile(path.join(directory, "screen.png"), "png");
+      const manager = new Rly0MaintenanceManager({ checkEndpoint: reachable, environment });
+      const result = await manager.exportFeedback({ folder, errors: [] });
+      expect(result.files.sort()).toEqual(["diagnostics.json", "errors.json", "screen.png"]);
+      expect(await fs.readFile(path.join(directory, "screen.png"), "utf8")).toBe("png");
+    });
+
+    it("rejects folder names outside feedback-yyyyMMdd-HHmmss and oversized error lists", async () => {
+      const manager = new Rly0MaintenanceManager({ checkEndpoint: reachable, environment });
+      for (const bad of [
+        "../feedback-20261019-080910",
+        "feedback-20261019-080910/..",
+        "feedback-2026101-080910",
+        "feedback-20261019-0809100",
+        "feedback-20261019-080910\n",
+        "rly0-diag",
+        "",
+      ]) {
+        await expect(manager.exportFeedback({ folder: bad, errors: [] })).rejects.toThrow();
+      }
+      await expect(
+        manager.exportFeedback({ folder, errors: Array.from({ length: 51 }, () => "e") }),
+      ).rejects.toThrow();
+      await expect(manager.exportFeedback({ folder, errors: ["e".repeat(501)] })).rejects.toThrow();
+      await expect(fs.stat(path.join(dataDir, "diagnostics"))).rejects.toThrow();
+      expect(
+        rly0MaintenanceExportFeedbackParamsSchema.safeParse({
+          folder,
+          errors: Array.from({ length: 50 }, () => "e".repeat(500)),
+        }).success,
+      ).toBe(true);
     });
   });
 

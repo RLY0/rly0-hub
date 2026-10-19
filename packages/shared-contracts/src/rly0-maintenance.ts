@@ -97,6 +97,41 @@ export type Rly0MaintenanceExportDiagnosticsResult = z.infer<
   typeof rly0MaintenanceExportDiagnosticsResultSchema
 >;
 
+/**
+ * "反馈问题": one folder under `~/.rly0-hub/diagnostics` per report, named by the Hub window when
+ * it saves the screenshot (`feedback-yyyyMMdd-HHmmss`). Only that exact shape is accepted, so the
+ * page can never point a write outside the diagnostics directory.
+ */
+export const RLY0_MAINTENANCE_FEEDBACK_FOLDER_PATTERN = /^feedback-\d{8}-\d{6}$/u;
+export const RLY0_MAINTENANCE_FEEDBACK_MAX_ERRORS = 50;
+export const RLY0_MAINTENANCE_FEEDBACK_MAX_ERROR_LENGTH = 500;
+export const rly0MaintenanceFeedbackFolderSchema = z
+  .string()
+  .regex(RLY0_MAINTENANCE_FEEDBACK_FOLDER_PATTERN);
+
+/** The page's recent errors (window.onerror, unhandled rejections, failed calls), newest last. */
+export const rly0MaintenanceExportFeedbackParamsSchema = z
+  .object({
+    folder: rly0MaintenanceFeedbackFolderSchema,
+    errors: z
+      .array(z.string().max(RLY0_MAINTENANCE_FEEDBACK_MAX_ERROR_LENGTH))
+      .max(RLY0_MAINTENANCE_FEEDBACK_MAX_ERRORS),
+  })
+  .strict();
+export type Rly0MaintenanceExportFeedbackParams = z.infer<
+  typeof rly0MaintenanceExportFeedbackParamsSchema
+>;
+
+export const rly0MaintenanceExportFeedbackResultSchema = z
+  .object({
+    folderPath: z.string().max(4096),
+    files: z.array(z.string().max(64)).max(8),
+  })
+  .strict();
+export type Rly0MaintenanceExportFeedbackResult = z.infer<
+  typeof rly0MaintenanceExportFeedbackResultSchema
+>;
+
 export const rly0MaintenanceCacheInfoParamsSchema = z.object({}).strict();
 export type Rly0MaintenanceCacheInfoParams = z.infer<typeof rly0MaintenanceCacheInfoParamsSchema>;
 

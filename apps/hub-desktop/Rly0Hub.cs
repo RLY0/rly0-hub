@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -697,7 +698,11 @@ internal sealed class PanelWindow : Form {
         try { message = Program.Json.Deserialize<Dictionary<string, object>>(json); } catch { return false; }
         if (message == null || !message.ContainsKey("method") || !message.ContainsKey("id")) return false;
         string method = message["method"] as string, id = message["id"] as string;
-        if (id == null || (method != "window.zoomGet" && method != "window.zoomSet")) return false;
+        if (id == null || (method != "window.zoomGet" && method != "window.zoomSet" && method != "window.capture")) return false;
+        if (method == "window.capture") {
+            CaptureScreen(id);
+            return true;
+        }
         if (method == "window.zoomSet") {
             var parameters = message.ContainsKey("params") ? message["params"] as Dictionary<string, object> : null;
             double next;
@@ -708,6 +713,25 @@ internal sealed class PanelWindow : Form {
         }
         Post(Program.Json.Serialize(new { id = id, result = new { zoom = zoom, steps = ZoomSteps } }));
         return true;
+    }
+
+    // "反馈问题": the page as shown right now, saved as diagnostics\feedback-yyyyMMdd-HHmmss\screen.png
+    // under the same data folder the service uses (CODEXHOST_DATA_DIR, else %USERPROFILE%\.rly0-hub).
+    // Only the folder name goes back; the service writes the rest of the report next to it.
+    private async void CaptureScreen(string id) {
+        try {
+            string data = Environment.GetEnvironmentVariable("CODEXHOST_DATA_DIR");
+            if (string.IsNullOrEmpty(data)) data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".rly0-hub");
+            string folder = "feedback-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+            string directory = Path.Combine(Path.GetFullPath(data), "diagnostics", folder);
+            Directory.CreateDirectory(directory);
+            using (var file = new FileStream(Path.Combine(directory, "screen.png"), FileMode.Create, FileAccess.Write)) {
+                await browser.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, file);
+            }
+            Post(Program.Json.Serialize(new { id = id, result = new { folder = folder } }));
+        } catch {
+            Post(Program.Json.Serialize(new { id = id, error = new { code = -32000, message = "CAPTURE_FAILED" } }));
+        }
     }
 
     protected override void OnShown(EventArgs e) {
