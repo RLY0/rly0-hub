@@ -17,8 +17,15 @@ window.hubManagementMock = (() => {
   let threads = [sample];
   let trash = [];
   const filters = { imageTool: false, webSearchTool: false };
+  const zoomSteps = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
+  let zoom = 1.1;
   return ({ method, params: p }) => {
     switch (method) {
+      case "window.zoomGet":
+        return { zoom, steps: zoomSteps };
+      case "window.zoomSet":
+        zoom = p.zoom;
+        return { zoom, steps: zoomSteps };
       case "proxy.settingsGet":
         return { settings: { mode: "system" } };
       case "proxy.settingsSet":

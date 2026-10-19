@@ -66,3 +66,6 @@ NUL
 # RLY/0 Hub local build logs
 .build*.log
 .test*.log
+
+# RLY/0 Hub UI patrol output
+/.local-test/

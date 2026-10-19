@@ -672,6 +672,8 @@ button {
 /* Forms */
 .field {
   display: grid;
+  /* Next to a taller field (a textarea) the label and input stay at the top, not stretched. */
+  align-content: start;
   gap: 4px;
   min-width: 0;
 }
@@ -1545,6 +1547,19 @@ select.input option {
 }
 .settings-menu button:not(.on):hover {
   background: transparent;
+}
+/* Narrow windows (760 at 110%): one row of pills that scrolls sideways, never a second row. */
+@media (max-width: 760px) {
+  .settings-menu {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .settings-menu button {
+    flex: none;
+    padding: 8px 12px;
+  }
 }
 
 /* ---------- Home banner: the screen's one brand-red module ---------- */
@@ -4165,9 +4180,10 @@ select.input,
   line-height: 1.6;
   color: var(--muted-dark);
 }
+/* Its own line: inline after the description it wrapped to a new line with a stray indent. */
 .tool-meta {
-  display: inline-block;
-  margin-left: 8px;
+  display: block;
+  margin-top: 2px;
   color: var(--paper-100);
   opacity: 0.75;
 }
