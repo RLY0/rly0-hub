@@ -1576,6 +1576,8 @@
           automatic: true,
           canOpenLogin: true,
           manualCommand: "npm install -g opencode-ai",
+          // Only the Antigravity desktop app is installed here, not agy.
+          ...(id === "antigravity" ? { desktopOnly: true } : {}),
         })),
       },
       "balance.get": {

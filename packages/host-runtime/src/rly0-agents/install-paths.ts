@@ -21,6 +21,9 @@ export function withAgentInstallPaths(
       ? path.win32.join(environment.LOCALAPPDATA, "Microsoft", "WindowsApps")
       : "",
     environment.NVM_SYMLINK ?? "",
+    // The official Antigravity CLI installer (antigravity.google/cli/install.ps1) puts agy.exe
+    // here and adds it to the user PATH, which processes started earlier do not see.
+    environment.LOCALAPPDATA ? path.win32.join(environment.LOCALAPPDATA, "agy", "bin") : "",
   ];
   next.PATH = [next.PATH, ...extra].filter(Boolean).join(";");
   return next;

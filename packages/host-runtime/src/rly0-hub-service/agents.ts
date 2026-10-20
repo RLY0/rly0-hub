@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import { RLY0_AGENT_RECIPES } from "../rly0-agents/agent-installer.js";
 import { commandExists } from "../rly0-agents/claude-code-auth.js";
 import { withAgentInstallPaths } from "../rly0-agents/install-paths.js";
@@ -122,6 +125,25 @@ export interface Rly0HubAgent {
   readonly canOpenLogin: boolean;
   /** The command a person can run themselves when one-click install fails (Windows PowerShell). */
   readonly manualCommand?: string;
+  /**
+   * Only the agent's desktop app is installed, not the command line tool Codex runs (Antigravity:
+   * the IDE in `%LOCALAPPDATA%\Programs\Antigravity`, without `agy`).
+   */
+  readonly desktopOnly?: true;
+}
+
+/** Antigravity's desktop app (IDE) on Windows: its own `bin` holds `antigravity.cmd`, not `agy`. */
+function antigravityDesktopInstalled(
+  environment: NodeJS.ProcessEnv,
+  fileExists: (file: string) => boolean,
+): boolean {
+  const local = environment.LOCALAPPDATA;
+  if (!local) return false;
+  const root = path.win32.join(local, "Programs", "Antigravity");
+  return [
+    path.win32.join(root, "bin", "antigravity.cmd"),
+    path.win32.join(root, "Antigravity.exe"),
+  ].some((file) => fileExists(file));
 }
 
 export function rly0HubAgentDocsUrl(agent: string): string | undefined {
@@ -145,6 +167,14 @@ export function listRly0HubAgents(
     if (!recipe) return [];
     const command = recipe.detectionCommand;
     const manual = manualCommand(entry.id);
+    const installed = command
+      ? commandExists(command, searchEnvironment, platform, fileExists)
+      : null;
+    const desktopOnly =
+      entry.id === "antigravity" &&
+      installed === false &&
+      platform === "win32" &&
+      antigravityDesktopInstalled(environment, fileExists ?? existsSync);
     return [
       {
         id: entry.id,
@@ -153,10 +183,11 @@ export function listRly0HubAgents(
         category: entry.category,
         openSource: entry.openSource,
         relay: entry.relay,
-        installed: command ? commandExists(command, searchEnvironment, platform, fileExists) : null,
+        installed,
         automatic: recipe.attempts.length > 0,
         canOpenLogin: Boolean(recipe.loginCommand),
         ...(manual ? { manualCommand: manual } : {}),
+        ...(desktopOnly ? { desktopOnly: true as const } : {}),
       },
     ];
   });

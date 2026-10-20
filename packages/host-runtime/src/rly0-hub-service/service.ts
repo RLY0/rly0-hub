@@ -42,6 +42,7 @@ import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
 import {
   codexHeartbeatAlive,
   readAgentStatus,
+  type AgentStatusReport,
   requestAgentCheck,
   requestBackendReload,
 } from "../rly0-maintenance/backend-reload-channel.js";
@@ -90,6 +91,7 @@ import { Rly0HubAddLogin } from "./add-login.js";
 import { ClaudeAddLogin, importClaudeAccountFile } from "./claude-add-login.js";
 import { GrokAddLogin } from "./grok-add-login.js";
 import { createAgentAccountRoutes } from "./agent-account-routes.js";
+import { withConnectionHints } from "./agent-connection-hint.js";
 import { AntigravityUsageReader } from "../rly0-agents/antigravity-usage.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
@@ -649,6 +651,15 @@ export class Rly0HubService {
     );
   }
 
+  async #hinted(report: AgentStatusReport | null): Promise<AgentStatusReport | null> {
+    if (!report) return null;
+    const agents = listRly0HubAgents(
+      await this.#installer.searchEnvironment(),
+      this.#options.platform,
+    );
+    return withConnectionHints(report, agents);
+  }
+
   #buildRoutes(): Record<string, Handler> {
     const core = this.#core;
     const route =
@@ -956,14 +967,20 @@ export class Rly0HubService {
         },
       ),
       // Connection checks run on the Codex side (it owns the agents); the Hub shows them.
+      // Each failed entry gets a plain-words hint that also uses what the Hub sees here (an agent
+      // installed after Codex started, or only its desktop app).
       "agents.connectionStatus": route(empty, async () => ({
-        report: await readAgentStatus(resolveRly0DataDir(this.#options.environment)),
+        report: await this.#hinted(
+          await readAgentStatus(resolveRly0DataDir(this.#options.environment)),
+        ),
       })),
       "agents.checkConnections": route(empty, async () => {
         const codex = await this.#codex.status();
         if (!codex.running) return { report: null, codexRunning: false };
         return {
-          report: await requestAgentCheck(resolveRly0DataDir(this.#options.environment)),
+          report: await this.#hinted(
+            await requestAgentCheck(resolveRly0DataDir(this.#options.environment)),
+          ),
           codexRunning: true,
         };
       }),

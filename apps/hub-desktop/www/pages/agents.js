@@ -286,8 +286,10 @@ window.registerHubAgents = ({
       h("span", { class: "count-pill tabular" }, count),
     );
 
-  // What a failed connection check means, in plain words (the raw message stays below it).
+  // What a failed connection check means, in plain words (the raw message stays below it). The
+  // Hub service attaches `entry.hint` (agent-connection-hint.ts); this is the fallback.
   function connectionHint(agent, entry) {
+    if (entry.hint) return entry.hint;
     const text = `${entry.code || ""} ${entry.message || ""}`;
     if (entry.status === "notInstalled")
       return "Codex 那边还找不到它。刚装好的话点上面的“检测连接”，还不行就重启一次 Codex";
@@ -522,6 +524,14 @@ window.registerHubAgents = ({
           h("span", { class: "dot bad" }),
           h("b", null, connectionHint(agent, entry)),
         ),
+        // An old report may predate an install: say when it was made.
+        connections.checkedAt && Date.now() - connections.checkedAt > 10 * 60_000
+          ? h(
+              "p",
+              { class: "sub" },
+              `这是 ${new Date(connections.checkedAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 的检测结果，点“检测连接”重新检测`,
+            )
+          : null,
         entry.message || entry.code
           ? h(
               "details",
@@ -631,6 +641,13 @@ window.registerHubAgents = ({
       element.classList.remove("awake");
       put(
         body,
+        agent.desktopOnly
+          ? h(
+              "p",
+              { class: "warn-text" },
+              "桌面版 Antigravity 已装，但命令行版 agy 没装：Codex 需要 agy，滑动下面的按钮装上它。",
+            )
+          : null,
         agent.automatic
           ? slideToUnlock("滑动解锁 · 一键安装", start)
           : h("p", { class: "sub" }, "需要从官网手动安装。"),
