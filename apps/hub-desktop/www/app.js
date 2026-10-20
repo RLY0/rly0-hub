@@ -648,6 +648,8 @@
   pageApi.relayLogo = relayModule.relayLogo;
   window.registerHubHome(pageApi);
   window.registerHubInstructions(pageApi);
+  const cards = window.registerHubAccountCards(pageApi);
+  pageApi.accountCards = cards;
   pageApi.agentAccounts = window.registerHubAgentAccounts(pageApi);
 
   const STEP = {
@@ -675,12 +677,12 @@
     NOT_DETECTED: "安装后仍找不到 npm，请安装含 npm 的 Node.js 后重试",
   };
 
-  // 账号: one tab per agent family; Codex accounts, Claude Code accounts, other agents' logins.
+  // 账号: one tab per provider, all in the same layout (pages/account-cards.js).
   const ACCOUNT_TABS = [
-    ["codex", "OpenAI · Codex"],
-    ["claude", "Anthropic · Claude"],
-    ["gemini", "Google · Gemini"],
-    ["grok", "xAI · Grok"],
+    ["codex", "openai", "OpenAI", "Codex"],
+    ["claude", "anthropic", "Anthropic", "Claude"],
+    ["gemini", "google", "Google", "Gemini"],
+    ["grok", "xai", "xAI", "Grok"],
   ];
   let accountTab = "codex";
   pages.accounts = (root, alive, options) => {
@@ -690,16 +692,27 @@
       h(
         "nav",
         { class: "settings-menu account-tabs", "aria-label": "账号分类" },
-        ACCOUNT_TABS.map(([id, label]) =>
+        ACCOUNT_TABS.map(([id, mark, provider, product]) =>
           h(
             "button",
             {
               type: "button",
-              class: id === accountTab ? "on" : "",
+              class: `provider-tab ${id === accountTab ? "on" : ""}`,
               "aria-current": id === accountTab ? "page" : null,
+              "aria-label": `${provider} · ${product}`,
               onclick: () => go("accounts", { tab: id }),
             },
-            label,
+            h(
+              "span",
+              { class: "provider-mark" },
+              cards.icon(`<path d="${window.HubProviderMarks[mark]}"/>`),
+            ),
+            h(
+              "span",
+              { class: "provider-name" },
+              h("b", null, provider),
+              h("small", null, product),
+            ),
           ),
         ),
       ),
@@ -709,62 +722,11 @@
     if (accountTab === "claude") pageApi.agentAccounts.claude(body, alive);
     else if (accountTab === "gemini") pageApi.agentAccounts.gemini(body, alive);
     else if (accountTab === "grok") pageApi.agentAccounts.grok(body, alive);
-    else {
-      codexAccountsPage(body, alive);
-      // The OpenAI platform key, for agents other than Codex (Pi, Hermes, OpenCode…).
-      const keyArea = h("div", { class: "vendor-key-area" });
-      body.append(keyArea);
-      pageApi.agentAccounts.openaiKey(keyArea, alive);
-    }
+    else codexAccountsPage(body, alive);
   };
 
   function codexAccountsPage(root, alive) {
     const list = h("div", { class: "grid compact" });
-    const head = h(
-      "div",
-      { class: "row" },
-      h("span", { class: "sub" }, "保存多个 Codex 登录，一键切换。"),
-      h("span", { class: "spacer" }),
-      h(
-        "button",
-        {
-          class: "btn quiet",
-          type: "button",
-          onclick: () =>
-            call("accounts.importCurrent", {}).then((r) => {
-              toast(r.available ? "已保存当前登录" : "没有找到当前登录");
-              load();
-            }, failed),
-        },
-        "保存当前登录",
-      ),
-      window.HubUI.menuButton(
-        "+ 添加",
-        [
-          {
-            icon: LOGIN_ICONS.web,
-            title: "网页登录",
-            desc: "在浏览器里登录另一个 ChatGPT 账号",
-            onSelect: () => addAccount(),
-          },
-          {
-            icon: LOGIN_ICONS.file,
-            title: "导入登录文件",
-            desc: "Codex 的 auth.json，或 Sub2API 导出的账号 JSON",
-            onSelect: () => filePicker.click(),
-          },
-          {
-            icon: LOGIN_ICONS.key,
-            title: "官方 API Key",
-            desc: "填 OpenAI 的 sk- Key，按用量计费",
-            onSelect: () => showApiKeyForm(),
-          },
-        ],
-        { align: "right" },
-      ),
-    );
-    const addStatus = h("div");
-
     // Browser sign-in into a throw-away Codex home; the live Codex login is never touched.
     const LOGIN_ERRORS = {
       CODEX_NOT_FOUND: "没找到 Codex，请先安装官方 Codex 桌面版",
@@ -778,6 +740,50 @@
     };
     const loginFailed = (error) =>
       toast(LOGIN_ERRORS[error && error.message] || explain(error && error.message));
+    // The OpenAI platform key, for agents other than Codex (Pi, Hermes, OpenCode…).
+    const key = cards.keyCard("openai", { alive, saveFailed: loginFailed });
+    let failures = new Map();
+    let accountCount = 0;
+    const refresh = cards.refresher({
+      alive,
+      run: async () => {
+        failures = cards.usageFailures(await call("accounts.usageAll"));
+        await load();
+        return failures.size;
+      },
+    });
+    const head = cards.pageHead({
+      intro: "保存多个 Codex 登录，一键切换。",
+      refresh: refresh.element,
+      saveCurrent: {
+        onClick: () =>
+          call("accounts.importCurrent", {}).then((r) => {
+            toast(r.available ? "已保存当前登录" : "没有找到当前登录");
+            load();
+          }, failed),
+      },
+      addItems: [
+        {
+          icon: LOGIN_ICONS.web,
+          title: "网页登录",
+          desc: "在浏览器里登录另一个 ChatGPT 账号",
+          onSelect: () => addAccount(),
+        },
+        {
+          icon: LOGIN_ICONS.file,
+          title: "导入登录文件",
+          desc: "Codex 的 auth.json，或 Sub2API 导出的账号 JSON",
+          onSelect: () => filePicker.click(),
+        },
+        {
+          icon: LOGIN_ICONS.key,
+          title: "官方 API Key",
+          desc: "填 OpenAI 的 sk- Key，按用量计费；Pi、Hermes 等助手也能用",
+          onSelect: () => showApiKeyForm(),
+        },
+      ],
+    });
+    const addStatus = h("div");
 
     // A Codex auth.json picked from disk (e.g. copied from another computer).
     const filePicker = h("input", { type: "file", accept: ".json,application/json", hidden: true });
@@ -799,9 +805,9 @@
       );
     });
 
-    // An OpenAI API key, saved as an API-key login.
+    // An OpenAI API key, saved as an API-key login (and as the OpenAI key for other agents).
     function showApiKeyForm() {
-      const key = h("input", {
+      const input = h("input", {
         class: "input",
         type: "password",
         placeholder: "sk-…",
@@ -817,13 +823,13 @@
       });
       const save = () =>
         call("accounts.addApiKey", {
-          apiKey: key.value.trim(),
+          apiKey: input.value.trim(),
           ...(name.value.trim() ? { alias: name.value.trim() } : {}),
         }).then(() => {
           // The same key also serves other agents (Pi, Hermes, OpenCode) as the OpenAI key.
-          call("agents.officialKeys.set", { vendor: "openai", apiKey: key.value.trim() }).catch(
-            () => undefined,
-          );
+          call("agents.officialKeys.set", { vendor: "openai", apiKey: input.value.trim() })
+            .then(() => key.reload())
+            .catch(() => undefined);
           toast("API Key 已保存：切换到它后 Codex 用它，Pi、Hermes 等助手也能选它");
           addStatus.replaceChildren();
           load();
@@ -846,12 +852,12 @@
           h(
             "p",
             { class: "sub" },
-            "保存为一个账号，切换到它后 Codex 按用量从这个 Key 扣费。Key 加密保存在本机，不会显示出来。",
+            "保存为一个账号，切换到它后 Codex 按用量从这个 Key 扣费；Pi、Hermes、OpenCode 等助手也能用它。Key 加密保存在本机，不会显示出来。",
           ),
           h(
             "div",
             { class: "form" },
-            key,
+            input,
             name,
             h(
               "div",
@@ -861,7 +867,7 @@
           ),
         ),
       );
-      key.focus();
+      input.focus();
     }
     async function addAccount() {
       let started;
@@ -908,83 +914,18 @@
         addStatus.replaceChildren();
         if (status.state === "completed") {
           toast("新账号已保存");
-          load();
+          load().then(() => refresh.refresh());
         } else if (status.state === "failed") toast(LOGIN_ERRORS[status.error] || "登录没有完成");
       }, 2000);
       pollers.add(timer);
     }
-    const autoCard = h("section", { class: "m tone span-6 auto-switch" });
     root.append(
       head,
       filePicker,
       addStatus,
-      h("div", { style: { height: "16px" } }),
-      h("div", { class: "grid compact" }, autoCard),
-      h("div", { style: { height: "12px" } }),
+      h("div", { class: "grid compact account-auto" }, cards.autoSwitchCard({ alive })),
       list,
     );
-
-    // Switch before the current account runs out (AiMaMi's 自动切换). Off by default.
-    async function loadAutoSwitch() {
-      const settings = await call("accounts.autoSwitchGet").catch(() => null);
-      if (!alive() || !settings) return;
-      const percentSelect = (value, label) =>
-        h(
-          "select",
-          { class: "input compact-select", "aria-label": label },
-          [5, 10, 15, 20, 30].map((n) =>
-            h("option", { value: String(n), selected: n === value }, `剩 ${n}%`),
-          ),
-        );
-      const h5 = percentSelect(settings.remain5h, "5 小时阈值");
-      const weekly = percentSelect(settings.remainWeekly, "每周阈值");
-      const mode = h(
-        "select",
-        { class: "input compact-select", "aria-label": "切换方式" },
-        h("option", { value: "ask", selected: settings.mode === "ask" }, "先提醒我"),
-        h("option", { value: "auto", selected: settings.mode === "auto" }, "直接切换并重启 Codex"),
-      );
-      const save = (enabled) =>
-        call("accounts.autoSwitchSet", {
-          enabled,
-          remain5h: Number(h5.value),
-          remainWeekly: Number(weekly.value),
-          mode: mode.value,
-        }).then((next) => {
-          toast(next.enabled ? "自动切换已开启" : "设置已保存");
-          loadAutoSwitch();
-        }, failed);
-      for (const select of [h5, weekly, mode])
-        select.addEventListener("change", () => save(settings.enabled));
-      autoCard.replaceChildren(
-        h(
-          "div",
-          { class: "row" },
-          h(
-            "div",
-            { class: "who" },
-            h("b", null, "额度快用完时自动切换账号"),
-            h("span", null, "低于阈值时切到额度最多的已保存账号，Codex 会重启"),
-          ),
-          h("button", {
-            class: "switch",
-            type: "button",
-            role: "switch",
-            "aria-checked": String(settings.enabled),
-            "aria-label": "自动切换账号",
-            onclick: () => save(!settings.enabled),
-          }),
-        ),
-        h(
-          "div",
-          { class: "row auto-switch-fields" },
-          h("label", { class: "field" }, h("span", null, "5 小时额度"), h5),
-          h("label", { class: "field" }, h("span", null, "每周额度"), weekly),
-          h("label", { class: "field" }, h("span", null, "到阈值时"), mode),
-        ),
-      );
-    }
-    loadAutoSwitch();
 
     async function load() {
       const [result, live] = await Promise.all([
@@ -993,181 +934,66 @@
       ]);
       if (!alive()) return;
       const accounts = (result && result.available && result.accounts) || [];
+      accountCount = accounts.length;
+      refresh.setReason(accountCount ? null : "还没有保存的 Codex 账号，没有额度可刷新");
       const unsaved =
         live && live.loggedIn && !live.saved
-          ? [
-              h(
-                "section",
-                { class: "m tone span-3" },
+          ? cards.accountCard({
+              name: live.email || "当前 Codex 登录",
+              facts: [live.plan ? live.plan.toUpperCase() : "当前登录"],
+              current: true,
+              quota: cards.quotaCards(null, { reason: "保存后会读取它的额度" }),
+              notes: [h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。")],
+              actions: [
                 h(
-                  "div",
-                  { class: "row" },
-                  h("span", { class: "dot ok" }),
-                  h(
-                    "div",
-                    { class: "who" },
-                    h("b", null, live.email || "当前 Codex 登录"),
-                    h("span", null, live.plan ? live.plan.toUpperCase() : "当前登录"),
-                  ),
-                  h("span", { class: "tag ok" }, "Current"),
+                  "button",
+                  {
+                    class: "btn paper sm",
+                    type: "button",
+                    onclick: () =>
+                      call("accounts.importCurrent", {}).then(() => {
+                        toast("已保存");
+                        load();
+                      }, failed),
+                  },
+                  "保存",
                 ),
-                h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。"),
-                h(
-                  "div",
-                  { class: "row" },
-                  h(
-                    "button",
-                    {
-                      class: "btn paper sm",
-                      type: "button",
-                      onclick: () =>
-                        call("accounts.importCurrent", {}).then(() => {
-                          toast("已保存");
-                          load();
-                        }, failed),
-                    },
-                    "保存",
-                  ),
-                ),
-              ),
-            ]
-          : [];
+              ],
+            })
+          : null;
       list.replaceChildren(
-        ...unsaved,
-        ...(accounts.length || unsaved.length
-          ? accounts.map(card)
+        ...(unsaved ? [unsaved] : []),
+        ...accounts.map(card),
+        ...(accounts.length || unsaved
+          ? []
           : [
               h(
                 "p",
                 { class: "empty span-6" },
-                "还没有保存的账号。先在 Codex 里登录，再点“保存当前登录”。",
+                "还没有保存的 Codex 账号。先在 Codex 里登录，再点“保存当前登录”。",
               ),
             ]),
+        key.element,
       );
-    }
-    // One reset card per quota window: what is left, a bar, and when it refills.
-    function usageBars(usage) {
-      if (!usage || !usage.windows.length)
-        return h(
-          "div",
-          { class: "reset-cards empty-usage" },
-          h("span", { class: "sub" }, "额度未知，切换到这个账号后会读取"),
-        );
-      return h(
-        "div",
-        { class: "reset-cards" },
-        usage.windows.map((w) => {
-          const left = Math.max(0, Math.round(100 - w.usedPercent));
-          return h(
-            "div",
-            { class: `reset-card ${left <= 15 ? "low" : ""}` },
-            h(
-              "div",
-              { class: "row" },
-              h("span", { class: "reset-kind" }, w.kind === "primary" ? "5 小时额度" : "每周额度"),
-              h("span", { class: "spacer" }),
-              h("b", { class: "tabular" }, `剩 ${left}%`),
-            ),
-            h("div", { class: "bar" }, h("i", { style: { width: `${left}%` } })),
-            h(
-              "span",
-              { class: "reset-when" },
-              w.resetsAt ? `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}` : "重置时间未知",
-            ),
-          );
-        }),
-        usage.resetCredits === undefined ? null : resetCardTile(usage.resetCredits),
-      );
-    }
-    function rename(label, account) {
-      const input = h("input", {
-        class: "input rename-input",
-        maxlength: "40",
-        value: accountName(account),
-        "aria-label": "账号名称",
-      });
-      const commit = () => {
-        const alias = input.value.trim();
-        if (!alias || alias === accountName(account)) {
-          load();
-          return;
-        }
-        call("accounts.rename", { id: account.id, alias }).then(() => {
-          toast("已改名");
-          load();
-        }, failed);
-      };
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") commit();
-        if (event.key === "Escape") load();
-      });
-      input.addEventListener("blur", commit);
-      label.replaceWith(input);
-      input.focus();
-      input.select();
     }
 
     function card(account) {
-      let confirmTap = () => true;
-      const remove = h(
-        "button",
-        {
-          class: "btn quiet sm",
-          type: "button",
-          onclick: () => {
-            if (!confirmTap()) return;
-            call("accounts.remove", { id: account.id }).then(() => {
-              toast("已删除");
-              load();
-            }, failed);
-          },
-        },
-        "删除",
-      );
-      confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
-      return h(
-        "section",
-        { class: `m span-3 ${account.current ? "tone" : ""}` },
-        h(
-          "div",
-          { class: "row" },
-          h("span", { class: `dot ${account.current ? "ok" : ""}` }),
-          h(
-            "div",
-            { class: "who" },
-            h(
-              "b",
-              {
-                class: "renamable",
-                title: "点击改名",
-                tabindex: "0",
-                onclick: (event) => rename(event.currentTarget, account),
-                onkeydown: (event) => {
-                  if (event.key === "Enter") rename(event.currentTarget, account);
-                },
-              },
-              accountName(account),
-            ),
-            h(
-              "span",
-              null,
-              [
-                account.email && account.alias ? account.email : null,
-                account.plan ? account.plan.toUpperCase() : null,
-              ]
-                .filter(Boolean)
-                .join(" · ") || " ",
-            ),
-          ),
-          account.current ? h("span", { class: "tag ok" }, "Current") : null,
-        ),
-        usageBars(account.lastUsage),
-        h(
-          "div",
-          { class: "row" },
-          account.current
-            ? null
-            : h(
+      return cards.accountCard({
+        name: accountName(account),
+        onRename: (alias) => call("accounts.rename", { id: account.id, alias }).then(() => load()),
+        facts: [
+          account.email && account.alias ? account.email : null,
+          account.plan ? account.plan.toUpperCase() : null,
+        ],
+        current: account.current,
+        quota: cards.quotaCards(account.lastUsage, {
+          reason: "额度未知：切换到这个账号后会读取",
+          stale: failures.get(account.id),
+        }),
+        actions: account.current
+          ? []
+          : [
+              h(
                 "button",
                 {
                   class: "btn paper sm",
@@ -1196,18 +1022,13 @@
                 },
                 "切换到这个",
               ),
-          h("span", { class: "spacer" }),
-          remove,
-        ),
-      );
+            ],
+        onRemove: () => call("accounts.remove", { id: account.id }).then(() => load()),
+      });
     }
-    load();
-    call("accounts.usageAll").then(
-      () => {
-        if (alive()) load();
-      },
-      () => undefined,
-    );
+    load().then(() => {
+      if (alive() && accountCount) refresh.refresh();
+    });
   }
 
   pages.backup = (root, alive) => {
@@ -1783,67 +1604,6 @@
           source: "live",
         },
       },
-      "accounts.list": {
-        available: true,
-        accounts: [
-          {
-            id: "0123456789ab",
-            email: "me@example.com",
-            plan: "plus",
-            current: true,
-            lastUsage: {
-              windows: [
-                { kind: "primary", usedPercent: 36 },
-                { kind: "secondary", usedPercent: 12 },
-              ],
-              resetCredits: 2,
-              source: "snapshot",
-            },
-          },
-          {
-            id: "1123456789ab",
-            email: "team@example.com",
-            alias: "团队号",
-            plan: "team",
-            current: false,
-            lastUsage: {
-              windows: [
-                { kind: "primary", usedPercent: 8, resetsAt: Math.floor(Date.now() / 1000) + 3000 },
-                {
-                  kind: "secondary",
-                  usedPercent: 41,
-                  resetsAt: Math.floor(Date.now() / 1000) + 260000,
-                },
-              ],
-              resetCredits: 0,
-              source: "snapshot",
-            },
-          },
-          {
-            id: "2123456789ab",
-            email: "pro@example.com",
-            alias: "Pro 号",
-            plan: "pro",
-            current: false,
-            lastUsage: {
-              windows: [
-                {
-                  kind: "primary",
-                  usedPercent: 92,
-                  resetsAt: Math.floor(Date.now() / 1000) + 1500,
-                },
-                {
-                  kind: "secondary",
-                  usedPercent: 67,
-                  resetsAt: Math.floor(Date.now() / 1000) + 120000,
-                },
-              ],
-              resetCredits: 1,
-              source: "snapshot",
-            },
-          },
-        ],
-      },
       "relay.list": {
         available: true,
         relays: [
@@ -1895,41 +1655,6 @@
         releaseNotesUrl: null,
         error: null,
       },
-      "agents.claudeAccounts.list": {
-        accounts: [
-          {
-            id: "0a1b2c3d4e5f",
-            alias: "me@example.com",
-            email: "me@example.com",
-            plan: "max",
-            current: true,
-            lastUsage: {
-              windows: [
-                {
-                  kind: "primary",
-                  usedPercent: 42,
-                  resetsAt: Math.floor(Date.now() / 1000) + 9000,
-                },
-                {
-                  kind: "secondary",
-                  usedPercent: 88,
-                  resetsAt: Math.floor(Date.now() / 1000) + 400000,
-                },
-              ],
-            },
-          },
-          {
-            id: "abcdefabcdef",
-            alias: "工作号",
-            email: "work@example.com",
-            plan: "pro",
-            current: false,
-          },
-        ],
-        liveLoggedIn: true,
-        liveUnsaved: false,
-      },
-      "agents.claudeAccounts.usageAll": { results: [] },
       "agents.officialKeys.list": {
         keys: [
           {
@@ -1939,9 +1664,6 @@
             models: ["grok-4", "grok-4-fast"],
           },
         ],
-      },
-      "agents.officialKeys.info": {
-        info: { kind: "apiKey", keyMask: "****Ab12", valid: true, modelCount: 2 },
       },
       "agents.claudeCode.keyInfo": {
         info: {
@@ -2090,13 +1812,16 @@
         imported: 3,
       },
     };
+    // The mock answers { __error: CODE } to exercise a failed call.
+    const result = window.hubManagementMock(message) || data[message.method] || { ok: true };
     setTimeout(
       () =>
-        onMessage({
-          id: message.id,
-          result: window.hubManagementMock(message) || data[message.method] || { ok: true },
-        }),
-      120,
+        onMessage(
+          result.__error
+            ? { id: message.id, error: { message: result.__error } }
+            : { id: message.id, result },
+        ),
+      result.__delay || 120,
     );
   }
 

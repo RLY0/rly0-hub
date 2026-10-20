@@ -28,3 +28,8 @@ npm 安装包与各平台发布产物中打包的第三方依赖（例如 `smol-
 由发布脚本（`scripts/release/prepare-npm.mjs`、`scripts/release/prepare-payload.mjs`）在打包时生成，
 随发行产物一并分发。闭源组件 rly0-core 不在本仓库范围内，其许可与依赖说明由该组件自行提供，
 详见 [`docs/CLOSED_SOURCE.md`](docs/CLOSED_SOURCE.md)。
+
+Hub 窗口「账号」页的服务商标识（`apps/hub-desktop/www/pages/provider-marks.js`）仅用于指明对应服务商（指示性使用），
+商标归各自所有者：OpenAI、Anthropic、Google Gemini 图形取自 [Simple Icons](https://simpleicons.org) 13.21.0（CC0-1.0）；
+xAI 图形取自 [LobeHub Icons](https://github.com/lobehub/lobe-icons)（`@lobehub/icons-static-svg` 1.70.0，MIT License，
+Copyright (c) 2023 LobeHub）。

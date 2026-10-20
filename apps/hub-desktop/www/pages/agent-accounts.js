@@ -1,8 +1,10 @@
 "use strict";
-// 账号 page, agent tabs: where agents' own logins are added and managed.
-// - Claude Code: saved Claude accounts (quota, switch, remove), add by web login / login file /
-//   official API key, and what the saved key or subscription token is.
-// - 其他助手: each installed third-party agent's own sign-in, with the steps for its terminal.
+// 账号 page, Anthropic · Claude / Google · Gemini / xAI · Grok tabs, in the same layout as the
+// Codex tab (pages/account-cards.js).
+// - Claude: saved Claude Code accounts (quota, switch, rename, remove), add by web login / login
+//   file / official API key or subscription token; the saved key or token is a card of its own.
+// - Gemini, Grok: the agent's own sign-in (in its terminal) and the vendor's official API key.
+//   The Hub cannot read those logins, so saving, switching and quota are shown as unsupported.
 // Choosing which login or relay an agent uses happens on the AI 助手 page.
 window.registerHubAgentAccounts = ({
   h,
@@ -12,16 +14,9 @@ window.registerHubAgentAccounts = ({
   explain,
   pollers,
   go,
-  countdown,
-  resetText,
   LOGIN_ICONS,
+  accountCards: cards,
 }) => {
-  const put = (element, ...items) =>
-    element.replaceChildren(
-      ...items
-        .flat(Infinity)
-        .filter((item) => item !== null && item !== undefined && item !== false),
-    );
   const LOGIN_ERRORS = {
     API_KEY_INVALID: "Key 格式不对，请检查是不是这家的官方 Key",
     AUTH_FILE_INVALID: "这个文件不是有效的 JSON",
@@ -33,51 +28,6 @@ window.registerHubAgentAccounts = ({
   };
   const loginFailed = (error) =>
     toast(LOGIN_ERRORS[error && error.message] || explain(error && error.message));
-
-  const LOGOS = {
-    "claude-code": "agents/claude-code.svg",
-    antigravity: "agents/antigravity.svg",
-    grok: "agents/grok.png",
-    opencode: "agents/opencode.png",
-    pi: "agents/pi.svg",
-    hermes: "agents/hermes.png",
-    "cursor-cli": "agents/cursor-cli.svg",
-    "kiro-cli": "agents/kiro-cli.svg",
-  };
-  const logo = (agent, size = 40) =>
-    h(
-      "span",
-      { class: "agent-logo", style: { width: `${size}px`, height: `${size}px` } },
-      LOGOS[agent.id]
-        ? h("img", { src: LOGOS[agent.id], alt: `${agent.name} 图标` })
-        : agent.name.slice(0, 2),
-    );
-
-  function quotaBars(usage) {
-    if (!usage || !usage.windows || !usage.windows.length) return null;
-    return h(
-      "div",
-      { class: "claude-quota" },
-      usage.windows.map((w) => {
-        const left = Math.max(0, Math.round(100 - w.usedPercent));
-        return h(
-          "div",
-          { class: `claude-quota-item ${left <= 15 ? "low" : ""}` },
-          h(
-            "div",
-            { class: "row" },
-            h("span", null, w.kind === "primary" ? "5 小时" : "每周"),
-            h("span", { class: "spacer" }),
-            h("b", { class: "tabular" }, `剩 ${left}%`),
-          ),
-          h("div", { class: "bar" }, h("i", { style: { width: `${left}%` } })),
-          w.resetsAt
-            ? h("small", null, `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}`)
-            : null,
-        );
-      }),
-    );
-  }
 
   function pickFile(onText) {
     const input = h("input", { type: "file", accept: ".json,application/json", hidden: true });
@@ -95,55 +45,88 @@ window.registerHubAgentAccounts = ({
     input.click();
   }
 
-  /* ---------- Claude Code ---------- */
+  /* ---------- Anthropic · Claude ---------- */
   function claude(root, alive) {
-    const keySection = vendorKey("anthropic", alive);
-    const list = h("div", { class: "claude-accounts" });
-    let usageRead = false;
+    const list = h("div", { class: "grid compact" });
+    let failures = new Map();
+    let accountCount = 0;
+    // The token can report quota only when it is a full login token, not a setup-token.
+    const keyHasQuota = (info) => Boolean(info && info.kind === "subscription" && info.usage);
+    const syncRefresh = () =>
+      refresh.setReason(
+        accountCount || keyHasQuota(key.info)
+          ? null
+          : key.info && key.info.kind === "subscription"
+            ? "订阅令牌（claude setup-token）只能调用模型，官方不允许它查询额度"
+            : key.info
+              ? "API Key 官方不提供额度查询；保存 Claude 账号后可以刷新它们的额度"
+              : "还没有保存的 Claude 账号，没有额度可刷新",
+      );
+    const key = cards.keyCard("anthropic", {
+      alive,
+      saveFailed: loginFailed,
+      onLoaded: () => syncRefresh(),
+    });
+    const refresh = cards.refresher({
+      alive,
+      run: async () => {
+        const [usage] = await Promise.all([
+          accountCount ? call("agents.claudeAccounts.usageAll") : null,
+          keyHasQuota(key.info) ? key.reload() : null,
+        ]);
+        if (usage !== null) failures = cards.usageFailures(usage);
+        await load();
+        return failures.size;
+      },
+    });
+    const saveCurrent = () =>
+      call("agents.claudeAccounts.importCurrent", {}).then(() => {
+        toast("已保存当前 Claude 登录，之后可以一键切换");
+        load();
+      }, loginFailed);
     root.append(
+      cards.pageHead({
+        intro: "保存多个 Claude 账号一键切换，也能用官方 API Key / 订阅令牌。",
+        refresh: refresh.element,
+        saveCurrent: { onClick: saveCurrent },
+        addItems: [
+          {
+            icon: LOGIN_ICONS.web,
+            title: "网页登录",
+            desc: "在浏览器里登录 Claude 账号（Pro / Max），可以添加多个",
+            onSelect: () => webLogin(),
+          },
+          {
+            icon: LOGIN_ICONS.file,
+            title: "导入登录文件",
+            desc: ".credentials.json 或 Sub2API 导出的 Claude 账号",
+            onSelect: () =>
+              pickFile((content) =>
+                call("agents.claudeCode.importCredentials", { content }).then(async (result) => {
+                  if (!result.token)
+                    await call("agents.claudeAccounts.importCurrent", {}).catch(() => undefined);
+                  toast(result.token ? "已导入 Claude 令牌" : "已导入并保存这个账号");
+                  if (result.token) key.reload().catch(() => undefined);
+                  load();
+                }, loginFailed),
+              ),
+          },
+          {
+            icon: LOGIN_ICONS.key,
+            title: "官方 API Key",
+            desc: "Anthropic 的 sk-ant- Key，或 claude setup-token 生成的令牌",
+            onSelect: () => key.openForm(),
+          },
+        ],
+      }),
       h(
         "div",
-        { class: "row page-head" },
-        h(
-          "span",
-          { class: "sub" },
-          "保存多个 Claude 账号一键切换，或用官方 API Key / 订阅令牌。用哪个在「AI 助手」页选。",
-        ),
-        h("span", { class: "spacer" }),
-        window.HubUI.menuButton(
-          "+ 添加",
-          [
-            {
-              icon: LOGIN_ICONS.web,
-              title: "网页登录",
-              desc: "在浏览器里登录 Claude 账号（Pro / Max），可以添加多个",
-              onSelect: () => webLogin(),
-            },
-            {
-              icon: LOGIN_ICONS.file,
-              title: "导入登录文件",
-              desc: ".credentials.json 或 Sub2API 导出的 Claude 账号",
-              onSelect: () =>
-                pickFile((content) =>
-                  call("agents.claudeCode.importCredentials", { content }).then(async (result) => {
-                    if (!result.token)
-                      await call("agents.claudeAccounts.importCurrent", {}).catch(() => undefined);
-                    toast(result.token ? "已导入 Claude 令牌" : "已导入并保存这个账号");
-                    load();
-                  }, loginFailed),
-                ),
-            },
-            {
-              icon: LOGIN_ICONS.key,
-              title: "官方 API Key",
-              desc: "Anthropic 的 sk-ant- Key，或 claude setup-token 生成的令牌",
-              onSelect: () => keySection.openForm(),
-            },
-          ],
-          { align: "right" },
-        ),
+        { class: "grid compact account-auto" },
+        cards.autoSwitchCard({
+          alive,
+          reason: "自动切换目前只管 Codex 账号，后台还没有 Claude 账号的切换规则。",
+        }),
       ),
-      keySection.element,
       list,
     );
 
@@ -175,7 +158,7 @@ window.registerHubAgentAccounts = ({
           () => toast(`已添加 ${status.email || "Claude 账号"}`),
           loginFailed,
         );
-        if (alive()) load();
+        if (alive()) load().then(() => refresh.refresh());
       }, 3000);
       pollers.add(timer);
     }
@@ -184,303 +167,100 @@ window.registerHubAgentAccounts = ({
       const listed = await call("agents.claudeAccounts.list").catch(() => null);
       if (!alive()) return;
       const accounts = (listed && listed.accounts) || [];
+      accountCount = accounts.length;
+      syncRefresh();
       const unsaved =
         listed && listed.liveUnsaved
-          ? h(
-              "div",
-              { class: "claude-account current" },
-              h(
-                "div",
-                { class: "row" },
-                h(
-                  "div",
-                  { class: "who" },
-                  h("b", null, (listed.live && listed.live.email) || "当前 Claude 登录"),
-                  h("span", null, "正在使用 · 还没保存"),
-                ),
-                h("span", { class: "spacer" }),
+          ? cards.accountCard({
+              name: (listed.live && listed.live.email) || "当前 Claude 登录",
+              facts: ["正在使用"],
+              current: true,
+              quota: cards.quotaCards(null, { reason: "保存后会读取它的额度" }),
+              notes: [h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。")],
+              actions: [
                 h(
                   "button",
-                  {
-                    class: "btn paper sm",
-                    type: "button",
-                    onclick: () =>
-                      call("agents.claudeAccounts.importCurrent", {}).then(() => {
-                        toast("已保存，之后可以一键切换");
-                        load();
-                      }, loginFailed),
-                  },
+                  { class: "btn paper sm", type: "button", onclick: saveCurrent },
                   "保存",
                 ),
-              ),
-            )
+              ],
+            })
           : null;
-      put(
-        list,
-        h("span", { class: "label" }, `Claude 账号 · ${accounts.length}`),
-        unsaved,
-        accounts.map(accountRow),
-        accounts.length || unsaved
-          ? null
-          : h(
-              "p",
-              { class: "empty" },
-              "还没有 Claude 账号。点右上角“+ 添加” → 网页登录，可以添加多个，一键切换。",
-            ),
-      );
-      if (!usageRead && accounts.length) {
-        usageRead = true;
-        call("agents.claudeAccounts.usageAll").then(
-          () => alive() && load(),
-          () => undefined,
-        );
-      }
-    }
-
-    function accountRow(account) {
-      let confirmTap = () => true;
-      const remove = h(
-        "button",
-        {
-          class: "btn quiet sm",
-          type: "button",
-          onclick: () => {
-            if (!confirmTap()) return;
-            call("agents.claudeAccounts.remove", { id: account.id }).then(() => {
-              toast("已删除保存的账号（当前登录不受影响）");
-              load();
-            }, failed);
-          },
-        },
-        "删除",
-      );
-      confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
-      return h(
-        "div",
-        { class: `claude-account ${account.current ? "current" : ""}` },
-        h(
-          "div",
-          { class: "row" },
-          h(
-            "div",
-            { class: "who" },
-            h("b", null, account.alias),
-            h(
-              "span",
-              null,
-              [
-                account.email && account.email !== account.alias ? account.email : null,
-                account.plan ? account.plan.toUpperCase() : null,
-                account.organization,
-              ]
-                .filter(Boolean)
-                .join(" · ") || " ",
-            ),
-          ),
-          h("span", { class: "spacer" }),
-          account.current ? h("span", { class: "tag ok" }, "已登录") : null,
-        ),
-        quotaBars(account.lastUsage) ||
-          h(
-            "p",
-            { class: "sub" },
-            account.current ? "额度读取中…" : "额度：在 AI 助手页切换到它后读取",
-          ),
-        h("div", { class: "row" }, h("span", { class: "spacer" }), remove),
-      );
-    }
-
-    load();
-  }
-
-  /* ---------- Official API keys (any vendor) ---------- */
-  const VENDORS = {
-    openai: {
-      title: "OpenAI 官方 API Key",
-      placeholder: "sk-…",
-      hint: "OpenAI 平台（platform.openai.com）的 Key，按用量计费。",
-    },
-    anthropic: {
-      title: "Anthropic 官方 API Key / 订阅令牌",
-      placeholder: "sk-ant-api… 或 sk-ant-oat…",
-      hint: "console.anthropic.com 的 Key，或 claude setup-token 生成的订阅令牌。",
-    },
-    google: {
-      title: "Google Gemini 官方 API Key",
-      placeholder: "AIza…",
-      hint: "Google AI Studio（aistudio.google.com）的 Key。",
-    },
-    xai: {
-      title: "xAI 官方 API Key",
-      placeholder: "xai-…",
-      hint: "xAI 控制台（console.x.ai）的 Key，按用量计费。",
-    },
-  };
-  const KEY_ERRORS = {
-    RELAY_UNAUTHORIZED: "官方不接受这个 Key",
-    RELAY_NETWORK: "暂时连不上官方接口",
-    USAGE_NETWORK: "暂时连不上官方接口",
-  };
-
-  // One vendor's key: a card saying what it is (and whether it works), and a form to save one.
-  function vendorKey(vendor, alive) {
-    const spec = VENDORS[vendor];
-    const element = h("div", { class: "claude-accounts key-block" });
-    const form = h("div");
-    const card = h("div");
-    element.append(h("span", { class: "label" }, spec.title), form, card);
-
-    function openForm() {
-      const key = h("input", {
-        class: "input",
-        type: "password",
-        placeholder: spec.placeholder,
-        autocomplete: "off",
-        spellcheck: "false",
-        "aria-label": spec.title,
-      });
-      const save = () =>
-        call("agents.officialKeys.set", { vendor, apiKey: key.value.trim() }).then((r) => {
-          toast(
-            r && r.valid
-              ? `已保存，读到 ${r.modelCount} 个模型。在「AI 助手」页的“使用”里选它`
-              : "已保存，但官方接口暂时没通过验证",
-          );
-          put(form);
-          load();
-        }, loginFailed);
-      key.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") save();
-      });
-      put(
-        form,
-        h(
-          "div",
-          { class: "claude-account add-key" },
-          h("p", { class: "sub" }, `${spec.hint}加密保存在本机，只发给官方，界面上不会再显示。`),
-          h(
-            "div",
-            { class: "row wide" },
-            key,
-            h("button", { class: "btn paper", type: "button", onclick: save }, "保存"),
-            h("button", { class: "btn quiet", type: "button", onclick: () => put(form) }, "取消"),
-          ),
-        ),
-      );
-      key.focus();
-    }
-
-    async function load() {
-      put(card, h("p", { class: "sub" }, "读取中…"));
-      const result = await call("agents.officialKeys.info", { vendor }).catch(() => null);
-      if (!alive()) return;
-      const info = result && result.info;
-      if (!info) {
-        put(
-          card,
-          h(
-            "div",
-            { class: "claude-account empty-key" },
-            h(
-              "span",
-              { class: "sub" },
-              "还没保存。保存后，Pi、Hermes、OpenCode 等助手都能直接用它。",
-            ),
-            h("span", { class: "spacer" }),
-            h("button", { class: "btn paper sm", type: "button", onclick: openForm }, "保存 Key"),
-          ),
-        );
-        return;
-      }
-      const subscription = info.kind === "subscription";
-      const masked = info.last4 ? `····${info.last4}` : info.keyMask || "";
-      const facts = subscription
-        ? [info.plan ? info.plan.toUpperCase() : null, info.organization, `令牌 ${masked}`]
-        : [`Key ${masked}`, info.modelCount ? `${info.modelCount} 个模型` : null, "按用量计费"];
-      const state =
-        info.valid === true
-          ? h("span", { class: "tag ok" }, "有效")
-          : info.valid === false
-            ? h("span", { class: "tag warn" }, "已失效")
-            : h("span", { class: "tag" }, "未能验证");
-      let confirmTap = () => true;
-      const remove = h(
-        "button",
-        {
-          class: "btn quiet sm",
-          type: "button",
-          onclick: () => {
-            if (!confirmTap()) return;
-            call("agents.officialKeys.remove", { vendor }).then(() => {
-              toast("已删除这个 Key");
-              load();
-            }, failed);
-          },
-        },
-        "删除",
-      );
-      confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
-      put(
-        card,
-        h(
-          "div",
-          { class: "claude-account key-card" },
-          h(
-            "div",
-            { class: "row" },
-            h(
-              "div",
-              { class: "who" },
+      list.replaceChildren(
+        ...(unsaved ? [unsaved] : []),
+        ...accounts.map(card),
+        ...(accounts.length || unsaved
+          ? []
+          : [
               h(
-                "b",
-                null,
-                subscription
-                  ? info.email || "Claude 订阅令牌"
-                  : spec.title.replace(" / 订阅令牌", ""),
+                "p",
+                { class: "empty span-6" },
+                "还没有保存的 Claude 账号。点右上角“+ 添加” → 网页登录，可以添加多个，一键切换。",
               ),
-              h("span", null, facts.filter(Boolean).join(" · ")),
-            ),
-            h("span", { class: "spacer" }),
-            state,
-          ),
-          subscription
-            ? quotaBars(info.usage) ||
-                h(
-                  "p",
-                  { class: "sub" },
-                  info.usageHidden || info.profileHidden
-                    ? "这是 claude setup-token 生成的令牌：只能调用模型，官方不允许它查询账号资料和额度。"
-                    : "额度暂时读不到",
-                )
-            : h("p", { class: "sub" }, "普通 API Key 官方不提供余额查询，账单请到官方控制台查看。"),
-          info.valid === false
-            ? h("p", { class: "warn-text" }, "官方不接受这个 Key / 令牌了，请换一个新的。")
-            : info.error && info.valid !== true
-              ? h("p", { class: "sub" }, KEY_ERRORS[info.error] || explain(info.error))
-              : null,
-          h(
-            "div",
-            { class: "row" },
-            h("button", { class: "btn sm", type: "button", onclick: openForm }, "换一个"),
-            h("span", { class: "spacer" }),
-            remove,
-          ),
-        ),
+            ]),
+        key.element,
       );
     }
 
-    load();
-    return { element, openForm };
+    function card(account) {
+      return cards.accountCard({
+        name: account.alias || account.email || "Claude 账号",
+        onRename: (alias) =>
+          call("agents.claudeAccounts.rename", { id: account.id, alias }).then(() => load()),
+        facts: [
+          account.email && account.email !== account.alias ? account.email : null,
+          account.plan ? account.plan.toUpperCase() : null,
+          account.organization,
+        ],
+        current: account.current,
+        quota: cards.quotaCards(account.lastUsage, {
+          reason: "额度未知：点右上角刷新读取",
+          stale: failures.get(account.id),
+        }),
+        actions: account.current
+          ? []
+          : [
+              h(
+                "button",
+                {
+                  class: "btn paper sm",
+                  type: "button",
+                  onclick: () =>
+                    call("agents.claudeAccounts.switch", { id: account.id }).then((r) => {
+                      toast(
+                        r && r.switched
+                          ? `已切换到 ${account.alias || account.email}，新开的 Claude Code 对话生效`
+                          : "已经是这个账号",
+                      );
+                      load();
+                    }, failed),
+                },
+                "切换到这个",
+              ),
+            ],
+        onRemove: () => call("agents.claudeAccounts.remove", { id: account.id }).then(() => load()),
+        removedText: "已删除保存的账号（当前登录不受影响）",
+      });
+    }
+
+    load().then(() => {
+      if (alive() && accountCount) refresh.refresh();
+    });
   }
 
   /* ---------- Google · Gemini and xAI · Grok ---------- */
+  // Their logins live inside the agents themselves; the Hub can open the agent's sign-in and keep
+  // the vendor's official key, nothing more.
   function vendorTab(root, alive, options) {
     const { vendor, agentId, agentName, intro, webDesc, fileDesc, keyDesc } = options;
-    const login = h("div", { class: "grid compact" });
-    const keySection = vendorKey(vendor, alive);
+    const list = h("div", { class: "grid compact" });
+    const key = cards.keyCard(vendor, { alive, saveFailed: loginFailed });
+    const refresh = cards.refresher({ alive, run: async () => 0 });
+    refresh.setReason(
+      `Hub 读不到 ${agentName} 自己登录的额度；${options.vendorName} API Key 官方不提供额度查询`,
+    );
     let agent = null;
-    // Same three ways as Codex and Claude: web sign-in, a login file, an official API key.
-    const webLogin = () => {
+    const openLogin = () => {
       if (!agent || !agent.installed) {
         toast(`先在「AI 助手」页装好 ${agentName}`);
         return;
@@ -491,96 +271,87 @@ window.registerHubAgentAccounts = ({
       );
     };
     root.append(
+      cards.pageHead({
+        intro,
+        refresh: refresh.element,
+        saveCurrent: {
+          reason: `暂不支持：${agentName} 的登录保存在它自己那里，Hub 读不到，没法保存或切换多个账号`,
+        },
+        addItems: [
+          { icon: LOGIN_ICONS.web, title: "网页登录", desc: webDesc, onSelect: openLogin },
+          {
+            icon: LOGIN_ICONS.file,
+            title: "导入登录文件",
+            desc: fileDesc,
+            onSelect: () =>
+              pickFile((content) =>
+                call("agents.officialKeys.importFile", { vendor, content }).then(() => {
+                  toast("已从文件导入 Key");
+                  key.reload().catch(() => undefined);
+                }, loginFailed),
+              ),
+          },
+          {
+            icon: LOGIN_ICONS.key,
+            title: "官方 API Key",
+            desc: keyDesc,
+            onSelect: () => key.openForm(),
+          },
+        ],
+      }),
       h(
         "div",
-        { class: "row page-head" },
-        h("span", { class: "sub" }, intro),
-        h("span", { class: "spacer" }),
-        window.HubUI.menuButton(
-          "+ 添加",
-          [
-            { icon: LOGIN_ICONS.web, title: "网页登录", desc: webDesc, onSelect: webLogin },
-            {
-              icon: LOGIN_ICONS.file,
-              title: "导入登录文件",
-              desc: fileDesc,
-              onSelect: () =>
-                pickFile((content) =>
-                  call("agents.officialKeys.importFile", { vendor, content }).then(() => {
-                    toast("已从文件导入 Key");
-                    root.replaceChildren();
-                    vendorTab(root, alive, options);
-                  }, loginFailed),
-                ),
-            },
-            {
-              icon: LOGIN_ICONS.key,
-              title: "官方 API Key",
-              desc: keyDesc,
-              onSelect: () => keySection.openForm(),
-            },
-          ],
-          { align: "right" },
-        ),
+        { class: "grid compact account-auto" },
+        cards.autoSwitchCard({
+          alive,
+          reason: `Hub 只能保存一个 ${agentName} 登录和一个 Key，没有可切换的账号，也读不到额度。`,
+        }),
       ),
-      login,
-      keySection.element,
+      list,
     );
+    const render = () =>
+      list.replaceChildren(
+        cards.accountCard({
+          name: `${agentName} 官方账号`,
+          facts: [
+            agent && agent.installed
+              ? `在 ${agentName} 自己的终端里登录，登录后它就用这个账号`
+              : `先在「AI 助手」页装好 ${agentName}，再在这里登录`,
+          ],
+          badge: h("span", { class: "tag" }, "登录状态未知"),
+          quota: cards.quotaCards(null, {
+            reason: `Hub 读不到 ${agentName} 自己的登录，所以不知道登没登录、还剩多少额度。`,
+          }),
+          actions: [
+            agent && agent.installed && agent.canOpenLogin
+              ? h(
+                  "button",
+                  { class: "btn paper sm", type: "button", onclick: openLogin },
+                  "登录官方账号",
+                )
+              : h(
+                  "button",
+                  { class: "btn sm", type: "button", onclick: () => go("agents") },
+                  "去安装",
+                ),
+          ],
+        }),
+        key.element,
+      );
+    render();
     call("agents.list")
       .catch(() => null)
       .then((result) => {
         if (!alive()) return;
         agent = ((result && result.agents) || []).find((a) => a.id === agentId) || null;
-        put(
-          login,
-          h(
-            "section",
-            { class: "m span-6 agent-login-card" },
-            h(
-              "div",
-              { class: "row" },
-              agent ? logo(agent) : null,
-              h(
-                "div",
-                { class: "who" },
-                h("b", null, `${agentName} 官方账号`),
-                h(
-                  "span",
-                  null,
-                  agent && agent.installed
-                    ? `在 ${agentName} 自己的终端里登录，登录后它就用这个账号`
-                    : `先在「AI 助手」页装好 ${agentName}，再在这里登录`,
-                ),
-              ),
-              h("span", { class: "spacer" }),
-              agent && agent.installed && agent.canOpenLogin
-                ? h(
-                    "button",
-                    {
-                      class: "btn paper sm",
-                      type: "button",
-                      onclick: () =>
-                        call("agents.openLogin", { agent: agentId }).then(
-                          (r) => toast(r.ok ? "已打开终端，按提示登录" : "没能打开终端"),
-                          failed,
-                        ),
-                    },
-                    "登录官方账号",
-                  )
-                : h(
-                    "button",
-                    { class: "btn sm", type: "button", onclick: () => go("agents") },
-                    "去安装",
-                  ),
-            ),
-          ),
-        );
+        render();
       });
   }
 
   const gemini = (root, alive) =>
     vendorTab(root, alive, {
       vendor: "google",
+      vendorName: "Gemini",
       agentId: "antigravity",
       agentName: "Antigravity",
       intro:
@@ -592,6 +363,7 @@ window.registerHubAgentAccounts = ({
   const grok = (root, alive) =>
     vendorTab(root, alive, {
       vendor: "xai",
+      vendorName: "xAI",
       agentId: "grok",
       agentName: "Grok",
       intro: "xAI 的官方助手 Grok 用 xAI 账号登录；xAI API Key 也能给 Pi、Hermes 等助手用。",
@@ -599,9 +371,6 @@ window.registerHubAgentAccounts = ({
       fileDesc: "Sub2API 导出的 Grok 账号 JSON",
       keyDesc: "xAI 控制台的 Key（xai-…）",
     });
-  const openaiKey = (root, alive) => {
-    root.append(vendorKey("openai", alive).element);
-  };
 
-  return { claude, gemini, grok, openaiKey };
+  return { claude, gemini, grok };
 };

@@ -4328,3 +4328,198 @@ select.input,
 .discover-list .who span {
   overflow-wrap: anywhere;
 }
+
+/* ================= 账号: provider tabs and the shared account layout ================= */
+/* Provider tabs: the provider's mark (monochrome, currentColor) over an ink pill; selected is
+   paper with ink text, like the other section tabs. */
+.account-tabs {
+  gap: 6px;
+  padding: 5px;
+}
+.account-tabs .provider-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px 7px 8px;
+  color: var(--muted-dark);
+  text-align: left;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.provider-mark {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: rgba(233, 233, 227, 0.06);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.provider-mark svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+.provider-name {
+  display: grid;
+  line-height: 1.2;
+}
+.provider-name b {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--paper-100);
+}
+.provider-name small {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted-dark);
+}
+.account-tabs .provider-tab:not(.on):hover {
+  background: rgba(233, 233, 227, 0.07);
+  color: var(--paper-100);
+}
+.account-tabs .provider-tab:not(.on):hover .provider-mark {
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+}
+.account-tabs .provider-tab.on {
+  background: var(--paper-100);
+  color: var(--ink-950);
+}
+.account-tabs .provider-tab.on .provider-mark {
+  background: var(--ink-950);
+  color: var(--paper-100);
+  box-shadow: none;
+}
+.account-tabs .provider-tab.on .provider-name b {
+  color: var(--ink-950);
+}
+.account-tabs .provider-tab.on .provider-name small {
+  color: var(--muted-light);
+}
+.account-tabs .provider-tab:focus-visible {
+  outline-offset: 1px;
+}
+@media (max-width: 760px) {
+  .account-tabs .provider-tab {
+    gap: 8px;
+    padding: 6px 10px 6px 6px;
+  }
+  .provider-mark {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* Head row: intro, quota refresh, 保存当前登录, + 添加. */
+.account-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.account-head > .sub {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+.refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.icon-btn {
+  appearance: none;
+  border: 0;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.06);
+  box-shadow: inset 0 0 0 1px var(--edge);
+  color: var(--paper-100);
+}
+.icon-btn svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-btn:not(.off):hover {
+  background: rgba(233, 233, 227, 0.12);
+  box-shadow: inset 0 0 0 1px var(--edge-strong);
+}
+.icon-btn.off,
+.btn.off {
+  opacity: 0.42;
+  cursor: not-allowed;
+  filter: none;
+}
+.icon-btn.spin {
+  opacity: 0.8;
+  cursor: progress;
+}
+.icon-btn.spin svg {
+  animation: refresh-spin 0.9s linear infinite;
+}
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn.spin svg {
+    animation: none;
+  }
+}
+.refresh-when {
+  font-size: 12px;
+  color: var(--muted-dark);
+  white-space: nowrap;
+}
+.refresh-when:empty {
+  display: none;
+}
+.refresh-when.bad {
+  color: var(--warn);
+}
+
+/* Auto switch between the head row and the account cards. */
+.account-auto {
+  margin: 16px 0 12px;
+}
+.auto-switch.unsupported .who b {
+  color: var(--muted-dark);
+}
+
+/* Quota tiles that cannot show a number: 未知 / 不支持, an empty bar and the reason. */
+.reset-cards.unknown .reset-card.none b {
+  font-size: 15px;
+  color: var(--muted-dark);
+}
+.reset-card.none .bar {
+  background: repeating-linear-gradient(90deg, var(--ink-600) 0 6px, transparent 6px 10px);
+}
+.quota-block {
+  display: grid;
+  gap: 8px;
+}
+.reset-cards.unknown {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.quota-note {
+  font-size: 12.5px;
+}
+.warn-text.quota-note {
+  font-size: 12.5px;
+}
