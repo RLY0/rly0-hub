@@ -82,6 +82,19 @@ The Usage control SHALL provide an accessible click and keyboard interaction tha
 - **THEN** the Popover MUST omit five-hour and seven-day rows
 - **AND** it MUST still show the available context, CH, input/output, and cost rows
 
+#### Scenario: User refreshes the Account quota explicitly
+
+- **WHEN** the user activates the quota refresh control in the Usage Popover
+- **THEN** Renderer MUST request `refresh: "quota"` for the current Thread, disable the control while the request is in flight and for 10 seconds afterwards, and show the last-updated time
+- **AND** Host MUST re-read the quota only through a path that sends no model request (Codex `account/rateLimits/read` within its freshness window; the Harness's native `/usage` read for Claude Code)
+- **AND** a failed read MUST keep the previously shown quota and mark the refresh as failed
+
+#### Scenario: Quota cannot be read for the current login
+
+- **WHEN** Host reports `quota.status: "unavailable"` with a reason (a key or subscription token behind RLY/0 Hub's proxy, a relay, a login without plan limits, or no request-free read)
+- **THEN** the Popover MUST explain the reason and keep the refresh control disabled
+- **AND** the credits capsule MUST stay hidden rather than show a placeholder
+
 #### Scenario: Exact refresh is unavailable or fails
 
 - **WHEN** the owning Harness does not support explicit refresh, the refresh is in cooldown, or the exact read fails

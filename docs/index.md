@@ -41,6 +41,7 @@
 | --- | --- |
 | [`harnesses/claude-code/claude-code-plan-mode.md`](harnesses/claude-code/claude-code-plan-mode.md) | Claude Code 规划模式、计划退出确认与权限状态边界；修改 Plan Mode 时阅读。 |
 | [`harnesses/claude-code/claude-code-edit-recovery.md`](harnesses/claude-code/claude-code-edit-recovery.md) | 最后一条消息编辑后的独立 Session、空历史保留和关闭语义；修改编辑恢复时阅读。 |
+| [`harnesses/claude-code/claude-code-quota.md`](harnesses/claude-code/claude-code-quota.md) | Claude Code 5 小时 / 7 天额度来源、经 Hub 代理时为何读不到、手动刷新契约与中转余额设计；修改额度展示或刷新时阅读。 |
 
 ### CodeBuddy、WorkBuddy 与 Cursor
 
