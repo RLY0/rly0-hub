@@ -73,9 +73,10 @@ window.registerHubAgentAccounts = ({
             : "还没有保存的 Claude 账号，没有额度可刷新",
       );
     let keyStamped = false;
-    const key = cards.keyCard("anthropic", {
+    const key = cards.keyCollection("anthropic", {
       alive,
       saveFailed: loginFailed,
+      onChanged: () => load(),
       onLoaded: (info) => {
         syncRefresh();
         // Only the token: its first read is the page's first quota read.
@@ -152,7 +153,7 @@ window.registerHubAgentAccounts = ({
           },
           {
             icon: LOGIN_ICONS.key,
-            title: "官方 API Key",
+            title: "订阅令牌 / API Key",
             desc: "Anthropic 的 sk-ant- Key，或 claude setup-token 生成的令牌",
             onSelect: () => key.openForm(),
           },
@@ -210,7 +211,7 @@ window.registerHubAgentAccounts = ({
               h(
                 "p",
                 { class: "empty span-6" },
-                "还没有保存的 Claude 账号。点右上角“+ 添加” → 网页登录，可以添加多个，一键切换。",
+                "网页登录账号可用“+ 添加 → 网页登录”；订阅令牌保存在下方独立卡片，可继续添加。",
               ),
             ]),
         key.element,

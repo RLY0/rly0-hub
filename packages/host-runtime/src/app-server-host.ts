@@ -2309,6 +2309,20 @@ export class AppServerHost {
       replacement = routed;
     } catch (error) {
       this.#diagnose(error);
+      if (request.method !== "model/list") {
+        if (request.method === "turn/start") {
+          this.#pendingOfficialTurnStarts.delete(request.id);
+          this.#signalActiveWorkChanged();
+        }
+        await this.#writer.json(
+          rpcError(
+            request,
+            -32602,
+            "中转模型已不可用，请刷新模型列表后重新选择。 (RELAY_MODEL_NOT_AVAILABLE)",
+          ),
+        );
+        return;
+      }
     }
     try {
       if (replacement) await this.#officialRuntime.send(replacement);
@@ -2356,8 +2370,25 @@ export class AppServerHost {
     if (request.method === "turn/start" && typeof params.threadId === "string") {
       const provider = router.threadProvider(params.threadId);
       const relayModel = await router.isRelayModel(params.model);
+      if (
+        provider === RLY0_CODEX_PROVIDER_ID &&
+        !relayModel &&
+        typeof params.model === "string" &&
+        (await router.requiresOfficialAuth())
+      ) {
+        this.#pendingOfficialTurnStarts.delete(request.id);
+        this.#signalActiveWorkChanged();
+        await this.#writer.json(
+          rpcError(
+            request,
+            -32602,
+            "这个对话正在使用中转。继续用中转请重新选择带站点名的模型；改用官方模型请新建对话。",
+          ),
+        );
+        return "handled";
+      }
       if (!relayModel && provider !== RLY0_CODEX_PROVIDER_ID) return null;
-      if (relayModel && provider !== undefined && provider !== RLY0_CODEX_PROVIDER_ID) {
+      if (relayModel && provider !== RLY0_CODEX_PROVIDER_ID) {
         this.#pendingOfficialTurnStarts.delete(request.id);
         this.#signalActiveWorkChanged();
         await this.#writer.json(rpcError(request, -32602, RLY0_RELAY_THREAD_MISMATCH_MESSAGE));

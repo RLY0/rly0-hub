@@ -622,7 +622,7 @@ window.registerHubRelays = ({
           "div",
           { class: "sub" },
           relay.models.length
-            ? `${relay.models.length} 个模型 · ${gpt} 个显示在 Codex 菜单`
+            ? `${relay.models.length} 个模型 · ${gpt} 个已选入 Codex 菜单`
             : "还没有模型，点“编辑”测试并选择",
         ),
         h(

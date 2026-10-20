@@ -40,6 +40,12 @@ type OfficialSnapshot = NonNullable<Rly0RelayModelCatalogStatusResult["official"
 export interface Rly0RelayModel {
   readonly model: string;
   readonly relayName: string;
+  readonly relayId: string;
+}
+
+/** Stable, non-secret selector; the core unwraps it only after validating the named relay. */
+export function relayModelId(relayId: string, model: string): string {
+  return `rly0/${relayId}/${model}`;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -158,8 +164,8 @@ export class Rly0RelayModelRouter {
     const { models, delegated } = await this.#relayModels(refresh);
     const appended: string[] = [];
     const shadowed: string[] = [];
-    for (const { model } of models) {
-      (this.#officialModels.has(model) ? shadowed : appended).push(model);
+    for (const { model, relayId } of models) {
+      appended.push(relayModelId(relayId, model));
     }
     return {
       official: this.#officialSnapshot,
@@ -208,10 +214,12 @@ export class Rly0RelayModelRouter {
             if (prefix && isCodexFamilyModel(prefix)) patterns.push(prefix);
             continue;
           }
-          if (seen.has(model)) continue;
-          seen.add(model);
-          if (isCodexFamilyModel(model)) models.push({ model, relayName: relay.name });
-          else delegated.push(model);
+          const selector = relayModelId(relay.id, model);
+          if (seen.has(selector)) continue;
+          seen.add(selector);
+          if (isCodexFamilyModel(model))
+            models.push({ model, relayName: relay.name, relayId: relay.id });
+          else if (!delegated.includes(model)) delegated.push(model);
         }
       }
     }
@@ -245,21 +253,19 @@ export class Rly0RelayModelRouter {
       via: "codex",
     };
     this.#pagedCount = 0;
-    const relayModels = (this.#cache?.models ?? []).filter(
-      ({ model }) => !this.#officialModels.has(model),
-    );
+    const relayModels = this.#cache?.models ?? [];
     if (relayModels.length === 0) return null;
     const template =
       official.find((entry) => entry.isDefault !== true && entry.hidden !== true) ?? official[0];
-    const additions = relayModels.map(({ model, relayName }) => {
+    const additions = relayModels.map(({ model, relayName, relayId }) => {
       const entry: JsonRecord = { ...(template ?? {}) };
       delete entry.upgrade;
       delete entry.upgradeInfo;
       delete entry.availabilityNux;
       return {
         ...entry,
-        id: model,
-        model,
+        id: relayModelId(relayId, model),
+        model: relayModelId(relayId, model),
         // Relay first, behind a relay mark, so relay models stand out from official ones and two
         // relays offering the same model are easy to tell apart. Plain text: it survives Codex
         // updates, unlike decorating Codex's own menu.
@@ -274,14 +280,23 @@ export class Rly0RelayModelRouter {
   }
 
   async isRelayModel(model: unknown): Promise<boolean> {
-    if (typeof model !== "string" || !model || this.#officialModels.has(model)) return false;
-    const { models, patterns } = await this.#relayModels();
-    const listed =
-      models.some((entry) => entry.model === model) ||
-      patterns.some((prefix) => model.startsWith(prefix));
-    if (!listed) return false;
+    // Bare names always belong to the native provider. Relay ownership must be explicit,
+    // independent of official catalog availability, pagination or future official models.
+    if (typeof model !== "string" || !model.startsWith("rly0/")) return false;
+    const { models } = await this.#relayModels();
+    if (!models.some((entry) => relayModelId(entry.relayId, entry.model) === model))
+      throw new Error("RELAY_MODEL_NOT_AVAILABLE");
+    return true;
+  }
+
+  async requiresOfficialAuth(): Promise<boolean> {
+    return this.#requiresAuth();
+  }
+
+  async isOfficialModel(model: unknown): Promise<boolean> {
+    if (typeof model !== "string") return false;
     await this.#ensureOfficialModels();
-    return !this.#officialModels.has(model);
+    return this.#officialModels.has(model);
   }
 
   /**

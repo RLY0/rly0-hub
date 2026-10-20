@@ -52,6 +52,10 @@ npm 安装需要同时找到 Node 和 npm，缺少时尝试固定的 `winget ins
 
 ## 页面与验证
 
+0.11.8：Anthropic 凭据按 core relay id 分卡存储。`officialKeys.set` 不带 id 新增、带 id 仅替换对应项；core 以完整密钥比较去重，不依赖末四位。新增和导入不改当前绑定；`officialKeys.select` 才改变 Claude Code 后续新会话使用的凭据。info/remove 校验 vendor 和 id，正在使用的令牌须先切换再删除。AI 助手的选择器也按 id 列出所有令牌。原有单凭据和 OAuth 记录不迁移。
+
+Codex 模型目录保留官方原条目，每个已启用中转模型另用 `rly0/<relayId>/<model>` 作稳定选择标识，展示站点名和原模型名。core 每次校验目标中转仍启用、有密钥且声明该模型，然后仅在出站副本将 model 改回上游名；不可用时拒绝，不回退其他中转或官方。Host 路由判断失败必须回错误，不转发原始请求。不同 provider 的对话切换继续遵守原有新建对话边界，不静默重定向。
+
 `.app` 的网格行限制在窗口内，`.stage` 和 `#page` 允许收缩，页面内容在 `#page` 内滚动；菜单自身也能滚动，支持壳的最小窗口。新管理页面位于 `www/pages/resources.js`、`system.js`，mock 数据位于 `mock.js`，由 `index.html` 的同源脚本加载，保持 CSP `script-src 'self'`。新增资源同时列入 Windows payload 清单。
 
 后端测试使用隔离的临时 HOME、CODEX_HOME 和 Hub 数据目录；安装分支使用虚拟 runner。浏览器 mock 预览可验证页面交互和滚动，但不代表 C#/WebView2、真实安装、登录或启动器进程控制验收。

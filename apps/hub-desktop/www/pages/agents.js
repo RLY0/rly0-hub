@@ -310,7 +310,6 @@ window.registerHubAgents = ({
       h("section", { class: "agent-section community" }, communityHead, community),
     );
     let relays = [];
-    let officialKey = null;
     let claudeRelay = null;
     // Third-party agents RLY/0 Hub routes itself: { agentId: { relayId, model } }.
     let agentRelays = {};
@@ -399,7 +398,6 @@ window.registerHubAgents = ({
       connections = status && status.report;
       const all = ((relayList && relayList.relays) || []).filter((relay) => relay.hasKey);
       // Claude Code's own key is the Anthropic one; the other vendors' keys serve other agents.
-      officialKey = all.find((relay) => /\/\/api\.anthropic\.com/iu.test(relay.baseUrl)) || null;
       relays = all.filter((relay) => relay.enabled && !isOfficialKey(relay));
       claudeRelay = selection.claudeCode;
       agentRelays = selection.agents || {};
@@ -683,7 +681,12 @@ window.registerHubAgents = ({
             value: "live",
             label: `Claude 账号 · ${(claudeAccounts.live && claudeAccounts.live.email) || "当前登录"}（未保存）`,
           });
-        if (officialKey) options.push({ value: "key", label: "官方 API Key / 订阅令牌" });
+        for (const key of officialKeys.filter((entry) => entry.vendor === "anthropic"))
+          options.push({
+            value: `key:${key.id}`,
+            label: `${key.name || "官方 API Key / 订阅令牌"} · ${key.keyMask || key.id.slice(-4)}`,
+            key,
+          });
       } else {
         options.push({ value: "own", label: "自己的登录（官方账号）" });
         // Third-party agents can run on any vendor's official API key saved on 账号.
@@ -714,7 +717,11 @@ window.registerHubAgents = ({
       // What is in use now.
       let current = null;
       if (isClaude) {
-        if (claudeRelay && officialKey && claudeRelay === officialKey.id) current = "key";
+        if (
+          claudeRelay &&
+          officialKeys.some((key) => key.vendor === "anthropic" && key.id === claudeRelay)
+        )
+          current = `key:${claudeRelay}`;
         else if (claudeRelay) current = `relay:${claudeRelay}`;
         else {
           const live = (claudeAccounts.accounts || []).find((a) => a.current);
@@ -762,8 +769,8 @@ window.registerHubAgents = ({
           } else if (value === "live") {
             await call("agents.relays.set", { claudeCode: null });
             toast("已改用当前的 Claude 登录");
-          } else if (value === "key") {
-            await call("agents.relays.set", { claudeCode: officialKey.id });
+          } else if (value.startsWith("key:")) {
+            await call("agents.officialKeys.select", { vendor: "anthropic", id: value.slice(4) });
             toast("已改用官方 API Key / 订阅令牌");
           } else if (value === "own") {
             if (thirdParty)

@@ -113,7 +113,13 @@ window.registerHubDiscovery = ({ h, call, toast, failed }) => {
               ),
               h("span", { class: "spacer" }),
               item.state === "differs"
-                ? h("span", { class: "tag warn" }, "会替换已存的 Key")
+                ? h(
+                    "span",
+                    { class: "tag warn" },
+                    item.kind === "officialKey" && item.vendor === "anthropic"
+                      ? "另存为独立令牌"
+                      : "会替换已存的 Key",
+                  )
                 : null,
               item.agent !== "any" ? h("span", { class: "tag" }, AGENT[item.agent]) : null,
             ),

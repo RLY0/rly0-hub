@@ -378,7 +378,8 @@ export class Rly0CoreBridge {
       | "remove"
       | "usage"
       | "usageAll"
-      | "keyInfo",
+      | "keyInfo"
+      | "saveKey",
     params: Record<string, unknown> = {},
   ): Promise<Record<string, unknown> | null> {
     const response = await this.#client.request<Record<string, unknown>>(

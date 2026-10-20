@@ -188,6 +188,16 @@ window.hubManagementMock = (() => {
     xai: { kind: "apiKey", keyMask: "****xY9z", valid: false, modelCount: 0 },
   };
   const claudeUsesKey = new URLSearchParams(location.search).get("claudeUses") === "key";
+  // SYNTHETIC browser-only multi-credential state, never used by the real bridge.
+  let selectedClaudeKey = claudeUsesKey ? "cccccccccccc" : null;
+  let keySequence = 0;
+  const claudeKeys = new Map([
+    ["cccccccccccc", { ...officialKeys.anthropic, id: "cccccccccccc", name: "Claude 订阅令牌" }],
+    [
+      "dddddddddddd",
+      { ...claudeKey(null), id: "dddddddddddd", name: "Claude 订阅令牌", last4: "cd34" },
+    ],
+  ]);
   // Browser-only fixture. These operations never install Docker or access a real project.
   let isolation = null;
   let isolationLogin = { phase: "idle" };
@@ -681,16 +691,33 @@ window.hubManagementMock = (() => {
         return { ...agyState, __delay: 600 };
       // `?claudeUses=key`: Claude Code bound to the saved setup-token (AI 助手 → 使用).
       case "agents.relays.get":
-        return claudeUsesKey && officialKeys.anthropic
-          ? { claudeCode: "cccccccccccc", agents: {} }
-          : null;
+        return { claudeCode: selectedClaudeKey, agents: {} };
       case "agents.officialKeys.list":
-        return claudeUsesKey && officialKeys.anthropic
-          ? { keys: [{ vendor: "anthropic", id: "cccccccccccc", keyMask: "****ab12", models: [] }] }
-          : null;
+        return {
+          keys: [...claudeKeys.values()].map((key) => ({
+            vendor: "anthropic",
+            id: key.id,
+            name: key.name,
+            keyMask: `****${key.last4 || "ab12"}`,
+            models: [],
+          })),
+        };
       case "agents.officialKeys.info":
+        if (p.vendor === "anthropic")
+          return { info: claudeKeys.get(p.id || selectedClaudeKey || "cccccccccccc") || null };
         return { info: officialKeys[p.vendor] || null };
       case "agents.officialKeys.set":
+        if (p.vendor === "anthropic") {
+          const id = p.id || (++keySequence).toString(16).padStart(12, "0");
+          if (p.id && !claudeKeys.has(p.id)) return { __error: "OFFICIAL_KEY_NOT_FOUND" };
+          claudeKeys.set(id, {
+            ...claudeKey(null),
+            id,
+            name: "Claude 订阅令牌",
+            last4: p.apiKey.slice(-4),
+          });
+          return { ok: true, id, valid: true, modelCount: 3 };
+        }
         officialKeys[p.vendor] = {
           kind: "apiKey",
           keyMask: "****new1",
@@ -699,8 +726,17 @@ window.hubManagementMock = (() => {
         };
         return { ok: true, valid: true, modelCount: 3 };
       case "agents.officialKeys.remove":
+        if (p.vendor === "anthropic") {
+          if (p.id === selectedClaudeKey) return { __error: "OFFICIAL_KEY_IN_USE" };
+          claudeKeys.delete(p.id);
+          return { ok: true };
+        }
         officialKeys[p.vendor] = null;
         return { ok: true };
+      case "agents.officialKeys.select":
+        if (!claudeKeys.has(p.id)) return { __error: "OFFICIAL_KEY_NOT_FOUND" };
+        selectedClaudeKey = p.id;
+        return { ok: true, id: p.id };
       case "agents.installStart":
       case "agents.installStatus":
         return p.agent === "grok"

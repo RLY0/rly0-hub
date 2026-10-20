@@ -30,30 +30,18 @@ export function isAnthropicOfficial(relay: Pick<Rly0Relay, "baseUrl">): boolean 
   }
 }
 
-/** Saves (or replaces) the key and returns the entry id Claude Code should be pinned to. */
+/** Adds a separate credential; replacement requires its explicit id. Secrets stay in the core. */
 export async function saveAnthropicApiKey(
-  core: Pick<Rly0CoreBridge, "listRelays" | "addRelay" | "updateRelay">,
+  core: Pick<Rly0CoreBridge, "claudeAccounts">,
   apiKey: string,
+  id?: string,
 ): Promise<{ id: string }> {
   const key = apiKey.trim();
   if (!ANTHROPIC_API_KEY_PATTERN.test(key)) throw codedError("API_KEY_INVALID");
-  const list = await core.listRelays();
-  if (!list.available) throw codedError("RLY0_CORE_UNAVAILABLE");
-  const existing = list.relays.find(isAnthropicOfficial);
-  if (existing) {
-    const updated = await core.updateRelay({ id: existing.id, apiKey: key, enabled: true });
-    if (!updated.available) throw codedError("RLY0_CORE_UNAVAILABLE");
-    return { id: existing.id };
-  }
-  const added = await core.addRelay({
-    name: ANTHROPIC_OFFICIAL_NAME,
-    baseUrl: ANTHROPIC_OFFICIAL_BASE_URL,
-    apiKey: key,
-    models: [],
-    enabled: true,
-  });
-  if (!added.available) throw codedError("RLY0_CORE_UNAVAILABLE");
-  return { id: added.id };
+  const saved = await core.claudeAccounts("saveKey", { apiKey: key, ...(id ? { id } : {}) });
+  if (!saved || typeof saved.id !== "string" || !/^[a-f0-9]{12}$/u.test(saved.id))
+    throw codedError("RLY0_CORE_UNAVAILABLE");
+  return { id: saved.id };
 }
 
 /** Checks a picked file is a Claude Code login before anything is written. */

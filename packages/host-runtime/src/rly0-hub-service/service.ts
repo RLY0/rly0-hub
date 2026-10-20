@@ -73,7 +73,6 @@ import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { apiKeyLogin, importLogin, parseLoginFile } from "./account-import.js";
 import {
   importClaudeCredentials,
-  isAnthropicOfficial,
   parseClaudeImport,
   saveAnthropicApiKey,
 } from "./claude-official.js";
@@ -579,7 +578,7 @@ export class Rly0HubService {
       }
       try {
         if (item.kind === "officialKey") {
-          await this.#saveOfficialKey(core, item.vendor, item.secret, false);
+          await this.#saveOfficialKey(core, item.vendor, item.secret);
         } else if (item.baseUrl) {
           const base = item.baseUrl.toLowerCase();
           const existing = relays.relays.find(
@@ -618,17 +617,27 @@ export class Rly0HubService {
     core: Rly0CoreBridge,
     vendor: Rly0OfficialVendor,
     apiKey: string,
-    /** Make Claude Code use it now (typed in by hand); not when taken over from the computer. */
-    pin = true,
+    replaceId?: string,
   ): Promise<Record<string, unknown>> {
     const spec = RLY0_OFFICIAL_VENDORS[vendor];
     const key = apiKey.trim();
     if (!spec.pattern.test(key)) throw codedHubError("API_KEY_INVALID");
     const relays = await core.listRelays();
     if (!relays.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
-    const existing = relays.relays.find((relay) => officialVendorOf(relay) === vendor);
+    const existing = relays.relays.find(
+      (relay) => officialVendorOf(relay) === vendor && (!replaceId || relay.id === replaceId),
+    );
+    if (replaceId && !existing) throw codedHubError("OFFICIAL_KEY_NOT_FOUND");
+    if (
+      vendor === "anthropic" &&
+      replaceId &&
+      (await this.#agentRelays.get()).claudeCode === replaceId
+    )
+      throw codedHubError("OFFICIAL_KEY_IN_USE");
     let id: string;
-    if (existing) {
+    if (vendor === "anthropic") {
+      ({ id } = await saveAnthropicApiKey(core, key, replaceId));
+    } else if (existing) {
       const updated = await core.updateRelay({
         id: existing.id,
         apiKey: key,
@@ -651,7 +660,7 @@ export class Rly0HubService {
     const test = await core.testRelay({ id }).catch(() => null);
     const models = test && test.available && test.ok ? (test.models ?? []) : [];
     await this.#officialModels.set(vendor, models);
-    if (vendor === "anthropic" && pin) await this.#agentRelays.set({ claudeCode: id });
+    // Adding a credential never switches the active identity. Selection is a separate command.
     await this.#ensureProxyForRelays().catch(() => undefined);
     return {
       ok: true,
@@ -660,6 +669,19 @@ export class Rly0HubService {
       error: test && test.available && !test.ok ? (test.error ?? null) : null,
       modelCount: models.length,
     };
+  }
+
+  async #officialKey(core: Rly0CoreBridge, vendor: Rly0OfficialVendor, id?: string) {
+    const listed = await core.listRelays();
+    if (!listed.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+    const entries = listed.relays.filter((entry) => officialVendorOf(entry) === vendor);
+    if (id) {
+      const found = entries.find((entry) => entry.id === id);
+      if (!found) throw codedHubError("OFFICIAL_KEY_NOT_FOUND");
+      return found;
+    }
+    const selected = vendor === "anthropic" ? (await this.#agentRelays.get()).claudeCode : null;
+    return entries.find((entry) => entry.id === selected) ?? entries[0];
   }
 
   async dispose(): Promise<void> {
@@ -996,8 +1018,7 @@ export class Rly0HubService {
           const parsed = parseClaudeImport(p.content);
           if (parsed.kind === "token") {
             // A subscription token or key from a Sub2API export: kept encrypted by rly0-core.
-            const { id } = await saveAnthropicApiKey(core, parsed.token);
-            await this.#agentRelays.set({ claudeCode: id });
+            await saveAnthropicApiKey(core, parsed.token);
             await this.#ensureProxyForRelays().catch(() => undefined);
             return { ok: true, backup: null, token: true };
           }
@@ -1073,8 +1094,7 @@ export class Rly0HubService {
           importClaudeAccountFile(core, p.content, {
             ...(p.alias ? { alias: p.alias } : {}),
             saveToken: async (token) => {
-              const { id } = await saveAnthropicApiKey(core, token);
-              await this.#agentRelays.set({ claudeCode: id });
+              await saveAnthropicApiKey(core, token);
               await this.#ensureProxyForRelays().catch(() => undefined);
             },
           }),
@@ -1105,8 +1125,7 @@ export class Rly0HubService {
       // What the saved official key/subscription token is: account and usage for a token,
       // validity for an API key. The key itself stays in rly0-core.
       "agents.claudeCode.keyInfo": route(empty, async () => {
-        const relays = await core.listRelays();
-        const entry = relays.available ? relays.relays.find(isAnthropicOfficial) : undefined;
+        const entry = await this.#officialKey(core, "anthropic");
         if (!entry) return { info: null };
         return { info: await core.claudeAccounts("keyInfo", { relayId: entry.id }) };
       }),
@@ -1148,6 +1167,7 @@ export class Rly0HubService {
                 {
                   vendor,
                   id: relay.id,
+                  name: relay.name,
                   keyMask: relay.keyMask ?? null,
                   models: models[vendor] ?? [],
                 },
@@ -1161,9 +1181,13 @@ export class Rly0HubService {
           .object({
             vendor: z.enum(["openai", "anthropic", "google", "xai"]),
             apiKey: z.string().min(1).max(400),
+            id: z
+              .string()
+              .regex(/^[a-f0-9]{12}$/u)
+              .optional(),
           })
           .strict(),
-        (p) => this.#saveOfficialKey(core, p.vendor, p.apiKey),
+        (p) => this.#saveOfficialKey(core, p.vendor, p.apiKey, p.id),
       ),
       // A Sub2API account export: the vendor's key in it is saved like a typed one.
       "agents.officialKeys.importFile": route(
@@ -1179,15 +1203,23 @@ export class Rly0HubService {
         (p) => this.#saveOfficialKey(core, p.vendor, keyFromAccountExport(p.content, p.vendor)),
       ),
       "agents.officialKeys.info": route(
-        z.object({ vendor: z.enum(["openai", "anthropic", "google", "xai"]) }).strict(),
+        z
+          .object({
+            vendor: z.enum(["openai", "anthropic", "google", "xai"]),
+            id: z
+              .string()
+              .regex(/^[a-f0-9]{12}$/u)
+              .optional(),
+          })
+          .strict(),
         async (p) => {
-          const relays = await core.listRelays();
-          const relay = relays.available
-            ? relays.relays.find((entry) => officialVendorOf(entry) === p.vendor && entry.hasKey)
-            : undefined;
+          const relay = await this.#officialKey(core, p.vendor, p.id);
           if (!relay) return { info: null };
-          if (p.vendor === "anthropic")
-            return { info: await core.claudeAccounts("keyInfo", { relayId: relay.id }) };
+          if (p.vendor === "anthropic") {
+            const info = await core.claudeAccounts("keyInfo", { relayId: relay.id });
+            if (!info) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+            return { info: { ...info, id: relay.id, name: relay.name } };
+          }
           const test = await core.testRelay({ id: relay.id }).catch(() => null);
           const ok = Boolean(test && test.available && test.ok);
           if (ok && test && test.available && test.models?.length)
@@ -1195,6 +1227,8 @@ export class Rly0HubService {
           return {
             info: {
               kind: "apiKey",
+              id: relay.id,
+              name: relay.name,
               keyMask: relay.keyMask ?? null,
               ...(ok
                 ? { valid: true }
@@ -1208,21 +1242,41 @@ export class Rly0HubService {
         },
       ),
       "agents.officialKeys.remove": route(
-        z.object({ vendor: z.enum(["openai", "anthropic", "google", "xai"]) }).strict(),
+        z
+          .object({
+            vendor: z.enum(["openai", "anthropic", "google", "xai"]),
+            id: z
+              .string()
+              .regex(/^[a-f0-9]{12}$/u)
+              .optional(),
+          })
+          .strict(),
         async (p) => {
-          const relays = await core.listRelays();
-          const relay = relays.available
-            ? relays.relays.find((entry) => officialVendorOf(entry) === p.vendor)
-            : undefined;
-          if (relay) await core.removeRelay({ id: relay.id });
-          await this.#officialModels.set(p.vendor, null);
+          const relay = await this.#officialKey(core, p.vendor, p.id);
           const selection = await this.#agentRelays.get();
+          if (p.vendor === "anthropic" && relay && selection.claudeCode === relay.id)
+            throw codedHubError("OFFICIAL_KEY_IN_USE");
+          if (relay) await core.removeRelay({ id: relay.id });
+          if (p.vendor !== "anthropic") await this.#officialModels.set(p.vendor, null);
           if (relay && selection.claudeCode === relay.id)
             await this.#agentRelays.set({ claudeCode: null });
           for (const [agent, choice] of Object.entries(selection.agents ?? {}))
             if (relay && choice?.relayId === relay.id)
               await this.#agentRelays.setAgent(agent as "pi" | "hermes" | "opencode", null);
           return { ok: true };
+        },
+      ),
+      "agents.officialKeys.select": route(
+        z
+          .object({ vendor: z.literal("anthropic"), id: z.string().regex(/^[a-f0-9]{12}$/u) })
+          .strict(),
+        async (p) => {
+          const relay = await this.#officialKey(core, p.vendor, p.id);
+          if (!relay || !relay.enabled || !relay.hasKey)
+            throw codedHubError("OFFICIAL_KEY_NOT_AVAILABLE");
+          await this.#ensureProxyForRelays();
+          await this.#agentRelays.set({ claudeCode: relay.id });
+          return { ok: true, id: relay.id };
         },
       ),
       "agents.relays.get": route(empty, () => this.#agentRelays.get()),

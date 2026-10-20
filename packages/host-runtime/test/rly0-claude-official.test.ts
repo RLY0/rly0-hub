@@ -13,32 +13,18 @@ import {
 const KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz";
 
 describe("Claude Code official sign-ins", () => {
-  it("saves an Anthropic key once and replaces it later", async () => {
-    const relays: { id: string; name: string; baseUrl: string }[] = [];
-    const core = {
-      listRelays: vi.fn(async () => ({ available: true as const, relays: relays as never[] })),
-      addRelay: vi.fn(async (p: { name: string; baseUrl: string }) => {
-        relays.push({ id: "r-anthropic", name: p.name, baseUrl: p.baseUrl });
-        return { available: true as const, id: "r-anthropic", relay: {} as never };
-      }),
-      updateRelay: vi.fn(async () => ({ available: true as const, relay: {} as never })),
-    };
-    expect(await saveAnthropicApiKey(core as never, ` ${KEY} `)).toEqual({ id: "r-anthropic" });
-    expect(core.addRelay).toHaveBeenCalledWith(
-      expect.objectContaining({ baseUrl: "https://api.anthropic.com", apiKey: KEY, models: [] }),
-    );
-    expect(await saveAnthropicApiKey(core as never, KEY)).toEqual({ id: "r-anthropic" });
-    expect(core.addRelay).toHaveBeenCalledTimes(1);
-    expect(core.updateRelay).toHaveBeenCalledWith({
-      id: "r-anthropic",
+  it("delegates independent saving and explicit replacement to the encrypted core", async () => {
+    const core = { claudeAccounts: vi.fn(async () => ({ id: "aaaaaaaaaaaa" })) };
+    expect(await saveAnthropicApiKey(core, KEY)).toEqual({ id: "aaaaaaaaaaaa" });
+    expect(core.claudeAccounts).toHaveBeenLastCalledWith("saveKey", { apiKey: KEY });
+    await saveAnthropicApiKey(core, KEY, "bbbbbbbbbbbb");
+    expect(core.claudeAccounts).toHaveBeenLastCalledWith("saveKey", {
       apiKey: KEY,
-      enabled: true,
+      id: "bbbbbbbbbbbb",
     });
-    await expect(saveAnthropicApiKey(core as never, "sk-openai-123")).rejects.toThrow(
-      "API_KEY_INVALID",
-    );
+    await expect(saveAnthropicApiKey(core, "bad")).rejects.toThrow("API_KEY_INVALID");
     expect(isAnthropicOfficial({ baseUrl: "https://api.anthropic.com/v1" })).toBe(true);
-    expect(isAnthropicOfficial({ baseUrl: "https://api.rly0.com/v1" })).toBe(false);
+    expect(isAnthropicOfficial({ baseUrl: "https://api.rly0.com" })).toBe(false);
   });
 
   it("imports a credentials file after backing up the current one", async () => {

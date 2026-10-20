@@ -501,11 +501,28 @@ window.registerHubAccountCards = ({
   // The vendor's one saved key (or Claude subscription token) as a card in the account grid;
   // hidden while none is saved. `openForm()` shows the save / replace form in its place.
   // `setInUse(true)` when the agent runs on this key (Claude Code / Grok bound to it).
-  function keyCard(vendor, { alive, onLoaded, saveFailed }) {
+  function keyCard(
+    vendor,
+    { alive, onLoaded, saveFailed, id, draft = false, deferLoad = false, onChanged },
+  ) {
     const spec = VENDORS[vendor];
     const element = h("section", { class: "m span-3 account-card key-card", hidden: true });
     let info = null;
     let inUse = false;
+    let busy = false;
+    let loadGeneration = 0;
+    let loadError = false;
+    const params = () => ({ vendor, ...(id ? { id } : {}) });
+    const report = (error) => {
+      const messages = {
+        OFFICIAL_KEY_IN_USE: "这个令牌正在使用，请先切换到其他账号或令牌，再替换或删除",
+        OFFICIAL_KEY_DUPLICATE: "另一张卡片已保存这个令牌，无需重复添加",
+        OFFICIAL_KEY_NOT_FOUND: "这个令牌已不存在，请刷新账号列表",
+      };
+      if (messages[error && error.message]) toast(messages[error.message]);
+      else if (saveFailed) saveFailed(error);
+      else toast(explain(error && error.message));
+    };
 
     function openForm() {
       const key = h("input", {
@@ -516,15 +533,39 @@ window.registerHubAccountCards = ({
         spellcheck: "false",
         "aria-label": spec.title,
       });
-      const save = () =>
-        call("agents.officialKeys.set", { vendor, apiKey: key.value.trim() }).then((r) => {
-          toast(
-            r && r.valid
-              ? `已保存，读到 ${r.modelCount} 个模型。在「AI 助手」页的“使用”里选它`
-              : "已保存，但官方接口暂时没通过验证",
-          );
-          load();
-        }, saveFailed);
+      const save = () => {
+        if (busy) return;
+        busy = true;
+        ++loadGeneration;
+        saveButton.disabled = true;
+        call("agents.officialKeys.set", { ...params(), apiKey: key.value.trim() })
+          .then(async (r) => {
+            key.value = "";
+            toast(
+              vendor === "anthropic"
+                ? id
+                  ? "已更新这枚令牌，其他卡片不受影响"
+                  : "已独立保存，点击卡片上的“切换到这个”即可使用"
+                : r && r.valid
+                  ? `已保存，读到 ${r.modelCount} 个模型。在「AI 助手」页的“使用”里选它`
+                  : "已保存，但官方接口暂时没通过验证",
+            );
+            if (onChanged)
+              await onChanged().catch(() => toast("已保存，但列表刷新失败，请重新进入账号页"));
+            else await load();
+            if (draft) render();
+          }, report)
+          .catch(report)
+          .finally(() => {
+            busy = false;
+            saveButton.disabled = false;
+          });
+      };
+      const saveButton = h(
+        "button",
+        { class: "btn paper sm", type: "button", onclick: save },
+        "保存",
+      );
       key.addEventListener("keydown", (event) => {
         if (event.key === "Enter") save();
         if (event.key === "Escape") render();
@@ -543,7 +584,7 @@ window.registerHubAccountCards = ({
         h(
           "div",
           { class: "row" },
-          h("button", { class: "btn paper sm", type: "button", onclick: save }, "保存"),
+          saveButton,
           h("button", { class: "btn quiet sm", type: "button", onclick: render }, "取消"),
         ),
       );
@@ -556,7 +597,24 @@ window.registerHubAccountCards = ({
       element.classList.toggle("in-use", Boolean(info) && inUse);
       element.hidden = !info;
       if (!info) {
-        put(element);
+        element.hidden = !loadError;
+        put(
+          element,
+          ...(loadError
+            ? [
+                h(
+                  "p",
+                  { class: "warn-text" },
+                  `这枚令牌的信息读取失败（${id ? id.slice(-4) : vendor}），请重试。`,
+                ),
+                h(
+                  "button",
+                  { class: "btn sm", type: "button", onclick: () => load().catch(report) },
+                  "重试读取令牌",
+                ),
+              ]
+            : []),
+        );
         return;
       }
       const subscription = info.kind === "subscription";
@@ -585,6 +643,9 @@ window.registerHubAccountCards = ({
               reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
             }),
         notes: [
+          loadError
+            ? h("p", { class: "warn-text" }, "刷新失败，保留上次额度；可再次点击刷新")
+            : null,
           h("p", { class: "sub" }, spec.use),
           info.valid === false
             ? h("p", { class: "warn-text" }, "官方不接受这个 Key / 令牌了，请换一个新的。")
@@ -592,21 +653,71 @@ window.registerHubAccountCards = ({
               ? h("p", { class: "sub" }, KEY_ERRORS[info.error] || explain(info.error))
               : null,
         ],
-        actions: [h("button", { class: "btn sm", type: "button", onclick: openForm }, "换一个")],
+        actions: [
+          ...(vendor === "anthropic" && id && !inUse
+            ? [
+                h(
+                  "button",
+                  {
+                    class: "btn paper sm",
+                    type: "button",
+                    onclick: async () => {
+                      if (busy) return;
+                      busy = true;
+                      try {
+                        await call("agents.officialKeys.select", params());
+                        toast("已切换，新开的 Claude Code 对话使用这个令牌");
+                        if (onChanged)
+                          await onChanged().catch(() =>
+                            toast("已切换，但列表刷新失败，请重新进入账号页"),
+                          );
+                      } catch (error) {
+                        report(error);
+                      } finally {
+                        busy = false;
+                      }
+                    },
+                  },
+                  "切换到这个",
+                ),
+              ]
+            : []),
+          ...(vendor === "anthropic" && id
+            ? [
+                h(
+                  "button",
+                  { class: "btn quiet sm", type: "button", onclick: () => load().catch(report) },
+                  "刷新",
+                ),
+              ]
+            : []),
+          h("button", { class: "btn sm", type: "button", onclick: openForm }, "换一个"),
+        ],
         onRemove: () =>
-          call("agents.officialKeys.remove", { vendor }).then(() => {
-            info = null;
-            render();
-            if (onLoaded) onLoaded(null);
-          }),
+          call("agents.officialKeys.remove", params())
+            .then(async () => {
+              ++loadGeneration;
+              loadError = false;
+              info = null;
+              render();
+              if (onLoaded) onLoaded(null);
+              if (onChanged)
+                await onChanged().catch(() => toast("已删除，但列表刷新失败，请重新进入账号页"));
+            })
+            .catch((error) => {
+              report(error);
+              throw error;
+            }),
         removedText: "已删除这个 Key",
       });
       put(element, ...card.childNodes);
     }
 
     async function load() {
-      const result = await call("agents.officialKeys.info", { vendor }).catch(() => undefined);
-      if (!alive()) return info;
+      const generation = ++loadGeneration;
+      const result = await call("agents.officialKeys.info", params()).catch(() => undefined);
+      if (!alive() || generation !== loadGeneration) return info;
+      loadError = result === undefined;
       if (result !== undefined) info = (result && result.info) || null;
       render();
       if (onLoaded) onLoaded(info);
@@ -614,7 +725,7 @@ window.registerHubAccountCards = ({
       return info;
     }
 
-    load().catch(() => undefined);
+    if (!draft && !deferLoad) load().catch(() => undefined);
     return {
       element,
       openForm,
@@ -626,6 +737,94 @@ window.registerHubAccountCards = ({
       },
       get info() {
         return info;
+      },
+    };
+  }
+
+  // Same existing cards, keyed by credential id; no vendor-wide singleton for Anthropic.
+  function keyCollection(vendor, { alive, onLoaded, saveFailed, onChanged }) {
+    const element = h("div", { class: "grid compact span-6" });
+    const entries = new Map();
+    let selectedId = null;
+    let loading = null;
+    const changed = async () => {
+      // A completed mutation must be followed by a fresh read, even if an older read is running.
+      if (loading) await loading.catch(() => undefined);
+      await reload();
+      if (onChanged) await onChanged();
+    };
+    const draft = keyCard(vendor, { alive, saveFailed, draft: true, onChanged: changed });
+    const collectionInfo = () =>
+      [...entries.values()].find((entry) => keyQuota(entry.info).refreshable)?.info ||
+      entries.get(selectedId)?.info ||
+      [...entries.values()][0]?.info ||
+      null;
+    async function reload() {
+      if (loading) return loading;
+      loading = (async () => {
+        const [listed, selection] = await Promise.all([
+          call("agents.officialKeys.list"),
+          call("agents.relays.get"),
+        ]);
+        if (!alive()) return collectionInfo();
+        const keys = (listed.keys || []).filter((entry) => entry.vendor === vendor);
+        selectedId = selection.claudeCode || null;
+        const ids = new Set(keys.map((entry) => entry.id));
+        for (const id of entries.keys()) if (!ids.has(id)) entries.delete(id);
+        for (const key of keys) {
+          if (!entries.has(key.id)) {
+            entries.set(
+              key.id,
+              keyCard(vendor, {
+                id: key.id,
+                alive,
+                saveFailed,
+                deferLoad: true,
+                onLoaded: () => onLoaded && onLoaded(collectionInfo()),
+                onChanged: changed,
+              }),
+            );
+          }
+          entries.get(key.id).setInUse(key.id === selectedId);
+        }
+        put(element, ...keys.map((key) => entries.get(key.id).element), draft.element);
+        const reads = await Promise.allSettled(
+          [...entries.values()].map((entry) => entry.reload()),
+        );
+        if (onLoaded) onLoaded(collectionInfo());
+        if (reads.some((result) => result.status === "rejected"))
+          throw new Error("KEY_INFO_FAILED");
+        return collectionInfo();
+      })().finally(() => {
+        loading = null;
+      });
+      return loading;
+    }
+    const loadWithFeedback = () =>
+      reload().catch(() => {
+        toast("令牌列表读取失败，请重试；已显示的卡片和额度会保留");
+        if (alive() && !entries.size)
+          put(
+            element,
+            h("p", { class: "sub span-6" }, "令牌列表读取失败，无法确认已保存的令牌。"),
+            h(
+              "button",
+              { class: "btn sm", type: "button", onclick: loadWithFeedback },
+              "重试读取令牌",
+            ),
+            draft.element,
+          );
+      });
+    loadWithFeedback();
+    return {
+      element,
+      openForm: () => draft.openForm(),
+      reload,
+      setInUse(value) {
+        for (const [id, entry] of entries) entry.setInUse(value && id === selectedId);
+      },
+      get info() {
+        return collectionInfo();
       },
     };
   }
@@ -644,8 +843,9 @@ window.registerHubAccountCards = ({
           ? selection.agents[agent].relayId
           : null;
     if (!relayId) return "login";
-    const key = ((keys && keys.keys) || []).find((k) => k.vendor === vendor);
-    return key && key.id === relayId ? "key" : "relay";
+    return ((keys && keys.keys) || []).some((k) => k.vendor === vendor && k.id === relayId)
+      ? "key"
+      : "relay";
   }
 
   // usageAll replies: { results: [{ id, usage } | { id, error }] } (Codex adds `available`).
@@ -662,6 +862,7 @@ window.registerHubAccountCards = ({
     autoSwitchCard,
     refresher,
     keyCard,
+    keyCollection,
     credentialInUse,
     usageFailures,
     keyQuota,
