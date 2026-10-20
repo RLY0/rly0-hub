@@ -15,12 +15,21 @@ const runDir = process.env.HUB_PATROL_RUN || path.resolve(".local-test/patrol/ma
 const WIDTHS = (process.env.HUB_PATROL_WIDTHS || "1240,760").split(",").map(Number);
 const HEIGHT = 820;
 
-type Target = { id: string; kind: "rail" | "settings" | "wizard"; label?: string };
+type Target = { id: string; kind: "rail" | "settings" | "accounts" | "wizard"; label?: string };
 const TARGETS: Target[] = [
-  ...["home", "accounts", "relays", "agents", "maintenance", "support"].map((id): Target => ({
+  ...["home", "relays", "agents", "maintenance", "support"].map((id): Target => ({
     id,
     kind: "rail",
   })),
+  // 账号: one target per provider tab.
+  ...(
+    [
+      ["codex", "OpenAI"],
+      ["claude", "Anthropic"],
+      ["gemini", "Google"],
+      ["grok", "xAI"],
+    ] as const
+  ).map(([id, label]): Target => ({ id: `accounts-${id}`, kind: "accounts", label })),
   ...(
     [
       ["general", "通用"],
@@ -131,6 +140,10 @@ for (const width of WIDTHS) {
           await page.waitForFunction(() => document.body.classList.contains("guided"));
         } else if (target.kind === "rail") {
           if (target.id !== "home") await page.click(`.rail button[data-page="${target.id}"]`);
+        } else if (target.kind === "accounts") {
+          await page.click('.rail button[data-page="accounts"]');
+          await settle(150);
+          await page.click(`.account-tabs button[aria-label^="${target.label}"]`);
         } else {
           await page.click('.rail button[data-page="settings"]');
           await page
@@ -399,6 +412,59 @@ for (const width of WIDTHS) {
         expect(clicked).toContain("反馈问题#1");
         expect(clicked).toContain("打开文件夹#1");
       }
+      // 刷新额度: works where quota can be read (mock: Codex succeeds with one account failing,
+      // Claude fails outright), and is unavailable, with its reason, where it cannot.
+      if (target.id === "accounts-codex" || target.id === "accounts-claude")
+        expect(clicked).toContain("刷新额度#1");
+      if (target.id === "accounts-gemini" || target.id === "accounts-grok")
+        expect(skipped).toContainEqual({ label: "刷新额度#1", reason: "不可用" });
     });
   }
 }
+
+// 刷新额度 on the 账号 page, both outcomes the mock produces.
+test("accounts quota refresh: loading, cooldown, partial and full failure", async ({ page }) => {
+  await page.goto("/index.html");
+  await page.click('.rail button[data-page="accounts"]');
+  const button = page.locator(".refresh-btn");
+  const when = page.locator(".refresh-when");
+  // The update prompt can pop up over the page at any time.
+  const dismiss = async () => {
+    const close = page.locator(".dialog-backdrop.show .dialog-x");
+    if (await close.isVisible().catch(() => false)) await close.click();
+  };
+  const tab = async (label: string) => {
+    await dismiss();
+    await page.click(`.account-tabs button[aria-label^="${label}"]`);
+  };
+  // Opening the tab reads quota once; the API-key account cannot be read.
+  await expect(when).toContainText("更新于");
+  await expect(when).toContainText("1 个账号刷新失败");
+  await dismiss();
+  await button.click();
+  await expect(button).toHaveAttribute("aria-busy", "true");
+  await expect(button).toHaveAttribute("aria-disabled", "true");
+  await expect(when).toHaveText("刷新中…");
+  await expect(when).toContainText("2 个账号刷新失败");
+  await expect(page.locator(".account-card", { hasText: "Pro 号" })).toContainText(
+    "刷新失败：暂时连不上官方接口，显示的是上次读到的额度",
+  );
+  await expect(page.locator(".account-card", { hasText: "Pro 号" })).toContainText("剩 8%");
+  // Cooling down after a manual refresh.
+  await expect(button).toHaveAttribute("aria-disabled", "true");
+  await expect(button).toHaveAttribute("data-tip", "刚刷新过，稍等几秒再刷新");
+
+  await tab("Anthropic");
+  await expect(when).toContainText("更新于");
+  await dismiss();
+  await button.click();
+  await expect(when).toContainText("刷新失败 · 仍是");
+  await expect(when).toHaveClass(/bad/u);
+  await expect(page.locator(".account-card", { hasText: "me@example.com" })).toContainText(
+    "剩 58%",
+  );
+
+  await tab("Google");
+  await expect(button).toHaveAttribute("aria-disabled", "true");
+  await expect(when).toHaveText("无法查询额度");
+});
