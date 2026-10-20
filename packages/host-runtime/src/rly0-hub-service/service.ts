@@ -61,6 +61,13 @@ import { createHubManagementRoutes } from "./management-routes.js";
 import { Rly0LocalDiscovery } from "./local-discovery.js";
 import { checkHubUpdate } from "./update-check.js";
 import { Rly0HubUpdater } from "./hub-updater.js";
+import { Rly0HubReleaseSource } from "./hub-release.js";
+import {
+  createUpdateHttpGet,
+  downloadResumable,
+  readWindowsSystemProxy,
+  resolveUpdateProxy,
+} from "./hub-update-net.js";
 import type { UpdateCheckResult } from "@codexhost/shared-contracts";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { apiKeyLogin, importLogin, parseLoginFile } from "./account-import.js";
@@ -367,10 +374,37 @@ export class Rly0HubService {
 
   #updater: Rly0HubUpdater | null = null;
 
+  #releaseSource: Rly0HubReleaseSource | null = null;
+
+  /** GitHub through the proxy chosen in 设置 → 网络代理 (or HTTPS_PROXY / the system proxy). */
+  #updateProxy(): Promise<string | null> {
+    return resolveUpdateProxy({
+      settings: this.#core.getProxySettings(),
+      environment: this.#options.environment,
+      systemProxy: () => readWindowsSystemProxy(this.#options.platform ?? process.platform),
+    });
+  }
+
+  /** Shared by the check and the update, so 立即更新 reuses what the check just found. */
+  #releases(): Rly0HubReleaseSource {
+    this.#releaseSource ??= new Rly0HubReleaseSource({
+      get: async () => createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+    });
+    return this.#releaseSource;
+  }
+
   #hubUpdater(): Rly0HubUpdater {
     this.#updater ??= new Rly0HubUpdater({
       installRoot: this.#options.installRoot,
       downloadDir: path.join(resolveRly0DataDir(this.#options.environment), "updates"),
+      release: () => this.#releases().latest(),
+      download: async (source, partial, onProgress) =>
+        downloadResumable(
+          createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 60_000 }),
+          source,
+          partial,
+          onProgress,
+        ),
     });
     return this.#updater;
   }
@@ -398,7 +432,9 @@ export class Rly0HubService {
   async #updateStatus(force: boolean): Promise<UpdateCheckResult> {
     const fresh = this.#updateCache && Date.now() - this.#updateCache.at < 6 * 60 * 60_000;
     if (!force && fresh && this.#updateCache) return this.#updateCache.result;
-    this.#updateRunning ??= checkHubUpdate(this.#options.installRoot)
+    this.#updateRunning ??= checkHubUpdate(this.#options.installRoot, () =>
+      this.#releases().latest(force ? { maxAgeMs: 0 } : {}),
+    )
       .then((result) => {
         if (!result.error) this.#updateCache = { at: Date.now(), result };
         return result;
@@ -682,7 +718,12 @@ export class Rly0HubService {
           ["downloading", "verifying", "installing"].includes(
             this.#updater?.progress().phase ?? "idle",
           ),
-        ...(this.#options.updates ? { updates: this.#options.updates } : {}),
+        updates: this.#options.updates ?? {
+          check: () =>
+            checkHubUpdate(this.#options.installRoot, () =>
+              this.#releases().latest({ maxAgeMs: 0 }),
+            ),
+        },
       }),
       ...createAgentAccountRoutes({
         core,

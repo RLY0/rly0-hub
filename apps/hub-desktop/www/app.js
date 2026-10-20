@@ -128,6 +128,8 @@
     THREAD_OPERATION_FAILED: "线程操作失败，请稍后重试",
     MAINTENANCE_OPERATION_FAILED: "维护操作失败，请检查文件权限",
     UPDATE_CHECK_FAILED: "检查更新失败，请稍后重试",
+    UPDATE_RATE_LIMITED: "GitHub 暂时限制了查询次数，几分钟后再试",
+    UPDATE_NETWORK: "连不上 GitHub，检查网络或在 设置→网络代理 配置代理",
   };
   const explain = (code) => ERRORS[code] || "操作没有成功";
   const failed = (error) => toast(explain(error && error.message));
@@ -398,7 +400,10 @@
     UPDATE_ASSET_MISSING: "这个版本的发布页里没有安装包。",
     UPDATE_ASSET_UNVERIFIED: "安装包缺少校验信息，为了安全没有安装。",
     UPDATE_VERIFY_FAILED: "下载的文件校验不通过，可能下载出错了，请重试。",
-    UPDATE_DOWNLOAD_FAILED: "下载失败，检查一下网络后重试。",
+    UPDATE_DOWNLOAD_FAILED: "下载中断了，点“重试”会接着已下载的部分继续。",
+    UPDATE_RATE_LIMITED: "GitHub 暂时限制了查询次数，几分钟后再试。",
+    UPDATE_NETWORK: "连不上 GitHub，检查网络或在 设置→网络代理 配置代理。",
+    UPDATE_CHECK_FAILED: "暂时查不到新版本的信息，请稍后重试。",
     UPDATE_UNSUPPORTED: "这个系统不支持自动更新。",
   };
   function megabytes(bytes) {

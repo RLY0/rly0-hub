@@ -29,7 +29,11 @@ window.registerHubSystem = ({
         "section",
         { class: "m" },
         h("h2", null, "网络代理"),
-        h("p", { class: "sub" }, "用于 Hub 核心服务和 AI 助手下载。保存后核心服务重新连接。"),
+        h(
+          "p",
+          { class: "sub" },
+          "用于 Hub 核心服务、AI 助手下载和软件更新。保存后核心服务重新连接。",
+        ),
         mode,
         url,
         h(
@@ -745,7 +749,15 @@ window.registerHubSystem = ({
       if (!status || status.error || !status.latestVersion) {
         result.replaceChildren(
           h("p", null, `当前版本 ${(status && status.currentVersion) || "未知"}`),
-          h("p", null, "暂时连不上发布页，稍后会自动再试。"),
+          h(
+            "p",
+            null,
+            status && status.error === "UPDATE_RATE_LIMITED"
+              ? "GitHub 暂时限制了查询次数，几分钟后再试。"
+              : status && status.error === "UPDATE_NETWORK"
+                ? "连不上 GitHub，检查网络或在 设置→网络代理 配置代理。"
+                : "暂时连不上发布页，稍后会自动再试。",
+          ),
         );
         put(
           actions,
