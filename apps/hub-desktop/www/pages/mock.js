@@ -177,6 +177,12 @@ window.hubManagementMock = (() => {
     fetchedAt: at(0),
   });
   let agyState = { installed: agyInstalled };
+  if (new URLSearchParams(location.search).get("agyCache") === "1") {
+    agyState = {
+      ...agyState,
+      usage: { ...agyUsage(), fetchedAt: Math.floor(Date.now() / 1000) - 600 },
+    };
+  }
   let codexUsageCalls = 0;
   let claudeUsageCalls = 0;
   const officialKeys = {
@@ -191,11 +197,26 @@ window.hubManagementMock = (() => {
   // SYNTHETIC browser-only multi-credential state, never used by the real bridge.
   let selectedClaudeKey = claudeUsesKey ? "cccccccccccc" : null;
   let keySequence = 0;
+  let keyRevisionSequence = 1000;
   const claudeKeys = new Map([
-    ["cccccccccccc", { ...officialKeys.anthropic, id: "cccccccccccc", name: "Claude 订阅令牌" }],
+    [
+      "cccccccccccc",
+      {
+        ...officialKeys.anthropic,
+        id: "cccccccccccc",
+        name: "Claude 订阅令牌",
+        keyRevision: "c".repeat(64),
+      },
+    ],
     [
       "dddddddddddd",
-      { ...claudeKey(null), id: "dddddddddddd", name: "Claude 订阅令牌", last4: "cd34" },
+      {
+        ...claudeKey(null),
+        id: "dddddddddddd",
+        name: "Claude 订阅令牌",
+        last4: "cd34",
+        keyRevision: "d".repeat(64),
+      },
     ],
   ]);
   // Browser-only fixture. These operations never install Docker or access a real project.
@@ -685,7 +706,9 @@ window.hubManagementMock = (() => {
         if (p.content.includes("xai-")) return { ok: true, key: true };
         return { __error: "GROK_FILE_NO_LOGIN" };
       case "agents.antigravity.status":
-        return agyState;
+        return { ...agyState, ...(agyState.usage ? { observationOnly: true } : {}) };
+      case "agents.antigravity.cached":
+        return agyState.usage ? { usage: agyState.usage, observationOnly: true } : {};
       case "agents.antigravity.usage":
         // First read succeeds; later ones time out and keep the last numbers.
         agyCalls += 1;
@@ -705,6 +728,10 @@ window.hubManagementMock = (() => {
             id: key.id,
             name: key.name,
             keyMask: `****${key.last4 || "ab12"}`,
+            keyRevision: key.keyRevision,
+            lastUsage: new URLSearchParams(location.search).has("noQuotaCache")
+              ? undefined
+              : key.usage && { ...key.usage, source: "snapshot" },
             models: [],
           })),
         };
@@ -720,6 +747,7 @@ window.hubManagementMock = (() => {
             ...claudeKey(null),
             id,
             name: "Claude 订阅令牌",
+            keyRevision: (++keyRevisionSequence).toString(16).padStart(64, "0"),
             last4: p.apiKey.slice(-4),
           });
           return { ok: true, id, valid: true, modelCount: 3 };

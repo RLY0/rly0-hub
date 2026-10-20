@@ -69,6 +69,11 @@ export const rly0RelaySchema = z
     updatedAt: unixSeconds.optional(),
     hasKey: z.boolean(),
     keyMask: z.string().max(64).optional(),
+    /** Opaque revision of the encrypted credential blob, used only to bind quota snapshots. */
+    keyRevision: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/u)
+      .optional(),
   })
   .strict();
 export type Rly0Relay = z.infer<typeof rly0RelaySchema>;
@@ -432,7 +437,14 @@ export const rly0AgentInstallStatusSchema = z
       .optional(),
     canOpenLogin: z.boolean().optional(),
     step: z
-      .enum(["installingNode", "installingGit", "officialInstaller", "installerWindow", "npm", "npmMirror"])
+      .enum([
+        "installingNode",
+        "installingGit",
+        "officialInstaller",
+        "installerWindow",
+        "npm",
+        "npmMirror",
+      ])
       .optional(),
     error: z
       .enum([

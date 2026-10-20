@@ -87,6 +87,7 @@ export function createAgentAccountRoutes(options: {
     ),
     "agents.grokAccounts.usageAll": route(empty, () => grok("usageAll")),
     "agents.antigravity.status": route(empty, () => antigravity.status()),
+    "agents.antigravity.cached": route(empty, () => antigravity.cached()),
     "agents.antigravity.usage": route(empty, () => antigravity.refresh()),
   };
 }

@@ -189,6 +189,10 @@ export function sanitizeRly0Relay(raw: unknown): Rly0Relay {
       updatedAt: optionalInt(raw.updatedAt),
       hasKey: raw.hasKey === true,
       keyMask: optionalString(raw.keyMask, 64),
+      keyRevision:
+        typeof raw.keyRevision === "string" && /^[0-9a-f]{64}$/u.test(raw.keyRevision)
+          ? raw.keyRevision
+          : undefined,
     }),
   );
   if (!parsed.success) throw coreError("RLY0_CORE_BAD_RESPONSE");

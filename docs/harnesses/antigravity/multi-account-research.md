@@ -24,8 +24,10 @@
 ## 现在 Hub 做什么
 
 - `agents.antigravity.status`：只看 agy 是否装了，以及上一次读到的额度（不运行 agy）。
+- `agents.antigravity.cached`：立即读取本地已保存的额度，不等待 PATH/安装检测、不运行 agy。成功查询的额度可跨 Hub 重启保留；被动返回始终标为上次查询，不能证明当前登录还是同一账号。
 - `agents.antigravity.usage`：用户点刷新时运行一次官方 `agy --print=/usage --output-format stream-json`（20 秒超时），按模型组显示 5 小时 / 每周额度。失败时保留上次的数字并标明；判断为未登录时清掉旧数字。实现：`packages/host-runtime/src/rly0-agents/antigravity-usage.ts`。
 - 不自动读取：未登录的 agy 可能会自己打开浏览器开始登录。
+- 首屏保留原 fetchedAt 并标明“当前登录尚未核实”；用户主动刷新才启动 CLI，未登录时清除旧额度。本地仅保存规范额度与查询时间，不保存钥匙串内容或原始 CLI 输出。
 - 「网页登录」仍是在终端里打开 agy，让用户自己登录（会替换当前登录）。
 
 ## 装好 agy 后需要实测确认

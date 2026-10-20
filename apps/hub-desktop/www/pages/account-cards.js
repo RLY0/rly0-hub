@@ -559,6 +559,9 @@ window.registerHubAccountCards = ({
         call("agents.officialKeys.set", { ...params(), apiKey: key.value.trim() })
           .then(async (r) => {
             key.value = "";
+            info = null;
+            loadError = false;
+            render();
             toast(
               vendor === "anthropic"
                 ? id
@@ -640,11 +643,13 @@ window.registerHubAccountCards = ({
       const masked = info.last4 ? `····${info.last4}` : info.keyMask || "";
       const state = reading
         ? h("span", { class: `tag${loadError ? " warn" : ""}` }, loadError ? "读取失败" : "读取中")
-        : info.valid === true
-          ? h("span", { class: "tag ok" }, "有效")
-          : info.valid === false
-            ? h("span", { class: "tag warn" }, "已失效")
-            : h("span", { class: "tag" }, "未能验证");
+        : info.usageCached && info.usage
+          ? h("span", { class: "tag" }, "上次查询")
+          : info.valid === true
+            ? h("span", { class: "tag ok" }, "有效")
+            : info.valid === false
+              ? h("span", { class: "tag warn" }, "已失效")
+              : h("span", { class: "tag" }, "未能验证");
       const card = accountCard({
         name:
           info.name ||
@@ -687,6 +692,18 @@ window.registerHubAccountCards = ({
                 reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
               }),
         notes: [
+          info.usageCached && info.usage && !loadError
+            ? h(
+                "p",
+                { class: "sub" },
+                info.usageError || info.error
+                  ? "刷新暂未成功，显示上次查询的额度"
+                  : "先显示上次查询的额度，正在后台更新",
+              )
+            : null,
+          info.cacheError
+            ? h("p", { class: "warn-text" }, "额度已读到，但本地保存失败；下次打开可能需要重新查询")
+            : null,
           loadError
             ? h("p", { class: "warn-text" }, "刷新失败，保留上次额度；可再次点击刷新")
             : null,
@@ -763,10 +780,7 @@ window.registerHubAccountCards = ({
         const listed = await call("agents.officialKeys.list").catch(() => null);
         if (!alive() || generation !== loadGeneration) return info;
         const saved = listed && listed.keys.find((entry) => entry.vendor === vendor);
-        if (saved) {
-          info = { ...saved, kind: "pending" };
-          render();
-        }
+        if (saved) seed(saved);
       }
       const result = await call("agents.officialKeys.info", params()).catch(() => undefined);
       if (!alive() || generation !== loadGeneration) return info;
@@ -776,6 +790,23 @@ window.registerHubAccountCards = ({
       if (onLoaded) onLoaded(info);
       if (result === undefined) throw new Error("KEY_INFO_FAILED");
       return info;
+    }
+
+    function seed(summary) {
+      if (info && info.keyRevision !== summary.keyRevision) {
+        ++loadGeneration;
+        info = null;
+      }
+      if (!info)
+        info = {
+          ...summary,
+          kind: summary.lastUsage ? "subscription" : vendor === "anthropic" ? "pending" : "apiKey",
+          usage: summary.lastUsage,
+          usageCached: Boolean(summary.lastUsage),
+        };
+      else info = { ...info, name: summary.name };
+      render();
+      if (onLoaded) onLoaded(info);
     }
 
     if (!draft && !deferLoad) load().catch(() => undefined);
@@ -791,11 +822,7 @@ window.registerHubAccountCards = ({
       get info() {
         return info;
       },
-      seed(summary) {
-        if (!info) info = { ...summary, kind: "pending" };
-        else info = { ...info, name: summary.name };
-        render();
-      },
+      seed,
     };
   }
 

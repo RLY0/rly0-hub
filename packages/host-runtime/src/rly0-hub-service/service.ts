@@ -56,6 +56,7 @@ import {
   Rly0OfficialKeyModels,
   type Rly0OfficialVendor,
 } from "../rly0-relay/official-keys.js";
+import { Rly0OfficialKeyUsage } from "../rly0-relay/official-key-usage.js";
 import { Rly0RelayModelRouter } from "../rly0-relay/model-routing.js";
 import { createHubManagementRoutes } from "./management-routes.js";
 import { Rly0LocalDiscovery } from "./local-discovery.js";
@@ -206,6 +207,9 @@ export class Rly0HubService {
   readonly #backup: Rly0FirstRunBackup;
   readonly #agentRelays: Rly0AgentRelaySettings;
   readonly #officialModels: Rly0OfficialKeyModels;
+  readonly #officialUsage: Rly0OfficialKeyUsage;
+  #usageSequence = 0;
+  readonly #usageReads = new Map<string, number>();
   readonly #discovery: Rly0LocalDiscovery;
   readonly #installer: AgentInstaller;
   readonly #isolation: ClaudeIsolation;
@@ -253,6 +257,7 @@ export class Rly0HubService {
     this.#backup = new Rly0FirstRunBackup({ environment });
     this.#agentRelays = new Rly0AgentRelaySettings({ environment });
     this.#officialModels = new Rly0OfficialKeyModels(environment);
+    this.#officialUsage = new Rly0OfficialKeyUsage(environment);
     this.#discovery = new Rly0LocalDiscovery({
       environment,
       ...(options.platform ? { platform: options.platform } : {}),
@@ -284,6 +289,11 @@ export class Rly0HubService {
     });
     this.#antigravity = new AntigravityUsageReader({
       environment: () => this.#installer.searchEnvironment(),
+      snapshotPath: path.join(
+        resolveRly0DataDir(environment),
+        "quota-cache",
+        "antigravity-usage.json",
+      ),
       ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#state = new Rly0HubStateStore(environment);
@@ -1158,8 +1168,11 @@ export class Rly0HubService {
         (p) => this.#discoveryImport(core, p.ids),
       ),
       "agents.officialKeys.list": route(empty, async () => {
-        const relays = await core.listRelays();
-        const models = await this.#officialModels.read();
+        const [relays, models, snapshots] = await Promise.all([
+          core.listRelays(),
+          this.#officialModels.read(),
+          this.#officialUsage.read(),
+        ]);
         const keys = (relays.available ? relays.relays : []).flatMap((relay) => {
           const vendor = officialVendorOf(relay);
           return vendor && relay.hasKey
@@ -1169,6 +1182,8 @@ export class Rly0HubService {
                   id: relay.id,
                   name: relay.name,
                   keyMask: relay.keyMask ?? null,
+                  keyRevision: relay.keyRevision,
+                  lastUsage: this.#officialUsage.forRelay(relay, snapshots)?.usage,
                   models: models[vendor] ?? [],
                 },
               ]
@@ -1235,9 +1250,40 @@ export class Rly0HubService {
           const relay = await this.#officialKey(core, p.vendor, p.id);
           if (!relay) return { info: null };
           if (p.vendor === "anthropic") {
+            const sequence = ++this.#usageSequence;
+            this.#usageReads.set(relay.id, sequence);
+            if (this.#usageReads.size > 256)
+              this.#usageReads.delete(this.#usageReads.keys().next().value ?? "");
             const info = await core.claudeAccounts("keyInfo", { relayId: relay.id });
             if (!info) throw codedHubError("RLY0_CORE_UNAVAILABLE");
-            return { info: { ...info, id: relay.id, name: relay.name } };
+            const current = await this.#officialKey(core, p.vendor, relay.id);
+            if (!current || (relay.keyRevision && current.keyRevision !== relay.keyRevision))
+              throw codedHubError("OFFICIAL_KEY_CHANGED");
+            const saved =
+              this.#usageReads.get(relay.id) === sequence
+                ? await this.#officialUsage.record(relay, info)
+                : true;
+            const previous = this.#officialUsage.forRelay(
+              current,
+              await this.#officialUsage.read(),
+            );
+            const fallback =
+              !info.usage && info.valid !== false && info.usageError !== "USAGE_TOKEN_EXPIRED"
+                ? previous?.usage
+                : undefined;
+            const final = await this.#officialKey(core, p.vendor, relay.id);
+            if (!final || (relay.keyRevision && final.keyRevision !== relay.keyRevision))
+              throw codedHubError("OFFICIAL_KEY_CHANGED");
+            return {
+              info: {
+                ...info,
+                ...(fallback ? { usage: fallback, usageCached: true } : {}),
+                ...(saved ? {} : { cacheError: "USAGE_CACHE_SAVE_FAILED" }),
+                id: relay.id,
+                name: final.name,
+                keyRevision: final.keyRevision,
+              },
+            };
           }
           const test = await core.testRelay({ id: relay.id }).catch(() => null);
           const ok = Boolean(test && test.available && test.ok);
@@ -1249,6 +1295,7 @@ export class Rly0HubService {
               id: relay.id,
               name: relay.name,
               keyMask: relay.keyMask ?? null,
+              keyRevision: relay.keyRevision,
               ...(ok
                 ? { valid: true }
                 : test && test.available && test.error === "RELAY_UNAUTHORIZED"

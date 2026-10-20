@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   AntigravityUsageReader,
   parseAntigravityUsage,
@@ -35,6 +38,53 @@ const USAGE_LINE = JSON.stringify({
 });
 
 describe("Antigravity /usage", () => {
+  it("shows a persisted historical observation without discovery or CLI, then clears it on logout", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-agy-cache-"));
+    const snapshotPath = path.join(root, "usage.json");
+    try {
+      const options = {
+        environment: async () => ({ PATH: "C:\\bin" }),
+        platform: "win32" as const,
+        fileExists: () => true,
+        snapshotPath,
+      };
+      const reader = new AntigravityUsageReader({
+        ...options,
+        now: () => 5_000_000,
+        run: async () => ({
+          code: 0,
+          stdout: USAGE_LINE,
+          stderr: "SYNTHETIC_SECRET",
+          timedOut: false,
+        }),
+      });
+      const observed = await reader.refresh();
+      const environment = vi.fn(async () => new Promise<NodeJS.ProcessEnv>(() => {}));
+      const run = vi.fn();
+      const reopened = new AntigravityUsageReader({
+        ...options,
+        environment,
+        run,
+        now: () => 90_000_000,
+      });
+      expect(await reopened.cached()).toMatchObject({
+        usage: observed.usage,
+        observationOnly: true,
+      });
+      expect(environment).not.toHaveBeenCalled();
+      expect(run).not.toHaveBeenCalled();
+      expect(await fs.readFile(snapshotPath, "utf8")).not.toContain("SYNTHETIC_SECRET");
+      const signedOut = new AntigravityUsageReader({
+        ...options,
+        run: async () => ({ code: 1, stdout: "", stderr: "Please sign in", timedOut: false }),
+      });
+      expect((await signedOut.refresh()).usage).toBeUndefined();
+      expect((await new AntigravityUsageReader(options).cached()).usage).toBeUndefined();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads every bucket as a consumed-side window", () => {
     const usage = parseAntigravityUsage(`noise\n${USAGE_LINE}\n`, 1_000_000);
     expect(usage?.fetchedAt).toBe(1000);

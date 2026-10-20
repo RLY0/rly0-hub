@@ -231,6 +231,7 @@ window.registerHubGrokGeminiAccounts = (
         current: account.current && using === "login",
         signedIn: account.current && using !== "login",
         quota: cards.quotaCards(account.lastUsage, {
+          updated: true,
           kinds: ["额度"],
           reason: "额度未知：点右上角刷新读取",
           stale: stale ? grokUsageError(stale, account.current) : null,
@@ -286,10 +287,14 @@ window.registerHubGrokGeminiAccounts = (
     let state = null; // agents.antigravity.status / usage reply
     let statusFailed = false;
     let statusLoading = null;
+    let stateVersion = 0;
     const refresh = cards.refresher({
       alive,
       run: async () => {
-        state = await call("agents.antigravity.usage");
+        const version = ++stateVersion;
+        const result = await call("agents.antigravity.usage");
+        if (!alive() || version !== stateVersion) return 0;
+        state = result;
         render();
         if (state && state.error && !state.usage) throw new Error(state.error);
         return state && state.error ? 1 : 0;
@@ -349,7 +354,7 @@ window.registerHubGrokGeminiAccounts = (
 
     function render() {
       const installed = Boolean(state ? state.installed : agent && agent.installed);
-      const known = Boolean(state);
+      const known = Boolean(state && typeof state.installed === "boolean");
       refresh.setReason(
         known
           ? installed
@@ -358,21 +363,24 @@ window.registerHubGrokGeminiAccounts = (
           : "登录状态暂未读到，请重试读取",
       );
       const usage = state && state.usage;
+      const historical = Boolean(usage && state.observationOnly);
       const error = state && state.error;
       // Antigravity has one login, so a working one is the one in use.
-      const inUse = installed && Boolean(usage) && !error;
+      const inUse = installed && Boolean(usage) && !error && !historical;
       const badge = !known
         ? h("span", { class: "tag" }, statusFailed ? "读取失败" : "读取中")
         : !installed
           ? h("span", { class: "tag" }, "未安装")
-          : inUse
-            ? null
-            : error === "ANTIGRAVITY_NOT_LOGGED_IN"
-              ? h("span", { class: "tag warn" }, "未登录")
-              : h("span", { class: "tag" }, "登录状态未知");
+          : historical
+            ? h("span", { class: "tag" }, "上次查询")
+            : inUse
+              ? null
+              : error === "ANTIGRAVITY_NOT_LOGGED_IN"
+                ? h("span", { class: "tag warn" }, "未登录")
+                : h("span", { class: "tag" }, "登录状态未知");
       list.replaceChildren(
         cards.accountCard({
-          name: "Antigravity 当前登录",
+          name: historical ? "Antigravity 上次查询" : "Antigravity 当前登录",
           current: inUse,
           facts: [
             !known
@@ -397,6 +405,18 @@ window.registerHubGrokGeminiAccounts = (
                       ? `读取失败：${AGY_ERRORS[error] || explain(error)}`
                       : "点右上角刷新，用 Antigravity 自己的 /usage 读取当前登录的额度（没登录时它可能会打开浏览器让你登录）。",
               }),
+          notes: [
+            historical
+              ? h("p", { class: "sub" }, "这是上次查询的额度；当前登录尚未核实，点刷新读取当前额度")
+              : null,
+            state && state.cacheError
+              ? h(
+                  "p",
+                  { class: "warn-text" },
+                  "额度已读到，但本地保存失败；下次打开可能需要重新查询",
+                )
+              : null,
+          ],
           actions: [
             !known
               ? h("button", { class: "btn sm", type: "button", onclick: loadStatus }, "重试读取")
@@ -419,12 +439,23 @@ window.registerHubGrokGeminiAccounts = (
     render();
     function loadStatus() {
       if (statusLoading) return statusLoading;
+      const version = ++stateVersion;
+      call("agents.antigravity.cached")
+        .then((cached) => {
+          if (!alive() || version !== stateVersion || !cached || !cached.usage) return;
+          if (state && state.error === "ANTIGRAVITY_NOT_LOGGED_IN") return;
+          state = { ...(state || {}), ...cached, observationOnly: true };
+          refresh.stamp(cached.usage.fetchedAt * 1000);
+          render();
+          list.dataset.accountReady = "true";
+        })
+        .catch(() => undefined);
       statusLoading = call("agents.antigravity.status")
         .catch(() => null)
         .then((status) => {
-          if (!alive()) return;
+          if (!alive() || version !== stateVersion) return;
           agent = status;
-          state = status;
+          state = status || state;
           statusFailed = !status;
           if (state && state.usage && state.usage.fetchedAt)
             refresh.stamp(state.usage.fetchedAt * 1000);
