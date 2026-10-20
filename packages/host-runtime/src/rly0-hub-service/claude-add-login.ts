@@ -30,6 +30,43 @@ interface AddLoginContext {
   readonly alias: string;
 }
 
+/**
+ * Starts an agent's official login command. npm installs CLIs as .cmd shims on Windows, which
+ * need a shell; the arguments are fixed. Under cmd.exe, `kill` would stop only the shell and leave
+ * the CLI waiting for the browser, so stopping the login stops the whole tree.
+ */
+export function spawnLoginCli(
+  command: string,
+  args: readonly string[],
+  options: {
+    cwd: string;
+    environment: NodeJS.ProcessEnv;
+    platform: NodeJS.Platform;
+    spawnProcess?: typeof spawn;
+  },
+): ChildProcessWithoutNullStreams {
+  const windows = options.platform === "win32";
+  const child = (options.spawnProcess ?? spawn)(windows ? `"${command}"` : command, [...args], {
+    cwd: options.cwd,
+    env: options.environment,
+    shell: windows,
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  }) as ChildProcessWithoutNullStreams;
+  if (windows && !options.spawnProcess) {
+    const kill = child.kill.bind(child);
+    child.kill = ((signal?: NodeJS.Signals | number) => {
+      if (child.pid === undefined) return kill(signal);
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      }).on("error", () => kill(signal));
+      return true;
+    }) as typeof child.kill;
+  }
+  return child;
+}
+
 /** Ways the person's own setup could point the login elsewhere; the throw-away folder is all. */
 const FOREIGN_LOGIN =
   /^(ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL)|CLAUDE_CODE_OAUTH_(TOKEN|REFRESH_TOKEN|CLIENT_ID)|CLAUDE_CODE_USE_(BEDROCK|VERTEX|FOUNDRY)|CLAUDE_CONFIG_DIR|CLAUDE_SECURESTORAGE_CONFIG_DIR|CODEXHOST_.*)$/iu;
@@ -58,7 +95,6 @@ export class ClaudeAddLogin {
 
   constructor(options: ClaudeAddLoginOptions) {
     const platform = options.platform ?? process.platform;
-    const windows = platform === "win32";
     this.#login = new ClaudeWebLogin<AddLoginContext>({
       errorPrefix: "CLAUDE_ADD_LOGIN",
       sameScope: () => true,
@@ -73,34 +109,13 @@ export class ClaudeAddLogin {
         );
         return { dir, environment, alias };
       },
-      // npm installs `claude` as a .cmd shim on Windows, which needs a shell; arguments are fixed.
-      spawn: (context) => {
-        const child = (options.spawnProcess ?? spawn)(
-          windows ? '"claude"' : "claude",
-          ["auth", "login", "--claudeai"],
-          {
-            cwd: context.dir,
-            env: context.environment,
-            shell: windows,
-            windowsHide: true,
-            stdio: ["pipe", "pipe", "pipe"],
-          },
-        ) as ChildProcessWithoutNullStreams;
-        // Under cmd.exe, `kill` would stop only the shell and leave Claude Code waiting for the
-        // browser; stopping this login stops the whole tree.
-        if (windows && !options.spawnProcess) {
-          const kill = child.kill.bind(child);
-          child.kill = ((signal?: NodeJS.Signals | number) => {
-            if (child.pid === undefined) return kill(signal);
-            spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-              windowsHide: true,
-              stdio: "ignore",
-            }).on("error", () => kill(signal));
-            return true;
-          }) as typeof child.kill;
-        }
-        return child;
-      },
+      spawn: (context) =>
+        spawnLoginCli("claude", ["auth", "login", "--claudeai"], {
+          cwd: context.dir,
+          environment: context.environment,
+          platform,
+          ...(options.spawnProcess ? { spawnProcess: options.spawnProcess } : {}),
+        }),
       confirm: async (context) => {
         const status = await new ClaudeCodeAuth({
           environment: context.environment,

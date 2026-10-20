@@ -39,6 +39,8 @@ export interface ClaudeWebLoginHooks<Context> {
   /** False when the CLI opens the browser itself, so the page is not opened twice. */
   autoOpen?: boolean;
   sameScope?(a: string, b: string): boolean;
+  /** Which printed link is the official authorization page (default: Claude's, `claudeLoginUrl`). */
+  loginUrl?(value: string): URL | null;
   /** Whole-flow limit once the authorization link is shown (default 10 min). */
   timeoutMs?: number;
   /** Limit for preparing, starting the CLI and printing the link (default 3 min). */
@@ -151,7 +153,7 @@ export class ClaudeWebLogin<Context> {
         if (this.#flow !== flow || flow.status.phase !== "starting") return;
         output = (output + chunk.toString()).slice(-32 * 1024);
         for (const match of plainText(output).matchAll(/(https:\/\/[^\s"'<>]+)\s/gu)) {
-          const url = claudeLoginUrl(match[1] ?? "");
+          const url = (this.hooks.loginUrl ?? claudeLoginUrl)(match[1] ?? "");
           if (!url) continue;
           flow.url = url.href;
           flow.state = url.searchParams.get("state") ?? "";

@@ -88,6 +88,9 @@ import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
 import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
 import { Rly0HubAddLogin } from "./add-login.js";
 import { ClaudeAddLogin, importClaudeAccountFile } from "./claude-add-login.js";
+import { GrokAddLogin } from "./grok-add-login.js";
+import { createAgentAccountRoutes } from "./agent-account-routes.js";
+import { AntigravityUsageReader } from "../rly0-agents/antigravity-usage.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
@@ -199,6 +202,8 @@ export class Rly0HubService {
   readonly #installer: AgentInstaller;
   readonly #isolation: ClaudeIsolation;
   readonly #claudeAdd: ClaudeAddLogin;
+  readonly #grokAdd: GrokAddLogin;
+  readonly #antigravity: AntigravityUsageReader;
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
   readonly #codexConfig: Rly0RelayCodexConfigManager;
@@ -261,6 +266,17 @@ export class Rly0HubService {
       ...(options.platform ? { platform: options.platform } : {}),
       core: this.#core,
       openUrl: (url) => (options.openUrl ?? openInBrowser)(url),
+    });
+    // Grok and Antigravity are found where the installer looks for them (PATH as it is now).
+    this.#grokAdd = new GrokAddLogin({
+      environment: () => this.#installer.searchEnvironment(),
+      ...(options.platform ? { platform: options.platform } : {}),
+      core: this.#core,
+      openUrl: (url) => (options.openUrl ?? openInBrowser)(url),
+    });
+    this.#antigravity = new AntigravityUsageReader({
+      environment: () => this.#installer.searchEnvironment(),
+      ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#state = new Rly0HubStateStore(environment);
     this.#codexConfig = new Rly0RelayCodexConfigManager({ environment });
@@ -611,6 +627,7 @@ export class Rly0HubService {
   async dispose(): Promise<void> {
     this.#isolation.close();
     this.#claudeAdd.close();
+    this.#grokAdd.close();
     await this.#addLogin.close().catch(() => undefined);
     await this.#core.dispose();
   }
@@ -655,6 +672,13 @@ export class Rly0HubService {
             this.#updater?.progress().phase ?? "idle",
           ),
         ...(this.#options.updates ? { updates: this.#options.updates } : {}),
+      }),
+      ...createAgentAccountRoutes({
+        core,
+        grokAdd: this.#grokAdd,
+        antigravity: this.#antigravity,
+        saveXaiKeyFile: (content) =>
+          this.#saveOfficialKey(core, "xai", keyFromAccountExport(content, "xai")),
       }),
       "home.summary": route(empty, async () => {
         const [codex, proxy, zero, live] = await Promise.all([
