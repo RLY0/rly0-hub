@@ -18,7 +18,7 @@ async function harness(timeoutMs?: number) {
     binaryPath: "synthetic",
     environment: { ...process.env, RLY0_SYNTHETIC_DIR: root },
     proxySettingsPath: null,
-    timeoutMs,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
     spawn: ((_binary: string, _args: string[], options: Parameters<typeof spawn>[2]) => {
       const child = spawn(
         process.execPath,

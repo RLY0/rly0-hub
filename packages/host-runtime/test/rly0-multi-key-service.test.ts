@@ -74,7 +74,7 @@ describe("SYNTHETIC multiple Claude credentials", () => {
           name: "主力 Claude",
         }),
       ).resolves.toMatchObject({ ok: true, name: "主力 Claude" });
-      expect(entries[0].name).toBe("主力 Claude");
+      expect(entries[0]?.name).toBe("主力 Claude");
       await expect(
         service.handle("agents.officialKeys.rename", {
           vendor: "anthropic",
