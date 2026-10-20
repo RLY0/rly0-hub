@@ -41,6 +41,7 @@ window.registerHubAccountCards = ({
     USAGE_BLOCKED: "官方拒绝了这次查询",
     USAGE_NETWORK: "暂时连不上官方接口",
     USAGE_BAD_RESPONSE: "官方返回的额度看不懂",
+    USAGE_RATE_LIMITED: "官方暂时限制查询，稍后点刷新",
     ACCOUNT_TOKEN_MISSING: "这个账号没有可查询的登录",
     // Claude accounts (rly0-core renews a saved, non-current account's token itself).
     CLAUDE_LIVE_EXPIRED: "登录需要续期：用一次 Claude Code 后再刷新",
@@ -475,6 +476,7 @@ window.registerHubAccountCards = ({
     TIMEOUT: "网络连不上官方，点刷新重试。",
     USAGE_BAD_RESPONSE: "官方返回异常，读不到额度，稍后点刷新重试。",
     USAGE_BLOCKED: "官方返回异常，读不到额度，稍后点刷新重试。",
+    USAGE_RATE_LIMITED: "官方暂时限制查询，稍后点刷新。",
     USAGE_TOKEN_EXPIRED: "令牌失效了，请点“换一个”保存新的令牌。",
   };
   function keyQuota(info) {

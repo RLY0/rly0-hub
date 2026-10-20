@@ -141,6 +141,7 @@ describe("Renderer quota refresh row", () => {
     expect(summarizeRendererQuota(base, "zh-CN", 1_000)).toEqual({
       status: "尚未读取",
       reason: null,
+      failureNote: null,
       canRefresh: true,
     });
     const read = summarizeRendererQuota(
@@ -174,6 +175,16 @@ describe("Renderer quota refresh row", () => {
       "zh-CN",
     );
     expect(summary.status.startsWith("刷新失败 · 更新于 ")).toBe(true);
+    expect(summary.canRefresh).toBe(true);
+  });
+
+  it("says when the provider is limiting quota checks and keeps refresh usable", () => {
+    const summary = summarizeRendererQuota(
+      { ...base, failed: true, state: { status: "failed", failure: "rateLimited" } },
+      "zh-CN",
+    );
+    expect(summary.failureNote).toBe("官方暂时限制查询，稍后点刷新。");
+    expect(summary.reason).toBeNull();
     expect(summary.canRefresh).toBe(true);
   });
 

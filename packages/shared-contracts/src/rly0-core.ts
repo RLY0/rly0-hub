@@ -70,6 +70,7 @@ export const RLY0_USAGE_ERROR_CODES = [
   "USAGE_BLOCKED",
   "USAGE_NETWORK",
   "USAGE_BAD_RESPONSE",
+  "USAGE_RATE_LIMITED",
   "ACCOUNT_TOKEN_MISSING",
 ] as const;
 export const rly0UsageErrorCodeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{0,63}$/u);

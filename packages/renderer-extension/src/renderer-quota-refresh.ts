@@ -25,6 +25,7 @@ interface RendererQuotaMessages {
   readonly updatedAt: (time: string) => string;
   readonly notReadYet: string;
   readonly reasons: Readonly<Record<ThreadQuotaUnavailableReason, string>>;
+  readonly failures: Readonly<Record<NonNullable<ThreadQuotaState["failure"]>, string>>;
 }
 
 const ENGLISH: RendererQuotaMessages = Object.freeze({
@@ -42,6 +43,9 @@ const ENGLISH: RendererQuotaMessages = Object.freeze({
       "This login cannot be queried (API key or subscription token). A subscription token updates after the next message.",
     unsupported: "This agent cannot refresh its quota on demand.",
   }),
+  failures: Object.freeze({
+    rateLimited: "Anthropic is limiting quota checks for now. Refresh again later.",
+  }),
 });
 
 const CHINESE: RendererQuotaMessages = Object.freeze({
@@ -57,6 +61,9 @@ const CHINESE: RendererQuotaMessages = Object.freeze({
     relay: "中转模式：额度见中转余额。",
     notSubscriber: "此登录无法主动查询额度（API Key 或订阅令牌）；订阅令牌发送消息后自动更新。",
     unsupported: "此 Agent 不支持主动查询额度。",
+  }),
+  failures: Object.freeze({
+    rateLimited: "官方暂时限制查询，稍后点刷新。",
   }),
 });
 
@@ -79,6 +86,8 @@ export interface RendererQuotaSummary {
   readonly status: string;
   /** Explanation of why the quota cannot be read, when it cannot. */
   readonly reason: string | null;
+  /** Why the last read failed, when the provider said (the control stays usable). */
+  readonly failureNote: string | null;
   readonly canRefresh: boolean;
 }
 
@@ -102,9 +111,11 @@ export function summarizeRendererQuota(
     : view.failed || view.state?.status === "failed"
       ? `${messages.refreshFailed} · ${updated}`
       : updated;
+  const failure = view.state?.status === "failed" ? view.state.failure : undefined;
   return {
     status,
     reason,
+    failureNote: failure && !view.refreshing ? messages.failures[failure] : null,
     canRefresh:
       view.onRefresh !== null && reason === null && !view.refreshing && now >= view.cooldownUntil,
   };
@@ -156,9 +167,10 @@ export function appendRendererQuotaSection(
   row.append(status, button);
   parent.append(row);
 
-  if (summary.reason) {
+  const noteText = summary.reason ?? summary.failureNote;
+  if (noteText) {
     const note = document.createElement("div");
-    note.textContent = summary.reason;
+    note.textContent = noteText;
     note.style.fontSize = "12px";
     note.style.lineHeight = "1.4";
     note.style.paddingTop = "2px";

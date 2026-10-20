@@ -26,7 +26,7 @@ Claude Code 只有在它自己认为是 claude.ai 订阅登录时才解析 `anth
 
 ## Hub 保存的官方 Key / 订阅令牌的额度
 
-[`claude-key-quota.ts`](../../../packages/host-runtime/src/rly0-relay/claude-key-quota.ts) 以 `claudeCode` relay 选择（官方 Anthropic 条目，按 relay id + keyMask 区分令牌）为键调用 rly0-core `claude/keyInfo`：完整登录令牌走 OAuth usage 接口；`claude setup-token` 令牌被该接口拒绝时，rly0-core 发一个 1 输出 token 的模型请求并读 `anthropic-ratelimit-unified-{5h,7d}-*` 响应头（core 内缓存 60 秒）。失败原因以 `usageError`（`USAGE_NETWORK` / `USAGE_BAD_RESPONSE` / `USAGE_TOKEN_EXPIRED`）返回，`usageHidden` 仅为兼容旧 Hub。
+[`claude-key-quota.ts`](../../../packages/host-runtime/src/rly0-relay/claude-key-quota.ts) 以 `claudeCode` relay 选择（官方 Anthropic 条目，按 relay id + keyMask 区分令牌）为键调用 rly0-core `claude/keyInfo`：完整登录令牌走 OAuth usage 接口；usage 接口拒绝（401/403）、限流（429）、出错或返回看不懂时，rly0-core 改为发一个 1 输出 token 的模型请求并读 `anthropic-ratelimit-unified-{5h,7d}-*` 响应头（探测结果与成功读到的额度在 core 内按令牌缓存 60 秒）；usage 接口的 HTTP 状态码记在 `usageStatus` 供诊断，usage 接口 429 且探测也失败时报 `USAGE_RATE_LIMITED`（界面：“官方暂时限制查询，稍后点刷新”，对话框额度行同样显示）。失败原因以 `usageError`（`USAGE_NETWORK` / `USAGE_BAD_RESPONSE` / `USAGE_TOKEN_EXPIRED` / `USAGE_RATE_LIMITED`）返回，`usageHidden` 仅为兼容旧 Hub。
 
 - 结果投影为额度胶囊（`accountCredits`，5 小时为主、7 天为 `productUsage`）和 Popover 的「5 小时 / 7 天额度已用」两行（合并到 Thread Usage 的 `planFiveHour*`/`planSevenDay*`），`quota.observedAt` 取 core 的 `fetchedAt`。
 - 自动读取（被动 Usage 检查、打开 Thread）每个令牌至多 5 分钟一次，且不阻塞检查：后台读完后对打开的 Claude Code Thread 推送 `codexhost/thread/usage/updated`。

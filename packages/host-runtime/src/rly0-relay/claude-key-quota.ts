@@ -57,6 +57,8 @@ interface Entry {
   /** The last read's start (ms); reads are counted when started, failed or not. */
   attemptedAt: number | null;
   outcome: "live" | "failed" | "notSubscriber" | null;
+  /** The last failed read was the provider limiting quota checks (USAGE_RATE_LIMITED). */
+  rateLimited: boolean;
   inflight: Promise<void> | null;
 }
 
@@ -149,7 +151,13 @@ export class ClaudeOfficialKeyQuota {
   }
 
   static #empty(): Entry {
-    return { snapshot: null, attemptedAt: null, outcome: null, inflight: null };
+    return {
+      snapshot: null,
+      attemptedAt: null,
+      outcome: null,
+      rateLimited: false,
+      inflight: null,
+    };
   }
 
   /**
@@ -183,12 +191,20 @@ export class ClaudeOfficialKeyQuota {
       return { quota: { status: "unavailable", reason: "notSubscriber" }, snapshot: null };
     }
     const observedAt = entry.snapshot?.observedAt;
+    const failure = entry.outcome === "failed" && entry.rateLimited ? "rateLimited" : undefined;
     if (status === "cached" && !entry.snapshot) {
       return entry.outcome === "failed"
-        ? { quota: { status: "failed" }, snapshot: null }
+        ? { quota: { status: "failed", ...(failure ? { failure } : {}) }, snapshot: null }
         : { snapshot: null };
     }
-    return { quota: { status, ...(observedAt ? { observedAt } : {}) }, snapshot: entry.snapshot };
+    return {
+      quota: {
+        status,
+        ...(observedAt ? { observedAt } : {}),
+        ...(status === "failed" && failure ? { failure } : {}),
+      },
+      snapshot: entry.snapshot,
+    };
   }
 
   #start(relayId: string, entry: Entry): Promise<void> {
@@ -204,6 +220,8 @@ export class ClaudeOfficialKeyQuota {
       const snapshot = usage ? projectClaudeKeyUsage(usage) : null;
       if (snapshot) entry.snapshot = snapshot;
       entry.outcome = snapshot ? "live" : "failed";
+      entry.rateLimited =
+        !snapshot && isRecord(info) && info.usageError === "USAGE_RATE_LIMITED";
     })().finally(() => {
       entry.inflight = null;
       // A replaced key started a fresh entry; nothing to announce for the old one.

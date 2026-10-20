@@ -169,4 +169,20 @@ describe("Claude official key quota", () => {
     await replaced;
     expect(h.reads).toHaveLength(2);
   });
+
+  it("says when Anthropic is limiting quota checks, and forgets it once a read works", async () => {
+    const limited = {
+      kind: "subscription",
+      valid: true,
+      usageError: "USAGE_RATE_LIMITED",
+      usageStatus: 429,
+    };
+    const h = harness([limited, SETUP_TOKEN_INFO]);
+    const failed = await h.quota.inspect(KEY, true);
+    expect(failed).toEqual({ quota: { status: "failed", failure: "rateLimited" }, snapshot: null });
+    h.advance(CLAUDE_KEY_QUOTA_AUTO_INTERVAL_MS);
+    const live = await h.quota.inspect(KEY, true);
+    expect(live.quota?.status).toBe("live");
+    expect(live.quota).not.toHaveProperty("failure");
+  });
 });

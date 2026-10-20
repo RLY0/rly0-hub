@@ -143,6 +143,8 @@ export const threadQuotaStateSchema = z
     /** When the quota shown was last read (ISO 8601). */
     observedAt: z.string().min(1).max(64).optional(),
     reason: threadQuotaUnavailableReasonSchema.optional(),
+    /** Why a `failed` read failed, when it says something the user can act on. */
+    failure: z.enum(["rateLimited"]).optional(),
   })
   .strict();
 export type ThreadQuotaState = z.infer<typeof threadQuotaStateSchema>;
