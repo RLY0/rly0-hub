@@ -157,7 +157,7 @@ describe("Hub isolated Claude browser login", () => {
       project: { ...f.binding.project, id: "replaced" },
     });
     expect(
-      await f.controller.submit(f.controller.status().id ?? "", "synthetic-code"),
+      await f.controller.submit(f.controller.status().id ?? "", `synthetic-code#${state}`),
     ).toMatchObject({ phase: "failed", error: "ISOLATION_LOGIN_SUBMIT_FAILED" });
     expect(f.submitted()).toBe("");
     expect(f.child.kill).toHaveBeenCalledOnce();

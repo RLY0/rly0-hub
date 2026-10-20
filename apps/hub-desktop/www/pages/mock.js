@@ -72,8 +72,23 @@ window.hubManagementMock = (() => {
       current: true,
       lastUsage: usage(42, 88, 9000, 400000),
     },
-    { id: "abcdefabcdef", alias: "工作号", email: "work@example.com", plan: "pro", current: false },
+    {
+      id: "abcdefabcdef",
+      alias: "工作号",
+      email: "work@example.com",
+      plan: "pro",
+      current: false,
+      lastUsage: usage(15, 33, 12000, 350000),
+    },
+    // Signed out elsewhere: rly0-core cannot renew its token any more.
+    { id: "fedcba987654", alias: "旧号", email: "old@example.com", plan: "pro", current: false },
   ];
+  const claudeUsage = (account) =>
+    account.id === "fedcba987654"
+      ? { id: account.id, error: "ACCOUNT_REFRESH_REJECTED" }
+      : { id: account.id, usage: account.lastUsage };
+  // 网页登录 (add a Claude account without signing out): waiting → code pasted → saved.
+  let claudeAdd = { phase: "idle" };
   function claudeKey(variant) {
     const base = { kind: "subscription", last4: "QwAA", profileHidden: true };
     if (variant === "network")
@@ -361,13 +376,80 @@ window.hubManagementMock = (() => {
           ? { __error: "USAGE_NETWORK", __delay: 900 }
           : {
               __delay: 300,
-              results: [
-                { id: claudeAccounts[0].id, usage: claudeAccounts[0].lastUsage },
-                { id: claudeAccounts[1].id, error: "USAGE_TOKEN_EXPIRED" },
-              ],
+              results: claudeAccounts.map(claudeUsage),
             };
+      case "agents.claudeAccounts.usage": {
+        const account = claudeAccounts.find((a) => a.id === p.id);
+        const result = account ? claudeUsage(account) : { error: "ACCOUNT_NOT_FOUND" };
+        return result.error
+          ? { __error: result.error, __delay: 400 }
+          : { ...result.usage, __delay: 400 };
+      }
       case "agents.claudeAccounts.switch":
+        for (const account of claudeAccounts) account.current = account.id === p.id;
         return { switched: true };
+      case "agents.claudeAccounts.rename": {
+        const account = claudeAccounts.find((a) => a.id === p.id);
+        if (account) account.alias = p.alias;
+        return { ok: true };
+      }
+      case "agents.claudeAccounts.remove": {
+        const index = claudeAccounts.findIndex((a) => a.id === p.id);
+        if (index >= 0) claudeAccounts.splice(index, 1);
+        return { ok: true };
+      }
+      case "agents.claudeAccounts.addLoginStart":
+        if (!["starting", "waitingForCode", "authorizing"].includes(claudeAdd.phase))
+          claudeAdd = {
+            phase: "waitingForCode",
+            id: "00000000-0000-4000-8000-0000000000c1",
+            scope: "",
+          };
+        return { ...claudeAdd, __delay: 300 };
+      case "agents.claudeAccounts.addLoginStatus":
+        if (claudeAdd.phase === "authorizing") {
+          claudeAdd = {
+            phase: "succeeded",
+            id: claudeAdd.id,
+            result: { id: "0f0e0d0c0b0a", email: "new@example.com", plan: "max" },
+          };
+          claudeAccounts.push({
+            id: "0f0e0d0c0b0a",
+            alias: "new@example.com",
+            email: "new@example.com",
+            plan: "max",
+            current: false,
+            lastUsage: usage(3, 9, 17000, 590000),
+          });
+        }
+        return claudeAdd;
+      case "agents.claudeAccounts.addLoginSubmit":
+        if (!/#/u.test(p.code)) return { __error: "CLAUDE_ADD_LOGIN_CODE_INVALID" };
+        claudeAdd = { ...claudeAdd, phase: "authorizing" };
+        return claudeAdd;
+      case "agents.claudeAccounts.addLoginOpen":
+        return { ...claudeAdd, browserOpened: true };
+      case "agents.claudeAccounts.addLoginCancel":
+        claudeAdd = { phase: "cancelled", id: claudeAdd.id, scope: "" };
+        return claudeAdd;
+      case "agents.claudeAccounts.importFile":
+        if (!p.content.includes("claudeAiOauth")) return { __error: "CLAUDE_FILE_NO_LOGIN" };
+        if (!claudeAccounts.some((a) => a.id === "1a2b3c4d5e6f"))
+          claudeAccounts.push({
+            id: "1a2b3c4d5e6f",
+            alias: "file@example.com",
+            email: "file@example.com",
+            plan: "max",
+            current: false,
+            lastUsage: usage(51, 20, 6000, 200000),
+          });
+        return {
+          ok: true,
+          id: "1a2b3c4d5e6f",
+          email: "file@example.com",
+          plan: "max",
+          __delay: 500,
+        };
       case "agents.officialKeys.info":
         return { info: officialKeys[p.vendor] || null };
       case "agents.officialKeys.set":

@@ -368,13 +368,26 @@ export class Rly0CoreBridge {
    */
   async claudeAccounts(
     method:
-      "list" | "importCurrent" | "switch" | "rename" | "remove" | "usage" | "usageAll" | "keyInfo",
+      | "list"
+      | "importCurrent"
+      | "importFrom"
+      | "importFile"
+      | "forgetLogin"
+      | "switch"
+      | "rename"
+      | "remove"
+      | "usage"
+      | "usageAll"
+      | "keyInfo",
     params: Record<string, unknown> = {},
   ): Promise<Record<string, unknown> | null> {
     const response = await this.#client.request<Record<string, unknown>>(
       `claude/${method}`,
       params,
-      method.startsWith("usage") || method === "keyInfo" ? { timeoutMs: 60_000 } : {},
+      // Usage may renew a saved account's token first; a file import may ask Anthropic who it is.
+      method.startsWith("usage") || method === "keyInfo" || method === "importFile"
+        ? { timeoutMs: 60_000 }
+        : {},
     );
     return response.available ? response.result : null;
   }

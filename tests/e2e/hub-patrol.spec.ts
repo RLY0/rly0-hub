@@ -508,3 +508,79 @@ test("claude setup-token quota: tiles, network failure, invalid token", async ({
   await expect(card).toContainText("已失效");
   await shot(card, "invalid");
 });
+
+// Claude accounts (pages/mock.js): three saved accounts, one signed out elsewhere; adding one by
+// web login (code pasted) and by a credentials file, both without touching the current login.
+test("claude accounts: cards, add by web login, import from file", async ({ page }) => {
+  const dir = path.join(runDir, "claude-accounts");
+  mkdirSync(dir, { recursive: true });
+  await page.setViewportSize({ width: 1240, height: HEIGHT });
+  await page.goto("/index.html");
+  await page.click('.rail button[data-page="accounts"]');
+  // The mock's update prompt pops up shortly after start; get it out of the way first.
+  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+  const dismiss = async () => {
+    if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+  };
+  await dismiss();
+  await page.click('.account-tabs button[aria-label^="Anthropic"]');
+  const card = (text: string) => page.locator(".account-card", { hasText: text });
+  await expect(card("me@example.com")).toContainText("Current");
+  await expect(card("工作号")).toContainText("剩 85%");
+  await expect(card("工作号")).toContainText("切换到这个");
+  await expect(card("旧号")).toContainText("登录已失效");
+  await expect(page.locator(".auto-switch")).toContainText("违反 Anthropic 的使用条款");
+  await card("旧号").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(dir, "cards.png") });
+
+  // 网页登录 → dialog → paste a code → saved.
+  await dismiss();
+  await page.click('button.menu-trigger:has-text("+ 添加")');
+  await page.click('.menu-item:has-text("网页登录")');
+  const dialog = page.locator('.dialog-backdrop.show .dialog[aria-label="添加 Claude 账号"]');
+  await expect(dialog).toContainText("添加 Claude 账号");
+  await expect(dialog).toContainText("当前登录不受影响");
+  await expect(dialog.locator('input[aria-label="Claude 授权码"]')).toBeVisible();
+  await page.waitForTimeout(400);
+  await dialog.screenshot({ path: path.join(dir, "add-web-login.png") });
+  await dialog.locator('input[aria-label="Claude 授权码"]').fill("no-state");
+  await dialog.locator('button:has-text("提交授权码")').click();
+  await expect(page.locator("#toast")).toContainText("授权码不完整");
+  await dialog.locator('input[aria-label="Claude 授权码"]').fill("synthetic-code#synthetic-state");
+  await dialog.locator('button:has-text("提交授权码")').click();
+  await expect(dialog).toHaveCount(0, { timeout: 8000 });
+  await expect(card("new@example.com")).toBeVisible();
+  await expect(card("me@example.com")).toContainText("Current");
+
+  // 从文件导入: a wrong file first, then Claude Code's .credentials.json.
+  const pick = async (name: string, content: string) => {
+    await dismiss();
+    await page.click('button.menu-trigger:has-text("+ 添加")');
+    const chooser = page.waitForEvent("filechooser");
+    await page.click('.menu-item:has-text("从文件导入")');
+    await (
+      await chooser
+    ).setFiles({ name, mimeType: "application/json", buffer: Buffer.from(content) });
+  };
+  await page.click('button.menu-trigger:has-text("+ 添加")');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(dir, "add-menu.png") });
+  await page.keyboard.press("Escape");
+  await pick("wrong.json", '{"hello":1}');
+  await expect(page.locator("#toast")).toContainText("文件里没有 Claude 登录");
+  await pick(
+    ".credentials.json",
+    JSON.stringify({ claudeAiOauth: { accessToken: "synthetic", refreshToken: "synthetic" } }),
+  );
+  await expect(page.locator("#toast")).toContainText("已导入 file@example.com");
+  await expect(card("file@example.com")).toBeVisible();
+  await card("file@example.com").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(dir, "after-import.png") });
+
+  // Switching is manual and per card.
+  await card("工作号").locator('button:has-text("切换到这个")').click();
+  await expect(card("工作号")).toContainText("Current");
+});

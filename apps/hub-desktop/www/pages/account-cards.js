@@ -42,6 +42,12 @@ window.registerHubAccountCards = ({
     USAGE_NETWORK: "暂时连不上官方接口",
     USAGE_BAD_RESPONSE: "官方返回的额度看不懂",
     ACCOUNT_TOKEN_MISSING: "这个账号没有可查询的登录",
+    // Claude accounts (rly0-core renews a saved, non-current account's token itself).
+    CLAUDE_LIVE_EXPIRED: "登录需要续期：用一次 Claude Code 后再刷新",
+    CLAUDE_SAVED_EXPIRED: "登录已过期，切换一次即可更新额度",
+    ACCOUNT_REFRESH_REJECTED: "这个账号的登录已失效（可能在别处退出了），请重新添加",
+    ACCOUNT_REFRESH_MISMATCH: "官方返回的不是这个账号，已停止续期",
+    ACCOUNT_BUSY: "这个账号正在续期，稍后再刷新",
     RLY0_CORE_UNAVAILABLE: "后台服务还没准备好",
     TIMEOUT: "查询超时",
   };

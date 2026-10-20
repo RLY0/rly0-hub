@@ -87,6 +87,7 @@ import { noAccountStatus, relayCodexModels } from "./no-account.js";
 import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
 import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
 import { Rly0HubAddLogin } from "./add-login.js";
+import { ClaudeAddLogin, importClaudeAccountFile } from "./claude-add-login.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
@@ -197,6 +198,7 @@ export class Rly0HubService {
   readonly #discovery: Rly0LocalDiscovery;
   readonly #installer: AgentInstaller;
   readonly #isolation: ClaudeIsolation;
+  readonly #claudeAdd: ClaudeAddLogin;
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
   readonly #codexConfig: Rly0RelayCodexConfigManager;
@@ -252,6 +254,12 @@ export class Rly0HubService {
       ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#isolation = new ClaudeIsolation(environment, options.platform ?? process.platform, {
+      openUrl: (url) => (options.openUrl ?? openInBrowser)(url),
+    });
+    this.#claudeAdd = new ClaudeAddLogin({
+      environment,
+      ...(options.platform ? { platform: options.platform } : {}),
+      core: this.#core,
       openUrl: (url) => (options.openUrl ?? openInBrowser)(url),
     });
     this.#state = new Rly0HubStateStore(environment);
@@ -602,6 +610,7 @@ export class Rly0HubService {
 
   async dispose(): Promise<void> {
     this.#isolation.close();
+    this.#claudeAdd.close();
     await this.#addLogin.close().catch(() => undefined);
     await this.#core.dispose();
   }
@@ -952,6 +961,42 @@ export class Rly0HubService {
           return result;
         },
       ),
+      // Add another account without signing the current one out: the official browser login
+      // in a throw-away CLAUDE_CONFIG_DIR (claude-add-login.ts), or a credentials file.
+      "agents.claudeAccounts.addLoginStart": route(
+        z.object({ alias: z.string().trim().min(1).max(40).optional() }).strict(),
+        (p) => this.#claudeAdd.start(p.alias),
+      ),
+      "agents.claudeAccounts.addLoginStatus": route(empty, () => this.#claudeAdd.status()),
+      "agents.claudeAccounts.addLoginSubmit": route(sandboxLoginSubmitSchema, (p) =>
+        this.#claudeAdd.submit(p.id, p.code),
+      ),
+      "agents.claudeAccounts.addLoginOpen": route(sandboxLoginIdSchema, (p) =>
+        this.#claudeAdd.reopen(p.id),
+      ),
+      "agents.claudeAccounts.addLoginCancel": route(sandboxLoginIdSchema, (p) =>
+        this.#claudeAdd.cancel(p.id),
+      ),
+      "agents.claudeAccounts.importFile": route(
+        z
+          .object({
+            content: z
+              .string()
+              .min(2)
+              .max(256 * 1024),
+            alias: z.string().trim().min(1).max(40).optional(),
+          })
+          .strict(),
+        (p) =>
+          importClaudeAccountFile(core, p.content, {
+            ...(p.alias ? { alias: p.alias } : {}),
+            saveToken: async (token) => {
+              const { id } = await saveAnthropicApiKey(core, token);
+              await this.#agentRelays.set({ claudeCode: id });
+              await this.#ensureProxyForRelays().catch(() => undefined);
+            },
+          }),
+      ),
       "agents.claudeAccounts.switch": route(
         z.object({ id: z.string().regex(/^[a-f0-9]{12}$/u) }).strict(),
         async (p) => {
@@ -983,6 +1028,15 @@ export class Rly0HubService {
         if (!entry) return { info: null };
         return { info: await core.claudeAccounts("keyInfo", { relayId: entry.id }) };
       }),
+      // One account's quota; a saved (not current) account's expired token is renewed first.
+      "agents.claudeAccounts.usage": route(
+        z.object({ id: z.string().regex(/^[a-f0-9]{12}$/u) }).strict(),
+        async (p) => {
+          const result = await core.claudeAccounts("usage", { id: p.id });
+          if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+          return result;
+        },
+      ),
       "agents.claudeAccounts.usageAll": route(empty, async () => {
         const result = await core.claudeAccounts("usageAll");
         if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");

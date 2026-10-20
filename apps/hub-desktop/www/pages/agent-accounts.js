@@ -12,7 +12,6 @@ window.registerHubAgentAccounts = ({
   toast,
   failed,
   explain,
-  pollers,
   go,
   LOGIN_ICONS,
   accountCards: cards,
@@ -25,6 +24,17 @@ window.registerHubAgentAccounts = ({
     RLY0_CORE_UNAVAILABLE: "后台服务还没准备好，请稍后再试",
     CLAUDE_IDENTITY_UNKNOWN: "还读不到这个账号是谁：在 Codex 里用一次 Claude Code 后再保存",
     CLAUDE_NOT_LOGGED_IN: "Claude Code 还没登录",
+    // 从文件导入 (rly0-core claude/importFile)
+    CLAUDE_FILE_NOT_JSON: "这个文件不是 JSON。请选 Claude Code 的 .credentials.json 登录文件",
+    CLAUDE_FILE_NO_LOGIN:
+      '文件里没有 Claude 登录。需要的格式是 {"claudeAiOauth": {"accessToken", "refreshToken", …}}',
+    CLAUDE_FILE_API_KEY: "这是 API Key，不是账号登录：请用「+ 添加 → 官方 API Key」保存",
+    CLAUDE_FILE_EXPIRED: "这个登录文件已经失效了（令牌过期且无法续期），请重新登录这个账号",
+    CLAUDE_FILE_TOO_LARGE: "文件太大，不像是 Claude 登录文件",
+    CLAUDE_FILE_IDENTITY_NETWORK:
+      "连不上 Claude 官方，确认不了这是哪个账号，请检查网络或代理后重试",
+    CLAUDE_FILE_IDENTITY_UNKNOWN: "官方没有告诉我们这是哪个账号，暂时无法导入",
+    METHOD_NOT_FOUND: "后台核心版本太旧，请先更新 RLY/0 Hub",
   };
   const loginFailed = (error) =>
     toast(LOGIN_ERRORS[error && error.message] || explain(error && error.message));
@@ -94,6 +104,21 @@ window.registerHubAgentAccounts = ({
           : failed;
       },
     });
+    const importFile = () =>
+      pickFile((content) =>
+        call("agents.claudeAccounts.importFile", { content }).then((result) => {
+          if (result.token) {
+            toast("文件里是订阅令牌，已保存为官方令牌");
+            key.reload().catch(() => undefined);
+          } else
+            toast(
+              result.alreadyCurrent
+                ? "这就是当前登录的账号，已保存"
+                : `已导入 ${result.email || "Claude 账号"}，当前登录不受影响`,
+            );
+          load().then(() => refresh.refresh());
+        }, loginFailed),
+      );
     const saveCurrent = () =>
       call("agents.claudeAccounts.importCurrent", {}).then(() => {
         toast("已保存当前 Claude 登录，之后可以一键切换");
@@ -108,23 +133,23 @@ window.registerHubAgentAccounts = ({
           {
             icon: LOGIN_ICONS.web,
             title: "网页登录",
-            desc: "在浏览器里登录 Claude 账号（Pro / Max），可以添加多个",
-            onSelect: () => webLogin(),
+            desc: "在浏览器里登录另一个 Claude 账号（Pro / Max），当前登录不受影响",
+            onSelect: () =>
+              window.openClaudeAddLogin({
+                h,
+                call,
+                toast,
+                explain,
+                onAdded: () => {
+                  if (alive()) load().then(() => refresh.refresh());
+                },
+              }),
           },
           {
             icon: LOGIN_ICONS.file,
-            title: "导入登录文件",
-            desc: ".credentials.json 或 Sub2API 导出的 Claude 账号",
-            onSelect: () =>
-              pickFile((content) =>
-                call("agents.claudeCode.importCredentials", { content }).then(async (result) => {
-                  if (!result.token)
-                    await call("agents.claudeAccounts.importCurrent", {}).catch(() => undefined);
-                  toast(result.token ? "已导入 Claude 令牌" : "已导入并保存这个账号");
-                  if (result.token) key.reload().catch(() => undefined);
-                  load();
-                }, loginFailed),
-              ),
+            title: "从文件导入",
+            desc: "Claude Code 的 .credentials.json 登录文件，或 Sub2API 导出的账号",
+            onSelect: importFile,
           },
           {
             icon: LOGIN_ICONS.key,
@@ -139,44 +164,12 @@ window.registerHubAgentAccounts = ({
         { class: "grid compact account-auto" },
         cards.autoSwitchCard({
           alive,
-          reason: "自动切换目前只管 Codex 账号，后台还没有 Claude 账号的切换规则。",
+          reason:
+            "Claude 账号只能手动切换：自动轮换多个订阅账号可能违反 Anthropic 的使用条款，所以不提供。",
         }),
       ),
       list,
     );
-
-    // Claude's sign-in replaces the live login: save the current one first, the new one after.
-    async function webLogin() {
-      const before = await call("agents.claudeCode.status").catch(() => null);
-      if (before && before.loggedIn)
-        await call("agents.claudeAccounts.importCurrent", {}).catch(() => undefined);
-      const previous = before && before.loggedIn ? before.email || "" : null;
-      const result = await call("agents.claudeCode.login", { mode: "claudeai" }).catch(() => null);
-      if (!result || !result.started) {
-        toast("没能开始登录，请确认已安装 Claude Code");
-        return;
-      }
-      toast("已在浏览器打开登录页，用要添加的 Claude 账号登录");
-      const startedAt = Date.now();
-      const timer = setInterval(async () => {
-        if (Date.now() - startedAt > 5 * 60_000) {
-          clearInterval(timer);
-          pollers.delete(timer);
-          return;
-        }
-        const status = await call("agents.claudeCode.status").catch(() => null);
-        if (!status || !status.loggedIn) return;
-        if (previous !== null && (status.email || "") === previous) return;
-        clearInterval(timer);
-        pollers.delete(timer);
-        await call("agents.claudeAccounts.importCurrent", {}).then(
-          () => toast(`已添加 ${status.email || "Claude 账号"}`),
-          loginFailed,
-        );
-        if (alive()) load().then(() => refresh.refresh());
-      }, 3000);
-      pollers.add(timer);
-    }
 
     async function load() {
       const listed = await call("agents.claudeAccounts.list").catch(() => null);
@@ -217,6 +210,38 @@ window.registerHubAgentAccounts = ({
       );
     }
 
+    // An expired token means different things: the live login is Claude Code's to refresh; a
+    // saved one is renewed by the core, and only a login that was signed out cannot be.
+    const claudeUsageError = (code, current) =>
+      code === "USAGE_TOKEN_EXPIRED"
+        ? current
+          ? "CLAUDE_LIVE_EXPIRED"
+          : "CLAUDE_SAVED_EXPIRED"
+        : code;
+
+    function refreshOne(account) {
+      return h(
+        "button",
+        {
+          class: "btn quiet sm",
+          type: "button",
+          "aria-label": `刷新 ${account.alias || account.email || "这个账号"} 的额度`,
+          onclick: async (event) => {
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+              await call("agents.claudeAccounts.usage", { id: account.id });
+              failures.delete(account.id);
+            } catch (error) {
+              failures.set(account.id, (error && error.message) || "USAGE_BAD_RESPONSE");
+            }
+            if (alive()) await load();
+          },
+        },
+        "刷新",
+      );
+    }
+
     function card(account) {
       return cards.accountCard({
         name: account.alias || account.email || "Claude 账号",
@@ -230,29 +255,32 @@ window.registerHubAgentAccounts = ({
         current: account.current,
         quota: cards.quotaCards(account.lastUsage, {
           reason: "额度未知：点右上角刷新读取",
-          stale: failures.get(account.id),
+          stale: claudeUsageError(failures.get(account.id), account.current),
         }),
-        actions: account.current
-          ? []
-          : [
-              h(
-                "button",
-                {
-                  class: "btn paper sm",
-                  type: "button",
-                  onclick: () =>
-                    call("agents.claudeAccounts.switch", { id: account.id }).then((r) => {
-                      toast(
-                        r && r.switched
-                          ? `已切换到 ${account.alias || account.email}，新开的 Claude Code 对话生效`
-                          : "已经是这个账号",
-                      );
-                      load();
-                    }, failed),
-                },
-                "切换到这个",
-              ),
-            ],
+        actions: [
+          refreshOne(account),
+          ...(account.current
+            ? []
+            : [
+                h(
+                  "button",
+                  {
+                    class: "btn paper sm",
+                    type: "button",
+                    onclick: () =>
+                      call("agents.claudeAccounts.switch", { id: account.id }).then((r) => {
+                        toast(
+                          r && r.switched
+                            ? `已切换到 ${account.alias || account.email}，新开的 Claude Code 对话生效`
+                            : "已经是这个账号",
+                        );
+                        load();
+                      }, failed),
+                  },
+                  "切换到这个",
+                ),
+              ]),
+        ],
         onRemove: () => call("agents.claudeAccounts.remove", { id: account.id }).then(() => load()),
         removedText: "已删除保存的账号（当前登录不受影响）",
       });
