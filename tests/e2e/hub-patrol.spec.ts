@@ -412,12 +412,9 @@ for (const width of WIDTHS) {
         expect(clicked).toContain("反馈问题#1");
         expect(clicked).toContain("打开文件夹#1");
       }
-      // 刷新额度: works where quota can be read (mock: Codex succeeds with one account failing,
-      // Claude fails outright), and is unavailable, with its reason, where it cannot.
-      if (target.id === "accounts-codex" || target.id === "accounts-claude")
-        expect(clicked).toContain("刷新额度#1");
-      if (target.id === "accounts-gemini" || target.id === "accounts-grok")
-        expect(skipped).toContainEqual({ label: "刷新额度#1", reason: "不可用" });
+      // 刷新额度 works on every provider tab in the mock (Codex succeeds with one account failing,
+      // Claude fails outright, Grok has an expired account, Antigravity's /usage then times out).
+      if (target.id.startsWith("accounts-")) expect(clicked).toContain("刷新额度#1");
     });
   }
 }
@@ -583,4 +580,108 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
   // Switching is manual and per card.
   await card("工作号").locator('button:has-text("切换到这个")').click();
   await expect(card("工作号")).toContainText("Current");
+});
+
+// Grok (测试版, pages/mock.js): a weekly and a monthly account and one whose saved login expired;
+// adding one by `grok login` (finishes on its own, no code) and by an auth.json file.
+async function openAccountsTab(page: import("@playwright/test").Page, tab: string) {
+  await page.setViewportSize({ width: 1240, height: HEIGHT });
+  await page.goto("/index.html");
+  await page.click('.rail button[data-page="accounts"]');
+  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+  const dismiss = async () => {
+    if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+  };
+  await dismiss();
+  await page.click(`.account-tabs button[aria-label^="${tab}"]`);
+  return dismiss;
+}
+
+test("grok accounts: cards, expired login, add by web login, import from file", async ({
+  page,
+}) => {
+  const dir = path.join(runDir, "grok-accounts");
+  mkdirSync(dir, { recursive: true });
+  const dismiss = await openAccountsTab(page, "xAI");
+  const card = (text: string) => page.locator(".account-card", { hasText: text });
+  await expect(page.locator(".beta-tag")).toHaveText("测试版");
+  await expect(card("me@example.com")).toContainText("Current");
+  await expect(card("me@example.com")).toContainText("每周额度");
+  await expect(card("SuperGrok 号")).toContainText("每月额度");
+  await expect(card("SuperGrok 号")).toContainText("剩 36%");
+  await expect(card("旧号")).toContainText("切换一次即可更新额度");
+  await expect(page.locator(".auto-switch")).toContainText("只能手动切换");
+  await card("旧号").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(dir, "cards.png"), fullPage: true });
+
+  await dismiss();
+  await page.locator("#page").evaluate((element) => element.scrollTo(0, 0));
+  await page.waitForTimeout(200);
+  await page.click('button.menu-trigger:has-text("+ 添加")');
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(dir, "add-menu.png") });
+  await page.click('.menu-item:has-text("网页登录")');
+  const dialog = page.locator('.dialog-backdrop.show .dialog[aria-label="添加 Grok 账号"]');
+  await expect(dialog).toContainText("xAI 官方登录页");
+  await expect(dialog.locator("input")).toHaveCount(0);
+  await dialog.screenshot({ path: path.join(dir, "add-web-login.png") });
+  await expect(dialog).toHaveCount(0, { timeout: 10000 });
+  await expect(card("new@example.com")).toBeVisible();
+  await expect(card("me@example.com")).toContainText("Current");
+
+  const pick = async (name: string, content: string) => {
+    await dismiss();
+    await page.click('button.menu-trigger:has-text("+ 添加")');
+    const chooser = page.waitForEvent("filechooser");
+    await page.click('.menu-item:has-text("从文件导入")');
+    await (
+      await chooser
+    ).setFiles({ name, mimeType: "application/json", buffer: Buffer.from(content) });
+  };
+  await pick("wrong.json", '{"hello":1}');
+  await expect(page.locator("#toast")).toContainText("文件里没有 Grok 登录");
+  await pick("auth.json", JSON.stringify({ "https://auth.x.ai::synthetic": { key: "synthetic" } }));
+  await expect(page.locator("#toast")).toContainText("切换过去后 Grok 会自动续期");
+  await expect(card("file@example.com")).toBeVisible();
+
+  await card("旧号").locator('button:has-text("切换到这个")').click();
+  await expect(page.locator("#toast")).toContainText("Grok 会自动续期这个登录");
+  await expect(card("旧号")).toContainText("Current");
+  await page.waitForTimeout(800);
+  await card("旧号").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(dir, "after-switch.png"), fullPage: true });
+});
+
+// Gemini (测试版): Antigravity keeps one shared keyring login, so no accounts; its /usage quota is
+// read only on request, and a later failure keeps the last numbers.
+test("gemini: current Antigravity login quota on request, multi-account unsupported", async ({
+  page,
+}) => {
+  const dir = path.join(runDir, "gemini-accounts");
+  mkdirSync(dir, { recursive: true });
+  await openAccountsTab(page, "Google");
+  const card = page.locator(".account-card", { hasText: "Antigravity 当前登录" });
+  await expect(page.locator(".beta-tag")).toHaveText("测试版");
+  await expect(card).toContainText("点右上角刷新");
+  await expect(page.locator(".auto-switch")).toContainText("系统钥匙串");
+  await expect(page.locator('button:has-text("保存当前登录")')).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  await page.screenshot({ path: path.join(dir, "before.png"), fullPage: true });
+  await page.click('button[aria-label="刷新额度"]');
+  await expect(card).toContainText("Gemini Models · 5 小时额度");
+  await expect(card).toContainText("Claude and GPT models · 每周额度");
+  await expect(card).toContainText("已登录");
+  await card.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(dir, "quota.png"), fullPage: true });
+  await page.waitForTimeout(10_500);
+  await page.click('button[aria-label="刷新额度"]');
+  await expect(card).toContainText("显示的是上次读到的额度");
+  await expect(card).toContainText("Gemini Models · 每周额度");
+  await card.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(dir, "stale.png"), fullPage: true });
 });

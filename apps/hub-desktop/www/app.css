@@ -3381,6 +3381,17 @@ select.input,
 .tag.warn {
   color: var(--warn);
 }
+/* 账号 → Grok / Gemini: not yet tried with real accounts. */
+.beta-tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--warn);
+  cursor: help;
+}
 .agent-login-card {
   gap: 14px;
 }

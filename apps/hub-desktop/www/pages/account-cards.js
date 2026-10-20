@@ -45,6 +45,9 @@ window.registerHubAccountCards = ({
     // Claude accounts (rly0-core renews a saved, non-current account's token itself).
     CLAUDE_LIVE_EXPIRED: "登录需要续期：用一次 Claude Code 后再刷新",
     CLAUDE_SAVED_EXPIRED: "登录已过期，切换一次即可更新额度",
+    // Grok accounts (the Grok CLI renews tokens; the Hub never does).
+    GROK_LIVE_EXPIRED: "登录需要续期：用一次 Grok 后再刷新",
+    GROK_SAVED_EXPIRED: "登录已过期，切换一次即可更新额度",
     ACCOUNT_REFRESH_REJECTED: "这个账号的登录已失效（可能在别处退出了），请重新添加",
     ACCOUNT_REFRESH_MISMATCH: "官方返回的不是这个账号，已停止续期",
     ACCOUNT_BUSY: "这个账号正在续期，稍后再刷新",
@@ -52,13 +55,26 @@ window.registerHubAccountCards = ({
     TIMEOUT: "查询超时",
   };
   const usageError = (code) => USAGE_ERRORS[code] || explain(code);
+  // A window's own label (Antigravity names its model groups) or its kind's.
+  const KIND_LABELS = {
+    primary: "5 小时额度",
+    secondary: "每周额度",
+    weekly: "每周额度",
+    monthly: "每月额度",
+    credits: "额度",
+  };
+  const windowLabel = (w) => w.label || KIND_LABELS[w.kind] || "额度";
 
   /* ---------- Quota tiles ---------- */
   // Known usage: one tile per window. Otherwise the same two tiles marked 未知 / 不支持 with the
   // reason; an unknown number is never shown as 0. `stale` keeps the old numbers after a failed
   // refresh and says so. `updated` adds when the numbers were read (usage.fetchedAt, seconds) for
   // a card whose quota is refreshed on its own rather than with the page's accounts.
-  function quotaCards(usage, { value = "未知", reason, stale, updated } = {}) {
+  // `kinds`: the placeholder tiles when nothing is known (the 5-hour and weekly ones by default).
+  function quotaCards(
+    usage,
+    { value = "未知", reason, stale, updated, kinds = ["5 小时额度", "每周额度"] } = {},
+  ) {
     const known = Boolean(usage && usage.windows && usage.windows.length);
     const staleNote = stale
       ? h(
@@ -84,11 +100,7 @@ window.registerHubAccountCards = ({
               h(
                 "div",
                 { class: "row" },
-                h(
-                  "span",
-                  { class: "reset-kind" },
-                  w.kind === "primary" ? "5 小时额度" : "每周额度",
-                ),
+                h("span", { class: "reset-kind" }, windowLabel(w)),
                 h("span", { class: "spacer" }),
                 h("b", { class: "tabular" }, `剩 ${left}%`),
               ),
@@ -113,7 +125,7 @@ window.registerHubAccountCards = ({
       h(
         "div",
         { class: "reset-cards unknown" },
-        ["5 小时额度", "每周额度"].map((kind) =>
+        kinds.map((kind) =>
           h(
             "div",
             { class: "reset-card none" },
@@ -219,14 +231,20 @@ window.registerHubAccountCards = ({
 
   /* ---------- Head row ---------- */
   // saveCurrent: { onClick } or { reason } when the provider's live login cannot be read.
-  function pageHead({ intro, saveCurrent, addItems, refresh }) {
+  // `beta`: a small 测试版 tag after the intro, with why.
+  function pageHead({ intro, saveCurrent, addItems, refresh, beta }) {
     const save = h("button", { class: "btn quiet", type: "button" }, "保存当前登录");
     if (saveCurrent.reason) unavailable(save, saveCurrent.reason);
     else save.addEventListener("click", saveCurrent.onClick);
     return h(
       "div",
       { class: "row page-head account-head" },
-      h("span", { class: "sub" }, intro),
+      h(
+        "span",
+        { class: "sub" },
+        intro,
+        beta ? h("span", { class: "tag beta-tag", "data-tip": beta }, "测试版") : null,
+      ),
       h(
         "span",
         { class: "head-actions" },

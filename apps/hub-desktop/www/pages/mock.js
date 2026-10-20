@@ -108,6 +108,73 @@ window.hubManagementMock = (() => {
       usageVia: "headers",
     };
   }
+  // Grok (测试版): a weekly and a monthly account, plus one whose saved login has expired
+  // (the Hub never renews Grok tokens; switching lets the Grok CLI do it).
+  const credits = (kind, used, reset) => ({
+    windows: [
+      {
+        kind,
+        usedPercent: used,
+        resetsAt: at(reset),
+        ...(kind === "weekly" ? { windowSeconds: 604800 } : {}),
+      },
+    ],
+    fetchedAt: at(0),
+    source: "live",
+  });
+  const grokAccounts = [
+    {
+      id: "6a6b6c6d6e6f",
+      alias: "me@example.com",
+      email: "me@example.com",
+      current: true,
+      loginExpired: false,
+      lastUsage: credits("weekly", 27, 300000),
+    },
+    {
+      id: "7a7b7c7d7e7f",
+      alias: "SuperGrok 号",
+      email: "super@example.com",
+      current: false,
+      loginExpired: false,
+      lastUsage: credits("monthly", 64, 1500000),
+    },
+    {
+      id: "8a8b8c8d8e8f",
+      alias: "旧号",
+      email: "old@example.com",
+      current: false,
+      loginExpired: true,
+    },
+  ];
+  const grokUsage = (account) =>
+    account.loginExpired && !account.current
+      ? { id: account.id, error: "USAGE_TOKEN_EXPIRED" }
+      : { id: account.id, usage: account.lastUsage };
+  let grokAdd = { phase: "idle" };
+  let grokAddPolls = 0;
+  // Gemini (Antigravity): only the current login's /usage. `?agy=missing` previews it not installed.
+  const agyInstalled = new URLSearchParams(location.search).get("agy") !== "missing";
+  let agyCalls = 0;
+  const agyUsage = () => ({
+    windows: [
+      { kind: "primary", label: "Gemini Models · 5 小时额度", usedPercent: 0, resetsAt: at(16000) },
+      {
+        kind: "secondary",
+        label: "Gemini Models · 每周额度",
+        usedPercent: 2.6,
+        resetsAt: at(45000),
+      },
+      {
+        kind: "secondary",
+        label: "Claude and GPT models · 每周额度",
+        usedPercent: 40,
+        resetsAt: at(500000),
+      },
+    ],
+    fetchedAt: at(0),
+  });
+  let agyState = { installed: agyInstalled };
   let codexUsageCalls = 0;
   let claudeUsageCalls = 0;
   const officialKeys = {
@@ -450,6 +517,104 @@ window.hubManagementMock = (() => {
           plan: "max",
           __delay: 500,
         };
+      case "agents.grokAccounts.list":
+        return { accounts: grokAccounts, liveLoggedIn: true, liveUnsaved: false };
+      case "agents.grokAccounts.usageAll":
+        return { __delay: 300, results: grokAccounts.map(grokUsage) };
+      case "agents.grokAccounts.usage": {
+        const account = grokAccounts.find((a) => a.id === p.id);
+        const result = account ? grokUsage(account) : { error: "ACCOUNT_NOT_FOUND" };
+        return result.error
+          ? { __error: result.error, __delay: 400 }
+          : { ...result.usage, __delay: 400 };
+      }
+      case "agents.grokAccounts.switch": {
+        const target = grokAccounts.find((a) => a.id === p.id);
+        for (const account of grokAccounts) account.current = account.id === p.id;
+        return {
+          switched: true,
+          alias: target && target.alias,
+          expired: Boolean(target && target.loginExpired),
+        };
+      }
+      case "agents.grokAccounts.rename": {
+        const account = grokAccounts.find((a) => a.id === p.id);
+        if (account) account.alias = p.alias;
+        return { ok: true };
+      }
+      case "agents.grokAccounts.remove": {
+        const index = grokAccounts.findIndex((a) => a.id === p.id);
+        if (index >= 0) grokAccounts.splice(index, 1);
+        return { ok: true };
+      }
+      case "agents.grokAccounts.importCurrent":
+        return { id: "6a6b6c6d6e6f", email: "me@example.com", expired: false };
+      case "agents.grokAccounts.addLoginStart":
+        if (!["starting", "waitingForCode", "authorizing"].includes(grokAdd.phase)) {
+          grokAdd = {
+            phase: "waitingForCode",
+            id: "00000000-0000-4000-8000-0000000000a1",
+            scope: "",
+          };
+          grokAddPolls = 0;
+        }
+        return { ...grokAdd, __delay: 300 };
+      case "agents.grokAccounts.addLoginStatus":
+        // The browser callback finishes the login on its own after a few seconds.
+        grokAddPolls += 1;
+        if (grokAdd.phase === "waitingForCode" && grokAddPolls >= 3) {
+          grokAdd = {
+            phase: "succeeded",
+            id: grokAdd.id,
+            result: { id: "9a9b9c9d9e9f", email: "new@example.com" },
+          };
+          if (!grokAccounts.some((a) => a.id === "9a9b9c9d9e9f"))
+            grokAccounts.push({
+              id: "9a9b9c9d9e9f",
+              alias: "new@example.com",
+              email: "new@example.com",
+              current: false,
+              loginExpired: false,
+              lastUsage: credits("weekly", 5, 590000),
+            });
+        }
+        return grokAdd;
+      case "agents.grokAccounts.addLoginOpen":
+        return { ...grokAdd, browserOpened: true };
+      case "agents.grokAccounts.addLoginCancel":
+        grokAdd = { phase: "cancelled", id: grokAdd.id, scope: "" };
+        return grokAdd;
+      case "agents.grokAccounts.importFile":
+        if (p.content.includes("auth.x.ai")) {
+          if (!grokAccounts.some((a) => a.id === "5a5b5c5d5e5f"))
+            grokAccounts.push({
+              id: "5a5b5c5d5e5f",
+              alias: "file@example.com",
+              email: "file@example.com",
+              current: false,
+              loginExpired: true,
+            });
+          return {
+            ok: true,
+            id: "5a5b5c5d5e5f",
+            email: "file@example.com",
+            expired: true,
+            __delay: 400,
+          };
+        }
+        if (p.content.includes("xai-")) return { ok: true, key: true };
+        return { __error: "GROK_FILE_NO_LOGIN" };
+      case "agents.antigravity.status":
+        return agyState;
+      case "agents.antigravity.usage":
+        // First read succeeds; later ones time out and keep the last numbers.
+        agyCalls += 1;
+        if (!agyInstalled) return { installed: false };
+        agyState =
+          agyCalls === 1
+            ? { installed: true, usage: agyUsage(), checkedAt: at(0) }
+            : { ...agyState, error: "TIMEOUT", checkedAt: at(0) };
+        return { ...agyState, __delay: 600 };
       case "agents.officialKeys.info":
         return { info: officialKeys[p.vendor] || null };
       case "agents.officialKeys.set":

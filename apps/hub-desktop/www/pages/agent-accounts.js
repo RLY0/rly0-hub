@@ -3,8 +3,7 @@
 // Codex tab (pages/account-cards.js).
 // - Claude: saved Claude Code accounts (quota, switch, rename, remove), add by web login / login
 //   file / official API key or subscription token; the saved key or token is a card of its own.
-// - Gemini, Grok: the agent's own sign-in (in its terminal) and the vendor's official API key.
-//   The Hub cannot read those logins, so saving, switching and quota are shown as unsupported.
+// - Gemini, Grok: pages/grok-gemini-accounts.js.
 // Choosing which login or relay an agent uses happens on the AI 助手 page.
 window.registerHubAgentAccounts = ({
   h,
@@ -291,129 +290,11 @@ window.registerHubAgentAccounts = ({
     });
   }
 
-  /* ---------- Google · Gemini and xAI · Grok ---------- */
-  // Their logins live inside the agents themselves; the Hub can open the agent's sign-in and keep
-  // the vendor's official key, nothing more.
-  function vendorTab(root, alive, options) {
-    const { vendor, agentId, agentName, intro, webDesc, fileDesc, keyDesc } = options;
-    const list = h("div", { class: "grid compact" });
-    const key = cards.keyCard(vendor, { alive, saveFailed: loginFailed });
-    const refresh = cards.refresher({ alive, run: async () => 0 });
-    refresh.setReason(
-      `Hub 读不到 ${agentName} 自己登录的额度；${options.vendorName} API Key 官方不提供额度查询`,
-    );
-    let agent = null;
-    const openLogin = () => {
-      if (!agent || !agent.installed) {
-        toast(`先在「AI 助手」页装好 ${agentName}`);
-        return;
-      }
-      call("agents.openLogin", { agent: agentId }).then(
-        (r) => toast(r.ok ? "已打开终端，按提示在浏览器里登录" : "没能打开终端"),
-        failed,
-      );
-    };
-    root.append(
-      cards.pageHead({
-        intro,
-        refresh: refresh.element,
-        saveCurrent: {
-          reason: `暂不支持：${agentName} 的登录保存在它自己那里，Hub 读不到，没法保存或切换多个账号`,
-        },
-        addItems: [
-          { icon: LOGIN_ICONS.web, title: "网页登录", desc: webDesc, onSelect: openLogin },
-          {
-            icon: LOGIN_ICONS.file,
-            title: "导入登录文件",
-            desc: fileDesc,
-            onSelect: () =>
-              pickFile((content) =>
-                call("agents.officialKeys.importFile", { vendor, content }).then(() => {
-                  toast("已从文件导入 Key");
-                  key.reload().catch(() => undefined);
-                }, loginFailed),
-              ),
-          },
-          {
-            icon: LOGIN_ICONS.key,
-            title: "官方 API Key",
-            desc: keyDesc,
-            onSelect: () => key.openForm(),
-          },
-        ],
-      }),
-      h(
-        "div",
-        { class: "grid compact account-auto" },
-        cards.autoSwitchCard({
-          alive,
-          reason: `Hub 只能保存一个 ${agentName} 登录和一个 Key，没有可切换的账号，也读不到额度。`,
-        }),
-      ),
-      list,
-    );
-    const render = () =>
-      list.replaceChildren(
-        cards.accountCard({
-          name: `${agentName} 官方账号`,
-          facts: [
-            agent && agent.installed
-              ? `在 ${agentName} 自己的终端里登录，登录后它就用这个账号`
-              : `先在「AI 助手」页装好 ${agentName}，再在这里登录`,
-          ],
-          badge: h("span", { class: "tag" }, "登录状态未知"),
-          quota: cards.quotaCards(null, {
-            reason: `Hub 读不到 ${agentName} 自己的登录，所以不知道登没登录、还剩多少额度。`,
-          }),
-          actions: [
-            agent && agent.installed && agent.canOpenLogin
-              ? h(
-                  "button",
-                  { class: "btn paper sm", type: "button", onclick: openLogin },
-                  "登录官方账号",
-                )
-              : h(
-                  "button",
-                  { class: "btn sm", type: "button", onclick: () => go("agents") },
-                  "去安装",
-                ),
-          ],
-        }),
-        key.element,
-      );
-    render();
-    call("agents.list")
-      .catch(() => null)
-      .then((result) => {
-        if (!alive()) return;
-        agent = ((result && result.agents) || []).find((a) => a.id === agentId) || null;
-        render();
-      });
-  }
+  // Grok and Gemini (Antigravity): pages/grok-gemini-accounts.js.
+  const others = window.registerHubGrokGeminiAccounts(
+    { h, call, toast, failed, explain, go, LOGIN_ICONS, accountCards: cards },
+    { pickFile, loginFailed },
+  );
 
-  const gemini = (root, alive) =>
-    vendorTab(root, alive, {
-      vendor: "google",
-      vendorName: "Gemini",
-      agentId: "antigravity",
-      agentName: "Antigravity",
-      intro:
-        "Google 的官方助手 Antigravity 用 Google 账号登录；Gemini API Key 也能给 Pi、Hermes 等助手用。",
-      webDesc: "用 Antigravity 在浏览器里登录 Google 账号",
-      fileDesc: "Sub2API 导出的 Gemini / Antigravity 账号 JSON",
-      keyDesc: "Google AI Studio 的 Gemini Key（AIza…）",
-    });
-  const grok = (root, alive) =>
-    vendorTab(root, alive, {
-      vendor: "xai",
-      vendorName: "xAI",
-      agentId: "grok",
-      agentName: "Grok",
-      intro: "xAI 的官方助手 Grok 用 xAI 账号登录；xAI API Key 也能给 Pi、Hermes 等助手用。",
-      webDesc: "用 Grok 在浏览器里登录 xAI 账号",
-      fileDesc: "Sub2API 导出的 Grok 账号 JSON",
-      keyDesc: "xAI 控制台的 Key（xai-…）",
-    });
-
-  return { claude, gemini, grok };
+  return { claude, gemini: others.gemini, grok: others.grok };
 };
