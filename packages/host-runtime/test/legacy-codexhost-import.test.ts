@@ -254,10 +254,10 @@ describe("ChatRepair", () => {
     };
   }
 
-  it("scans without writing anything", () => {
+  it("scans without writing anything", async () => {
     const home = makeHome();
     const repair = new ChatRepair({ environment: {}, home, codex: codex(0).control });
-    expect(repair.scan()).toMatchObject({ available: true, broken: 2, deleted: 0 });
+    expect(await repair.scan()).toMatchObject({ available: true, broken: 2, deleted: 0 });
     expect(existsSync(target(home, "threads"))).toBe(false);
   });
 
@@ -271,7 +271,7 @@ describe("ChatRepair", () => {
       sleep: async () => undefined,
     });
     const result = await repair.repair();
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       ok: true,
       repaired: 2,
       codexRestarted: true,
@@ -279,7 +279,7 @@ describe("ChatRepair", () => {
       fixedOnCodexStart: 0,
     });
     expect(c.calls).toEqual(["quit", "open"]);
-    expect(repair.scan().broken).toBe(0);
+    expect((await repair.scan()).broken).toBe(0);
   });
 
   it("does not touch Codex when it is closed", async () => {

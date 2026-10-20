@@ -480,37 +480,105 @@ window.registerHubSystem = ({
         : "当前没有可清理的数据";
     }
 
-    /* 修复聊天记录（旧版 CodexHost 里的 Claude Code 等助手会话） */
+    /* 修复聊天记录：所有助手和 Codex 自己的聊天（含旧版 CodexHost 留下的） */
     const chatMeta = h("span", { class: "tool-meta" }, "");
     const chatDetail = h("div", { class: "tool-detail", hidden: true });
     const AGENT_NAMES = {
       "claude-code": "Claude Code",
       codex: "Codex",
       gemini: "Gemini",
+      antigravity: "Antigravity",
       grok: "Grok",
       pi: "Pi",
       hermes: "Hermes",
       opencode: "OpenCode",
     };
-    const chatItem = (item) =>
-      h(
+    // Per kind (rly0-maintenance/chat-repair.ts): what is wrong, and what the repair does or why
+    // it cannot. `legacy-deleted` is listed apart (only brought back when asked).
+    const CHAT_PROBLEMS = {
+      "legacy-missing": {
+        what: "旧版 CodexHost 里的聊天没搬过来，点开报 no rollout found 或一片空白",
+        fix: "从旧版复制过来",
+      },
+      "legacy-outdated": {
+        what: "在旧版 CodexHost 里又聊过，这里还是旧内容",
+        fix: "换成新内容（旧内容另存一份）",
+      },
+      format: {
+        what: "模型显示“自定义”、发不出消息（模型设置是旧格式）",
+        fix: "打开 Codex 时自动转换",
+      },
+      "record-damaged": {
+        what: "聊天记录文件损坏，打不开",
+        fix: "用自动备份恢复",
+      },
+      "record-lost": {
+        what: "聊天记录文件损坏，也没有能用的备份",
+        cannot: "文件原样留着，没有删除",
+      },
+      "stuck-creating": {
+        what: "聊天没有创建完成",
+        cannot: "里面没有内容，新开一个聊天即可",
+      },
+      "session-missing": {
+        what: "Claude Code 本地的对话记录已经不在了（可能被它自动清理），点开是空白、接不上",
+        cannot: "对话内容只存在 Claude Code 那边，找不回来；新开一个聊天继续",
+      },
+      "codex-rollout-missing": {
+        what: "Codex 列表里有，但对话文件不在了，点开报 no rollout found",
+        cannot: "对话文件已经不在这台电脑上",
+      },
+      "codex-provider-missing": {
+        what: "建聊天时用的服务商已不在 Codex 配置里，Codex 列表里可能看不到",
+        cannot: "要改 Codex 自己的数据，Hub 不动；把那个服务商加回配置就能看到",
+      },
+      "codex-unlisted-rollout": {
+        what: "对话文件还在，但 Codex 的列表里没有它",
+        cannot: "要改 Codex 自己的数据，Hub 不动",
+      },
+    };
+    const chatTitle = (item) =>
+      `${item.title || "未命名会话"} · ${AGENT_NAMES[item.harnessId] || item.harnessId || "助手"}${
+        item.archived ? " · 已归档" : ""
+      }`;
+    function chatGroup(group) {
+      const problem = CHAT_PROBLEMS[group.kind] || {
+        what: "其他问题",
+        cannot: "暂时没有自动修复",
+      };
+      const fixable = group.repairable && problem.fix;
+      const named = group.items.filter((item) => item.title).slice(0, 5);
+      return h(
         "li",
-        { class: "bad" },
-        h("span", null, item.title || "未命名会话"),
+        { class: fixable ? "bad" : "" },
         h(
-          "b",
-          null,
-          `${AGENT_NAMES[item.harnessId] || item.harnessId || "助手"} · ${
-            item.issue === "outdated"
-              ? "有更新没同步"
-              : item.issue === "deleted"
-                ? "已删除"
-                : item.issue === "format"
-                  ? "不能继续聊"
-                  : "打不开"
-          }`,
+          "div",
+          { class: "chat-problem" },
+          h(
+            "p",
+            null,
+            h("b", null, `${group.count} 条`),
+            group.archived ? `（${group.archived} 条已归档）` : "",
+            `：${problem.what}`,
+          ),
+          h(
+            "p",
+            { class: fixable ? "chat-fix ok" : "chat-fix" },
+            fixable ? `→ 可以修复：${problem.fix}` : `→ 无法修复：${problem.cannot}`,
+          ),
+          named.length
+            ? h(
+                "ul",
+                { class: "chat-titles" },
+                named.map((item) => h("li", null, chatTitle(item))),
+                group.count > named.length
+                  ? h("li", null, `…还有 ${group.count - named.length} 条`)
+                  : null,
+              )
+            : null,
         ),
       );
+    }
     async function repairChats(includeDeleted) {
       const status = await call("codex.status").catch(() => null);
       if (status && status.running) toast("正在关闭 Codex，修复后会自动重新打开…");
@@ -520,7 +588,9 @@ window.registerHubSystem = ({
         toast(
           result && result.reason === "CODEX_STILL_RUNNING"
             ? "Codex 没能关闭，请先用“强制关闭 Codex”再修复"
-            : "修复没有完成，请重开 Hub 后再试",
+            : result && result.reason === "backup-failed"
+              ? "没能先备份聊天记录，所以什么都没改，请重开 Hub 后再试"
+              : "修复没有完成，请重开 Hub 后再试",
         );
       } else if (!result.repaired && !result.fixedOnCodexStart) {
         toast("没有需要修复的聊天记录");
@@ -529,7 +599,7 @@ window.registerHubSystem = ({
         waitingForCodex = result.fixedOnCodexStart > 0 && !result.codexRestarted;
         toast(
           [
-            result.repaired ? `已修复 ${result.repaired} 条聊天记录` : "",
+            result.repaired ? `已修复 ${result.repaired} 条聊天记录（修改前已备份）` : "",
             waitingForCodex ? `${result.fixedOnCodexStart} 条会在打开 Codex 时自动修好` : "",
             result.reopenFailed
               ? "请手动打开 Codex"
@@ -547,15 +617,24 @@ window.registerHubSystem = ({
     async function scanChats(show) {
       const scan = await call("maintenance.chatRepairScan").catch(() => null);
       if (!alive()) return;
-      if (!scan || !scan.available) {
-        chatMeta.textContent = scan ? "这台电脑没有旧版 CodexHost 的聊天记录" : "";
-        chatRepair.disabled = !scan;
-        if (show) put(chatDetail, h("p", { class: "diag-sum ok" }, "没有需要修复的聊天记录"));
+      if (!scan) {
+        chatMeta.textContent = "";
+        if (show) {
+          chatDetail.hidden = false;
+          put(chatDetail, h("p", { class: "diag-sum warn" }, "检查没有完成，请重开 Hub 后再试"));
+        }
         return;
       }
-      const formatOnly =
-        scan.broken > 0 && scan.items.every((i) => i.issue === "format" || i.issue === "deleted");
-      if (formatOnly && waitingForCodex) {
+      const groups = (scan.groups || []).filter((g) => g.kind !== "legacy-deleted");
+      const checked = scan.checked
+        ? scan.checked.agent + (scan.checked.codex || 0)
+        : (scan.items || []).length;
+      const problems = groups.reduce((sum, g) => sum + g.count, 0);
+      if (
+        waitingForCodex &&
+        scan.broken > 0 &&
+        groups.every((g) => !g.repairable || g.kind === "format")
+      ) {
         chatMeta.textContent = "打开 Codex 后自动完成修复";
         if (!show) return;
         chatDetail.hidden = false;
@@ -569,20 +648,24 @@ window.registerHubSystem = ({
         );
         return;
       }
-      chatMeta.textContent = scan.broken
-        ? `发现 ${scan.broken} 条打不开或不能继续聊的聊天记录`
-        : "聊天记录都能正常打开";
+      chatMeta.textContent = problems
+        ? `检查了 ${checked} 条聊天，${problems} 条有问题${scan.broken ? `，${scan.broken} 条可以修复` : ""}`
+        : `检查了 ${checked} 条聊天，没有发现问题`;
       if (!show) return;
       chatDetail.hidden = false;
-      const listed = scan.items.filter((item) => item.issue !== "deleted");
       put(
         chatDetail,
         h(
           "p",
-          { class: `diag-sum ${scan.broken ? "warn" : "ok"}` },
-          scan.broken ? `${scan.broken} 条聊天记录需要修复` : "没有需要修复的聊天记录",
+          { class: `diag-sum ${problems ? "warn" : "ok"}` },
+          problems
+            ? `检查了 ${checked} 条聊天，发现 ${problems} 条有问题：`
+            : `检查了 ${checked} 条聊天，没有发现问题`,
         ),
-        listed.length ? h("ul", { class: "diag-list chat-list" }, listed.map(chatItem)) : null,
+        groups.length ? h("ul", { class: "diag-list chat-list" }, groups.map(chatGroup)) : null,
+        scan.checked && scan.checked.codex === null
+          ? h("p", { class: "sub" }, "Codex 自己的聊天列表这次没读到，只检查了助手的聊天。")
+          : null,
         h(
           "div",
           { class: "row" },
@@ -679,7 +762,7 @@ window.registerHubSystem = ({
           text: h(
             "span",
             null,
-            "找回旧版 CodexHost 里和 Claude Code 等助手的聊天：点开报 no rollout found、一片空白，或模型显示“自定义”发不出消息的那种。会先关闭 Codex，修复后自动重新打开；不删除任何记录。",
+            "检查所有聊天（Claude Code 等助手、Codex 自己的、旧版 CodexHost 留下的）：点开报 no rollout found、一片空白，或模型显示“自定义”发不出消息的，逐条说明原因和能不能修。修复前会先备份并关闭 Codex，修好后自动重新打开；不删除任何记录。",
             chatMeta,
           ),
           action: chatRepair,

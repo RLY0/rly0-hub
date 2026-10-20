@@ -4624,3 +4624,48 @@ select.input,
   border-radius: 50%;
   background: var(--paper-50);
 }
+
+/* 修复聊天记录: one line per problem — how many, why, and whether the repair fixes it. */
+.chat-list > li {
+  align-items: flex-start;
+}
+.chat-list > li::before {
+  margin-top: 8px;
+}
+.chat-problem {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.6;
+}
+.chat-problem p {
+  margin: 0;
+  color: var(--paper-100);
+}
+.chat-problem b {
+  margin-left: 0;
+  text-align: left;
+  font-weight: 650;
+}
+.chat-problem .chat-fix {
+  color: var(--muted-dark);
+}
+.chat-problem .chat-fix.ok {
+  color: var(--ok);
+}
+.chat-titles {
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 0;
+  font-size: 12px;
+}
+.chat-titles li {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-dark);
+}
+.chat-titles li::before {
+  content: none;
+}

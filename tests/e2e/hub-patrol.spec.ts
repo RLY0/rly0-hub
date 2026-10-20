@@ -510,6 +510,43 @@ test("claude setup-token quota: tiles, network failure, invalid token", async ({
   await shot(card, "invalid");
 });
 
+// 维护 → 修复聊天记录 (pages/mock.js): every chat is checked; each problem says why and whether
+// the repair fixes it.
+test("maintenance: chat repair lists every problem with its reason", async ({ page }) => {
+  const dir = path.join(runDir, "chat-repair");
+  mkdirSync(dir, { recursive: true });
+  for (const width of WIDTHS) {
+    for (const query of ["", "?chats=clean"]) {
+      await page.setViewportSize({ width, height: HEIGHT });
+      await page.goto(`/index.html${query}`);
+      const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+      await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+      if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+      await page.click('.rail button[data-page="maintenance"]');
+      await page.click('button:has-text("检查并修复")');
+      const detail = page.locator(".tool-detail:not([hidden])", { hasText: "检查了" });
+      if (query) {
+        await expect(detail).toContainText("检查了 510 条聊天，没有发现问题");
+      } else {
+        await expect(detail).toContainText("检查了 510 条聊天，发现 7 条有问题");
+        await expect(detail).toContainText("→ 可以修复：从旧版复制过来");
+        await expect(detail).toContainText("（1 条已归档）");
+        await expect(detail).toContainText("→ 无法修复：对话内容只存在 Claude Code 那边");
+        await expect(detail.locator('button:has-text("修复 2 条")')).toBeVisible();
+        await expect(detail).toContainText("同时找回在 Hub 里删掉的 1 条");
+      }
+      await detail.scrollIntoViewIfNeeded();
+      await page.waitForFunction(
+        () => !document.getElementById("boot")?.classList.contains("show"),
+      );
+      await page.waitForTimeout(400);
+      await page.screenshot({
+        path: path.join(dir, `${query ? "clean" : "problems"}-${width}.png`),
+      });
+    }
+  }
+});
+
 // The credential each agent actually runs on glows and says 使用中; the others stay plain.
 test("accounts: the card in use is marked on every provider tab", async ({ page }) => {
   const dir = path.join(runDir, "in-use");

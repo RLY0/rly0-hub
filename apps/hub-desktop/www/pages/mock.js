@@ -344,7 +344,25 @@ window.hubManagementMock = (() => {
         };
       case "maintenance.setModel":
         return { ok: true, backupPath: "C:/Users/demo/.codex/config.toml.bak-rly0-model-preview" };
-      case "maintenance.chatRepairScan":
+      case "maintenance.chatRepairScan": {
+        // `?chats=clean`: every chat opens.
+        if (new URLSearchParams(location.search).get("chats") === "clean")
+          return {
+            available: true,
+            reason: "ok",
+            broken: 0,
+            deleted: 0,
+            items: [],
+            checked: { agent: 73, codex: 437, legacy: 49 },
+            groups: [],
+          };
+        const chat = (title, harnessId, updatedAt, archived) => ({
+          id: `${title}-${updatedAt}`,
+          title,
+          harnessId,
+          updatedAt,
+          ...(archived ? { archived: true } : {}),
+        });
         return {
           available: true,
           reason: "ok",
@@ -373,7 +391,50 @@ window.hubManagementMock = (() => {
               updatedAt: "2026-10-15T16:40:08.000Z",
             },
           ],
+          checked: { agent: 73, codex: 437, legacy: 49 },
+          groups: [
+            {
+              kind: "legacy-missing",
+              count: 1,
+              archived: 0,
+              repairable: true,
+              items: [chat("啥情况这是 而且更新也很慢", "claude-code", "2026-10-18T15:09:48.280Z")],
+            },
+            {
+              kind: "legacy-outdated",
+              count: 1,
+              archived: 0,
+              repairable: true,
+              items: [chat("检查项目测试", "claude-code", "2026-10-17T13:33:22.000Z")],
+            },
+            {
+              kind: "legacy-deleted",
+              count: 1,
+              archived: 0,
+              repairable: true,
+              items: [chat("测试任务", "claude-code", "2026-10-15T16:40:08.000Z")],
+            },
+            {
+              kind: "session-missing",
+              count: 3,
+              archived: 1,
+              repairable: false,
+              items: [
+                chat("整理发布说明", "claude-code", "2026-10-12T09:00:00.000Z"),
+                chat("看一下这个报错", "claude-code", "2026-10-10T09:00:00.000Z", true),
+                chat("", "claude-code", "2026-10-09T09:00:00.000Z"),
+              ],
+            },
+            {
+              kind: "codex-provider-missing",
+              count: 2,
+              archived: 1,
+              repairable: false,
+              items: [chat("旧服务商上的聊天", "codex", "2026-09-30T09:00:00.000Z")],
+            },
+          ],
         };
+      }
       case "maintenance.chatRepair":
         return {
           ok: true,
