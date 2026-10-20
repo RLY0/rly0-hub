@@ -43,6 +43,12 @@ describe("SYNTHETIC multiple Claude credentials", () => {
         );
         return { available: true, ok: true };
       },
+      updateRelay: async ({ id, name }: { id: string; name: string }) => {
+        const entry = entries.find((entry) => entry.id === id);
+        if (!entry) throw new Error("SYNTHETIC_ENTRY_NOT_FOUND");
+        entry.name = name;
+        return { available: true, relay: entry };
+      },
       proxyStatus: async () => ({
         available: true,
         running: true,
@@ -61,6 +67,28 @@ describe("SYNTHETIC multiple Claude credentials", () => {
         vendor: "anthropic",
         id: "aaaaaaaaaaaa",
       });
+      await expect(
+        service.handle("agents.officialKeys.rename", {
+          vendor: "anthropic",
+          id: "aaaaaaaaaaaa",
+          name: "主力 Claude",
+        }),
+      ).resolves.toMatchObject({ ok: true, name: "主力 Claude" });
+      expect(entries[0].name).toBe("主力 Claude");
+      await expect(
+        service.handle("agents.officialKeys.rename", {
+          vendor: "anthropic",
+          id: "cccccccccccc",
+          name: "错误站点",
+        }),
+      ).rejects.toThrow("OFFICIAL_KEY_NOT_FOUND");
+      await expect(
+        service.handle("agents.officialKeys.rename", {
+          vendor: "anthropic",
+          id: "aaaaaaaaaaaa",
+          name: " ",
+        }),
+      ).rejects.toThrow("INVALID_PARAMS");
       await service.handle("agents.officialKeys.set", {
         vendor: "anthropic",
         apiKey: "sk-ant-oat01-SYNTHETIC_TOKEN_1234567890",

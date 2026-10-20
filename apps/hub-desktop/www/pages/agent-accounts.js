@@ -216,6 +216,7 @@ window.registerHubAgentAccounts = ({
             ]),
         key.element,
       );
+      list.dataset.accountReady = "true";
     }
 
     // An expired token means different things: the live login is Claude Code's to refresh; a
@@ -254,7 +255,10 @@ window.registerHubAgentAccounts = ({
       return cards.accountCard({
         name: account.alias || account.email || "Claude 账号",
         onRename: (alias) =>
-          call("agents.claudeAccounts.rename", { id: account.id, alias }).then(() => load()),
+          call("agents.claudeAccounts.rename", { id: account.id, alias }).then((result) => {
+            if (!result || !result.ok) throw new Error("RLY0_CORE_UNAVAILABLE");
+            return load();
+          }),
         facts: [
           account.email && account.email !== account.alias ? account.email : null,
           account.plan ? account.plan.toUpperCase() : null,

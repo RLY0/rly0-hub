@@ -493,6 +493,12 @@ window.hubManagementMock = (() => {
         };
       case "accounts.list":
         return { available: true, accounts: codexAccounts };
+      case "accounts.rename": {
+        const account = codexAccounts.find((entry) => entry.id === p.id);
+        if (!account) return { __error: "ACCOUNT_NOT_FOUND" };
+        account.alias = p.alias;
+        return { available: true, ok: true };
+      }
       case "accounts.usageAll": {
         codexUsageCalls += 1;
         const later = codexUsageCalls > 1;
@@ -725,6 +731,12 @@ window.hubManagementMock = (() => {
           modelCount: 3,
         };
         return { ok: true, valid: true, modelCount: 3 };
+      case "agents.officialKeys.rename": {
+        const entry = p.vendor === "anthropic" ? claudeKeys.get(p.id) : officialKeys[p.vendor];
+        if (!entry) return { __error: "OFFICIAL_KEY_NOT_FOUND" };
+        entry.name = p.name;
+        return { ok: true, id: p.id, name: p.name };
+      }
       case "agents.officialKeys.remove":
         if (p.vendor === "anthropic") {
           if (p.id === selectedClaudeKey) return { __error: "OFFICIAL_KEY_IN_USE" };

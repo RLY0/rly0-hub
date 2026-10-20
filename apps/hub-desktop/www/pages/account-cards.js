@@ -223,9 +223,27 @@ window.registerHubAccountCards = ({
         input.replaceWith(label);
         return;
       }
-      o.onRename(alias).then(() => toast("已改名"), failed);
+      input.disabled = true;
+      Promise.resolve()
+        .then(() => o.onRename(alias))
+        .then(
+          () => {
+            o.name = alias;
+            label.textContent = alias;
+            input.replaceWith(label);
+            toast("已改名");
+          },
+          (error) => {
+            done = false;
+            input.disabled = false;
+            input.focus();
+            failed(error);
+          },
+        );
     };
     input.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.key === "Enter" || event.key === "Escape") event.stopPropagation();
       if (event.key === "Enter") finish(true);
       if (event.key === "Escape") finish(false);
     });
@@ -618,30 +636,56 @@ window.registerHubAccountCards = ({
         return;
       }
       const subscription = info.kind === "subscription";
+      const reading = info.kind === "pending";
       const masked = info.last4 ? `····${info.last4}` : info.keyMask || "";
-      const state =
-        info.valid === true
+      const state = reading
+        ? h("span", { class: `tag${loadError ? " warn" : ""}` }, loadError ? "读取失败" : "读取中")
+        : info.valid === true
           ? h("span", { class: "tag ok" }, "有效")
           : info.valid === false
             ? h("span", { class: "tag warn" }, "已失效")
             : h("span", { class: "tag" }, "未能验证");
       const card = accountCard({
-        name: subscription
-          ? info.email || "Claude 订阅令牌"
-          : spec.title.replace(" / 订阅令牌", ""),
-        facts: subscription
-          ? ["订阅令牌", info.plan ? info.plan.toUpperCase() : null, info.organization, masked]
-          : ["API Key", masked, info.modelCount ? `${info.modelCount} 个模型` : null, "按用量计费"],
+        name:
+          info.name ||
+          (subscription ? info.email || "Claude 订阅令牌" : spec.title.replace(" / 订阅令牌", "")),
+        onRename: async (name) => {
+          const result = await call("agents.officialKeys.rename", {
+            ...params(),
+            id: info.id || id,
+            name,
+          });
+          ++loadGeneration;
+          info = { ...info, name: result.name };
+          render();
+          if (reading) load().catch(() => undefined);
+        },
+        facts: reading
+          ? [masked]
+          : subscription
+            ? ["订阅令牌", info.plan ? info.plan.toUpperCase() : null, info.organization, masked]
+            : [
+                "API Key",
+                masked,
+                info.modelCount ? `${info.modelCount} 个模型` : null,
+                "按用量计费",
+              ],
         current: inUse,
         badge: state,
-        quota: subscription
-          ? info.usage
-            ? quotaCards(info.usage, { updated: true })
-            : quotaCards(null, { reason: keyQuota(info).reason })
-          : quotaCards(null, {
-              value: "不支持",
-              reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
-            }),
+        quota: reading
+          ? quotaCards(null, {
+              reason: loadError
+                ? "官方信息读取失败，可点击刷新重试"
+                : "正在读取官方信息，账号卡片已可使用",
+            })
+          : subscription
+            ? info.usage
+              ? quotaCards(info.usage, { updated: true })
+              : quotaCards(null, { reason: keyQuota(info).reason })
+            : quotaCards(null, {
+                value: "不支持",
+                reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
+              }),
         notes: [
           loadError
             ? h("p", { class: "warn-text" }, "刷新失败，保留上次额度；可再次点击刷新")
@@ -715,6 +759,15 @@ window.registerHubAccountCards = ({
 
     async function load() {
       const generation = ++loadGeneration;
+      if (!info && !id) {
+        const listed = await call("agents.officialKeys.list").catch(() => null);
+        if (!alive() || generation !== loadGeneration) return info;
+        const saved = listed && listed.keys.find((entry) => entry.vendor === vendor);
+        if (saved) {
+          info = { ...saved, kind: "pending" };
+          render();
+        }
+      }
       const result = await call("agents.officialKeys.info", params()).catch(() => undefined);
       if (!alive() || generation !== loadGeneration) return info;
       loadError = result === undefined;
@@ -737,6 +790,11 @@ window.registerHubAccountCards = ({
       },
       get info() {
         return info;
+      },
+      seed(summary) {
+        if (!info) info = { ...summary, kind: "pending" };
+        else info = { ...info, name: summary.name };
+        render();
       },
     };
   }
@@ -786,6 +844,7 @@ window.registerHubAccountCards = ({
             );
           }
           entries.get(key.id).setInUse(key.id === selectedId);
+          entries.get(key.id).seed(key);
         }
         put(element, ...keys.map((key) => entries.get(key.id).element), draft.element);
         const reads = await Promise.allSettled(

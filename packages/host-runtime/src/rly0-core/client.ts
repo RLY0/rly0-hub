@@ -34,6 +34,8 @@ export interface Rly0CoreClientOptions {
   /** Test-only escape hatch: force a specific binary path (or force "not found" with null). */
   readonly binaryPath?: string | null;
   readonly timeoutMs?: number;
+  /** Keep disk-only account/relay metadata independent of slow network requests. */
+  readonly separateLocalReads?: boolean;
   /**
    * Called each time the child is spawned to derive its environment (e.g. to apply the user's
    * outbound proxy choice). Receives a copy of the base environment.
@@ -50,11 +52,35 @@ interface PendingRequest {
   readonly resolve: (result: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
+  readonly complete: () => void;
 }
 
 export type Rly0CoreResponse<T> = { available: true; result: T } | { available: false };
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+const LOCAL_READS = new Set([
+  "accounts/list",
+  "accounts/current",
+  "claude/list",
+  "grok/list",
+  "relay/list",
+]);
+const NETWORK_READS = new Set([
+  "core/hello",
+  "filters/get",
+  "proxy/status",
+  "accounts/usage",
+  "accounts/usageAll",
+  "accounts/usageCurrent",
+  "claude/usage",
+  "claude/usageAll",
+  "claude/keyInfo",
+  "grok/usage",
+  "grok/usageAll",
+  "relay/test",
+  "relay/balance",
+]);
 
 /**
  * Correlates newline-delimited JSON-RPC 2.0 requests with a lazily-spawned `rly0-core` child
@@ -73,6 +99,9 @@ export class Rly0CoreClient {
   #nextId = 1;
   readonly #pending = new Map<number, PendingRequest>();
   #disposed = false;
+  #generation = 0;
+  readonly #localReader: Rly0CoreClient | null;
+  readonly #mutations = new Set<Promise<void>>();
 
   constructor(options: Rly0CoreClientOptions = {}) {
     this.#environment = options.environment ?? process.env;
@@ -80,6 +109,9 @@ export class Rly0CoreClient {
     this.#explicitBinaryPath = options.binaryPath;
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#prepareEnvironment = options.prepareEnvironment;
+    this.#localReader = options.separateLocalReads
+      ? new Rly0CoreClient({ ...options, separateLocalReads: false })
+      : null;
   }
 
   #resolveBinary(): string | null {
@@ -92,6 +124,7 @@ export class Rly0CoreClient {
     this.#pending.clear();
     for (const entry of pending) {
       clearTimeout(entry.timer);
+      entry.complete();
       entry.reject(error);
     }
   }
@@ -117,7 +150,9 @@ export class Rly0CoreClient {
     this.#child = child;
     this.#buffer = "";
     child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => this.#onStdout(chunk));
+    child.stdout.on("data", (chunk: string) => {
+      if (this.#child === child) this.#onStdout(chunk);
+    });
     // rly0-core's stderr may carry diagnostics but must never be logged: it could echo back
     // fragments of request params. Drain it so the pipe never backs up.
     child.stderr.on("data", () => undefined);
@@ -159,6 +194,7 @@ export class Rly0CoreClient {
     if (!pending) return;
     this.#pending.delete(id);
     clearTimeout(pending.timer);
+    pending.complete();
     const record = message as { result?: unknown; error?: { code: number; message: string } };
     if (record.error) {
       pending.reject(Object.assign(new Error(record.error.message), { code: record.error.code }));
@@ -178,23 +214,75 @@ export class Rly0CoreClient {
     params: unknown,
     options: Rly0CoreRequestOptions = {},
   ): Promise<Rly0CoreResponse<T>> {
+    if (this.#localReader && LOCAL_READS.has(method)) {
+      const generation = this.#generation;
+      // A read issued after a save/switch/remove must observe that operation's completion.
+      // Network quota requests may update their atomic cache in the meantime; lists report
+      // whichever completed snapshot is available, including its original fetchedAt.
+      const deadline = Date.now() + (options.timeoutMs ?? this.#timeoutMs);
+      while (this.#mutations.size) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            Promise.all(this.#mutations),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("RLY0_CORE_BUSY")),
+                Math.max(1, deadline - Date.now()),
+              );
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      }
+      if (generation !== this.#generation)
+        throw new Error(this.#disposed ? "RLY0_CORE_DISPOSED" : "RLY0_CORE_RESTARTED");
+      return this.#localReader.request<T>(method, params, options);
+    }
+    return this.#request<T>(method, params, options);
+  }
+
+  async #request<T>(
+    method: string,
+    params: unknown,
+    options: Rly0CoreRequestOptions,
+  ): Promise<Rly0CoreResponse<T>> {
     const child = this.#ensureChild();
     if (!child) return { available: false };
     const id = this.#nextId++;
     const payload = `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`;
+    const mutation =
+      Boolean(this.#localReader) && !NETWORK_READS.has(method) && !LOCAL_READS.has(method);
+    let complete = () => {};
+    if (mutation) {
+      let settle = () => {};
+      const finished = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
+      this.#mutations.add(finished);
+      complete = () => {
+        this.#mutations.delete(finished);
+        settle();
+      };
+    }
     return new Promise<Rly0CoreResponse<T>>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.#pending.delete(id);
+        // Timing out the caller does not cancel a queued mutation. Keep its ordering fence
+        // until the wire reply or process exit confirms the actual operation has finished.
+        if (!mutation) this.#pending.delete(id);
         reject(new Error("RLY0_CORE_TIMEOUT"));
       }, options.timeoutMs ?? this.#timeoutMs);
       this.#pending.set(id, {
         resolve: (result) => resolve({ available: true, result: result as T }),
         reject,
         timer,
+        complete,
       });
       child.stdin.write(payload, (error) => {
         if (!error) return;
         if (this.#pending.delete(id)) clearTimeout(timer);
+        complete();
         reject(error);
       });
     });
@@ -211,17 +299,21 @@ export class Rly0CoreClient {
    * Returns whether a child was running.
    */
   restart(): boolean {
+    ++this.#generation;
+    const localRunning = this.#localReader?.restart() ?? false;
     const child = this.#child;
     this.#child = null;
     this.#failAllPending(new Error("RLY0_CORE_RESTARTED"));
-    if (!child) return false;
+    if (!child) return localRunning;
     if (child.exitCode === null && child.signalCode === null) child.kill();
     return true;
   }
 
   /** Kills the child (if any) and rejects every in-flight request. Safe to call more than once. */
   async dispose(): Promise<void> {
+    ++this.#generation;
     this.#disposed = true;
+    await this.#localReader?.dispose();
     const child = this.#child;
     this.#child = null;
     this.#failAllPending(new Error("RLY0_CORE_DISPOSED"));

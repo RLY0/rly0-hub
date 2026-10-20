@@ -113,6 +113,7 @@
     BALANCE_UNSUPPORTED: "这个中转站不支持查余额",
     RELAY_KEY_MISSING: "还没有填写密钥",
     SERVICE_STARTING: "后台正在启动，稍等几秒",
+    RLY0_CORE_BUSY: "后台正在完成上次改动，请稍后重试",
     TIMEOUT: "等太久了，稍后再试",
     INVALID_PARAMS: "填写的内容不对",
     RELAY_BASEURL_REJECTED: "地址格式不对",
@@ -537,7 +538,9 @@
     bootEl.classList.add("show");
     const check = () => {
       if (mine !== generation) return;
-      const settled = serviceReady && (pending.size === 0 || Date.now() - loadingSince > 2500);
+      const accountsReady = current === "accounts" && pageEl.querySelector("[data-account-ready]");
+      const settled =
+        serviceReady && (accountsReady || pending.size === 0 || Date.now() - loadingSince > 2500);
       if (settled && Date.now() - loadingSince > 250) bootEl.classList.remove("show");
       else requestAnimationFrame(check);
     };
@@ -980,12 +983,18 @@
             ]),
         key.element,
       );
+      list.dataset.accountReady = "true";
     }
 
     function card(account) {
       return cards.accountCard({
         name: accountName(account),
-        onRename: (alias) => call("accounts.rename", { id: account.id, alias }).then(() => load()),
+        onRename: (alias) =>
+          call("accounts.rename", { id: account.id, alias }).then((result) => {
+            if (!result || !result.available || !result.ok)
+              throw new Error("RLY0_CORE_UNAVAILABLE");
+            return load();
+          }),
         facts: [
           account.email && account.alias ? account.email : null,
           account.plan ? account.plan.toUpperCase() : null,

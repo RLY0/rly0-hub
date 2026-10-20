@@ -259,6 +259,7 @@ export class Rly0CoreBridge {
           : null;
     this.#client = new Rly0CoreClient({
       ...clientOptions,
+      separateLocalReads: true,
       prepareEnvironment: (environment) =>
         applyProxyEnvironment(environment, this.getProxySettings()),
     });

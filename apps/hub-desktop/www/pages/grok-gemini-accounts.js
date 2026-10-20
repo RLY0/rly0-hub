@@ -179,6 +179,7 @@ window.registerHubGrokGeminiAccounts = (
             ]),
         key.element,
       );
+      list.dataset.accountReady = "true";
     }
 
     // An expired token: the live one is the Grok CLI's to renew; a saved one is renewed by the CLI
@@ -219,7 +220,10 @@ window.registerHubGrokGeminiAccounts = (
       return cards.accountCard({
         name: account.alias || account.email || "Grok 账号",
         onRename: (alias) =>
-          call("agents.grokAccounts.rename", { id: account.id, alias }).then(() => load()),
+          call("agents.grokAccounts.rename", { id: account.id, alias }).then((result) => {
+            if (!result || !result.ok) throw new Error("RLY0_CORE_UNAVAILABLE");
+            return load();
+          }),
         facts: [
           account.email && account.email !== account.alias ? account.email : null,
           "xAI 账号",
@@ -280,6 +284,8 @@ window.registerHubGrokGeminiAccounts = (
     const key = cards.keyCard("google", { alive, saveFailed: loginFailed });
     let agent = null;
     let state = null; // agents.antigravity.status / usage reply
+    let statusFailed = false;
+    let statusLoading = null;
     const refresh = cards.refresher({
       alive,
       run: async () => {
@@ -343,62 +349,94 @@ window.registerHubGrokGeminiAccounts = (
 
     function render() {
       const installed = Boolean(state ? state.installed : agent && agent.installed);
-      refresh.setReason(installed ? null : "先在「AI 助手」页装好 Antigravity，才能读取额度");
+      const known = Boolean(state);
+      refresh.setReason(
+        known
+          ? installed
+            ? null
+            : "先在「AI 助手」页装好 Antigravity，才能读取额度"
+          : "登录状态暂未读到，请重试读取",
+      );
       const usage = state && state.usage;
       const error = state && state.error;
       // Antigravity has one login, so a working one is the one in use.
       const inUse = installed && Boolean(usage) && !error;
-      const badge = !installed
-        ? h("span", { class: "tag" }, "未安装")
-        : inUse
-          ? null
-          : error === "ANTIGRAVITY_NOT_LOGGED_IN"
-            ? h("span", { class: "tag warn" }, "未登录")
-            : h("span", { class: "tag" }, "登录状态未知");
+      const badge = !known
+        ? h("span", { class: "tag" }, statusFailed ? "读取失败" : "读取中")
+        : !installed
+          ? h("span", { class: "tag" }, "未安装")
+          : inUse
+            ? null
+            : error === "ANTIGRAVITY_NOT_LOGGED_IN"
+              ? h("span", { class: "tag warn" }, "未登录")
+              : h("span", { class: "tag" }, "登录状态未知");
       list.replaceChildren(
         cards.accountCard({
           name: "Antigravity 当前登录",
           current: inUse,
-          facts: [installed ? "Google 账号 · 只有一个登录" : "先在「AI 助手」页装好 Antigravity"],
+          facts: [
+            !known
+              ? statusFailed
+                ? "安装和登录状态未知，请重试"
+                : "正在读取本机状态"
+              : installed
+                ? "Google 账号 · 只有一个登录"
+                : "先在「AI 助手」页装好 Antigravity",
+          ],
           badge,
           quota: usage
             ? cards.quotaCards(usage, { updated: true, stale: error || null })
             : cards.quotaCards(null, {
-                reason: !installed
-                  ? "装好 Antigravity 后可以读取它当前登录的额度。"
-                  : error
-                    ? `读取失败：${AGY_ERRORS[error] || explain(error)}`
-                    : "点右上角刷新，用 Antigravity 自己的 /usage 读取当前登录的额度（没登录时它可能会打开浏览器让你登录）。",
+                reason: !known
+                  ? statusFailed
+                    ? "状态读取失败，请重试读取"
+                    : "正在读取本机状态"
+                  : !installed
+                    ? "装好 Antigravity 后可以读取它当前登录的额度。"
+                    : error
+                      ? `读取失败：${AGY_ERRORS[error] || explain(error)}`
+                      : "点右上角刷新，用 Antigravity 自己的 /usage 读取当前登录的额度（没登录时它可能会打开浏览器让你登录）。",
               }),
           actions: [
-            installed
-              ? h(
-                  "button",
-                  { class: "btn paper sm", type: "button", onclick: openLogin },
-                  "登录 / 换账号",
-                )
-              : h(
-                  "button",
-                  { class: "btn sm", type: "button", onclick: () => go("agents") },
-                  "去安装",
-                ),
+            !known
+              ? h("button", { class: "btn sm", type: "button", onclick: loadStatus }, "重试读取")
+              : installed
+                ? h(
+                    "button",
+                    { class: "btn paper sm", type: "button", onclick: openLogin },
+                    "登录 / 换账号",
+                  )
+                : h(
+                    "button",
+                    { class: "btn sm", type: "button", onclick: () => go("agents") },
+                    "去安装",
+                  ),
           ],
         }),
         key.element,
       );
     }
     render();
-    Promise.all([
-      call("agents.list").catch(() => null),
-      call("agents.antigravity.status").catch(() => null),
-    ]).then(([agents, status]) => {
-      if (!alive()) return;
-      agent = ((agents && agents.agents) || []).find((a) => a.id === "antigravity") || null;
-      if (status) state = status;
-      if (state && state.usage && state.usage.fetchedAt)
-        refresh.stamp(state.usage.fetchedAt * 1000);
-      render();
-    });
+    function loadStatus() {
+      if (statusLoading) return statusLoading;
+      statusLoading = call("agents.antigravity.status")
+        .catch(() => null)
+        .then((status) => {
+          if (!alive()) return;
+          agent = status;
+          state = status;
+          statusFailed = !status;
+          if (state && state.usage && state.usage.fetchedAt)
+            refresh.stamp(state.usage.fetchedAt * 1000);
+          render();
+          list.dataset.accountReady = "true";
+        })
+        .finally(() => {
+          statusLoading = null;
+        });
+      return statusLoading;
+    }
+    loadStatus();
   }
 
   return { grok, gemini };

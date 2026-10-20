@@ -1189,6 +1189,25 @@ export class Rly0HubService {
           .strict(),
         (p) => this.#saveOfficialKey(core, p.vendor, p.apiKey, p.id),
       ),
+      "agents.officialKeys.rename": route(
+        z
+          .object({
+            vendor: z.enum(["openai", "anthropic", "google", "xai"]),
+            id: z
+              .string()
+              .regex(/^[a-f0-9]{12}$/u)
+              .optional(),
+            name: z.string().trim().min(1).max(40),
+          })
+          .strict(),
+        async (p) => {
+          const relay = await this.#officialKey(core, p.vendor, p.id);
+          if (!relay || !relay.hasKey) throw codedHubError("OFFICIAL_KEY_NOT_FOUND");
+          const result = await core.updateRelay({ id: relay.id, name: p.name });
+          if (!result.available) throw codedHubError("RLY0_CORE_UNAVAILABLE");
+          return { ok: true, id: relay.id, name: p.name };
+        },
+      ),
       // A Sub2API account export: the vendor's key in it is saved like a typed one.
       "agents.officialKeys.importFile": route(
         z
