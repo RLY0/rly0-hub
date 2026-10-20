@@ -17,7 +17,15 @@ describe("SYNTHETIC multiple Claude credentials", () => {
       enabled: true,
       hasKey: true,
     }));
-    entries.push({ ...entries[0]!, id: "cccccccccccc", baseUrl: "https://api.x.ai/v1" });
+    entries.push({
+      id: "cccccccccccc",
+      name: "other vendor",
+      baseUrl: "https://api.x.ai/v1",
+      models: [],
+      protocol: "responses",
+      enabled: true,
+      hasKey: true,
+    });
     const calls: { method: string; params: Record<string, unknown> }[] = [];
     const core = {
       listRelays: async () => ({ available: true, relays: entries }),

@@ -34,7 +34,8 @@ describe("Claude Code official sign-ins", () => {
     const content = JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat01-xxxxxxxx" } });
     const result = await importClaudeCredentials(environment, content, () => 42);
     expect(result.backup).toBe(path.join(home, ".credentials.json.rly0-backup-42"));
-    expect(await fs.readFile(result.backup!, "utf8")).toBe("old");
+    if (!result.backup) throw new Error("Missing credentials backup");
+    expect(await fs.readFile(result.backup, "utf8")).toBe("old");
     expect(JSON.parse(await fs.readFile(path.join(home, ".credentials.json"), "utf8"))).toEqual(
       JSON.parse(content),
     );
