@@ -2,9 +2,10 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import type { HarnessAdapter } from "@codexhost/harness-adapter";
-import { rly0RelayIdSchema } from "@codexhost/shared-contracts";
+import { rly0RelayIdSchema, type Rly0Relay } from "@codexhost/shared-contracts";
 
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
+import { officialVendorOf } from "./official-keys.js";
 
 export const RLY0_AGENT_RELAYS_FILE_NAME = "agent-relays.json";
 /** Claude Code reads its endpoint and token from these; the token is a local placeholder. */
@@ -239,6 +240,19 @@ export function claudeCodeRelayEnvironment(
   environment.ANTHROPIC_BASE_URL = `${root}/r/${relayId}`;
   environment.ANTHROPIC_AUTH_TOKEN = CLAUDE_CODE_RELAY_TOKEN;
   return environment;
+}
+
+/**
+ * Why Claude Code has no plan windows while pinned to `relay`. The key or `setup-token` behind
+ * the local proxy never reaches Claude Code, which runs on `ANTHROPIC_AUTH_TOKEN` and so is not a
+ * claude.ai login: it neither parses `anthropic-ratelimit-unified-*` headers into
+ * `rate_limit_event` nor answers a `/usage` read. An official Anthropic entry is the person's own
+ * key or subscription token; anything else is a third-party relay with a balance instead.
+ */
+export function claudeCodeRelayQuotaBlock(
+  relay: Pick<Rly0Relay, "baseUrl">,
+): "proxiedCredential" | "relay" {
+  return officialVendorOf(relay) === "anthropic" ? "proxiedCredential" : "relay";
 }
 
 /**

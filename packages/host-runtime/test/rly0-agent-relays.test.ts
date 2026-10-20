@@ -12,6 +12,7 @@ import {
   CLAUDE_CODE_RELAY_TOKEN,
   Rly0AgentRelaySettings,
   claudeCodeRelayEnvironment,
+  claudeCodeRelayQuotaBlock,
   hermesRelayEnvironment,
   opencodeRelayEnvironment,
   piRelayEnvironment,
@@ -44,6 +45,17 @@ describe("Claude Code through a relay", () => {
       ANTHROPIC_AUTH_TOKEN: CLAUDE_CODE_RELAY_TOKEN,
     });
     expect(JSON.stringify(environment)).not.toContain("sk-ant-own-key");
+  });
+
+  it("names why a pinned Claude Code cannot report plan windows", () => {
+    expect(claudeCodeRelayQuotaBlock({ baseUrl: "https://api.anthropic.com" })).toBe(
+      "proxiedCredential",
+    );
+    expect(claudeCodeRelayQuotaBlock({ baseUrl: "https://API.Anthropic.com/v1" })).toBe(
+      "proxiedCredential",
+    );
+    expect(claudeCodeRelayQuotaBlock({ baseUrl: "https://api.rly0.com/v1" })).toBe("relay");
+    expect(claudeCodeRelayQuotaBlock({ baseUrl: "not a url" })).toBe("relay");
   });
 
   it("stores the choice in RLY/0 Hub's data and ignores invalid ids", async () => {

@@ -76,6 +76,7 @@ import {
 import { ClaudeBackgroundOccupancy } from "./background-occupancy.js";
 import { ClaudeSessionImportIndex } from "./claude-session-import.js";
 import { ClaudeCodeExecutableError, resolveClaudeCodeExecutable } from "./command.js";
+import { ClaudePlanUsageRefresher, type ClaudePlanUsageRead } from "./plan-usage.js";
 import { ClaudePendingSessions, isPendingClaudeSession } from "./pending-session.js";
 import { forkClaudeSession } from "./claude-fork.js";
 import { mapClaudeSnapshot, mapClaudeSubagentSnapshot } from "./claude-history.js";
@@ -997,6 +998,13 @@ class ClaudeHarnessSession implements HarnessSession {
       this.#finishFailed(active, faultError());
     }
     return { ok: true, value: { turnId: command.turnId } };
+  }
+
+  /** Plan windows from the native `/usage` read of this Session; no model request. */
+  async readPlanUsage(): Promise<ClaudePlanUsageRead | null> {
+    const transport = this.#transport;
+    if (this.#phase !== "open" || !transport?.readPlanUsage) return null;
+    return transport.readPlanUsage();
   }
 
   refreshUsage(): Promise<void> {
@@ -2555,6 +2563,12 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   readonly #sessions = new Set<ClaudeHarnessSession>();
   #closePromise: Promise<void> | null = null;
   #latestPlanLimit: ClaudePlanLimitEvent | null = null;
+  readonly #planUsage = new ClaudePlanUsageRefresher({
+    sources: () => this.#sessions,
+    record: (planLimit) => {
+      this.#recordPlanLimit(null, planLimit);
+    },
+  });
   #accountInspection: Promise<HarnessAccountSnapshot | null> | null = null;
 
   constructor(options: ClaudeCodeAdapterOptions = {}, dependencies?: ClaudeAdapterDependencies) {
@@ -2974,9 +2988,10 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
 
   /** Account-level plan windows are shared, but only stable native pushes may update them. */
   #recordPlanLimit(
-    origin: ClaudeHarnessSession,
+    origin: ClaudeHarnessSession | null,
     planLimit: ClaudePlanLimitEvent,
   ): ClaudePlanLimitEvent | null {
+    if (origin) this.#planUsage.observePush();
     const next: ClaudePlanLimitEvent = { ...(this.#latestPlanLimit ?? {}) };
     if (planLimit.fiveHour) next.fiveHour = planLimit.fiveHour;
     if (planLimit.sevenDay) next.sevenDay = planLimit.sevenDay;
@@ -2991,6 +3006,21 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
 
   credits(): AccountCreditsSnapshot | null {
     return projectClaudePlanLimitToCredits(this.#latestPlanLimit);
+  }
+
+  /**
+   * Re-reads the plan windows through an open Session's native `/usage` read when the user asks
+   * (`explicit`); Host's passive calls on every Usage inspection read nothing.
+   */
+  async refreshCredits(options?: { explicit?: boolean }): Promise<AccountCreditsSnapshot | null> {
+    if (this.#closePromise) return null;
+    const read = await this.#planUsage.refresh(options?.explicit === true);
+    return read ? this.credits() : null;
+  }
+
+  /** Claude Code said plan limits do not apply to this login (API key, setup-token, 3P). */
+  creditsUnavailableReason(): "notSubscriber" | null {
+    return this.#planUsage.unavailable && !this.#latestPlanLimit ? "notSubscriber" : null;
   }
 
   close(): Promise<void> {

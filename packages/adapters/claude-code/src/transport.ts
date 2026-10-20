@@ -8,6 +8,7 @@ import type { ClaudeSlashCommandSnapshot } from "./slash-commands.js";
 import type { ClaudeNativeFileChange } from "./file-change.js";
 import type { ClaudeModelInspectionSnapshot } from "./model-catalog.js";
 import type { ClaudePermissionMode } from "./permission-modes.js";
+import type { ClaudePlanUsageRead } from "./plan-usage.js";
 
 export type ClaudeTransportFailureKind =
   "authentication" | "cancellationUnproven" | "native" | "protocol" | "textConflict";
@@ -193,6 +194,8 @@ export interface ClaudeTurnTransport {
   setIdleLive(live: boolean): void;
   start(): Promise<void>;
   getContextUsage(): Promise<ClaudeTransportContextUsage | null>;
+  /** Plan windows from the native `/usage` read, without a model request. */
+  readPlanUsage?(): Promise<ClaudePlanUsageRead | null>;
   /** Live slash commands of the started native Session, when known. */
   slashCommands?(): ClaudeSlashCommandSnapshot | null;
   getPermissionMode(): ClaudePermissionMode;

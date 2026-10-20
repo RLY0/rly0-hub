@@ -2,6 +2,8 @@ import type { ThreadUsageSnapshot } from "@codexhost/shared-contracts";
 
 import type { RendererSettingsLocale } from "./settings/localization.js";
 
+import { appendRendererQuotaSection, type RendererQuotaView } from "./renderer-quota-refresh.js";
+
 import {
   applyRendererTriggerChipSqueezeRoot,
   applyRendererTriggerChipSqueezeTrigger,
@@ -41,6 +43,8 @@ interface RendererUsageMessages {
   readonly threadUsageDetails: string;
   readonly tokensSummary: string;
   readonly tokensPerSecond: string;
+  readonly planFiveHour: string;
+  readonly planSevenDay: string;
 }
 
 const ENGLISH_USAGE_MESSAGES: RendererUsageMessages = Object.freeze({
@@ -60,6 +64,8 @@ const ENGLISH_USAGE_MESSAGES: RendererUsageMessages = Object.freeze({
   threadUsageDetails: "Thread Usage details",
   tokensSummary: "tokens",
   tokensPerSecond: "tok/s",
+  planFiveHour: "5-hour limit used",
+  planSevenDay: "7-day limit used",
 });
 
 const CHINESE_USAGE_MESSAGES: RendererUsageMessages = Object.freeze({
@@ -79,6 +85,8 @@ const CHINESE_USAGE_MESSAGES: RendererUsageMessages = Object.freeze({
   threadUsageDetails: "对话用量详情",
   tokensSummary: "Token",
   tokensPerSecond: "Token/秒",
+  planFiveHour: "5 小时额度已用",
+  planSevenDay: "7 天额度已用",
 });
 
 export function rendererUsageMessages(locale: RendererSettingsLocale): RendererUsageMessages {
@@ -274,6 +282,7 @@ function renderDetails(
   messages: RendererUsageMessages,
   locale: RendererSettingsLocale,
   accountName: string | null,
+  quota: RendererQuotaView | null,
 ): void {
   popover.replaceChildren();
   const heading = document.createElement("div");
@@ -346,6 +355,43 @@ function renderDetails(
   if (usage?.totalCredits !== undefined) {
     addDetailRow(popover, messages.recordedCredits, formatRendererCredits(usage.totalCredits));
   }
+  for (const [label, row] of rendererUsagePlanRows(usage, messages, locale)) {
+    addDetailRow(popover, label, row);
+  }
+  if (quota) appendRendererQuotaSection(popover, quota, locale);
+}
+
+/**
+ * Claude.ai plan windows, only those present: never part of the collapsed summary. The ring in
+ * the credits control shows what remains; here the value is what is used, with its reset time.
+ */
+export function rendererUsagePlanRows(
+  usage: ThreadUsageSnapshot | null,
+  messages: Pick<RendererUsageMessages, "planFiveHour" | "planSevenDay">,
+  locale: RendererSettingsLocale,
+): Array<[label: string, value: string]> {
+  const rows: Array<[string, string]> = [];
+  if (usage?.planFiveHourUsedPercent !== undefined) {
+    rows.push([
+      messages.planFiveHour,
+      formatRendererPlanWindow(
+        usage.planFiveHourUsedPercent,
+        usage.planFiveHourResetsAtUnix,
+        locale,
+      ),
+    ]);
+  }
+  if (usage?.planSevenDayUsedPercent !== undefined) {
+    rows.push([
+      messages.planSevenDay,
+      formatRendererPlanWindow(
+        usage.planSevenDayUsedPercent,
+        usage.planSevenDayResetsAtUnix,
+        locale,
+      ),
+    ]);
+  }
+  return rows;
 }
 
 function popoverIsOpen(popover: HTMLDivElement): boolean {
@@ -538,6 +584,7 @@ export function renderRendererUsageControl(
   usage: ThreadUsageSnapshot | null,
   locale: RendererSettingsLocale = control.locale,
   accountName: string | null = null,
+  quota: RendererQuotaView | null = null,
 ): boolean {
   control.locale = locale;
   const messages = rendererUsageMessages(locale);
@@ -598,6 +645,6 @@ export function renderRendererUsageControl(
   control.trigger.setAttribute("aria-label", accessibleSummary);
   control.trigger.title = accessibleSummary;
   control.label.textContent = compactSummary;
-  renderDetails(control.popover, usage, messages, locale, accountName);
+  renderDetails(control.popover, usage, messages, locale, accountName, quota);
   return true;
 }

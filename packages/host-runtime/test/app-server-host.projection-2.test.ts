@@ -1222,6 +1222,8 @@ describe("AppServerHost HarnessAdapter projection", () => {
           contextWindowTokens: 2_000,
           cacheHitRatePercent: 75,
         },
+        // The time of the last quota read backs the Popover's "updated at".
+        quota: { status: "cached", observedAt: expect.any(String) },
       },
     });
     await stopFixture(fixture);

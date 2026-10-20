@@ -27,6 +27,11 @@ export class AccountRateLimits {
     return this.#accounts.get(accountId)?.usage ?? null;
   }
 
+  /** When the quota of `accountId` was last read, if ever. */
+  observedAt(accountId: string): string | null {
+    return this.#accounts.get(accountId)?.observedAt ?? null;
+  }
+
   getResetCredits(accountId: string): CodexRateLimitResetCredits | null {
     return this.#accounts.get(accountId)?.resetCredits ?? null;
   }

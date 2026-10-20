@@ -26,6 +26,7 @@ import {
 } from "./model-catalog.js";
 import { ClaudeNativeTurnAccumulator, parseClaudePlanLimitEvent } from "./native-message.js";
 import { isClaudePermissionMode, type ClaudePermissionMode } from "./permission-modes.js";
+import { parseClaudePlanUsage, type ClaudePlanUsageRead } from "./plan-usage.js";
 import { closeClaudeProcessGroup } from "./process-fence.js";
 import { claudeThinkingConfiguration, parseClaudeThinkingOptionId } from "./thinking-options.js";
 import type {
@@ -522,6 +523,15 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
     const activeQuery = this.#query;
     if (!this.#started || !activeQuery) return null;
     return parseContextUsage(await activeQuery.getContextUsage());
+  }
+
+  /** Structured `/usage` of the live native Session; sends no model request. */
+  async readPlanUsage(): Promise<ClaudePlanUsageRead | null> {
+    const activeQuery = this.#query;
+    if (!this.#started || !activeQuery) return null;
+    const getUsage = activeQuery.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+    if (typeof getUsage !== "function") return null;
+    return parseClaudePlanUsage(await getUsage.call(activeQuery));
   }
 
   getPermissionMode(): ClaudePermissionMode {

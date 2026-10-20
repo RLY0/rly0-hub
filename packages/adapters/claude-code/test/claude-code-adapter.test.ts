@@ -13,6 +13,7 @@ import type { HarnessOutput, HarnessSession } from "@codexhost/harness-adapter";
 import { ClaudeCodeAdapter, type ClaudeCodeAdapterOptions } from "../src/index.js";
 import { projectClaudePlanLimitToCredits } from "../src/claude-code-adapter.js";
 import { ClaudeCodeExecutableError } from "../src/command.js";
+import type { ClaudePlanUsageRead } from "../src/plan-usage.js";
 import { CLAUDE_DEFAULT_MODEL_REF, encodeClaudeModelRef } from "../src/model-catalog.js";
 import type { ClaudePermissionMode } from "../src/permission-modes.js";
 import type {
@@ -55,6 +56,8 @@ class FakeClaudeTransport implements ClaudeTurnTransport {
   readonly getContextUsage = vi.fn(
     async (): Promise<ClaudeTransportContextUsage | null> => this.contextUsage,
   );
+  planUsage: ClaudePlanUsageRead | null = null;
+  readonly readPlanUsage = vi.fn(async (): Promise<ClaudePlanUsageRead | null> => this.planUsage);
   readonly setModel = vi.fn(async () => undefined);
   readonly setThinkingOption = vi.fn(async () => undefined);
   readonly getPermissionMode = vi.fn(() => this.permissionMode);
@@ -3927,6 +3930,64 @@ describe("Claude Code HarnessAdapter", () => {
         planSevenDayUsedPercent: 12,
       },
     });
+
+    transport.finish({ status: "succeeded" });
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    await session.close();
+  });
+
+  it("re-reads plan windows through the open Session only on an explicit refresh", async () => {
+    const { adapter, transports } = fixture();
+    const session = await openSession(adapter);
+    const iterator = session.outputs[Symbol.asyncIterator]();
+
+    await session.execute(textTurn("plan-refresh"));
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    const transport = transports[0];
+    if (!transport) throw new Error("Fake Claude transport was not created");
+    transport.planUsage = {
+      available: true,
+      planLimit: { fiveHour: { utilizationPercent: 33, resetsAtUnix: 1_792_472_400 } },
+    };
+
+    await expect(adapter.refreshCredits()).resolves.toBeNull();
+    expect(transport.readPlanUsage).not.toHaveBeenCalled();
+
+    await expect(adapter.refreshCredits({ explicit: true })).resolves.toMatchObject({
+      usedPercent: 33,
+      periodType: "five_hour",
+    });
+    expect(transport.readPlanUsage).toHaveBeenCalledTimes(1);
+    expect(await nextEvent(iterator)).toEqual({
+      type: "session.usage.changed",
+      observedForTurnId: "plan-refresh",
+      usage: { planFiveHourUsedPercent: 33, planFiveHourResetsAtUnix: 1_792_472_400 },
+    });
+    expect(adapter.creditsUnavailableReason()).toBeNull();
+
+    transport.finish({ status: "succeeded" });
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    await session.close();
+  });
+
+  it("reports a login without plan limits after its /usage read says so", async () => {
+    const { adapter, transports } = fixture();
+    const session = await openSession(adapter);
+    const iterator = session.outputs[Symbol.asyncIterator]();
+    await session.execute(textTurn("plan-none"));
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    await nextEvent(iterator);
+    const transport = transports[0];
+    if (!transport) throw new Error("Fake Claude transport was not created");
+    transport.planUsage = { available: false };
+
+    await expect(adapter.refreshCredits({ explicit: true })).resolves.toBeNull();
+    expect(adapter.creditsUnavailableReason()).toBe("notSubscriber");
 
     transport.finish({ status: "succeeded" });
     await nextEvent(iterator);

@@ -606,6 +606,8 @@ export {
   accountCreditsProductUsageSchema,
   accountResetCreditsSchema,
   accountCreditsSnapshotSchema,
+  threadQuotaStateSchema,
+  threadQuotaUnavailableReasonSchema,
   threadUsageInspectionParamsSchema,
   threadUsageInspectionSchema,
   threadUsageSnapshotSchema,
@@ -613,6 +615,8 @@ export {
 export type {
   AccountCreditsSnapshot,
   AccountResetCredits,
+  ThreadQuotaState,
+  ThreadQuotaUnavailableReason,
   ThreadUsageInspection,
   ThreadUsageInspectionParams,
   ThreadUsageSnapshot,

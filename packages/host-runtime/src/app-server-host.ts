@@ -170,6 +170,7 @@ import { applyProxyEnvironment } from "./rly0-core/proxy-settings.js";
 import {
   Rly0AgentRelaySettings,
   claudeCodeRelayEnvironment,
+  claudeCodeRelayQuotaBlock,
   hermesRelayEnvironment,
   opencodeRelayEnvironment,
   piRelayEnvironment,
@@ -227,6 +228,8 @@ import type { HarnessPluginContext } from "@codexhost/harness-adapter/plugin";
 import type { StoredThreadRecordV1 } from "@codexhost/mapping-store";
 import {
   accountCreditsSnapshotSchema,
+  type ThreadQuotaState,
+  type ThreadQuotaUnavailableReason,
   harnessAccountInspectParamsSchema,
   harnessAccountInspectResultSchema,
   type HarnessAccountInspectResult,
@@ -530,7 +533,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isCreditsAdapter(adapter: HarnessAdapter): adapter is HarnessAdapter & {
   credits(): unknown;
-  refreshCredits?: () => Promise<unknown>;
+  /** `explicit` marks the user's own refresh; other calls come with every Usage inspection. */
+  refreshCredits?: (options?: { explicit?: boolean }) => Promise<unknown>;
+  /** Set once the Harness knows its login has no plan quota to read. */
+  creditsUnavailableReason?: () => ThreadQuotaUnavailableReason | null;
 } {
   return typeof (adapter as { credits?: unknown }).credits === "function";
 }
@@ -781,6 +787,14 @@ export class AppServerHost {
   readonly #agentInstaller: AgentInstaller;
   /** Relay Claude Code was loaded with; undefined until agents are loaded. */
   #claudeCodeRelayApplied: string | null | undefined;
+  /**
+   * Why Claude Code cannot report its plan windows while it runs through the local proxy: the
+   * key or subscription token stays in rly0-core, so Claude Code is not signed in to claude.ai
+   * and neither emits `rate_limit_event` nor answers a usage read.
+   */
+  #claudeCodeQuotaBlocked: "proxiedCredential" | "relay" | null = null;
+  /** When each External Harness's Account quota was last re-read. */
+  readonly #externalQuotaObservedAt = new Map<string, string>();
   /**
    * The relay each agent runs through, as a transform of a session's environment. Re-read when
    * RLY/0 Hub saves a new choice, so a new session uses it without restarting Codex.
@@ -1238,6 +1252,7 @@ export class AppServerHost {
     ].filter((id): id is string => Boolean(id));
     const next = new Map<string, (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv>();
     let claudeApplied: string | null = null;
+    let claudeQuotaBlocked: "proxiedCredential" | "relay" | null = null;
     if (wanted.length) {
       const listed = await this.#rly0Core.listRelays();
       const usable = (id: string | null | undefined) => {
@@ -1250,6 +1265,7 @@ export class AppServerHost {
       const claude = usable(saved.claudeCode);
       if (claude) {
         claudeApplied = claude.id;
+        claudeQuotaBlocked = claudeCodeRelayQuotaBlock(claude);
         next.set("claude-code", (environment) =>
           claudeCodeRelayEnvironment(environment, proxyBaseUrl, claude.id),
         );
@@ -1285,6 +1301,7 @@ export class AppServerHost {
     this.#relayOverlays.clear();
     for (const [id, overlay] of next) this.#relayOverlays.set(id, overlay);
     this.#claudeCodeRelayApplied = claudeApplied;
+    this.#claudeCodeQuotaBlocked = claudeQuotaBlocked;
   }
 
   async #agentRelayStatus(): Promise<Rly0RelayAgentsResult> {
@@ -3744,34 +3761,90 @@ export class AppServerHost {
       return;
     }
     if (resolution.kind === "official") {
-      if (params.data.refresh !== undefined) {
+      if (params.data.refresh === "exact") {
         await this.#writer.json(
           rpcError(request, -32602, "Exact Usage refresh is only available for External Threads"),
         );
         return;
       }
       const accountId = await this.#currentCodexAccountId();
-      if (accountId) await this.#refreshOfficialRateLimits(accountId);
+      // The 15 s freshness window of AccountRateLimits is also the cooldown of a manual refresh.
+      const refreshed = accountId ? await this.#refreshOfficialRateLimits(accountId) : null;
       const accountCredits = this.#officialAccountCredits(accountId ?? undefined);
+      const observedAt = accountId ? this.#officialRateLimits.observedAt(accountId) : null;
+      const quota: ThreadQuotaState | undefined =
+        params.data.refresh === "quota"
+          ? refreshed
+            ? { status: refreshed.status, ...(observedAt ? { observedAt } : {}) }
+            : { status: "unavailable" }
+          : observedAt
+            ? { status: "cached", observedAt }
+            : undefined;
       const result = threadUsageInspectionSchema.parse({
         threadId: params.data.threadId,
         usage: this.#officialUsageByThread.get(params.data.threadId) ?? null,
         ...(accountCredits ? { accountCredits } : {}),
+        ...(quota ? { quota } : {}),
       });
       await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
       return;
     }
-    if (params.data.refresh === "exact") void resolution.thread.session.refreshUsage?.();
-    const adapter = this.#externalAdapters.get(resolution.thread.harnessId);
-    if (adapter && isCreditsAdapter(adapter)) void adapter.refreshCredits?.();
+    if (params.data.refresh !== undefined) void resolution.thread.session.refreshUsage?.();
+    const harnessId = resolution.thread.harnessId;
+    const adapter = this.#externalAdapters.get(harnessId);
+    const quota = await this.#refreshExternalQuota(
+      harnessId,
+      adapter,
+      params.data.refresh === "quota",
+    );
     const credits =
       adapter && isCreditsAdapter(adapter) ? projectAccountCredits(adapter.credits()) : null;
     const result = threadUsageInspectionSchema.parse({
       threadId: params.data.threadId,
       usage: resolution.thread.latestUsage,
       ...(credits ? { accountCredits: credits } : {}),
+      ...(quota ? { quota } : {}),
     });
     await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+  }
+
+  /**
+   * Re-reads an External Harness's Account quota through its request-free read (awaited only for
+   * the user's explicit refresh), or says why the Harness has none to read.
+   */
+  async #refreshExternalQuota(
+    harnessId: string,
+    adapter: HarnessAdapter | undefined,
+    explicit: boolean,
+  ): Promise<ThreadQuotaState | undefined> {
+    if (harnessId === "claude-code" && this.#claudeCodeQuotaBlocked) {
+      return { status: "unavailable", reason: this.#claudeCodeQuotaBlocked };
+    }
+    if (!adapter || !isCreditsAdapter(adapter) || !adapter.refreshCredits) {
+      return explicit ? { status: "unavailable", reason: "unsupported" } : undefined;
+    }
+    const blocked = adapter.creditsUnavailableReason?.() ?? null;
+    if (blocked) return { status: "unavailable", reason: blocked };
+    const read = adapter.refreshCredits({ explicit }).then(
+      (value) => {
+        const live = Boolean(value) && projectAccountCredits(adapter.credits()) !== null;
+        if (live) this.#externalQuotaObservedAt.set(harnessId, new Date().toISOString());
+        return live;
+      },
+      () => false,
+    );
+    const observed = (): { observedAt?: string } => {
+      const observedAt = this.#externalQuotaObservedAt.get(harnessId);
+      return observedAt ? { observedAt } : {};
+    };
+    if (!explicit) {
+      const known = observed();
+      return known.observedAt ? { status: "cached", ...known } : undefined;
+    }
+    const live = await read;
+    const after = adapter.creditsUnavailableReason?.() ?? null;
+    if (after) return { status: "unavailable", reason: after };
+    return { status: live ? "live" : "failed", ...observed() };
   }
 
   #refreshOfficialRateLimits(accountId: string, force = false) {

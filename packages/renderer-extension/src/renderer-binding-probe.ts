@@ -12,6 +12,7 @@ import {
   type HarnessThinkingOptionId,
   type AccountCreditsSnapshot,
   type ThreadInspection,
+  type ThreadQuotaState,
   type ThreadUsageInspection,
   type ThreadUsageSnapshot,
   type CodexhostError,
@@ -72,6 +73,10 @@ import {
 } from "./versioned-renderer-adapter.js";
 import type { RendererModelClient } from "./renderer-model-client.js";
 import { RendererMethodUnavailableError } from "./renderer-request-sender.js";
+import {
+  RENDERER_QUOTA_REFRESH_COOLDOWN_MS,
+  type RendererQuotaView,
+} from "./renderer-quota-refresh.js";
 import { thinkingOptionsForModel } from "./renderer-model-picker.js";
 import { RENDERER_AGENT_INSTALL_URLS } from "./renderer-agent-picker.js";
 import {
@@ -580,9 +585,22 @@ interface MountedComposer {
   threadConfiguration: HarnessModelSelectionState | undefined;
   usage: ThreadUsageSnapshot | null;
   accountCredits: AccountCreditsSnapshot | null;
+  /** Quota refresh state of the current Thread; replaced (not mutated) when the Thread changes. */
+  quota: MountedQuota;
   hostId: string | null;
   usageRequestGeneration: number;
   commandRequestGeneration: number;
+}
+
+interface MountedQuota {
+  state: ThreadQuotaState | null;
+  refreshing: boolean;
+  failed: boolean;
+  cooldownUntil: number;
+}
+
+function idleMountedQuota(): MountedQuota {
+  return { state: null, refreshing: false, failed: false, cooldownUntil: 0 };
 }
 
 interface MountedCatalogRequest {
@@ -918,6 +936,75 @@ export function installRendererBindingProbe(
     if (mounted.control.root.title !== title) mounted.control.root.title = title;
   };
 
+  /**
+   * The user's explicit quota refresh: Host re-reads the Account quota without a model request.
+   * One in flight per Composer, then a cooldown; a failure keeps the numbers already shown.
+   */
+  const refreshQuota = async (mounted: MountedComposer): Promise<void> => {
+    const quota = mounted.quota;
+    if (quota.refreshing || Date.now() < quota.cooldownUntil) return;
+    const threadId = threadIdFromComposerModelTarget(mounted.modelTarget);
+    const finish = (): void => {
+      quota.refreshing = false;
+      quota.cooldownUntil = Date.now() + RENDERER_QUOTA_REFRESH_COOLDOWN_MS;
+      window.setTimeout(() => {
+        if (!disposed && mountedByComposer.get(mounted.composer) === mounted) {
+          renderMounted(mounted);
+        }
+      }, RENDERER_QUOTA_REFRESH_COOLDOWN_MS + 50);
+      if (mountedByComposer.get(mounted.composer) === mounted) renderMounted(mounted);
+    };
+    quota.refreshing = true;
+    quota.failed = false;
+    renderMounted(mounted);
+    if (!threadId || !modelControl) {
+      if (!threadId && controller.get(mounted.composer).agent === "codex") {
+        await refreshDraftCodexUsage(mounted);
+      }
+      finish();
+      return;
+    }
+    try {
+      const result = await modelControl.inspectThreadUsage({ threadId, refresh: "quota" });
+      if (
+        disposed ||
+        mounted.quota !== quota ||
+        threadIdFromComposerModelTarget(mounted.modelTarget) !== threadId ||
+        result.threadId !== threadId
+      ) {
+        return;
+      }
+      mounted.usageRequestGeneration += 1;
+      mounted.usage = result.usage;
+      quota.state = result.quota ?? null;
+      quota.failed = result.quota?.status === "failed";
+      // A failed read keeps the quota already shown rather than blanking it.
+      if (result.accountCredits || !quota.failed) {
+        mounted.accountCredits = result.accountCredits ?? null;
+      }
+    } catch {
+      if (mounted.quota === quota) quota.failed = true;
+    } finally {
+      finish();
+    }
+  };
+
+  const quotaView = (mounted: MountedComposer): RendererQuotaView | null => {
+    if (!threadIdFromComposerModelTarget(mounted.modelTarget) && !mounted.accountCredits) {
+      return null;
+    }
+    const quota = mounted.quota;
+    return {
+      state: quota.state,
+      refreshing: quota.refreshing,
+      failed: quota.failed,
+      cooldownUntil: quota.cooldownUntil,
+      onRefresh: () => {
+        void refreshQuota(mounted);
+      },
+    };
+  };
+
   const renderMounted = (mounted: MountedComposer): void => {
     const accounts = composerCodexAccounts(mounted.composer);
     const currentCodexAccount = accounts?.accounts.find(
@@ -936,6 +1023,7 @@ export function installRendererBindingProbe(
       settingsLifecycle.locale,
       currentCodexAccount ?? null,
       mounted.ownershipStatus === "error",
+      quotaView(mounted),
     );
     showCodexUsageGateStatus(mounted, mounted.codexUsageGate.update(externalSubmissionReady));
     if (mounted.control.usage) {
@@ -1050,6 +1138,7 @@ export function installRendererBindingProbe(
       mounted.usageRequestGeneration += 1;
       mounted.usage = update.usage;
       mounted.accountCredits = update.accountCredits ?? null;
+      if (update.quota) mounted.quota.state = update.quota;
       usageRefreshAttempts.delete(mounted.composer);
       renderMounted(mounted);
     }
@@ -1071,6 +1160,7 @@ export function installRendererBindingProbe(
     const generation = ++mounted.usageRequestGeneration;
     mounted.usage = null;
     mounted.accountCredits = null;
+    mounted.quota = idleMountedQuota();
     renderMounted(mounted);
     if (!accountId || !client?.inspectCodexAccountUsage) return;
     try {
@@ -1107,6 +1197,7 @@ export function installRendererBindingProbe(
     if (!threadId || !modelControl) {
       mounted.usage = null;
       mounted.accountCredits = null;
+      mounted.quota = idleMountedQuota();
       usageRefreshAttempts.delete(mounted.composer);
       renderMounted(mounted);
       return;
@@ -1129,6 +1220,7 @@ export function installRendererBindingProbe(
       }
       mounted.usage = result.usage;
       mounted.accountCredits = result.accountCredits ?? null;
+      if (result.quota) mounted.quota.state = result.quota;
       const agent = controller.get(mounted.composer).agent;
       if (
         result.usage !== null &&
@@ -1345,6 +1437,7 @@ export function installRendererBindingProbe(
       mounted.ownershipStatus = "loading";
       mounted.usage = null;
       mounted.accountCredits = null;
+      mounted.quota = idleMountedQuota();
       mounted.usageRequestGeneration += 1;
       usageRefreshAttempts.delete(mounted.composer);
       if (previousTarget?.[0] === "conversation") renderMounted(mounted);
@@ -2309,6 +2402,7 @@ export function installRendererBindingProbe(
         mounted.permissionModeView = { status: "idle" };
         mounted.usage = null;
         mounted.accountCredits = null;
+        mounted.quota = idleMountedQuota();
         mounted.usageRequestGeneration += 1;
         const state = controller.get(mounted.composer);
         if (applyDraftAgentCarrier(mounted.composer, state.agent)) {
@@ -2331,6 +2425,7 @@ export function installRendererBindingProbe(
       mounted.ownershipStatus = "loading";
       mounted.usage = null;
       mounted.accountCredits = null;
+      mounted.quota = idleMountedQuota();
       mounted.usageRequestGeneration += 1;
       usageRefreshAttempts.delete(mounted.composer);
       const timer = usageRefreshTimers.get(mounted.composer);
@@ -2521,6 +2616,7 @@ export function installRendererBindingProbe(
       threadConfiguration: inherited?.threadConfiguration,
       usage: inherited?.usage ?? null,
       accountCredits: inherited?.accountCredits ?? null,
+      quota: inherited?.quota ?? idleMountedQuota(),
       hostId: inherited?.hostId ?? hostId,
       usageRequestGeneration: 0,
       commandRequestGeneration: 0,

@@ -4,6 +4,7 @@ import type {
   RendererAgent,
   RendererAgentAvailability,
 } from "./agent-selection-state.js";
+import type { RendererQuotaView } from "./renderer-quota-refresh.js";
 import type {
   AccountCreditsSnapshot,
   CodexAccountSummary,
@@ -749,6 +750,7 @@ export function renderComposerAgentControl(
   locale: RendererSettingsLocale = "en",
   currentCodexAccount: CodexAccountSummary | null = null,
   ownershipError = false,
+  quota: RendererQuotaView | null = null,
 ): boolean {
   if (control.usage === null) {
     control.usage = mountRendererUsageControl(control.composerId, locale);
@@ -821,6 +823,7 @@ export function renderComposerAgentControl(
       usage,
       locale,
       selectedCodexAccount?.email ?? selectedCodexAccount?.label ?? null,
+      quota,
     );
   }
   control.harnessCommands.setLocale(locale);

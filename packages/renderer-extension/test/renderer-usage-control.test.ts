@@ -9,7 +9,13 @@ import {
   formatRendererTokenRate,
   rendererUsageHasDisplayData,
   rendererUsageMessages,
+  rendererUsagePlanRows,
 } from "../src/renderer-usage-control.js";
+import {
+  RENDERER_QUOTA_REFRESH_COOLDOWN_MS,
+  summarizeRendererQuota,
+  type RendererQuotaView,
+} from "../src/renderer-quota-refresh.js";
 
 describe("Renderer Usage localization", () => {
   it("shows credit-only and context-only data without dollar conversion", () => {
@@ -92,5 +98,106 @@ describe("Renderer Usage native Codex snapshots", () => {
       }),
     ).toBe(true);
     expect(rendererUsageHasDisplayData(null)).toBe(false);
+  });
+});
+
+describe("Renderer Usage plan-window rows", () => {
+  it("lists only the windows present, in Chinese and English", () => {
+    const usage = { cacheHitRatePercent: 99.9, planFiveHourUsedPercent: 45 };
+    expect(rendererUsagePlanRows(usage, rendererUsageMessages("zh-CN"), "zh-CN")).toEqual([
+      ["5 小时额度已用", "45%"],
+    ]);
+    const both = rendererUsagePlanRows(
+      { planFiveHourUsedPercent: 45, planSevenDayUsedPercent: 12.5, planSevenDayResetsAtUnix: 1 },
+      rendererUsageMessages("en"),
+      "en",
+    );
+    expect(both.map(([label]) => label)).toEqual(["5-hour limit used", "7-day limit used"]);
+    expect(both[1]?.[1].startsWith("12.5% · ")).toBe(true);
+  });
+
+  it("omits the rows for API-key Usage without plan windows", () => {
+    expect(
+      rendererUsagePlanRows(
+        { cacheHitRatePercent: 99.9, totalCostUsd: 11.015 },
+        rendererUsageMessages("zh-CN"),
+        "zh-CN",
+      ),
+    ).toEqual([]);
+    expect(rendererUsagePlanRows(null, rendererUsageMessages("en"), "en")).toEqual([]);
+  });
+});
+
+describe("Renderer quota refresh row", () => {
+  const base: RendererQuotaView = {
+    state: null,
+    refreshing: false,
+    failed: false,
+    cooldownUntil: 0,
+    onRefresh: () => undefined,
+  };
+
+  it("can refresh before the first read and shows the last update time after it", () => {
+    expect(summarizeRendererQuota(base, "zh-CN", 1_000)).toEqual({
+      status: "尚未读取",
+      reason: null,
+      canRefresh: true,
+    });
+    const read = summarizeRendererQuota(
+      { ...base, state: { status: "live", observedAt: "2026-10-20T01:02:03.000Z" } },
+      "zh-CN",
+      1_000,
+    );
+    expect(read.status.startsWith("更新于 ")).toBe(true);
+    expect(read.canRefresh).toBe(true);
+  });
+
+  it("disables the control while in flight and during the cooldown", () => {
+    expect(summarizeRendererQuota({ ...base, refreshing: true }, "zh-CN", 1_000)).toMatchObject({
+      status: "刷新中…",
+      canRefresh: false,
+    });
+    const cooldownUntil = 1_000 + RENDERER_QUOTA_REFRESH_COOLDOWN_MS;
+    expect(summarizeRendererQuota({ ...base, cooldownUntil }, "en", 1_000).canRefresh).toBe(false);
+    expect(summarizeRendererQuota({ ...base, cooldownUntil }, "en", cooldownUntil).canRefresh).toBe(
+      true,
+    );
+  });
+
+  it("marks a failed refresh while keeping the previous update time", () => {
+    const summary = summarizeRendererQuota(
+      {
+        ...base,
+        failed: true,
+        state: { status: "failed", observedAt: "2026-10-20T01:02:03.000Z" },
+      },
+      "zh-CN",
+    );
+    expect(summary.status.startsWith("刷新失败 · 更新于 ")).toBe(true);
+    expect(summary.canRefresh).toBe(true);
+  });
+
+  it("explains why a proxied key, a relay or a non-subscriber login cannot refresh", () => {
+    for (const reason of ["proxiedCredential", "relay", "notSubscriber", "unsupported"] as const) {
+      const summary = summarizeRendererQuota(
+        { ...base, state: { status: "unavailable", reason } },
+        "zh-CN",
+      );
+      expect(summary.canRefresh).toBe(false);
+      expect(summary.reason).toBeTruthy();
+    }
+    expect(
+      summarizeRendererQuota(
+        { ...base, state: { status: "unavailable", reason: "proxiedCredential" } },
+        "zh-CN",
+      ).reason,
+    ).toContain("订阅令牌");
+    expect(
+      summarizeRendererQuota(
+        { ...base, state: { status: "unavailable", reason: "relay" } },
+        "zh-CN",
+      ).reason,
+    ).toContain("中转余额");
+    expect(summarizeRendererQuota({ ...base, onRefresh: null }, "en").canRefresh).toBe(false);
   });
 });

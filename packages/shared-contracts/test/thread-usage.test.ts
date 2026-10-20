@@ -75,13 +75,40 @@ describe("Thread Usage contracts", () => {
     ).toBe(false);
   });
 
-  it("accepts only the fixed exact refresh mode", () => {
+  it("accepts only the fixed exact and quota refresh modes", () => {
     expect(
       threadUsageInspectionParamsSchema.parse({ threadId: "thread-usage", refresh: "exact" }),
     ).toEqual({ threadId: "thread-usage", refresh: "exact" });
     expect(
+      threadUsageInspectionParamsSchema.parse({ threadId: "thread-usage", refresh: "quota" }),
+    ).toEqual({ threadId: "thread-usage", refresh: "quota" });
+    expect(
       threadUsageInspectionParamsSchema.safeParse({ threadId: "thread-usage", refresh: "newer" })
         .success,
+    ).toBe(false);
+  });
+
+  it("carries the quota refresh outcome and rejects unknown reasons", () => {
+    const quota = {
+      status: "unavailable",
+      reason: "proxiedCredential",
+    } as const;
+    expect(
+      threadUsageInspectionSchema.parse({ threadId: "thread-usage", usage: null, quota }),
+    ).toEqual({ threadId: "thread-usage", usage: null, quota });
+    expect(
+      threadUsageInspectionSchema.safeParse({
+        threadId: "thread-usage",
+        usage: null,
+        quota: { status: "unavailable", reason: "secret" },
+      }).success,
+    ).toBe(false);
+    expect(
+      threadUsageInspectionSchema.safeParse({
+        threadId: "thread-usage",
+        usage: null,
+        quota: { status: "live", observedAt: "2026-10-20T00:00:00.000Z", token: "x" },
+      }).success,
     ).toBe(false);
   });
 
