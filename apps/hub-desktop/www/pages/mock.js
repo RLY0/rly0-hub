@@ -19,6 +19,76 @@ window.hubManagementMock = (() => {
   const filters = { imageTool: false, webSearchTool: false };
   const zoomSteps = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
   let zoom = 1.1;
+  // 账号 page. The first quota lookup (on opening a tab) succeeds; a manual refresh after that
+  // also succeeds on the Codex tab, with one account failing, and fails outright on the Claude
+  // tab, so both outcomes show without a real backend.
+  const at = (seconds) => Math.floor(Date.now() / 1000) + seconds;
+  const usage = (used5h, usedWeekly, reset5h, resetWeekly, resetCredits) => ({
+    windows: [
+      { kind: "primary", usedPercent: used5h, ...(reset5h ? { resetsAt: at(reset5h) } : {}) },
+      {
+        kind: "secondary",
+        usedPercent: usedWeekly,
+        ...(resetWeekly ? { resetsAt: at(resetWeekly) } : {}),
+      },
+    ],
+    ...(resetCredits === undefined ? {} : { resetCredits }),
+    fetchedAt: at(0),
+    source: "snapshot",
+  });
+  const codexAccounts = [
+    {
+      id: "0123456789ab",
+      email: "me@example.com",
+      plan: "plus",
+      current: true,
+      lastUsage: usage(36, 12, 0, 0, 2),
+    },
+    {
+      id: "1123456789ab",
+      email: "team@example.com",
+      alias: "团队号",
+      plan: "team",
+      current: false,
+      lastUsage: usage(8, 41, 3000, 260000, 0),
+    },
+    {
+      id: "2123456789ab",
+      email: "pro@example.com",
+      alias: "Pro 号",
+      plan: "pro",
+      current: false,
+      lastUsage: usage(92, 67, 1500, 120000, 1),
+    },
+    // An API-key login: no quota to read.
+    { id: "3123456789ab", alias: "OpenAI Key 号", current: false },
+  ];
+  const claudeAccounts = [
+    {
+      id: "0a1b2c3d4e5f",
+      alias: "me@example.com",
+      email: "me@example.com",
+      plan: "max",
+      current: true,
+      lastUsage: usage(42, 88, 9000, 400000),
+    },
+    { id: "abcdefabcdef", alias: "工作号", email: "work@example.com", plan: "pro", current: false },
+  ];
+  let codexUsageCalls = 0;
+  let claudeUsageCalls = 0;
+  const officialKeys = {
+    openai: { kind: "apiKey", keyMask: "****Ab12", valid: true, modelCount: 48 },
+    // A claude setup-token: calls models, cannot read quota or the account.
+    anthropic: {
+      kind: "subscription",
+      last4: "QwAA",
+      valid: true,
+      usageHidden: true,
+      profileHidden: true,
+    },
+    google: null,
+    xai: { kind: "apiKey", keyMask: "****xY9z", valid: false, modelCount: 0 },
+  };
   return ({ method, params: p }) => {
     switch (method) {
       case "window.zoomGet":
@@ -192,6 +262,52 @@ window.hubManagementMock = (() => {
           error: null,
           releaseNotes: "Hub 独立管理窗口",
         };
+      case "accounts.list":
+        return { available: true, accounts: codexAccounts };
+      case "accounts.usageAll": {
+        codexUsageCalls += 1;
+        const later = codexUsageCalls > 1;
+        if (later) codexAccounts[0].lastUsage = usage(39, 13, 0, 0, 2);
+        return {
+          __delay: later ? 900 : 300,
+          available: true,
+          results: codexAccounts.map((a) =>
+            a.id === "3123456789ab"
+              ? { id: a.id, error: "ACCOUNT_TOKEN_MISSING" }
+              : later && a.id === "2123456789ab"
+                ? { id: a.id, error: "USAGE_NETWORK" }
+                : { id: a.id, usage: a.lastUsage },
+          ),
+        };
+      }
+      case "agents.claudeAccounts.list":
+        return { accounts: claudeAccounts, liveLoggedIn: true, liveUnsaved: false };
+      case "agents.claudeAccounts.usageAll":
+        claudeUsageCalls += 1;
+        return claudeUsageCalls > 1
+          ? { __error: "USAGE_NETWORK", __delay: 900 }
+          : {
+              __delay: 300,
+              results: [
+                { id: claudeAccounts[0].id, usage: claudeAccounts[0].lastUsage },
+                { id: claudeAccounts[1].id, error: "USAGE_TOKEN_EXPIRED" },
+              ],
+            };
+      case "agents.claudeAccounts.switch":
+        return { switched: true };
+      case "agents.officialKeys.info":
+        return { info: officialKeys[p.vendor] || null };
+      case "agents.officialKeys.set":
+        officialKeys[p.vendor] = {
+          kind: "apiKey",
+          keyMask: "****new1",
+          valid: true,
+          modelCount: 3,
+        };
+        return { ok: true, valid: true, modelCount: 3 };
+      case "agents.officialKeys.remove":
+        officialKeys[p.vendor] = null;
+        return { ok: true };
       case "agents.installStart":
       case "agents.installStatus":
         return p.agent === "grok"
