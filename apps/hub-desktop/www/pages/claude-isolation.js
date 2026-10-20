@@ -18,6 +18,15 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
     ISOLATION_RUNTIME_HAS_PROJECTS: "已有项目使用这个数据目录。请先移除项目授权，再修改目录。",
     ISOLATION_BUSY: "正在处理上一项操作，请稍候。",
     ISOLATION_SANDBOX_NOT_FOUND: "找不到所选沙箱，请刷新后重试。",
+    ISOLATION_LOGIN_BUSY: "请先完成或取消正在进行的登录。",
+    ISOLATION_LOGIN_TIMEOUT: "登录已超时，请点击一键登录重新授权。",
+    ISOLATION_LOGIN_START_FAILED: "授权未能发起，请检查沙箱和代理后重试。",
+    ISOLATION_LOGIN_FAILED: "登录没有完成，请重新发起授权。",
+    ISOLATION_LOGIN_NOT_CONFIRMED: "沙箱还没有确认登录，请重新发起授权。",
+    ISOLATION_LOGIN_CODE_INVALID: "请粘贴官方页面给出的完整授权码。",
+    ISOLATION_LOGIN_CODE_MISMATCH: "授权码不属于这次登录，请使用当前授权页面的授权码。",
+    ISOLATION_LOGIN_STALE: "这次登录已结束，请重新点击一键登录。",
+    ISOLATION_LOGIN_SUBMIT_FAILED: "授权码未能提交到沙箱，请重新发起登录。",
   };
   const message = (error) => errors[error] || "操作未完成，请检查 Docker、代理和项目目录后重试。";
   const summary = settings?.enabled ? "已选择隔离模式" : "未开启";
@@ -32,14 +41,16 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
   }
 
   const job = status.job || {};
-  const busy = ["installing", "preparing"].includes(job.phase);
-  const action = (label, method, params = {}, success = "操作已完成") =>
+  const login = status.login || { phase: "idle" };
+  const loginActive = ["starting", "waitingForCode", "authorizing"].includes(login.phase);
+  const busy = ["installing", "preparing"].includes(job.phase) || loginActive;
+  const action = (label, method, params = {}, success = "操作已完成", allowWhileBusy = false) =>
     h(
       "button",
       {
         class: "btn sm",
         type: "button",
-        disabled: busy,
+        disabled: busy && !allowWhileBusy,
         onclick: async (event) => {
           const button = event.currentTarget;
           button.disabled = true;
@@ -48,7 +59,13 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
               `agents.isolation.${method}`,
               typeof params === "function" ? params() : params,
             );
-            toast(result?.opened === false ? "窗口没有打开，请重试。" : success);
+            toast(
+              result?.phase === "failed"
+                ? message(result.error)
+                : result?.opened === false
+                  ? "窗口没有打开，请重试。"
+                  : success,
+            );
           } catch (error) {
             toast(message(error?.message));
           } finally {
@@ -174,10 +191,10 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
           `${item.name} · ${item.error ? "沙箱不可用" : item.loggedIn === true ? "Claude 已登录" : item.loggedIn === false ? "Claude 待登录" : "登录待检测"}`,
         ),
         action(
-          "打开沙箱 / 登录 Claude",
+          item.loggedIn ? "重新授权 Claude" : "一键登录 Claude",
           "login",
           { project: item.project },
-          "请在沙箱窗口使用 /login，完成后刷新状态",
+          "已发起官方授权，请在浏览器完成后回到 Hub",
         ),
         action(
           "移除项目授权",
@@ -187,6 +204,47 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
         ),
       ),
     );
+    if (login.project === item.project) {
+      if (login.phase === "starting")
+        box.append(h("p", { role: "status", class: "sub" }, "正在发起 Claude 官方授权…"));
+      if (login.phase === "authorizing")
+        box.append(h("p", { role: "status", class: "sub" }, "正在确认沙箱登录，成功后会自动更新…"));
+      if (login.phase === "failed")
+        box.append(h("p", { role: "alert", class: "sub" }, message(login.error)));
+      if (login.phase === "cancelled") box.append(h("p", { class: "sub" }, "已取消本次登录。"));
+      if (login.phase === "waitingForCode") {
+        const code = h("input", {
+          class: "input",
+          type: "password",
+          autocomplete: "off",
+          maxlength: 4096,
+          "aria-label": "Claude 授权码",
+          placeholder: "粘贴官方授权页面给出的完整授权码",
+        });
+        box.append(
+          h(
+            "p",
+            { class: "sub" },
+            "在官方浏览器页面完成授权后，将页面给出的授权码填入 Hub。授权码只交给当前沙箱，不保存到 Hub，也不用发到聊天。",
+          ),
+          h("label", { class: "isolation-field" }, "Claude 授权码", code),
+          action(
+            "完成登录",
+            "loginSubmit",
+            () => {
+              const value = code.value.trim();
+              code.value = "";
+              return { id: login.id, code: value };
+            },
+            "已提交到当前沙箱，正在确认登录",
+            true,
+          ),
+          action("重新打开授权页", "loginOpen", { id: login.id }, "已请求打开官方授权页", true),
+        );
+      }
+      if (loginActive)
+        box.append(action("取消本次登录", "loginCancel", { id: login.id }, "已取消登录", true));
+    }
   }
   box.append(
     settings.enabled

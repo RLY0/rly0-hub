@@ -19,6 +19,8 @@ window.hubManagementMock = (() => {
   const filters = { imageTool: false, webSearchTool: false };
   // Browser-only fixture. These operations never install Docker or access a real project.
   let isolation = null;
+  let isolationLogin = { phase: "idle" };
+  const isolatedLogins = new Set();
   const isolationRoot = "C:\\Users\\demo\\.rly0-hub\\sandbox-runtime";
   return ({ method, params: p }) => {
     switch (method) {
@@ -31,8 +33,14 @@ window.hubManagementMock = (() => {
           defaultRuntimeRoot: isolationRoot,
           suggestedProxy: "http://127.0.0.1:18888",
           job: { phase: "idle" },
+          login: isolationLogin,
           sandboxes: [],
-          projects: isolation?.projects.map((p) => ({ ...p, loggedIn: false, error: null })) || [],
+          projects:
+            isolation?.projects.map((p) => ({
+              ...p,
+              loggedIn: isolatedLogins.has(p.project),
+              error: null,
+            })) || [],
         };
       case "agents.isolation.configure":
         isolation = { version: 1, ...p, projects: isolation?.projects || [] };
@@ -47,6 +55,27 @@ window.hubManagementMock = (() => {
         isolation.enabled = false;
         return { ok: true };
       case "agents.isolation.login":
+        isolationLogin = {
+          phase: "waitingForCode",
+          project: p.project,
+          id: "00000000-0000-4000-8000-000000000001",
+          browserOpened: true,
+        };
+        return isolationLogin;
+      case "agents.isolation.loginSubmit": {
+        const project = isolationLogin.project;
+        isolationLogin = { ...isolationLogin, phase: "authorizing" };
+        setTimeout(() => {
+          isolationLogin = { ...isolationLogin, phase: "succeeded" };
+          isolatedLogins.add(project);
+        }, 800);
+        return isolationLogin;
+      }
+      case "agents.isolation.loginCancel":
+        isolationLogin = { ...isolationLogin, phase: "cancelled" };
+        return isolationLogin;
+      case "agents.isolation.loginOpen":
+        return isolationLogin;
       case "agents.isolation.dockerLogin":
         return { opened: true };
       case "proxy.settingsGet":

@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import {
-  guestProjectPath,
   listDockerSandboxes,
   readSandboxSettings,
   resolveSandboxCommand,
@@ -21,6 +20,7 @@ import { processRunner } from "../rly0-agents/agent-installer.js";
 import { commandExists } from "../rly0-agents/claude-code-auth.js";
 import { powershellQuote, withAgentInstallPaths } from "../rly0-agents/install-paths.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
+import { IsolationLogin } from "./isolation-login.js";
 
 export interface IsolationJob {
   phase: "idle" | "installing" | "preparing" | "succeeded" | "failed" | "cancelled";
@@ -32,10 +32,42 @@ export class ClaudeIsolation {
   #job: IsolationJob = { phase: "idle" };
   #generation = 0;
   #mutating = false;
+  readonly #logins: IsolationLogin;
   constructor(
     readonly environment: NodeJS.ProcessEnv,
     readonly platform = process.platform,
-  ) {}
+    options: { openUrl?: (url: string) => void } = {},
+  ) {
+    this.#logins = new IsolationLogin({
+      environment,
+      openUrl:
+        options.openUrl ??
+        (() => {
+          throw new Error("BROWSER_UNAVAILABLE");
+        }),
+      resolve: (project) => this.#resolveLogin(project),
+      loggedIn: async (binding) => {
+        await this.#resolveLogin(binding.project.project);
+        const output = await runSandboxCommand(
+          environment,
+          binding.settings,
+          [
+            "exec",
+            "-u",
+            "agent",
+            binding.project.name,
+            "/home/agent/.local/bin/claude",
+            "auth",
+            "status",
+            "--json",
+          ],
+          20000,
+          [1],
+        );
+        return (JSON.parse(output) as { loggedIn?: boolean }).loggedIn === true;
+      },
+    });
+  }
 
   #settings(): SandboxSettings {
     const settings = readSandboxSettings(this.environment);
@@ -47,7 +79,11 @@ export class ClaudeIsolation {
   }
   #idle(): void {
     this.#supported();
-    if (this.#mutating || ["installing", "preparing"].includes(this.#job.phase))
+    if (
+      this.#mutating ||
+      this.#logins.active ||
+      ["installing", "preparing"].includes(this.#job.phase)
+    )
       throw new Error("ISOLATION_BUSY");
   }
 
@@ -60,6 +96,7 @@ export class ClaudeIsolation {
         supported: this.platform === "win32",
         error: "ISOLATION_CONFIG_INVALID",
         job: this.#job,
+        login: this.#logins.status(),
       };
     }
     let dockerInstalled = false;
@@ -81,6 +118,7 @@ export class ClaudeIsolation {
       defaultRuntimeRoot: path.join(resolveRly0DataDir(this.environment), "sandbox-runtime"),
       suggestedProxy: this.#suggestProxy(),
       job: this.#job,
+      login: this.#logins.status(),
     };
     if (!settings || !dockerInstalled || this.platform !== "win32") return result;
     try {
@@ -95,6 +133,9 @@ export class ClaudeIsolation {
         settings.projects.map(async (project) => {
           try {
             const box = verifySandboxWorkspace(sandboxes, project);
+            const login = this.#logins.status();
+            if (this.#logins.active && login.project && sameProject(login.project, project.project))
+              return { ...project, loggedIn: null, error: null };
             if (box.status !== "running") return { ...project, loggedIn: null, error: null };
             // Auth status contains no tokens. Never import Windows credentials into the microVM.
             const output = await runSandboxCommand(
@@ -293,29 +334,36 @@ export class ClaudeIsolation {
 
   async login(project?: string) {
     this.#supported();
+    if (!project)
+      return this.#openTerminal(
+        resolveSandboxCommand(this.environment),
+        ["login"],
+        this.#settings(),
+      );
+    if (this.#mutating || ["installing", "preparing"].includes(this.#job.phase))
+      throw new Error("ISOLATION_BUSY");
+    return this.#logins.start(project);
+  }
+  async #resolveLogin(project: string) {
+    this.#supported();
     const settings = this.#settings();
-    const command = resolveSandboxCommand(this.environment);
-    if (!project) return this.#openTerminal(command, ["login"], settings);
     const entry = settings.projects.find((p) => sameProject(p.project, project));
     if (!entry) throw new Error("ISOLATION_PROJECT_NOT_AUTHORIZED");
     verifySandboxWorkspace(await listDockerSandboxes(this.environment, settings), entry);
     await verifySandboxProxy(this.environment, settings);
-    const args = [
-      "exec",
-      "-i",
-      "-t",
-      "-u",
-      "root",
-      "-w",
-      guestProjectPath(entry.project),
-      entry.name,
-      "python3",
-      "-c",
-      SANDBOX_GUEST_GUARD,
-      "--interactive",
-      "/home/agent/.local/bin/claude",
-    ];
-    return this.#openTerminal(command, args, settings);
+    return { settings, project: entry, command: resolveSandboxCommand(this.environment) };
+  }
+  loginSubmit(id: string, code: string) {
+    return this.#logins.submit(id, code);
+  }
+  loginCancel(id: string) {
+    return this.#logins.cancel(id);
+  }
+  loginOpen(id: string) {
+    return this.#logins.reopen(id);
+  }
+  close() {
+    this.#logins.close();
   }
 
   async #openTerminal(command: string, args: string[], settings: SandboxSettings) {

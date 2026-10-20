@@ -41,3 +41,14 @@ export const sandboxPrepareSchema = z
   })
   .strict();
 export const sandboxSelectSchema = z.object({ project: z.string().min(3).max(2000) }).strict();
+export const sandboxLoginIdSchema = z.object({ id: z.string().uuid() }).strict();
+export const sandboxLoginSubmitSchema = sandboxLoginIdSchema
+  .extend({
+    code: z
+      .string()
+      .trim()
+      .min(1)
+      .max(4096)
+      .refine((value) => !/\s/u.test(value)),
+  })
+  .strict();

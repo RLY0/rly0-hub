@@ -50,6 +50,9 @@ if sys.argv[1] == '--interactive':
     demote()
     env['CLAUDE_CODE_ENTRYPOINT'] = 'cli'
     os.execvpe(sys.argv[2], sys.argv[2:], env)
+if sys.argv[1] == '--login':
+    env['CLAUDE_CODE_ENTRYPOINT'] = 'cli'
+    sys.argv.pop(1)
 child = subprocess.Popen(sys.argv[1:], stdin=subprocess.PIPE, env=env, start_new_session=True, preexec_fn=demote)
 def close_group():
     try: os.killpg(child.pid, signal.SIGKILL)

@@ -682,6 +682,8 @@ export {
   sandboxConfigureSchema,
   sandboxPrepareSchema,
   sandboxSelectSchema,
+  sandboxLoginIdSchema,
+  sandboxLoginSubmitSchema,
   sandboxProjectSchema,
   type SandboxSettings,
   type SandboxProject,

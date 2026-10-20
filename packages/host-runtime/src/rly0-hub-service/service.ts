@@ -32,6 +32,8 @@ import {
   sandboxConfigureSchema,
   sandboxPrepareSchema,
   sandboxSelectSchema,
+  sandboxLoginIdSchema,
+  sandboxLoginSubmitSchema,
 } from "@codexhost/shared-contracts";
 import { ClaudeCodeAuth } from "../rly0-agents/claude-code-auth.js";
 import { Rly0AppearanceManager } from "../rly0-appearance/index.js";
@@ -246,7 +248,9 @@ export class Rly0HubService {
       environment,
       ...(options.platform ? { platform: options.platform } : {}),
     });
-    this.#isolation = new ClaudeIsolation(environment, options.platform ?? process.platform);
+    this.#isolation = new ClaudeIsolation(environment, options.platform ?? process.platform, {
+      openUrl: (url) => (options.openUrl ?? openInBrowser)(url),
+    });
     this.#state = new Rly0HubStateStore(environment);
     this.#codexConfig = new Rly0RelayCodexConfigManager({ environment });
     this.#addLogin =
@@ -594,6 +598,7 @@ export class Rly0HubService {
   }
 
   async dispose(): Promise<void> {
+    this.#isolation.close();
     await this.#addLogin.close().catch(() => undefined);
     await this.#core.dispose();
   }
@@ -856,6 +861,15 @@ export class Rly0HubService {
       ),
       "agents.isolation.disable": route(empty, () => this.#isolation.disable()),
       "agents.isolation.login": route(sandboxSelectSchema, (p) => this.#isolation.login(p.project)),
+      "agents.isolation.loginSubmit": route(sandboxLoginSubmitSchema, (p) =>
+        this.#isolation.loginSubmit(p.id, p.code),
+      ),
+      "agents.isolation.loginCancel": route(sandboxLoginIdSchema, (p) =>
+        this.#isolation.loginCancel(p.id),
+      ),
+      "agents.isolation.loginOpen": route(sandboxLoginIdSchema, (p) =>
+        this.#isolation.loginOpen(p.id),
+      ),
       "agents.isolation.dockerLogin": route(empty, () => this.#isolation.login()),
       "agents.isolation.install": route(empty, () => this.#isolation.install()),
       "agents.installStart": route(rly0AgentIdParamsSchema, (p) => this.#installer.start(p.agent)),

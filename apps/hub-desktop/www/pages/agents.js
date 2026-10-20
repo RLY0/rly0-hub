@@ -315,6 +315,36 @@ window.registerHubAgents = ({
     let claudeAccounts = {};
     let officialKeys = [];
     let isolation = null;
+    let isolationTimer = null;
+    let loadGeneration = 0;
+    function scheduleIsolationPoll() {
+      if (isolationTimer) {
+        clearTimeout(isolationTimer);
+        pollers.delete(isolationTimer);
+      }
+      const active = ["starting", "waitingForCode", "authorizing"].includes(
+        isolation?.login?.phase,
+      );
+      if (!active && !["installing", "preparing"].includes(isolation?.job?.phase)) return;
+      const generation = loadGeneration;
+      isolationTimer = setTimeout(async () => {
+        pollers.delete(isolationTimer);
+        isolationTimer = null;
+        if (!alive() || generation !== loadGeneration) return;
+        const next = await call("agents.isolation.status").catch(() => null);
+        if (!alive() || generation !== loadGeneration) return;
+        // Keep the code input mounted while the person is typing/pasting an authorization code.
+        if (
+          isolation?.login?.phase === "waitingForCode" &&
+          next?.login?.phase === "waitingForCode" &&
+          isolation.login.id === next.login.id
+        ) {
+          isolation = next;
+          scheduleIsolationPoll();
+        } else load();
+      }, 2500);
+      pollers.add(isolationTimer);
+    }
     // Agents whose relay is set up by hand (snippets): remembered for this page only.
     const manualChoice = new Map();
     let connections = null; // last report from the Codex side: { checkedAt, agents: { id: {...} } }
@@ -349,6 +379,7 @@ window.registerHubAgents = ({
     }
 
     async function load() {
+      const generation = ++loadGeneration;
       const [list, relayList, selection, auth, status, keys, isolationStatus] = await Promise.all([
         call("agents.list").catch(() => null),
         call("relay.list").catch(() => null),
@@ -358,16 +389,11 @@ window.registerHubAgents = ({
         call("agents.officialKeys.list").catch(() => null),
         call("agents.isolation.status").catch(() => null),
       ]);
+      if (!alive() || generation !== loadGeneration) return;
       isolation = isolationStatus;
       officialKeys = (keys && keys.keys) || [];
       if (!alive()) return;
-      if (["installing", "preparing"].includes(isolation?.job?.phase)) {
-        const timer = setTimeout(() => {
-          pollers.delete(timer);
-          if (alive()) load();
-        }, 2500);
-        pollers.add(timer);
-      }
+      scheduleIsolationPoll();
       connections = status && status.report;
       const all = ((relayList && relayList.relays) || []).filter((relay) => relay.hasKey);
       // Claude Code's own key is the Anthropic one; the other vendors' keys serve other agents.
