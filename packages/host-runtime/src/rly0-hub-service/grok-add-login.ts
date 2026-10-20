@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import type { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";

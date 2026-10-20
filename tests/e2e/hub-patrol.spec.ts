@@ -3,7 +3,7 @@
 // control in the main area, collect console errors / page errors / unhandled rejections / failed
 // requests, and check for overflow. Results land in .local-test/patrol/<run>/; report.mjs
 // (globalTeardown) folds them into report.json and report.md.
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -584,7 +584,7 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
 
 // Grok (测试版, pages/mock.js): a weekly and a monthly account and one whose saved login expired;
 // adding one by `grok login` (finishes on its own, no code) and by an auth.json file.
-async function openAccountsTab(page: import("@playwright/test").Page, tab: string) {
+async function openAccountsTab(page: Page, tab: string) {
   await page.setViewportSize({ width: 1240, height: HEIGHT });
   await page.goto("/index.html");
   await page.click('.rail button[data-page="accounts"]');
