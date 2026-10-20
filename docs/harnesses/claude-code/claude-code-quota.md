@@ -18,11 +18,20 @@ Adapter 在账号级缓存最新窗口（`#latestPlanLimit`），推送到所有
 
 Claude Code 只有在它自己认为是 claude.ai 订阅登录时才解析 `anthropic-ratelimit-unified-*` 响应头并发出 `rate_limit_event`（CLI 中 `isClaudeAISubscriber` = 未设置 `ANTHROPIC_AUTH_TOKEN`/`ANTHROPIC_API_KEY` 且 OAuth scope 含 `user:inference`）。`/usage` 读取还要求 scope 含 `user:profile`。
 
-- **Hub 保存的 Anthropic 官方 Key / 订阅令牌**（relay 条目 baseUrl 为 `api.anthropic.com`）：Host 用 `claudeCodeRelayEnvironment` 启动 Claude Code，`ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/r/<id>`、`ANTHROPIC_AUTH_TOKEN=rly0-local-proxy`，真实密钥只在 rly0-core 本地代理中注入。Claude Code 因此不是订阅登录，**既不会发出 `rate_limit_event`，也无法 `/usage`**。Host 在 Usage 检查中返回 `quota: { status: "unavailable", reason: "proxiedCredential" }`，Popover 说明原因并禁用刷新。
+- **Hub 保存的 Anthropic 官方 Key / 订阅令牌**（relay 条目 baseUrl 为 `api.anthropic.com`）：Host 用 `claudeCodeRelayEnvironment` 启动 Claude Code，`ANTHROPIC_BASE_URL=http://127.0.0.1:<port>/r/<id>`、`ANTHROPIC_AUTH_TOKEN=rly0-local-proxy`，真实密钥只在 rly0-core 本地代理中注入。Claude Code 因此不是订阅登录，**既不会发出 `rate_limit_event`，也无法 `/usage`**。额度改由 Host 通过 rly0-core `claude/keyInfo {relayId}` 读取（见下节）。
 - **第三方中转**：`reason: "relay"`，中转没有订阅窗口，见下方余额设计。
 - **`/usage` 回答 `rate_limits_available: false`**（API Key、用户自己设置的 `CLAUDE_CODE_OAUTH_TOKEN` 订阅令牌、第三方 Provider）：`reason: "notSubscriber"`。订阅令牌通过 `CLAUDE_CODE_OAUTH_TOKEN` 使用时仍会在发送消息后收到 `rate_limit_event`，届时额度自动出现。
 
 把订阅令牌改为 `CLAUDE_CODE_OAUTH_TOKEN` 直接交给 Claude Code 是 `claude setup-token` 的官方用法（CLI 输出 “Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>”），这样原生推送即可工作。但当前密钥由闭源 rly0-core 加密保存，Host 只拿到 `hasKey`/`keyMask`，且代理把它作为 `x-api-key` 发送；改走直连需要 rly0-core 提供“按需取出订阅令牌”或“透传 `anthropic-ratelimit-unified-*` 响应头”的接口，本仓库未实现。
+
+## Hub 保存的官方 Key / 订阅令牌的额度
+
+[`claude-key-quota.ts`](../../../packages/host-runtime/src/rly0-relay/claude-key-quota.ts) 以 `claudeCode` relay 选择（官方 Anthropic 条目，按 relay id + keyMask 区分令牌）为键调用 rly0-core `claude/keyInfo`：完整登录令牌走 OAuth usage 接口；`claude setup-token` 令牌被该接口拒绝时，rly0-core 发一个 1 输出 token 的模型请求并读 `anthropic-ratelimit-unified-{5h,7d}-*` 响应头（core 内缓存 60 秒）。失败原因以 `usageError`（`USAGE_NETWORK` / `USAGE_BAD_RESPONSE` / `USAGE_TOKEN_EXPIRED`）返回，`usageHidden` 仅为兼容旧 Hub。
+
+- 结果投影为额度胶囊（`accountCredits`，5 小时为主、7 天为 `productUsage`）和 Popover 的「5 小时 / 7 天额度已用」两行（合并到 Thread Usage 的 `planFiveHour*`/`planSevenDay*`），`quota.observedAt` 取 core 的 `fetchedAt`。
+- 自动读取（被动 Usage 检查、打开 Thread）每个令牌至多 5 分钟一次，且不阻塞检查：后台读完后对打开的 Claude Code Thread 推送 `codexhost/thread/usage/updated`。
+- 手动刷新（`refresh: "quota"`）立即读取并等待结果，Host 侧至少间隔 10 秒（Renderer 也有 10 秒冷却）；进行中的读取会被复用。失败记为 `failed` 并保留旧数字；普通 API Key 记为 `unavailable / notSubscriber`。
+- Hub「账号」页的令牌卡片同样显示 5 小时 / 每周额度并可刷新；没有额度时按 `usageError` 说明原因（网络 / 官方返回异常 / 令牌失效）。
 
 ## 手动刷新契约
 

@@ -212,6 +212,11 @@ import {
   type AgentConnectionStatus,
 } from "./rly0-maintenance/backend-reload-channel.js";
 import { officialVendorOf, Rly0OfficialKeyModels } from "./rly0-relay/official-keys.js";
+import {
+  ClaudeOfficialKeyQuota,
+  type ClaudeOfficialKeyRef,
+  withClaudeKeyPlanUsage,
+} from "./rly0-relay/claude-key-quota.js";
 import type { Readable, Writable } from "node:stream";
 
 import type {
@@ -793,6 +798,12 @@ export class AppServerHost {
    * and neither emits `rate_limit_event` nor answers a usage read.
    */
   #claudeCodeQuotaBlocked: "proxiedCredential" | "relay" | null = null;
+  /**
+   * The official Anthropic key or subscription token Claude Code runs on, when it does: its plan
+   * windows come from rly0-core instead (`#claudeKeyQuota`).
+   */
+  #claudeCodeOfficialKey: ClaudeOfficialKeyRef | null = null;
+  readonly #claudeKeyQuota: ClaudeOfficialKeyQuota;
   /** When each External Harness's Account quota was last re-read. */
   readonly #externalQuotaObservedAt = new Map<string, string>();
   /**
@@ -905,6 +916,10 @@ export class AppServerHost {
         ],
       }));
     this.#rly0Core = new Rly0CoreBridge({ environment });
+    this.#claudeKeyQuota = new ClaudeOfficialKeyQuota(
+      (relayId) => this.#rly0Core.claudeAccounts("keyInfo", { relayId }),
+      { onUpdate: () => void this.#announceClaudeKeyQuota() },
+    );
     this.#rly0Mcp = new Rly0McpManager({ environment });
     this.#rly0RelayConfig = new Rly0RelayCodexConfigManager({ environment });
     this.#rly0RelayModels = new Rly0RelayModelRouter(this.#rly0Core, {
@@ -1253,6 +1268,7 @@ export class AppServerHost {
     const next = new Map<string, (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv>();
     let claudeApplied: string | null = null;
     let claudeQuotaBlocked: "proxiedCredential" | "relay" | null = null;
+    let claudeOfficialKey: ClaudeOfficialKeyRef | null = null;
     if (wanted.length) {
       const listed = await this.#rly0Core.listRelays();
       const usable = (id: string | null | undefined) => {
@@ -1266,6 +1282,8 @@ export class AppServerHost {
       if (claude) {
         claudeApplied = claude.id;
         claudeQuotaBlocked = claudeCodeRelayQuotaBlock(claude);
+        if (claudeQuotaBlocked === "proxiedCredential")
+          claudeOfficialKey = { relayId: claude.id, keyMask: claude.keyMask ?? null };
         next.set("claude-code", (environment) =>
           claudeCodeRelayEnvironment(environment, proxyBaseUrl, claude.id),
         );
@@ -1302,6 +1320,17 @@ export class AppServerHost {
     for (const [id, overlay] of next) this.#relayOverlays.set(id, overlay);
     this.#claudeCodeRelayApplied = claudeApplied;
     this.#claudeCodeQuotaBlocked = claudeQuotaBlocked;
+    this.#claudeCodeOfficialKey = claudeOfficialKey;
+  }
+
+  /** A read of the official key's quota landed: open Claude Code Threads re-inspect Usage. */
+  async #announceClaudeKeyQuota(): Promise<void> {
+    for (const thread of this.#externalRuntime.values()) {
+      if (thread.harnessId !== "claude-code") continue;
+      await this.#writer
+        .json({ method: THREAD_USAGE_UPDATED_METHOD, params: { threadId: thread.id } })
+        .catch(() => undefined);
+    }
   }
 
   async #agentRelayStatus(): Promise<Rly0RelayAgentsResult> {
@@ -3792,6 +3821,19 @@ export class AppServerHost {
     if (params.data.refresh !== undefined) void resolution.thread.session.refreshUsage?.();
     const harnessId = resolution.thread.harnessId;
     const adapter = this.#externalAdapters.get(harnessId);
+    const officialKey = harnessId === "claude-code" ? this.#claudeCodeOfficialKey : null;
+    if (officialKey) {
+      // Claude Code on the Hub's official key: rly0-core reads that key's plan windows.
+      const read = await this.#claudeKeyQuota.inspect(officialKey, params.data.refresh === "quota");
+      const result = threadUsageInspectionSchema.parse({
+        threadId: params.data.threadId,
+        usage: withClaudeKeyPlanUsage(resolution.thread.latestUsage, read.snapshot?.plan),
+        ...(read.snapshot ? { accountCredits: read.snapshot.credits } : {}),
+        ...(read.quota ? { quota: read.quota } : {}),
+      });
+      await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+      return;
+    }
     const quota = await this.#refreshExternalQuota(
       harnessId,
       adapter,
