@@ -3,7 +3,7 @@
 // control in the main area, collect console errors / page errors / unhandled rejections / failed
 // requests, and check for overflow. Results land in .local-test/patrol/<run>/; report.mjs
 // (globalTeardown) folds them into report.json and report.md.
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
@@ -467,4 +467,44 @@ test("accounts quota refresh: loading, cooldown, partial and full failure", asyn
   await tab("Google");
   await expect(button).toHaveAttribute("aria-disabled", "true");
   await expect(when).toHaveText("无法查询额度");
+});
+
+// The saved Claude setup-token (pages/mock.js `?claudeKey=`): quota read off a model response,
+// the probe failing on the network, and a dead token.
+test("claude setup-token quota: tiles, network failure, invalid token", async ({ page }) => {
+  const open = async (query: string) => {
+    await page.setViewportSize({ width: 1240, height: HEIGHT });
+    await page.goto(`/index.html${query}`);
+    await page.click('.rail button[data-page="accounts"]');
+    const close = page.locator(".dialog-backdrop.show .dialog-x");
+    if (await close.isVisible().catch(() => false)) await close.click();
+    await page.click('.account-tabs button[aria-label^="Anthropic"]');
+    return page.locator(".key-card");
+  };
+  // After the assertions: the card has rendered and its entrance animation has settled.
+  const shot = async (card: Locator, name: string) => {
+    mkdirSync(path.join(runDir, "setup-token"), { recursive: true });
+    await card.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(600);
+    await card.screenshot({ path: path.join(runDir, "setup-token", `${name}.png`) });
+  };
+  let card = await open("");
+  await expect(card).toContainText("5 小时额度");
+  await expect(card).toContainText("剩 61%");
+  await expect(card).toContainText("每周额度");
+  await expect(card).toContainText("剩 82%");
+  await expect(card).toContainText("更新于");
+  await expect(card).not.toContainText("官方不允许");
+  await shot(card, "usage");
+
+  card = await open("?claudeKey=network");
+  await expect(card).toContainText("网络连不上官方，点刷新重试");
+  await expect(card).not.toContainText("不支持");
+  await expect(page.locator(".refresh-btn")).not.toHaveAttribute("aria-disabled", "true");
+  await shot(card, "network");
+
+  card = await open("?claudeKey=invalid");
+  await expect(card).toContainText("令牌失效了");
+  await expect(card).toContainText("已失效");
+  await shot(card, "invalid");
 });

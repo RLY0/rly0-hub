@@ -50,33 +50,48 @@ window.registerHubAgentAccounts = ({
     const list = h("div", { class: "grid compact" });
     let failures = new Map();
     let accountCount = 0;
-    // The token can report quota only when it is a full login token, not a setup-token.
-    const keyHasQuota = (info) => Boolean(info && info.kind === "subscription" && info.usage);
+    // The saved subscription token (full login or setup-token) has quota tiles of its own,
+    // refreshed by re-reading the key's info; rly0-core reuses a setup-token probe for a minute.
+    const keyRefreshable = (info) => cards.keyQuota(info).refreshable;
     const syncRefresh = () =>
       refresh.setReason(
-        accountCount || keyHasQuota(key.info)
+        accountCount || keyRefreshable(key.info)
           ? null
-          : key.info && key.info.kind === "subscription"
-            ? "订阅令牌（claude setup-token）只能调用模型，官方不允许它查询额度"
-            : key.info
-              ? "API Key 官方不提供额度查询；保存 Claude 账号后可以刷新它们的额度"
-              : "还没有保存的 Claude 账号，没有额度可刷新",
+          : key.info
+            ? key.info.kind === "subscription"
+              ? cards.keyQuota(key.info).reason
+              : "API Key 官方不提供额度查询；保存 Claude 账号后可以刷新它们的额度"
+            : "还没有保存的 Claude 账号，没有额度可刷新",
       );
+    let keyStamped = false;
     const key = cards.keyCard("anthropic", {
       alive,
       saveFailed: loginFailed,
-      onLoaded: () => syncRefresh(),
+      onLoaded: (info) => {
+        syncRefresh();
+        // Only the token: its first read is the page's first quota read.
+        if (!keyStamped && !accountCount && info && info.usage && info.usage.fetchedAt) {
+          keyStamped = true;
+          refresh.stamp(info.usage.fetchedAt * 1000);
+        }
+      },
     });
     const refresh = cards.refresher({
       alive,
       run: async () => {
-        const [usage] = await Promise.all([
+        const withKey = keyRefreshable(key.info);
+        const [usage, info] = await Promise.all([
           accountCount ? call("agents.claudeAccounts.usageAll") : null,
-          keyHasQuota(key.info) ? key.reload() : null,
+          withKey ? key.reload() : null,
         ]);
         if (usage !== null) failures = cards.usageFailures(usage);
         await load();
-        return failures.size;
+        const keyFailed = withKey && !(info && info.usage) ? 1 : 0;
+        const failed = failures.size + keyFailed;
+        // Only the token: show when the core actually read it (a probe is reused for a minute).
+        return !accountCount && info && info.usage && info.usage.fetchedAt
+          ? { failed, at: info.usage.fetchedAt * 1000 }
+          : failed;
       },
     });
     const saveCurrent = () =>

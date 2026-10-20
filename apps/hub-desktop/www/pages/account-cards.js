@@ -50,8 +50,9 @@ window.registerHubAccountCards = ({
   /* ---------- Quota tiles ---------- */
   // Known usage: one tile per window. Otherwise the same two tiles marked 未知 / 不支持 with the
   // reason; an unknown number is never shown as 0. `stale` keeps the old numbers after a failed
-  // refresh and says so.
-  function quotaCards(usage, { value = "未知", reason, stale } = {}) {
+  // refresh and says so. `updated` adds when the numbers were read (usage.fetchedAt, seconds) for
+  // a card whose quota is refreshed on its own rather than with the page's accounts.
+  function quotaCards(usage, { value = "未知", reason, stale, updated } = {}) {
     const known = Boolean(usage && usage.windows && usage.windows.length);
     const staleNote = stale
       ? h(
@@ -95,7 +96,10 @@ window.registerHubAccountCards = ({
           }),
           usage.resetCredits === undefined ? null : resetCardTile(usage.resetCredits),
         ),
-        staleNote,
+        staleNote ||
+          (updated && usage.fetchedAt
+            ? h("p", { class: "sub quota-note" }, `更新于 ${clock(usage.fetchedAt * 1000)}`)
+            : null),
       );
     return h(
       "div",
@@ -314,8 +318,10 @@ window.registerHubAccountCards = ({
 
   /* ---------- Quota refresh ---------- */
   // An icon button plus when the numbers were last read. `run()` re-reads quota and resolves to
-  // the number of accounts that failed (0 = all fine) or rejects when the whole lookup failed;
-  // the old numbers stay either way. One lookup at a time, and a short pause after a manual one.
+  // the number of accounts that failed (0 = all fine), or to `{ failed, at }` when the numbers
+  // are older than the lookup (a cached read; `at` in ms), or rejects when the whole lookup
+  // failed; the old numbers stay either way. One lookup at a time, and a short pause after a
+  // manual one. `stamp(at)` records a read that happened outside the control.
   const COOLDOWN_MS = 10_000;
   const REFRESH_ICON =
     '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/>';
@@ -361,8 +367,9 @@ window.registerHubAccountCards = ({
       busy = true;
       paint();
       try {
-        const failedCount = await run();
-        at = Date.now();
+        const result = await run();
+        const failedCount = typeof result === "object" && result ? result.failed : result;
+        at = (typeof result === "object" && result && result.at) || Date.now();
         note = failedCount ? `${failedCount} 个账号刷新失败` : "";
       } catch {
         note = "fail";
@@ -385,6 +392,12 @@ window.registerHubAccountCards = ({
     return {
       element,
       refresh: () => start(false),
+      stamp(next) {
+        if (busy || !next) return;
+        at = next;
+        note = "";
+        paint();
+      },
       // A reason disables the control (nothing on this tab can report quota).
       setReason(next) {
         reason = next || null;
@@ -428,6 +441,31 @@ window.registerHubAccountCards = ({
     RELAY_NETWORK: "暂时连不上官方接口",
     USAGE_NETWORK: "暂时连不上官方接口",
   };
+
+  // What the saved key's quota tiles can show. A subscription token (a full login or a
+  // `claude setup-token` token) reports the 5-hour and weekly windows; rly0-core reads a
+  // setup-token's off a model response, and `usageError` says why that failed. A plain API key
+  // has no quota at all. `refreshable` is false only when re-reading cannot help.
+  const KEY_USAGE_ERRORS = {
+    USAGE_NETWORK: "网络连不上官方，点刷新重试。",
+    TIMEOUT: "网络连不上官方，点刷新重试。",
+    USAGE_BAD_RESPONSE: "官方返回异常，读不到额度，稍后点刷新重试。",
+    USAGE_BLOCKED: "官方返回异常，读不到额度，稍后点刷新重试。",
+    USAGE_TOKEN_EXPIRED: "令牌失效了，请点“换一个”保存新的令牌。",
+  };
+  function keyQuota(info) {
+    if (!info || info.kind !== "subscription")
+      return { refreshable: false, reason: "API Key 官方不提供额度查询" };
+    // valid === false already gets the card's "换一个" warning.
+    if (info.valid === false) return { refreshable: false, reason: "令牌失效了，读不到额度。" };
+    if (info.usageError === "USAGE_TOKEN_EXPIRED")
+      return { refreshable: false, reason: KEY_USAGE_ERRORS.USAGE_TOKEN_EXPIRED };
+    if (info.usage) return { refreshable: true, reason: null };
+    return {
+      refreshable: true,
+      reason: KEY_USAGE_ERRORS[info.usageError] || "额度暂时读不到，点刷新重试。",
+    };
+  }
 
   // The vendor's one saved key (or Claude subscription token) as a card in the account grid;
   // hidden while none is saved. `openForm()` shows the save / replace form in its place.
@@ -505,14 +543,8 @@ window.registerHubAccountCards = ({
         badge: state,
         quota: subscription
           ? info.usage
-            ? quotaCards(info.usage)
-            : quotaCards(null, {
-                value: info.usageHidden || info.profileHidden ? "不支持" : "未知",
-                reason:
-                  info.usageHidden || info.profileHidden
-                    ? "claude setup-token 生成的令牌只能调用模型，官方不允许它查询额度和账号资料。"
-                    : "额度暂时读不到。",
-              })
+            ? quotaCards(info.usage, { updated: true })
+            : quotaCards(null, { reason: keyQuota(info).reason })
           : quotaCards(null, {
               value: "不支持",
               reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
@@ -521,7 +553,7 @@ window.registerHubAccountCards = ({
           h("p", { class: "sub" }, spec.use),
           info.valid === false
             ? h("p", { class: "warn-text" }, "官方不接受这个 Key / 令牌了，请换一个新的。")
-            : info.error && info.valid !== true
+            : info.error && info.valid !== true && !(subscription && info.usageError)
               ? h("p", { class: "sub" }, KEY_ERRORS[info.error] || explain(info.error))
               : null,
         ],
@@ -573,6 +605,7 @@ window.registerHubAccountCards = ({
     refresher,
     keyCard,
     usageFailures,
+    keyQuota,
     unavailable,
     icon,
   };

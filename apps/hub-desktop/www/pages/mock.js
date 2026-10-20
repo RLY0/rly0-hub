@@ -74,18 +74,32 @@ window.hubManagementMock = (() => {
     },
     { id: "abcdefabcdef", alias: "工作号", email: "work@example.com", plan: "pro", current: false },
   ];
+  function claudeKey(variant) {
+    const base = { kind: "subscription", last4: "QwAA", profileHidden: true };
+    if (variant === "network")
+      return { ...base, valid: true, usageHidden: true, usageError: "USAGE_NETWORK" };
+    if (variant === "invalid")
+      return {
+        ...base,
+        valid: false,
+        error: "USAGE_TOKEN_EXPIRED",
+        usageHidden: true,
+        usageError: "USAGE_TOKEN_EXPIRED",
+      };
+    return {
+      ...base,
+      valid: true,
+      usage: { ...usage(39, 18, 7200, 300000), source: "live", status: "allowed" },
+      usageVia: "headers",
+    };
+  }
   let codexUsageCalls = 0;
   let claudeUsageCalls = 0;
   const officialKeys = {
     openai: { kind: "apiKey", keyMask: "****Ab12", valid: true, modelCount: 48 },
-    // A claude setup-token: calls models, cannot read quota or the account.
-    anthropic: {
-      kind: "subscription",
-      last4: "QwAA",
-      valid: true,
-      usageHidden: true,
-      profileHidden: true,
-    },
+    // A claude setup-token: no account profile; rly0-core reads its quota off a model
+    // response. `?claudeKey=network` / `?claudeKey=invalid` preview the probe failing.
+    anthropic: claudeKey(new URLSearchParams(location.search).get("claudeKey")),
     google: null,
     xai: { kind: "apiKey", keyMask: "****xY9z", valid: false, modelCount: 0 },
   };
