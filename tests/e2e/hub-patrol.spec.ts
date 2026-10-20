@@ -500,10 +500,49 @@ test("claude setup-token quota: tiles, network failure, invalid token", async ({
   await expect(page.locator(".refresh-btn")).not.toHaveAttribute("aria-disabled", "true");
   await shot(card, "network");
 
+  card = await open("?claudeKey=rateLimited");
+  await expect(card).toContainText("官方暂时限制查询，稍后点刷新");
+  await shot(card, "rate-limited");
+
   card = await open("?claudeKey=invalid");
   await expect(card).toContainText("令牌失效了");
   await expect(card).toContainText("已失效");
   await shot(card, "invalid");
+});
+
+// The credential each agent actually runs on glows and says 使用中; the others stay plain.
+test("accounts: the card in use is marked on every provider tab", async ({ page }) => {
+  const dir = path.join(runDir, "in-use");
+  mkdirSync(dir, { recursive: true });
+  for (const width of WIDTHS) {
+    for (const [tab, query, expected] of [
+      ["OpenAI", "", "me@example.com"],
+      ["Anthropic", "?claudeUses=key", "Claude 订阅令牌"],
+      ["xAI", "", "me@example.com"],
+    ] as const) {
+      await page.setViewportSize({ width, height: HEIGHT });
+      await page.goto(`/index.html${query}`);
+      await page.click('.rail button[data-page="accounts"]');
+      const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+      await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+      if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+      await page.click(`.account-tabs button[aria-label^="${tab}"]`);
+      const inUse = page.locator(".account-card.in-use");
+      await expect(inUse).toHaveCount(1);
+      await expect(inUse).toContainText(expected);
+      await expect(inUse.locator(".tag.in-use")).toHaveText("使用中");
+      if (tab === "Anthropic")
+        await expect(page.locator(".account-card", { hasText: "me@example.com" })).toContainText(
+          "当前登录",
+        );
+      await inUse.scrollIntoViewIfNeeded();
+      await page.waitForFunction(
+        () => !document.getElementById("boot")?.classList.contains("show"),
+      );
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: path.join(dir, `${tab}-${width}.png`) });
+    }
+  }
 });
 
 // Claude accounts (pages/mock.js): three saved accounts, one signed out elsewhere; adding one by
@@ -523,9 +562,11 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
   await dismiss();
   await page.click('.account-tabs button[aria-label^="Anthropic"]');
   const card = (text: string) => page.locator(".account-card", { hasText: text });
-  await expect(card("me@example.com")).toContainText("Current");
+  await expect(card("me@example.com")).toContainText("当前登录");
   await expect(card("工作号")).toContainText("剩 85%");
   await expect(card("工作号")).toContainText("切换到这个");
+  // The mock binds Claude Code to the 零号中转 relay: its login is signed in but not in use.
+  await expect(page.locator(".account-card.in-use")).toHaveCount(0);
   await expect(card("旧号")).toContainText("登录已失效");
   await expect(page.locator(".auto-switch")).toContainText("违反 Anthropic 的使用条款");
   await card("旧号").scrollIntoViewIfNeeded();
@@ -549,7 +590,7 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
   await dialog.locator('button:has-text("提交授权码")').click();
   await expect(dialog).toHaveCount(0, { timeout: 8000 });
   await expect(card("new@example.com")).toBeVisible();
-  await expect(card("me@example.com")).toContainText("Current");
+  await expect(card("me@example.com")).toContainText("当前登录");
 
   // 从文件导入: a wrong file first, then Claude Code's .credentials.json.
   const pick = async (name: string, content: string) => {
@@ -579,7 +620,7 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
 
   // Switching is manual and per card.
   await card("工作号").locator('button:has-text("切换到这个")').click();
-  await expect(card("工作号")).toContainText("Current");
+  await expect(card("工作号")).toContainText("当前登录");
 });
 
 // Grok (测试版, pages/mock.js): a weekly and a monthly account and one whose saved login expired;
@@ -606,7 +647,7 @@ test("grok accounts: cards, expired login, add by web login, import from file", 
   const dismiss = await openAccountsTab(page, "xAI");
   const card = (text: string) => page.locator(".account-card", { hasText: text });
   await expect(page.locator(".beta-tag")).toHaveText("测试版");
-  await expect(card("me@example.com")).toContainText("Current");
+  await expect(card("me@example.com")).toContainText("使用中");
   await expect(card("me@example.com")).toContainText("每周额度");
   await expect(card("SuperGrok 号")).toContainText("每月额度");
   await expect(card("SuperGrok 号")).toContainText("剩 36%");
@@ -629,7 +670,7 @@ test("grok accounts: cards, expired login, add by web login, import from file", 
   await dialog.screenshot({ path: path.join(dir, "add-web-login.png") });
   await expect(dialog).toHaveCount(0, { timeout: 10000 });
   await expect(card("new@example.com")).toBeVisible();
-  await expect(card("me@example.com")).toContainText("Current");
+  await expect(card("me@example.com")).toContainText("使用中");
 
   const pick = async (name: string, content: string) => {
     await dismiss();
@@ -648,7 +689,7 @@ test("grok accounts: cards, expired login, add by web login, import from file", 
 
   await card("旧号").locator('button:has-text("切换到这个")').click();
   await expect(page.locator("#toast")).toContainText("Grok 会自动续期这个登录");
-  await expect(card("旧号")).toContainText("Current");
+  await expect(card("旧号")).toContainText("使用中");
   await page.waitForTimeout(800);
   await card("旧号").scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(dir, "after-switch.png"), fullPage: true });
@@ -674,7 +715,8 @@ test("gemini: current Antigravity login quota on request, multi-account unsuppor
   await page.click('button[aria-label="刷新额度"]');
   await expect(card).toContainText("Gemini Models · 5 小时额度");
   await expect(card).toContainText("Claude and GPT models · 每周额度");
-  await expect(card).toContainText("已登录");
+  await expect(card).toContainText("使用中");
+  await expect(card).toHaveClass(/in-use/u);
   await card.scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
   await page.screenshot({ path: path.join(dir, "quota.png"), fullPage: true });

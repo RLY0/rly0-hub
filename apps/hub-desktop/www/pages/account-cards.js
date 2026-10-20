@@ -146,8 +146,12 @@ window.registerHubAccountCards = ({
   }
 
   /* ---------- Account card ---------- */
-  // { name, onRename(alias) → Promise, facts[], current, badge, quota, notes[], actions[],
-  //   onRemove() → Promise, removedText }
+  const inUseTag = () => h("span", { class: "tag in-use", title: "现在正在用这个" }, "使用中");
+
+  // { name, onRename(alias) → Promise, facts[], current, signedIn, badge, quota, notes[],
+  //   actions[], onRemove() → Promise, removedText }
+  // `current`: the credential the agent actually uses now (glowing edge, 使用中 badge).
+  // `signedIn`: the agent's own login while it runs on something else (a quiet tag only).
   function accountCard(o) {
     let remove = null;
     if (o.onRemove) {
@@ -183,7 +187,7 @@ window.registerHubAccountCards = ({
       : h("b", null, o.name);
     return h(
       "section",
-      { class: `m span-3 account-card ${o.current ? "tone" : ""}` },
+      { class: `m span-3 account-card${o.current ? " tone in-use" : ""}` },
       h(
         "div",
         { class: "row" },
@@ -194,7 +198,8 @@ window.registerHubAccountCards = ({
           name,
           h("span", null, (o.facts || []).filter(Boolean).join(" · ") || " "),
         ),
-        o.current ? h("span", { class: "tag ok" }, "Current") : o.badge || null,
+        o.current ? inUseTag() : o.signedIn ? h("span", { class: "tag" }, "当前登录") : null,
+        o.badge || null,
       ),
       o.quota,
       ...(o.notes || []),
@@ -495,10 +500,12 @@ window.registerHubAccountCards = ({
 
   // The vendor's one saved key (or Claude subscription token) as a card in the account grid;
   // hidden while none is saved. `openForm()` shows the save / replace form in its place.
+  // `setInUse(true)` when the agent runs on this key (Claude Code / Grok bound to it).
   function keyCard(vendor, { alive, onLoaded, saveFailed }) {
     const spec = VENDORS[vendor];
     const element = h("section", { class: "m span-3 account-card key-card", hidden: true });
     let info = null;
+    let inUse = false;
 
     function openForm() {
       const key = h("input", {
@@ -546,6 +553,7 @@ window.registerHubAccountCards = ({
 
     function render() {
       element.classList.remove("tone");
+      element.classList.toggle("in-use", Boolean(info) && inUse);
       element.hidden = !info;
       if (!info) {
         put(element);
@@ -566,6 +574,7 @@ window.registerHubAccountCards = ({
         facts: subscription
           ? ["订阅令牌", info.plan ? info.plan.toUpperCase() : null, info.organization, masked]
           : ["API Key", masked, info.modelCount ? `${info.modelCount} 个模型` : null, "按用量计费"],
+        current: inUse,
         badge: state,
         quota: subscription
           ? info.usage
@@ -610,10 +619,33 @@ window.registerHubAccountCards = ({
       element,
       openForm,
       reload: load,
+      setInUse(next) {
+        if (inUse === Boolean(next)) return;
+        inUse = Boolean(next);
+        if (!element.querySelector(".form")) render();
+      },
       get info() {
         return info;
       },
     };
+  }
+
+  // What the agent runs on now, as chosen on the AI 助手 page: its own login, the vendor's saved
+  // key, or a relay. `agent` is "claudeCode" or an agent id ("grok"); unknown reads as "login".
+  async function credentialInUse(agent, vendor) {
+    const [selection, keys] = await Promise.all([
+      call("agents.relays.get").catch(() => null),
+      call("agents.officialKeys.list").catch(() => null),
+    ]);
+    const relayId =
+      agent === "claudeCode"
+        ? selection && selection.claudeCode
+        : selection && selection.agents && selection.agents[agent]
+          ? selection.agents[agent].relayId
+          : null;
+    if (!relayId) return "login";
+    const key = ((keys && keys.keys) || []).find((k) => k.vendor === vendor);
+    return key && key.id === relayId ? "key" : "relay";
   }
 
   // usageAll replies: { results: [{ id, usage } | { id, error }] } (Codex adds `available`).
@@ -630,6 +662,7 @@ window.registerHubAccountCards = ({
     autoSwitchCard,
     refresher,
     keyCard,
+    credentialInUse,
     usageFailures,
     keyQuota,
     unavailable,

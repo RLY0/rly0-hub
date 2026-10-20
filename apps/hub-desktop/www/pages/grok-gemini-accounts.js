@@ -121,9 +121,16 @@ window.registerHubGrokGeminiAccounts = (
       list,
     );
 
+    // Grok runs on its own login unless the AI 助手 page bound it to the xAI key or a relay.
+    let using = "login";
     async function load() {
-      const listed = await call("agents.grokAccounts.list").catch(() => null);
+      const [listed, inUse] = await Promise.all([
+        call("agents.grokAccounts.list").catch(() => null),
+        cards.credentialInUse("grok", "xai"),
+      ]);
       if (!alive()) return;
+      using = inUse;
+      key.setInUse(using === "key");
       const accounts = (listed && listed.accounts) || [];
       accountCount = accounts.length;
       syncRefresh();
@@ -132,8 +139,9 @@ window.registerHubGrokGeminiAccounts = (
       const unsaved = live
         ? cards.accountCard({
             name: (listed.live && listed.live.email) || "当前 Grok 登录",
-            facts: ["正在使用"],
-            current: true,
+            facts: ["还没保存"],
+            current: using === "login",
+            signedIn: using !== "login",
             quota: cards.quotaCards(null, { kinds: ["额度"], reason: "保存后会读取它的额度" }),
             notes: [
               h(
@@ -216,7 +224,8 @@ window.registerHubGrokGeminiAccounts = (
           account.email && account.email !== account.alias ? account.email : null,
           "xAI 账号",
         ],
-        current: account.current,
+        current: account.current && using === "login",
+        signedIn: account.current && using !== "login",
         quota: cards.quotaCards(account.lastUsage, {
           kinds: ["额度"],
           reason: "额度未知：点右上角刷新读取",
@@ -337,16 +346,19 @@ window.registerHubGrokGeminiAccounts = (
       refresh.setReason(installed ? null : "先在「AI 助手」页装好 Antigravity，才能读取额度");
       const usage = state && state.usage;
       const error = state && state.error;
+      // Antigravity has one login, so a working one is the one in use.
+      const inUse = installed && Boolean(usage) && !error;
       const badge = !installed
         ? h("span", { class: "tag" }, "未安装")
-        : usage && !error
-          ? h("span", { class: "tag ok" }, "已登录")
+        : inUse
+          ? null
           : error === "ANTIGRAVITY_NOT_LOGGED_IN"
             ? h("span", { class: "tag warn" }, "未登录")
             : h("span", { class: "tag" }, "登录状态未知");
       list.replaceChildren(
         cards.accountCard({
           name: "Antigravity 当前登录",
+          current: inUse,
           facts: [installed ? "Google 账号 · 只有一个登录" : "先在「AI 助手」页装好 Antigravity"],
           badge,
           quota: usage

@@ -220,8 +220,7 @@ export class ClaudeOfficialKeyQuota {
       const snapshot = usage ? projectClaudeKeyUsage(usage) : null;
       if (snapshot) entry.snapshot = snapshot;
       entry.outcome = snapshot ? "live" : "failed";
-      entry.rateLimited =
-        !snapshot && isRecord(info) && info.usageError === "USAGE_RATE_LIMITED";
+      entry.rateLimited = !snapshot && isRecord(info) && info.usageError === "USAGE_RATE_LIMITED";
     })().finally(() => {
       entry.inflight = null;
       // A replaced key started a fresh entry; nothing to announce for the old one.

@@ -93,6 +93,8 @@ window.hubManagementMock = (() => {
     const base = { kind: "subscription", last4: "QwAA", profileHidden: true };
     if (variant === "network")
       return { ...base, valid: true, usageHidden: true, usageError: "USAGE_NETWORK" };
+    if (variant === "rateLimited")
+      return { ...base, valid: true, usageError: "USAGE_RATE_LIMITED", usageStatus: 429 };
     if (variant === "invalid")
       return {
         ...base,
@@ -185,6 +187,7 @@ window.hubManagementMock = (() => {
     google: null,
     xai: { kind: "apiKey", keyMask: "****xY9z", valid: false, modelCount: 0 },
   };
+  const claudeUsesKey = new URLSearchParams(location.search).get("claudeUses") === "key";
   // Browser-only fixture. These operations never install Docker or access a real project.
   let isolation = null;
   let isolationLogin = { phase: "idle" };
@@ -615,6 +618,15 @@ window.hubManagementMock = (() => {
             ? { installed: true, usage: agyUsage(), checkedAt: at(0) }
             : { ...agyState, error: "TIMEOUT", checkedAt: at(0) };
         return { ...agyState, __delay: 600 };
+      // `?claudeUses=key`: Claude Code bound to the saved setup-token (AI 助手 → 使用).
+      case "agents.relays.get":
+        return claudeUsesKey && officialKeys.anthropic
+          ? { claudeCode: "cccccccccccc", agents: {} }
+          : null;
+      case "agents.officialKeys.list":
+        return claudeUsesKey && officialKeys.anthropic
+          ? { keys: [{ vendor: "anthropic", id: "cccccccccccc", keyMask: "****ab12", models: [] }] }
+          : null;
       case "agents.officialKeys.info":
         return { info: officialKeys[p.vendor] || null };
       case "agents.officialKeys.set":

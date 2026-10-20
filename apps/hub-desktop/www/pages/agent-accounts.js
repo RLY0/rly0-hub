@@ -170,9 +170,16 @@ window.registerHubAgentAccounts = ({
       list,
     );
 
+    // Claude Code runs on its login unless the AI 助手 page bound it to the key or a relay.
+    let using = "login";
     async function load() {
-      const listed = await call("agents.claudeAccounts.list").catch(() => null);
+      const [listed, inUse] = await Promise.all([
+        call("agents.claudeAccounts.list").catch(() => null),
+        cards.credentialInUse("claudeCode", "anthropic"),
+      ]);
       if (!alive()) return;
+      using = inUse;
+      key.setInUse(using === "key");
       const accounts = (listed && listed.accounts) || [];
       accountCount = accounts.length;
       syncRefresh();
@@ -180,8 +187,9 @@ window.registerHubAgentAccounts = ({
         listed && listed.liveUnsaved
           ? cards.accountCard({
               name: (listed.live && listed.live.email) || "当前 Claude 登录",
-              facts: ["正在使用"],
-              current: true,
+              facts: ["还没保存"],
+              current: using === "login",
+              signedIn: using !== "login",
               quota: cards.quotaCards(null, { reason: "保存后会读取它的额度" }),
               notes: [h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。")],
               actions: [
@@ -251,7 +259,8 @@ window.registerHubAgentAccounts = ({
           account.plan ? account.plan.toUpperCase() : null,
           account.organization,
         ],
-        current: account.current,
+        current: account.current && using === "login",
+        signedIn: account.current && using !== "login",
         quota: cards.quotaCards(account.lastUsage, {
           reason: "额度未知：点右上角刷新读取",
           stale: claudeUsageError(failures.get(account.id), account.current),
