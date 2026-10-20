@@ -34,6 +34,7 @@
 | [`harnesses/antigravity/antigravity-tool-approval.md`](harnesses/antigravity/antigravity-tool-approval.md) | agy 的危险跳过权限、旧模式拒绝和问题桥边界；修改权限或交互时阅读。 |
 | [`harnesses/antigravity/antigravity-subagents.md`](harnesses/antigravity/antigravity-subagents.md) | agy 原生 Subagent 生命周期、Transcript 和公共投影；修改 Subagent 支持时阅读。 |
 | [`harnesses/antigravity/antigravity-question-interaction-postmortem.md`](harnesses/antigravity/antigravity-question-interaction-postmortem.md) | Ask Question 失败历史、后续 Hook 桥实测和限制；排查 agy 提问交互时阅读。 |
+| [`harnesses/antigravity/multi-account-research.md`](harnesses/antigravity/multi-account-research.md) | 为何 Gemini（Antigravity）不做多账号、Hub 只读当前登录 /usage 额度，以及装好 agy 后要实测的事项。 |
 
 ### Claude Code
 
@@ -84,6 +85,7 @@
 | 文档 | 内容与阅读时机 |
 | --- | --- |
 | [`harnesses/grok/subagent-status-and-model.md`](harnesses/grok/subagent-status-and-model.md) | Grok Subagent 状态、Model、Transcript 与 Desktop 投影；修改 Grok Subagent 时阅读。 |
+| [`harnesses/grok/grok-accounts.md`](harnesses/grok/grok-accounts.md) | Grok 多账号（测试版）：auth.json 快照切换、临时 GROK_HOME 网页登录、账单额度与续期边界；修改 Grok 账号时阅读。 |
 
 ## 账号与 Desktop 产品接入
 
