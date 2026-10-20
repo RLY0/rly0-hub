@@ -10,7 +10,11 @@ import {
   type SpawnOptions,
 } from "@anthropic-ai/claude-agent-sdk";
 import { sanitizeDiagnosticTail } from "@codexhost/harness-adapter";
-import type { HarnessAccountSnapshot, HarnessThinkingOptionId } from "@codexhost/shared-contracts";
+import type {
+  HarnessAccountSnapshot,
+  HarnessThinkingOptionId,
+  SandboxSettings,
+} from "@codexhost/shared-contracts";
 import {
   parseClaudeSlashCommands,
   type ClaudeSlashCommand,
@@ -44,6 +48,8 @@ import type {
   ClaudeTurnEvent,
   ClaudeTurnTransport,
 } from "./transport.js";
+
+import { ClaudeSandboxExecution } from "./sandbox.js";
 
 const CLIENT_APP = "codexhost-claude-code-adapter/0.0.0";
 // Claude Code hides generic SDK entrypoints from its native Session picker. Keep persisted
@@ -105,6 +111,7 @@ interface ActiveTurn {
 }
 
 export interface ClaudeSdkTransportOptions {
+  sandboxSettings?: SandboxSettings | null;
   command?: string;
   environment?: NodeJS.ProcessEnv;
   cwd: string;
@@ -122,6 +129,7 @@ export interface ClaudeSdkTransportOptions {
 }
 
 export interface ClaudeSdkModelInspectorOptions {
+  sandboxSettings?: SandboxSettings | null;
   command?: string;
   environment?: NodeJS.ProcessEnv;
   cwd: string;
@@ -382,6 +390,7 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
   readonly #command: string | undefined;
   readonly #cwd: string;
   readonly #environment: NodeJS.ProcessEnv;
+  readonly #sandbox: ClaudeSandboxExecution;
   readonly #input = new PushableInput<SDKUserMessage>();
   readonly #model: string | undefined;
   readonly #onFault: (error: unknown) => void;
@@ -420,6 +429,11 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
     this.#closeTimeoutMs = options.closeTimeoutMs;
     this.#command = options.command;
     this.#environment = options.environment ?? process.env;
+    this.#sandbox = new ClaudeSandboxExecution(
+      this.#environment,
+      options.cwd,
+      options.sandboxSettings,
+    );
     this.#model = options.model;
     this.#onFault = options.onFault;
     this.#onPermissionModeChanged = options.onPermissionModeChanged;
@@ -450,10 +464,13 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
   async start(): Promise<void> {
     if (this.#started) return;
     if (this.#closePromise) throw new Error("Claude SDK transport is closing");
-    const executable = resolveClaudeCodeExecutable({
-      ...(this.#command ? { command: this.#command } : {}),
-      environment: this.#environment,
-    });
+    await this.#sandbox.verify();
+    const executable =
+      this.#sandbox.executable ??
+      resolveClaudeCodeExecutable({
+        ...(this.#command ? { command: this.#command } : {}),
+        environment: this.#environment,
+      });
     const thinking = claudeThinkingConfiguration(this.#thinkingOptionId);
     const activeQuery = this.#queryFactory({
       prompt: this.#input,
@@ -937,7 +954,7 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
         const active = this.#active;
         if (active) {
           const interpreted = active.accumulator.consume(message);
-          for (const event of interpreted.events) active.onEvent(event);
+          for (const event of interpreted.events) active.onEvent(this.#sandbox.projectEvent(event));
           if (interpreted.terminal) {
             this.#closeInteractions(active, "superseded");
             this.#active = null;
@@ -952,7 +969,8 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
               this.#provider ? { provider: this.#provider } : {},
             ));
           const interpreted = idle.consume(message);
-          for (const event of interpreted.events) this.#idleHandler.onEvent(event);
+          for (const event of interpreted.events)
+            this.#idleHandler.onEvent(this.#sandbox.projectEvent(event));
           if (interpreted.terminal) {
             this.#idleAccumulator = null;
             this.#idleHandler.onTerminal(interpreted.terminal);
@@ -980,7 +998,8 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
           autonomous.nativeTurnKey = message.uuid;
         }
         const interpreted = autonomous.accumulator.consume(message);
-        for (const event of interpreted.events) {
+        for (const nativeEvent of interpreted.events) {
+          const event = this.#sandbox.projectEvent(nativeEvent);
           if (
             this.#threadEventHandler &&
             canDeliverSettlementImmediately(event, autonomous.events)
@@ -1011,14 +1030,16 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
   }
 
   #spawn(options: SpawnOptions): ChildProcessWithoutNullStreams {
-    const child = spawn(options.command, options.args, {
-      cwd: options.cwd,
-      env: options.env,
-      signal: options.signal,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-      detached: process.platform !== "win32",
-    });
+    const child = this.#sandbox.binding
+      ? this.#sandbox.spawn(options)
+      : spawn(options.command, options.args, {
+          cwd: options.cwd,
+          env: options.env,
+          signal: options.signal,
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+          detached: process.platform !== "win32",
+        });
     child.stderr.on("data", (chunk: Buffer | string) => {
       this.#stderrTail = sanitizeDiagnosticTail(`${this.#stderrTail}${chunk.toString()}`);
     });
@@ -1042,6 +1063,7 @@ export class ClaudeSdkModelInspector implements ClaudeModelInspector {
   readonly #command: string | undefined;
   readonly #cwd: string;
   readonly #environment: NodeJS.ProcessEnv;
+  readonly #sandbox: ClaudeSandboxExecution;
   readonly #input = new PushableInput<SDKUserMessage>();
   readonly #queryFactory: typeof query;
   #closePromise: Promise<void> | null = null;
@@ -1056,15 +1078,23 @@ export class ClaudeSdkModelInspector implements ClaudeModelInspector {
     this.#command = options.command;
     this.#cwd = options.cwd;
     this.#environment = options.environment ?? process.env;
+    this.#sandbox = new ClaudeSandboxExecution(
+      this.#environment,
+      options.cwd,
+      options.sandboxSettings,
+    );
     this.#queryFactory = options.queryFactory ?? query;
   }
 
-  #createQuery(): Query {
+  async #createQuery(): Promise<Query> {
     if (this.#closePromise) throw new Error("Claude SDK Model inspector is closing");
-    const executable = resolveClaudeCodeExecutable({
-      ...(this.#command ? { command: this.#command } : {}),
-      environment: this.#environment,
-    });
+    await this.#sandbox.verify();
+    const executable =
+      this.#sandbox.executable ??
+      resolveClaudeCodeExecutable({
+        ...(this.#command ? { command: this.#command } : {}),
+        environment: this.#environment,
+      });
     const activeQuery = this.#queryFactory({
       prompt: this.#input,
       options: {
@@ -1089,7 +1119,7 @@ export class ClaudeSdkModelInspector implements ClaudeModelInspector {
   async inspectAccount(): Promise<HarnessAccountSnapshot | null> {
     const timeout = rejectAfter(10_000, "Claude SDK account inspection timed out");
     try {
-      const activeQuery = this.#createQuery();
+      const activeQuery = await this.#createQuery();
       return await Promise.race([
         (async () => {
           await activeQuery.initializationResult();
@@ -1109,14 +1139,16 @@ export class ClaudeSdkModelInspector implements ClaudeModelInspector {
   }
 
   async inspect(): Promise<ClaudeModelInspectionSnapshot> {
-    const activeQuery = this.#createQuery();
+    const activeQuery = await this.#createQuery();
     try {
       const initialized = await activeQuery.initializationResult();
       const candidate = activeQuery as unknown as Record<string, unknown>;
       const canSelectModel =
         Array.isArray(initialized.models) && typeof candidate.setModel === "function";
       const canSelectPermissionMode = typeof candidate.setPermissionMode === "function";
-      const modelPicker = await readClaudeUserModelPicker(this.#environment);
+      const modelPicker = this.#sandbox.binding
+        ? undefined
+        : await readClaudeUserModelPicker(this.#environment);
       return {
         models: mergeClaudeModelPickerOptions(initialized.models, modelPicker),
         canSelectModel,
@@ -1149,13 +1181,15 @@ export class ClaudeSdkModelInspector implements ClaudeModelInspector {
   }
 
   #spawn(options: SpawnOptions): ChildProcessWithoutNullStreams {
-    const child = spawn(options.command, options.args, {
-      cwd: options.cwd,
-      env: options.env,
-      signal: options.signal,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
+    const child = this.#sandbox.binding
+      ? this.#sandbox.spawn(options)
+      : spawn(options.command, options.args, {
+          cwd: options.cwd,
+          env: options.env,
+          signal: options.signal,
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+        });
     child.stderr.on("data", (chunk: Buffer | string) => {
       this.#stderrTail = sanitizeDiagnosticTail(`${this.#stderrTail}${chunk.toString()}`);
     });

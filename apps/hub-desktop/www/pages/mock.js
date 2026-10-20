@@ -103,6 +103,11 @@ window.hubManagementMock = (() => {
     google: null,
     xai: { kind: "apiKey", keyMask: "****xY9z", valid: false, modelCount: 0 },
   };
+  // Browser-only fixture. These operations never install Docker or access a real project.
+  let isolation = null;
+  let isolationLogin = { phase: "idle" };
+  const isolatedLogins = new Set();
+  const isolationRoot = "C:\\Users\\demo\\.rly0-hub\\sandbox-runtime";
   return ({ method, params: p }) => {
     switch (method) {
       case "window.zoomGet":
@@ -110,6 +115,60 @@ window.hubManagementMock = (() => {
       case "window.zoomSet":
         zoom = p.zoom;
         return { zoom, steps: zoomSteps };
+      case "agents.isolation.status":
+        return {
+          supported: true,
+          dockerInstalled: true,
+          localClaudeInstalled: true,
+          settings: isolation,
+          defaultRuntimeRoot: isolationRoot,
+          suggestedProxy: "http://127.0.0.1:18888",
+          job: { phase: "idle" },
+          login: isolationLogin,
+          sandboxes: [],
+          projects:
+            isolation?.projects.map((p) => ({
+              ...p,
+              loggedIn: isolatedLogins.has(p.project),
+              error: null,
+            })) || [],
+        };
+      case "agents.isolation.configure":
+        isolation = { version: 1, ...p, projects: isolation?.projects || [] };
+        return { ok: true, reloadRequired: true };
+      case "agents.isolation.prepare":
+        isolation.projects.push({ project: p.project, name: "preview-claude", id: "preview-only" });
+        return { started: true };
+      case "agents.isolation.forget":
+        isolation.projects = isolation.projects.filter((entry) => entry.project !== p.project);
+        return { ok: true };
+      case "agents.isolation.disable":
+        isolation.enabled = false;
+        return { ok: true };
+      case "agents.isolation.login":
+        isolationLogin = {
+          phase: "waitingForCode",
+          project: p.project,
+          id: "00000000-0000-4000-8000-000000000001",
+          browserOpened: true,
+        };
+        return isolationLogin;
+      case "agents.isolation.loginSubmit": {
+        const project = isolationLogin.project;
+        isolationLogin = { ...isolationLogin, phase: "authorizing" };
+        setTimeout(() => {
+          isolationLogin = { ...isolationLogin, phase: "succeeded" };
+          isolatedLogins.add(project);
+        }, 800);
+        return isolationLogin;
+      }
+      case "agents.isolation.loginCancel":
+        isolationLogin = { ...isolationLogin, phase: "cancelled" };
+        return isolationLogin;
+      case "agents.isolation.loginOpen":
+        return isolationLogin;
+      case "agents.isolation.dockerLogin":
+        return { opened: true };
       case "proxy.settingsGet":
         return { settings: { mode: "system" } };
       case "proxy.settingsSet":

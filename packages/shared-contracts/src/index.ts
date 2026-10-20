@@ -691,6 +691,17 @@ export type {
   UpdateStatusResult,
 } from "./updates.js";
 export { WORKSPACE_CONTRACT_VERSION } from "./version.js";
+export {
+  sandboxSettingsSchema,
+  sandboxConfigureSchema,
+  sandboxPrepareSchema,
+  sandboxSelectSchema,
+  sandboxLoginIdSchema,
+  sandboxLoginSubmitSchema,
+  sandboxProjectSchema,
+  type SandboxSettings,
+  type SandboxProject,
+} from "./sandbox.js";
 
 export const workspaceContractVersionSchema = z.literal(WORKSPACE_CONTRACT_VERSION);
 

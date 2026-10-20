@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { readSandboxSettings, resolveSandboxCommand } from "@codexhost/sandbox-runtime";
+import type { SandboxSettings } from "@codexhost/shared-contracts";
+import { readSandboxTranscript } from "./sandbox.js";
 
 import {
   deleteSession as deleteClaudeSession,
@@ -81,7 +84,7 @@ import { ClaudePendingSessions, isPendingClaudeSession } from "./pending-session
 import { forkClaudeSession } from "./claude-fork.js";
 import { mapClaudeSnapshot, mapClaudeSubagentSnapshot } from "./claude-history.js";
 import { claudeTranscriptItemId } from "./item-identity.js";
-import { readClaudeTranscript } from "./claude-transcript.js";
+import { readClaudeTranscript, parseClaudeTranscript } from "./claude-transcript.js";
 import {
   CLAUDE_DEFAULT_MODEL_REF,
   decodeClaudeModelRef,
@@ -575,9 +578,12 @@ class ClaudeHarnessSession implements HarnessSession {
       toolOutputLimit: number;
       cancelTimeoutMs: number;
       continuationQuiescenceMs: number;
+      isolated?: boolean;
     },
   ) {
     this.#cwd = cwd;
+    if (options.isolated)
+      this.capabilities.history = { fork: false, forkAcrossCwd: false, rollbackLastTurn: false };
     this.#pendingSessions = options.pendingSessions;
     const environment = options.environment;
     this.#createTransport = environment
@@ -2475,6 +2481,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   readonly harnessId: HarnessId = claudeCodeHarnessId;
   readonly sessionImport = Object.freeze({
     listCandidates: async (): Promise<HarnessResult<readonly HarnessSessionImportCandidate[]>> => {
+      if (this.#isolationSettings?.enabled) return { ok: true, value: [] };
       const result = await this.#readImport((signal) => this.#importIndex.list(signal));
       return result.ok
         ? { ok: true, value: result.value.map(({ candidate }) => candidate) }
@@ -2483,6 +2490,15 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     resolveCandidate: async (
       nativeSessionId: string,
     ): Promise<HarnessResult<HarnessSessionImportSource>> => {
+      if (this.#isolationSettings?.enabled)
+        return {
+          ok: false,
+          error: {
+            code: "invalidRequest",
+            message: "Windows Claude Session import is unavailable in isolation mode",
+            retryable: false,
+          },
+        };
       const result = await this.#readImport((signal) =>
         this.#importIndex.resolve(nativeSessionId, signal),
       );
@@ -2549,6 +2565,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     },
   };
   readonly #cancelTimeoutMs: number;
+  readonly #isolationSettings: SandboxSettings | null;
   readonly #closeTimeoutMs: number;
   readonly #dependencies: ClaudeAdapterDependencies;
   readonly #importAbort = new AbortController();
@@ -2573,6 +2590,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
 
   constructor(options: ClaudeCodeAdapterOptions = {}, dependencies?: ClaudeAdapterDependencies) {
     const environment = options.environment ?? process.env;
+    this.#isolationSettings = readSandboxSettings(environment);
     this.#importIndex = new ClaudeSessionImportIndex(environment);
     this.#pendingSessions = new ClaudePendingSessions(environment);
     this.#closeTimeoutMs = options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
@@ -2595,6 +2613,10 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     this.#dependencies = dependencies ?? {
       randomUUID,
       inspectInstallation: () => {
+        if (this.#isolationSettings?.enabled) {
+          resolveSandboxCommand(environment);
+          return;
+        }
         resolveClaudeCodeExecutable({
           ...(options.command ? { command: options.command } : {}),
           environment: options.environment ?? process.env,
@@ -2603,6 +2625,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       createInspector: (input) =>
         new ClaudeSdkModelInspector({
           ...input,
+          sandboxSettings: this.#isolationSettings,
           ...(options.command ? { command: options.command } : {}),
           environment: options.environment ?? process.env,
           closeTimeoutMs: this.#closeTimeoutMs,
@@ -2610,8 +2633,13 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       createTransport: (input) =>
         new ClaudeSdkTransport({
           ...input,
+          sandboxSettings: this.#isolationSettings,
           ...(options.command ? { command: options.command } : {}),
-          environment: input.environment ?? options.environment ?? process.env,
+          environment: {
+            ...environment,
+            ...input.environment,
+            CODEXHOST_DATA_DIR: environment.CODEXHOST_DATA_DIR,
+          },
           closeTimeoutMs: this.#closeTimeoutMs,
           abortTimeoutMs: this.#cancelTimeoutMs,
         }),
@@ -2624,6 +2652,15 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
         return info.cwd ? { cwd: info.cwd } : {};
       },
       readSessionMessages: async ({ cwd, sessionId }) => {
+        if (this.#isolationSettings?.enabled) {
+          const contents = await readSandboxTranscript(
+            environment,
+            this.#isolationSettings,
+            cwd,
+            sessionId,
+          );
+          return contents === null ? [] : parseClaudeTranscript(contents, sessionId);
+        }
         const transcript = await readClaudeTranscript({
           cwd,
           environment: options.environment ?? process.env,
@@ -2631,8 +2668,19 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
         });
         return transcript ?? [];
       },
-      readSubagentMessages: ({ cwd, sessionId, nativeSubagentId }) =>
-        getSubagentMessages(sessionId, nativeSubagentId, { dir: cwd }),
+      readSubagentMessages: async ({ cwd, sessionId, nativeSubagentId }) => {
+        if (this.#isolationSettings?.enabled) {
+          const contents = await readSandboxTranscript(
+            environment,
+            this.#isolationSettings,
+            cwd,
+            sessionId,
+            nativeSubagentId,
+          );
+          return contents === null ? [] : parseClaudeTranscript(contents, sessionId);
+        }
+        return getSubagentMessages(sessionId, nativeSubagentId, { dir: cwd });
+      },
     };
   }
 
@@ -2751,7 +2799,11 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
             selectPermissionMode: snapshot.canSelectPermissionMode,
             permissionModeScope: "live",
           },
-          history: { fork: true, forkAcrossCwd: false, rollbackLastTurn: true },
+          history: {
+            fork: !this.#isolationSettings?.enabled,
+            forkAcrossCwd: false,
+            rollbackLastTurn: !this.#isolationSettings?.enabled,
+          },
           subagents: { observe: true, readTranscript: true },
         },
       };
@@ -2783,6 +2835,19 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   }
 
   async open(input: OpenSessionInput): Promise<HarnessResult<HarnessSession>> {
+    if (
+      this.#isolationSettings?.enabled &&
+      (input.kind === "fork" || input.kind === "rollbackLastTurn")
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "invalidRequest",
+          message: "Sandbox Session fork and rollback are not supported",
+          retryable: false,
+        },
+      };
+    }
     if (this.#closePromise) {
       return {
         ok: false,
@@ -2980,6 +3045,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
         toolOutputLimit: this.#toolOutputLimit,
         cancelTimeoutMs: this.#cancelTimeoutMs,
         continuationQuiescenceMs: this.#continuationQuiescenceMs,
+        isolated: this.#isolationSettings?.enabled === true,
       },
     );
     this.#sessions.add(session);

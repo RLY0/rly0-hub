@@ -4523,3 +4523,35 @@ select.input,
 .warn-text.quota-note {
   font-size: 12.5px;
 }
+/* Claude isolation shares the existing agent card and form controls. */
+.isolation-panel {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line, #30343c);
+  border-radius: 12px;
+}
+.isolation-panel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.isolation-field {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.isolation-panel > .btn {
+  margin: 4px 6px 4px 0;
+}
+.isolation-panel > select {
+  margin: 6px 0;
+}
+.isolation-project {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #30343c);
+  overflow-wrap: anywhere;
+}
+.isolation-project > .btn {
+  margin: 4px 6px 4px 0;
+}
