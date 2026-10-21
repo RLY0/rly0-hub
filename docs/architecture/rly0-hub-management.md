@@ -52,6 +52,12 @@ npm 安装需要同时找到 Node 和 npm，缺少时尝试固定的 `winget ins
 
 ## 页面与验证
 
+“找回可查看历史”与原生聊天修复分开：`maintenance.chatRecoverReadable` 启动后台只读任务，`maintenance.chatRecoverStatus` 提供进度与结果，`maintenance.openRecoveredHistory` 只打开本次或上次完成任务的固定本地索引。它使用复制后的 Codex SQLite（`sqlite_home > CODEX_SQLITE_HOME > CODEX_HOME`）和本地 sessions/archived_sessions 的 plain/zstd 文件，将旧 provider、路径移动及未列入当前索引的文件中可读取的用户/助手文本生成私有 HTML 副本。保留原归档和来源，不写原始 SQLite/JSONL、配置或服务商，不关闭 Codex，不调用模型，不称原生列表或原对话续聊已恢复。不能把当前配置未列出 provider 当作正文损坏，也不能把当前 Claude 目录未找到当成永久丢失。
+
+恢复结果存放数据根下 `chat-recovery/recovery-XXXXXX/`，沿用私有目录 ACL、独占临时文件和原子写入。SQLite/WAL 临时目录在复制前设私有 ACL，通过独占新文件流复制，避免继承来源 ACL；合计超过 256 MiB 或查询超过 20,000 行即报告未读，查询列长受限。HTML 对内容转义并禁止脚本、网络和表单；仅接受用户 input_text 以及 phase=final/commentary 的助手 output_text，不明旧格式明确跳过并标部分，隐藏推理、analysis 阶段及工具内容不导出，附件不承诺完整；会话标识不一致单独警告。
+
+单文件可见文本 8 MiB、解码 256 MiB、单行 4 MiB，单任务可见文本 64 MiB、解码处理预算 2 GiB、逐块检查 120 秒工作预算、最多处理 500 文件。目录发现使用流式枚举，最多访问 20,000 项、收集 10,000 路径；截断明确显示 scanIncomplete。因限制未处理、文件/格式失败、原文件未定位到分别计数，不能将限制当作内容丢失。缺失原文件仍需原文件或备份。清缓存不删除这些私有恢复结果，也不会自动加入反馈包或发布包。
+
 额度数字采用本地快照先显示、原查询时间不变、随后更新的方式。Claude/Grok 网页登录沿用 core 的 lastUsage；Claude 订阅令牌的规范额度另保存在 official-key-usage.json，只含 relay id、加密凭据文件版本和规范化额度，不保存令牌、邮箱或 profile。版本由 core 对同一份加密 blob 求 SHA-256，改名不变，替换/清除密钥后原快照不再匹配。保存联网结果前重查版本并排除同 id 的旧请求；同版本不允许旧 fetchedAt 覆盖新记录。缺少版本的旧 core 不附令牌缓存，未成功查询或无额度接口时保持未知/不支持。
 
 Gemini 的上次 /usage 结果保存在 antigravity-usage.json。agents.antigravity.cached 不等待安装检测、不运行 CLI；首屏与 status 并行。磁盘或被动返回的额度标记 observationOnly，仅显示为“上次查询”，不作为当前登录身份或“使用中”的证据。后台不自动启动可能触发 OAuth 的 agy；用户刷新后才确认本次观测，明确未登录时清除旧额度。数值以外的缓存保存失败会明确提示，失败不伪造零额度。

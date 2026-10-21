@@ -16,6 +16,7 @@ window.hubManagementMock = (() => {
   };
   let threads = [sample];
   let trash = [];
+  let recoveredHistory = false;
   const filters = { imageTool: false, webSearchTool: false };
   const zoomSteps = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
   let zoom = 1.1;
@@ -466,6 +467,40 @@ window.hubManagementMock = (() => {
           ],
         };
       }
+      case "maintenance.chatRecoverReadable":
+        recoveredHistory = true;
+        return {
+          phase: "running",
+          total: 3,
+          processed: 0,
+          recovered: 0,
+          partial: 0,
+          unavailable: 2,
+          failed: 0,
+        };
+      case "maintenance.chatRecoverStatus":
+        return recoveredHistory
+          ? {
+              phase: "completed",
+              total: 3,
+              processed: 3,
+              recovered: 2,
+              partial: 1,
+              unavailable: 2,
+              failed: 1,
+              folder: "recovery-demo12",
+            }
+          : {
+              phase: "idle",
+              total: 0,
+              processed: 0,
+              recovered: 0,
+              partial: 0,
+              unavailable: 0,
+              failed: 0,
+            };
+      case "maintenance.openRecoveredHistory":
+        return { ok: true };
       case "maintenance.chatRepair":
         return {
           ok: true,

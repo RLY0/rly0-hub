@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "../rly0-maintenance/index.js";
 import { ChatRepair } from "../rly0-maintenance/chat-repair.js";
+import { ChatReadableRecovery } from "../rly0-maintenance/chat-recovery.js";
 import { resolveRly0DiagnosticsDir } from "../rly0-maintenance/paths.js";
 import { Rly0InstructionsManager, rly0InstructionsRpcError } from "../rly0-instructions/index.js";
 import { Rly0McpManager, rly0McpRpcError } from "../rly0-mcp/index.js";
@@ -62,6 +63,7 @@ export function createHubManagementRoutes(options: {
   const instructions = new Rly0InstructionsManager({ environment });
   const content = z.string().max(64 * 1024);
   const chatRepair = new ChatRepair({ environment, codex });
+  const chatRecovery = new ChatReadableRecovery(environment);
   const maintenance = new Rly0MaintenanceManager({
     environment,
     core,
@@ -172,6 +174,24 @@ export function createHubManagementRoutes(options: {
       rly0MaintenanceRpcError,
     ),
     "maintenance.chatRepairScan": route(empty, () => chatRepair.scan(), rly0MaintenanceRpcError),
+    "maintenance.chatRecoverReadable": route(
+      empty,
+      () => chatRecovery.start(),
+      rly0MaintenanceRpcError,
+    ),
+    "maintenance.chatRecoverStatus": route(
+      empty,
+      () => chatRecovery.status(),
+      rly0MaintenanceRpcError,
+    ),
+    "maintenance.openRecoveredHistory": route(
+      empty,
+      async () => {
+        openFolder(await chatRecovery.completedIndex());
+        return { ok: true };
+      },
+      rly0MaintenanceRpcError,
+    ),
     "maintenance.chatRepair": route(
       z.object({ includeDeleted: z.boolean().optional() }).strict(),
       (p) => chatRepair.repair(p),

@@ -8,11 +8,18 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
+  openSync,
+  closeSync,
+  readSync,
+  opendirSync,
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parse as parseToml } from "smol-toml";
 
 import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
+import { copyPrivateLocalFile, protectPrivateLocalDirectory } from "./private-quota-cache.js";
 
 /**
  * Why a chat cannot be opened or continued, beyond the legacy CodexHost import
@@ -21,8 +28,8 @@ import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
  *   fine (repairable: the backup is put back);
  * - `record-lost`: unreadable, and so is (or there is no) backup;
  * - `stuck-creating`: the chat was never finished being created;
- * - `session-missing`: the agent's own conversation file is gone (Claude Code keeps it under
- *   `~/.claude/projects`; it may have been cleaned up there), so the history cannot be shown;
+ * - `session-missing`: no transcript was found in the currently configured Claude projects;
+ *   this does not establish deletion, or rule out backups and other configuration roots;
  * - `codex-rollout-missing`: Codex's own list points at a conversation file that is gone;
  * - `codex-provider-missing`: a Codex chat made with a model provider no longer configured;
  * - `codex-unlisted-rollout`: a Codex conversation file Codex's list does not know.
@@ -68,6 +75,7 @@ export interface ChatHealthPaths {
   readonly store: string;
   readonly dataDir: string;
   readonly codexHome: string;
+  readonly codexStateDir: string | null;
   readonly claudeConfig: string;
 }
 
@@ -83,16 +91,51 @@ export function chatHealthPaths(environment: NodeJS.ProcessEnv, home: string): C
   const dataDir = environment.CODEXHOST_DATA_DIR
     ? path.resolve(environment.CODEXHOST_DATA_DIR)
     : path.join(home, RLY0_HOME_DATA_DIRECTORY_NAME);
+  const codexHome = environment.CODEX_HOME
+    ? path.resolve(environment.CODEX_HOME)
+    : path.join(home, ".codex");
+  const config = codexSettings(codexHome);
+  const configuredState = typeof config?.sqlite_home === "string" ? config.sqlite_home.trim() : "";
+  // A broken config cannot establish which database Codex actually uses.
+  const codexStateDir = config
+    ? configuredState
+      ? path.resolve(codexHome, configuredState)
+      : environment.CODEX_SQLITE_HOME?.trim()
+        ? path.resolve(environment.CODEX_SQLITE_HOME)
+        : codexHome
+    : null;
   return {
     dataDir,
     store: path.join(dataDir, "mapping-store"),
-    codexHome: environment.CODEX_HOME
-      ? path.resolve(environment.CODEX_HOME)
-      : path.join(home, ".codex"),
+    codexHome,
+    codexStateDir,
     claudeConfig: environment.CLAUDE_CONFIG_DIR
       ? path.resolve(environment.CLAUDE_CONFIG_DIR)
       : path.join(home, ".claude"),
   };
+}
+
+function codexSettings(codexHome: string): Record<string, unknown> | null {
+  const file = path.join(codexHome, "config.toml");
+  try {
+    const fd = openSync(file, "r");
+    try {
+      const buffer = Buffer.alloc(2 * 1024 * 1024 + 1);
+      let size = 0,
+        read = 0;
+      while (
+        size < buffer.length &&
+        (read = readSync(fd, buffer, size, buffer.length - size, size)) > 0
+      )
+        size += read;
+      if (size > 2 * 1024 * 1024) return null;
+      return parseToml(buffer.subarray(0, size).toString("utf8"));
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return existsSync(file) ? null : {};
+  }
 }
 
 interface StoredThread {
@@ -215,7 +258,7 @@ function scanAgentChats(paths: ChatHealthPaths, groups: Groups): number {
   return names.length;
 }
 
-interface CodexThreadRow {
+export interface CodexThreadRow {
   readonly id: string;
   readonly rollout_path: string;
   readonly model_provider: string;
@@ -225,30 +268,54 @@ interface CodexThreadRow {
 }
 
 function stateDatabase(codexHome: string): string | null {
-  const found = list(codexHome)
-    .map((name) => /^state_(\d+)\.sqlite$/u.exec(name))
-    .filter((match): match is RegExpExecArray => match !== null)
-    .sort((a, b) => Number(b[1]) - Number(a[1]));
-  return found[0] ? path.join(codexHome, found[0][0]) : null;
+  let directory;
+  try {
+    directory = opendirSync(codexHome);
+  } catch {
+    return null;
+  }
+  let best: string | null = null,
+    version = -1,
+    entries = 0;
+  try {
+    let entry;
+    while ((entry = directory.readSync())) {
+      if (++entries > 20_000) return null;
+      const match = entry.isFile() ? /^state_(\d+)\.sqlite$/u.exec(entry.name) : null;
+      if (match && Number(match[1]) > version) {
+        version = Number(match[1]);
+        best = entry.name;
+      }
+    }
+    return best ? path.join(codexHome, best) : null;
+  } finally {
+    directory.closeSync();
+  }
 }
 
 /** Codex's thread list, read from a private copy so Codex's own database is never opened. */
-async function readCodexThreads(codexHome: string): Promise<CodexThreadRow[] | null> {
+export async function readCodexThreads(codexHome: string): Promise<CodexThreadRow[] | null> {
   const database = stateDatabase(codexHome);
   if (!database) return null;
   const copy = mkdtempSync(path.join(os.tmpdir(), "rly0-chat-scan-"));
   try {
+    const wal = `${database}-wal`;
+    if (statSync(database).size + (existsSync(wal) ? statSync(wal).size : 0) > 256 * 1024 * 1024)
+      return null;
+    await protectPrivateLocalDirectory(copy);
     const file = path.join(copy, path.basename(database));
-    copyFileSync(database, file);
-    if (existsSync(`${database}-wal`)) copyFileSync(`${database}-wal`, `${file}-wal`);
+    await copyPrivateLocalFile(database, file, 256 * 1024 * 1024);
+    if (existsSync(`${database}-wal`))
+      await copyPrivateLocalFile(`${database}-wal`, `${file}-wal`, 256 * 1024 * 1024);
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(file);
     try {
-      return db
+      const rows = db
         .prepare(
-          "select id, rollout_path, model_provider, title, archived, updated_at from threads",
+          "select substr(coalesce(id,''),1,128) as id, substr(coalesce(rollout_path,''),1,4096) as rollout_path, substr(coalesce(model_provider,''),1,256) as model_provider, substr(coalesce(title,''),1,200) as title, archived, updated_at from threads limit 20001",
         )
         .all() as unknown as CodexThreadRow[];
+      return rows.length <= 20_000 ? rows : null;
     } finally {
       db.close();
     }
@@ -259,11 +326,11 @@ async function readCodexThreads(codexHome: string): Promise<CodexThreadRow[] | n
   }
 }
 
-function configuredProviders(codexHome: string): Set<string> {
-  const text = readText(path.join(codexHome, "config.toml")) ?? "";
-  const names = [...text.matchAll(/^\s*\[model_providers\.(?:"([^"]+)"|([^\]\s]+))\]/gmu)].map(
-    (match) => match[1] ?? match[2] ?? "",
-  );
+export function configuredProviders(codexHome: string): Set<string> | null {
+  const config = codexSettings(codexHome);
+  if (!config) return null;
+  const table = config.model_providers;
+  const names = table && typeof table === "object" ? Object.keys(table) : [];
   // Built in to Codex.
   return new Set(["openai", "ollama", "lmstudio", "oss", ...names]);
 }
@@ -295,7 +362,8 @@ function rolloutIds(directory: string, into: Set<string>, depth = 0): void {
 }
 
 async function scanCodexChats(paths: ChatHealthPaths, groups: Groups): Promise<number | null> {
-  const rows = await readCodexThreads(paths.codexHome);
+  if (!paths.codexStateDir) return null;
+  const rows = await readCodexThreads(paths.codexStateDir);
   if (!rows) return null;
   const providers = configuredProviders(paths.codexHome);
   const known = new Set<string>();
@@ -305,13 +373,15 @@ async function scanCodexChats(paths: ChatHealthPaths, groups: Groups): Promise<n
       id: row.id,
       title: row.title ? row.title.slice(0, 200) : null,
       harnessId: "codex",
-      updatedAt: Number.isFinite(row.updated_at)
-        ? new Date(row.updated_at * 1000).toISOString()
-        : "",
+      updatedAt:
+        Number.isFinite(row.updated_at) && Math.abs(row.updated_at) <= 8_640_000_000_000
+          ? new Date(row.updated_at * 1000).toISOString()
+          : "",
       ...(row.archived ? { archived: true } : {}),
     };
     if (!rolloutExists(row.rollout_path)) groups.add("codex-rollout-missing", item);
-    else if (!providers.has(row.model_provider)) groups.add("codex-provider-missing", item);
+    else if (providers && !providers.has(row.model_provider))
+      groups.add("codex-provider-missing", item);
   }
   const onDisk = new Set<string>();
   rolloutIds(path.join(paths.codexHome, "sessions"), onDisk);

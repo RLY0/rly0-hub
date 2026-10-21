@@ -5,7 +5,11 @@ import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect, it } from "vitest";
 
-import { chatHealthPaths, scanChatHealth } from "../src/rly0-maintenance/chat-health.js";
+import {
+  chatHealthPaths,
+  scanChatHealth,
+  readCodexThreads,
+} from "../src/rly0-maintenance/chat-health.js";
 import { ChatRepair } from "../src/rly0-maintenance/chat-repair.js";
 
 const ID = (n: number) => `cccccccc-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -201,6 +205,77 @@ describe("chat health scan", () => {
   it("reports Codex as unread when it has no database", async () => {
     const { home } = makeHome();
     expect((await scan(home)).codexChats).toBeNull();
+  });
+
+  it("bounds SQLite row count and title size without modifying the source database", async () => {
+    const { home } = makeHome();
+    const { codex } = makeCodex(home, []);
+    const database = path.join(codex, "state_5.sqlite");
+    const db = new DatabaseSync(database);
+    db.exec("begin");
+    const insert = db.prepare(
+      "insert into threads values (?, '', 1, 1, 'vscode', 'openai', '', ?, 0)",
+    );
+    for (let n = 0; n < 20001; n++) insert.run(SESSION(n), "SYNTHETIC");
+    db.exec("commit");
+    db.close();
+    expect(await readCodexThreads(codex)).toBeNull();
+    const replace = new DatabaseSync(database);
+    replace.exec("delete from threads");
+    replace
+      .prepare("insert into threads values (?, '', 1, 1, 'vscode', 'openai', '', ?, 0)")
+      .run(SESSION(1), "SYNTHETIC_TITLE_".repeat(10000));
+    replace.close();
+    const before = readFileSync(database);
+    expect((await readCodexThreads(codex))?.[0]?.title).toHaveLength(200);
+    expect(readFileSync(database)).toEqual(before);
+  });
+
+  it("uses sqlite_home before CODEX_SQLITE_HOME and leaves the default database unchanged", async () => {
+    const { home } = makeHome();
+    const { codex } = makeCodex(home, [{ id: SESSION(30), rollout: null }]);
+    const alternate = makeHome();
+    const actual = makeCodex(alternate.home, [
+      { id: SESSION(31), rollout: "plain" },
+      { id: SESSION(32), rollout: "plain" },
+    ]);
+    const original = readFileSync(path.join(codex, "state_5.sqlite"));
+    writeFileSync(
+      path.join(codex, "config.toml"),
+      `sqlite_home = ${JSON.stringify(actual.codex.replaceAll("\\", "/"))}\n`,
+    );
+    const result = await scan(home, { CODEX_SQLITE_HOME: path.join(home, "wrong-database") });
+    expect(result.codexChats).toBe(2);
+    expect(result.groups).toEqual([]);
+    expect(readFileSync(path.join(codex, "state_5.sqlite")).equals(original)).toBe(true);
+  });
+
+  it("uses CODEX_SQLITE_HOME when no sqlite_home is configured", async () => {
+    const { home } = makeHome();
+    makeCodex(home, [{ id: SESSION(33), rollout: null }]);
+    const alternate = makeHome();
+    const actual = makeCodex(alternate.home, [
+      { id: SESSION(34), rollout: "plain" },
+      { id: SESSION(35), rollout: "plain" },
+    ]);
+    expect((await scan(home, { CODEX_SQLITE_HOME: actual.codex })).codexChats).toBe(2);
+  });
+
+  it("recognizes valid TOML provider tables rather than declaring their chats broken", async () => {
+    const { home } = makeHome();
+    const { codex } = makeCodex(home, [
+      { id: SESSION(36), rollout: "plain", provider: "literal.name" },
+    ]);
+    for (const config of [
+      `[model_providers.'literal.name']\nname = 'existing'\n`,
+      `model_providers = { 'literal.name' = { name = 'existing' } }\n`,
+    ]) {
+      writeFileSync(path.join(codex, "config.toml"), config);
+      expect((await scan(home)).groups).toEqual([]);
+    }
+    writeFileSync(path.join(codex, "config.toml"), "[broken");
+    expect((await scan(home)).codexChats).toBeNull();
+    expect((await scan(home)).groups).toEqual([]);
   });
 });
 

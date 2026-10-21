@@ -521,20 +521,20 @@ window.registerHubSystem = ({
         cannot: "里面没有内容，新开一个聊天即可",
       },
       "session-missing": {
-        what: "Claude Code 本地的对话记录已经不在了（可能被它自动清理），点开是空白、接不上",
-        cannot: "对话内容只存在 Claude Code 那边，找不回来；新开一个聊天继续",
+        what: "当前 Claude Code 记录目录中未找到会话文件，可能影响打开或续聊",
+        next: "需检查旧目录、备份或隔离环境；找到完整副本后才能恢复，目前不能判定永久丢失",
       },
       "codex-rollout-missing": {
-        what: "Codex 列表里有，但对话文件不在了，点开报 no rollout found",
-        cannot: "对话文件已经不在这台电脑上",
+        what: "Codex 列表指向的位置未找到对话文件，可能报 no rollout found",
+        next: "需检查归档、移动目录和备份；当前未找到不代表已永久丢失",
       },
       "codex-provider-missing": {
-        what: "建聊天时用的服务商已不在 Codex 配置里，Codex 列表里可能看不到",
-        cannot: "要改 Codex 自己的数据，Hub 不动；把那个服务商加回配置就能看到",
+        what: "聊天文件还在，但旧服务商未在当前配置中，可能影响显示或续聊",
+        next: "可核对并恢复原服务商配置，或另选续聊线路；Hub 暂未自动处理，仅恢复配置不保证能续聊",
       },
       "codex-unlisted-rollout": {
-        what: "对话文件还在，但 Codex 的列表里没有它",
-        cannot: "要改 Codex 自己的数据，Hub 不动",
+        what: "发现未列入当前 Codex 索引的对话文件，内容完整性尚待核实",
+        next: "可检查原文件，再准备重新索引或导入；Hub 暂未执行，不能据此判定无法恢复",
       },
     };
     const chatTitle = (item) =>
@@ -564,7 +564,11 @@ window.registerHubSystem = ({
           h(
             "p",
             { class: fixable ? "chat-fix ok" : "chat-fix" },
-            fixable ? `→ 可以修复：${problem.fix}` : `→ 无法修复：${problem.cannot}`,
+            fixable
+              ? `→ 可以修复：${problem.fix}`
+              : problem.next
+                ? `→ 需要进一步恢复：${problem.next}`
+                : `→ 暂不能自动修复：${problem.cannot}`,
           ),
           named.length
             ? h(
@@ -649,7 +653,7 @@ window.registerHubSystem = ({
         return;
       }
       chatMeta.textContent = problems
-        ? `检查了 ${checked} 条聊天，${problems} 条有问题${scan.broken ? `，${scan.broken} 条可以修复` : ""}`
+        ? `检查了 ${checked} 条聊天，${problems} 条需检查${scan.broken ? `，${scan.broken} 条可以自动修复` : ""}`
         : `检查了 ${checked} 条聊天，没有发现问题`;
       if (!show) return;
       chatDetail.hidden = false;
@@ -659,7 +663,7 @@ window.registerHubSystem = ({
           "p",
           { class: `diag-sum ${problems ? "warn" : "ok"}` },
           problems
-            ? `检查了 ${checked} 条聊天，发现 ${problems} 条有问题：`
+            ? `检查了 ${checked} 条聊天，发现 ${problems} 条需检查：`
             : `检查了 ${checked} 条聊天，没有发现问题`,
         ),
         groups.length ? h("ul", { class: "diag-list chat-list" }, groups.map(chatGroup)) : null,
@@ -677,6 +681,87 @@ window.registerHubSystem = ({
       );
     }
     const chatRepair = button("检查并修复", () => scanChats(true));
+    const recoveryDetail = h("div", { class: "tool-detail", hidden: true });
+    let recoveryVersion = 0;
+    const recoverReadable = h(
+      "button",
+      {
+        class: "btn",
+        type: "button",
+        onclick: async () => {
+          const version = ++recoveryVersion;
+          recoverReadable.disabled = true;
+          try {
+            const status = await call("maintenance.chatRecoverReadable");
+            if (alive() && version === recoveryVersion) showRecovery(status, version);
+          } catch (error) {
+            if (alive() && version === recoveryVersion) {
+              recoverReadable.disabled = false;
+              failed(error);
+            }
+          }
+        },
+      },
+      "找回可查看历史",
+    );
+    async function loadRecovery(version) {
+      const status = await call("maintenance.chatRecoverStatus").catch(() => null);
+      if (!alive() || version !== recoveryVersion) return;
+      if (status) showRecovery(status, version);
+      else {
+        recoverReadable.disabled = false;
+        recoveryDetail.hidden = false;
+        put(recoveryDetail, h("p", { class: "sub" }, "暂未读到恢复状态，可稍后再试。"));
+      }
+    }
+    function showRecovery(status, version) {
+      if (!status || status.phase === "idle") {
+        recoverReadable.disabled = false;
+        return;
+      }
+      recoveryDetail.hidden = false;
+      recoverReadable.disabled = status.phase === "running";
+      if (status.phase === "running") {
+        put(
+          recoveryDetail,
+          h(
+            "p",
+            { class: "sub" },
+            `正在找回可查看历史：${status.processed || 0} / ${status.total || 0}，已生成 ${status.recovered || 0} 份副本。可切换页面，任务会继续。`,
+          ),
+        );
+        setTimeout(() => {
+          if (alive() && version === recoveryVersion) void loadRecovery(version);
+        }, 1200);
+      } else if (status.phase === "completed") {
+        put(
+          recoveryDetail,
+          h(
+            "p",
+            { class: "diag-sum" },
+            `已生成 ${status.recovered || 0} 份可查看副本，${status.partial || 0} 份为部分内容；${status.failed || 0} 份因文件或格式未生成，${status.limited || 0} 份因处理限制暂未生成；${status.unavailable || 0} 条 Codex 记录未定位到原文件。`,
+          ),
+          h(
+            "p",
+            { class: "sub" },
+            "本次仅找回 Codex 本地文件。Claude 等助手仍需对应会话或备份。副本保存在本机，原聊天、归档和服务商未变；原生列表和续聊尚未修复。不明旧格式、隐藏推理和工具内容不导出，附件可能不完整。",
+          ),
+          status.scanIncomplete
+            ? h("p", { class: "sub" }, "本次扫描达到范围上限，尚未检查全部目录；未扫描不代表丢失。")
+            : null,
+          button("打开找回的历史", () => call("maintenance.openRecoveredHistory")),
+        );
+      } else {
+        put(
+          recoveryDetail,
+          h(
+            "p",
+            { class: "sub" },
+            "没能完成历史找回。请检查聊天文件、配置和目录权限后重试；原聊天没有被改写。",
+          ),
+        );
+      }
+    }
 
     /* 过滤开关（零号核心的本地代理执行，只作用于发往中转站的请求） */
     const filterSwitch = (key, label) =>
@@ -762,11 +847,11 @@ window.registerHubSystem = ({
           text: h(
             "span",
             null,
-            "检查所有聊天（Claude Code 等助手、Codex 自己的、旧版 CodexHost 留下的）：点开报 no rollout found、一片空白，或模型显示“自定义”发不出消息的，逐条说明原因和能不能修。修复前会先备份并关闭 Codex，修好后自动重新打开；不删除任何记录。",
+            "检查聊天打不开、历史不见或无法续聊的原因。“找回可查看历史”从仍在本机的 Codex 文件生成只读副本，不改原生列表、不换线路、不重启 Codex；缺失记录仍需原文件或备份。修复 Hub 自身记录时会先备份并关闭 Codex，之后重新打开；不删除记录。",
             chatMeta,
           ),
-          action: chatRepair,
-          detail: chatDetail,
+          action: [chatRepair, recoverReadable],
+          detail: [chatDetail, recoveryDetail],
         }),
         tool({
           name: "log",
@@ -816,6 +901,7 @@ window.registerHubSystem = ({
     void loadCache();
     void loadFilters();
     void scanChats(false);
+    void loadRecovery(recoveryVersion);
   };
 
   pages.updates = (root, alive) => {
