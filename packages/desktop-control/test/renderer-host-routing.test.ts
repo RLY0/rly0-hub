@@ -6,7 +6,7 @@ import {
 } from "../src/renderer-draft-prewarm-policy.js";
 import type { RendererHostRouting as Routing } from "../src/renderer-host-routing.js";
 
-function setup(initialHostId: string) {
+function setup(initialHostId: string, currentRegistry = false) {
   const manager = (hostId: string) => ({
     getHostId: () => hostId,
     sendRequest: vi.fn(async () => ({})),
@@ -32,7 +32,12 @@ function setup(initialHostId: string) {
   const registry = {
     addManager: vi.fn(),
     getForHostId: vi.fn((hostId: string) => managers.get(hostId)),
-    waitForManagerForHostId: vi.fn(),
+    ...(currentRegistry
+      ? {
+          getImplForHostId: vi.fn((hostId: string) => managers.get(hostId)),
+          addRegistryCallback: vi.fn(),
+        }
+      : { waitForManagerForHostId: vi.fn() }),
   };
   const fiber = {
     memoizedProps: { executionTargetHostId: initialHostId },
@@ -58,6 +63,25 @@ function setup(initialHostId: string) {
   };
   return { renderer, target, local, remote, managers, manager, fiber, editors };
 }
+
+it.each(["local", "remote-ssh-discovered:linux"])(
+  "installs the serialized policy with the current registry for %s",
+  async (initialHostId) => {
+    const fixture = setup(initialHostId, true);
+    Reflect.deleteProperty(fixture.fiber.memoizedState, "next");
+    await installRendererDraftPrewarmPolicyDirect(fixture.renderer);
+    const routing = fixture.target.__codexhostHostRoutingV1 as Routing;
+    try {
+      expect(routing.forHost("local")?.manager).toBe(fixture.local);
+      expect(routing.forComposer()?.manager.getHostId?.()).toBe(initialHostId);
+      fixture.managers.delete("local");
+      expect(routing.forHost("local")).toBeNull();
+      expect(routing.forHost(fixture.remote.getHostId())?.manager).toBe(fixture.remote);
+    } finally {
+      routing.dispose();
+    }
+  },
+);
 
 it.each(["local", "remote-ssh-discovered:linux"])(
   "keeps both Hosts addressable and switches immediately from %s without a Controller poll",

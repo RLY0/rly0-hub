@@ -63,7 +63,11 @@ export function requestManagerFromHookState(
     !hostId ||
     typeof value.addManager !== "function" ||
     typeof value.getForHostId !== "function" ||
-    typeof value.waitForManagerForHostId !== "function"
+    (typeof value.waitForManagerForHostId !== "function" &&
+      !(
+        typeof value.getImplForHostId === "function" &&
+        typeof value.addRegistryCallback === "function"
+      ))
   )
     return null;
   return manager(value.getForHostId(hostId));
@@ -115,8 +119,12 @@ export function discoverRendererHosts(
         typeof value.addManager === "function" &&
         "getForHostId" in value &&
         typeof value.getForHostId === "function" &&
-        "waitForManagerForHostId" in value &&
-        typeof value.waitForManagerForHostId === "function"
+        (("waitForManagerForHostId" in value &&
+          typeof value.waitForManagerForHostId === "function") ||
+          ("getImplForHostId" in value &&
+            typeof value.getImplForHostId === "function" &&
+            "addRegistryCallback" in value &&
+            typeof value.addRegistryCallback === "function"))
       ) {
         registries.add(value as RendererHostRegistry);
       }
