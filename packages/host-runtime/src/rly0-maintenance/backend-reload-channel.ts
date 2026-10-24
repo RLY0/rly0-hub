@@ -14,7 +14,10 @@ export const BACKEND_RELOAD_REQUEST_FILE = "codex-reload-request.json";
 export const BACKEND_RELOAD_RESULT_FILE = "codex-reload-result.json";
 export const AGENT_CHECK_REQUEST_FILE = "agent-check-request.json";
 export const AGENT_STATUS_FILE = "agent-status.json";
-/** Written every few seconds by the Codex side while it runs: `{ pid, at }`. */
+/**
+ * Written every few seconds by the Codex side while it runs: `{ pid, at, busy }`; `busy` is true
+ * while a reply, tool call or agent task is in progress (older builds omit it).
+ */
 export const CODEX_HEARTBEAT_FILE = "codex-heartbeat.json";
 const HEARTBEAT_FRESH_MS = 10_000;
 
@@ -34,6 +37,19 @@ export async function codexHeartbeatAlive(
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/**
+ * Hub side: whether Codex (opened through RLY/0 Hub) is working on something right now. `null`
+ * when there is no fresh heartbeat, or the Codex side is an older build that does not say.
+ */
+export async function codexHeartbeatBusy(
+  dataDirectory: string,
+  now = Date.now(),
+): Promise<boolean | null> {
+  if (!(await codexHeartbeatAlive(dataDirectory, now))) return null;
+  const busy = (await readJson(path.join(dataDirectory, CODEX_HEARTBEAT_FILE)))?.busy;
+  return typeof busy === "boolean" ? busy : null;
 }
 
 export type BackendReloadStatus = "reloaded" | "deferred" | "failed";

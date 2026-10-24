@@ -1,6 +1,6 @@
 "use strict";
 // Registration receives the same bridge and DOM helpers as the existing Hub pages.
-window.registerHubResources = ({ pages, h, call, toast, failed }) => {
+window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) => {
   const button = (text, action) =>
     h(
       "button",
@@ -62,7 +62,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed }) => {
       h(
         "p",
         { class: "sub page-note" },
-        "管理本机 Codex 的 MCP 配置。修改后，新会话或重启 Codex 生效。",
+        "管理本机 Codex 的 MCP 配置。修改后 Hub 会自动让 Codex 重新载入（正在回复时等它回复完），不用手动重启。",
       ),
       list,
       h("h2", { class: "section-title" }, "添加服务"),
@@ -92,9 +92,9 @@ window.registerHubResources = ({ pages, h, call, toast, failed }) => {
                   }
                 : { ...common, url: url.value.trim() },
             );
-            toast("已添加");
             name.value = "";
             await load();
+            await applyToCodex("backend", "MCP 服务已添加");
           }),
         ),
       ),
@@ -127,10 +127,12 @@ window.registerHubResources = ({ pages, h, call, toast, failed }) => {
                     button(server.enabled ? "停用" : "启用", async () => {
                       await call("mcp.setEnabled", { name: server.name, enabled: !server.enabled });
                       await load();
+                      await applyToCodex("backend", server.enabled ? "已停用" : "已启用");
                     }),
                     confirmButton("移除", async () => {
                       await call("mcp.remove", { name: server.name });
                       await load();
+                      await applyToCodex("backend", "已移除");
                     }),
                   ),
                 ),

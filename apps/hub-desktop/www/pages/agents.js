@@ -18,6 +18,7 @@ window.registerHubAgents = ({
   pollers,
   moneyBadge,
   rateBadge,
+  applyToCodex,
 }) => {
   const LOGOS = {
     "claude-code": "agents/claude-code.svg",
@@ -477,7 +478,14 @@ window.registerHubAgents = ({
       );
       if (agent.id === "claude-code")
         body.append(
-          window.renderClaudeIsolation({ h, call, toast, reload: load, status: isolation }),
+          window.renderClaudeIsolation({
+            h,
+            call,
+            toast,
+            reload: load,
+            status: isolation,
+            applyToCodex,
+          }),
         );
       const access = h("div");
       body.append(access);

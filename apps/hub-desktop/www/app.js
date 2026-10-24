@@ -654,6 +654,7 @@
     moneyBadge,
     rateBadge,
   };
+  pageApi.applyToCodex = window.registerHubCodexApply(pageApi).apply;
   Object.assign(pageApi, window.registerHubResources(pageApi));
   window.registerHubSystem(pageApi);
   Object.assign(pageApi, window.registerHubDiscovery(pageApi));
@@ -1082,8 +1083,9 @@
           onclick: async () => {
             if (!confirmTap()) return;
             const result = await call("backup.restore").catch(() => null);
-            toast(result && result.ok ? "已恢复。重启 Codex 后生效" : "恢复没有成功");
             load();
+            if (result && result.ok) await pageApi.applyToCodex("backend", "已恢复到安装前的设置");
+            else toast("恢复没有成功");
           },
         },
         "恢复到安装前",

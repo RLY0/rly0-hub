@@ -1378,7 +1378,12 @@ export class AppServerHost {
     const heartbeat = path.join(path.dirname(this.#rly0AgentRelays.path()), CODEX_HEARTBEAT_FILE);
     const beat = (): void => {
       if (this.#closeRequested) return;
-      void writeJsonFile(heartbeat, { pid: process.pid, at: Date.now() }).catch(() => undefined);
+      // `busy` lets the Hub restart Codex for a settings change only once nothing is running.
+      void writeJsonFile(heartbeat, {
+        pid: process.pid,
+        at: Date.now(),
+        busy: this.#hasActiveWork(),
+      }).catch(() => undefined);
     };
     beat();
     this.#relayWatchTimer = setInterval(() => {

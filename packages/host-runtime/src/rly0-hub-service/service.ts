@@ -41,6 +41,7 @@ import { WindowsRegistryAutostart } from "../rly0-appearance/windows-autostart.j
 import { applyProxyEnvironment, Rly0CoreBridge } from "../rly0-core/index.js";
 import {
   codexHeartbeatAlive,
+  codexHeartbeatBusy,
   readAgentStatus,
   type AgentStatusReport,
   requestAgentCheck,
@@ -90,6 +91,7 @@ import {
   decideAutoSwitch,
   RLY0_AUTO_SWITCH_DEFAULTS,
 } from "./auto-switch.js";
+import { codexApplyParams, Rly0CodexApplier } from "./codex-apply.js";
 import { Rly0CodexControl } from "./codex-control.js";
 import { noAccountStatus, relayCodexModels } from "./no-account.js";
 import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
@@ -232,6 +234,7 @@ export class Rly0HubService {
   readonly #state: Rly0HubStateStore;
   readonly #codexConfig: Rly0RelayCodexConfigManager;
   readonly #addLogin: Rly0HubAddLogin;
+  readonly #applier: Rly0CodexApplier;
   readonly #relayLogos = new Map<
     string,
     Promise<{ logo: string | null; siteName: string | null }>
@@ -258,6 +261,16 @@ export class Rly0HubService {
         ...(options.killCodexProcesses ? { killProcesses: options.killCodexProcesses } : {}),
         ...(options.platform ? { platform: options.platform } : {}),
       });
+    const dataDirectory = resolveRly0DataDir(environment);
+    this.#applier = new Rly0CodexApplier({
+      status: () => this.#codex.status(),
+      restart: () => this.#codex.restart(),
+      requestReload: (timeoutMs) => requestBackendReload(dataDirectory, { timeoutMs }),
+      busy: () => codexHeartbeatBusy(dataDirectory),
+      ...(options.backendReloadTimeoutMs === undefined
+        ? {}
+        : { reloadTimeoutMs: options.backendReloadTimeoutMs }),
+    });
     this.#appearance =
       options.appearance ??
       new Rly0AppearanceManager(
@@ -922,9 +935,15 @@ export class Rly0HubService {
         return { ok: true };
       }),
 
-      "codex.status": route(empty, () => this.#codex.status()),
+      "codex.status": route(empty, async () => ({
+        ...(await this.#codex.status()),
+        restartPending: this.#applier.pending,
+      })),
       "codex.open": route(empty, () => this.#codex.open()),
       "codex.restart": route(empty, () => this.#codex.restart()),
+      // After a settings change: apply it to the running Codex (see codex-apply.ts).
+      "codex.applySettings": route(codexApplyParams, (p) => this.#applier.apply(p)),
+      "codex.applyCancel": route(empty, async () => this.#applier.cancel()),
 
       "relay.list": route(empty, async () => rly0First(await core.listRelays())),
       "relay.add": route(rly0RelayAddParamsSchema, async (p) => {

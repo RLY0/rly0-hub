@@ -226,6 +226,10 @@ window.hubManagementMock = (() => {
   const isolatedLogins = new Set();
   // Synthetic reset protocol for this browser-only preview. Never reached by the real bridge.
   const resetRequests = new Set();
+  // Synthetic no-account switch (pages/no-account.js); nothing is written anywhere.
+  const noAccount = { enabled: false, model: null };
+  const noAccountModels = ["gpt-6-astra", "gpt-5.5"];
+  const codexConfigPath = "C:\\Users\\demo\\.codex\\config.toml";
   const isolationRoot = "C:\\Users\\demo\\.rly0-hub\\sandbox-runtime";
   return ({ method, params: p }) => {
     switch (method) {
@@ -540,6 +544,36 @@ window.hubManagementMock = (() => {
       case "maintenance.forceQuitCodex":
         return { ok: true, killed: 4 };
       case "maintenance.restartCodex":
+        return { ok: true };
+      case "relay.noAccountStatus":
+        return {
+          enabled: noAccount.enabled,
+          ...(noAccount.enabled ? { model: noAccount.model } : {}),
+          configPath: codexConfigPath,
+          models: noAccountModels,
+        };
+      case "relay.noAccountPreview":
+        return {
+          configPath: codexConfigPath,
+          changes: [
+            `model = "${p.model}"`,
+            'model_provider = "rly0"',
+            "[model_providers.rly0] requires_openai_auth = false",
+          ],
+        };
+      case "relay.noAccountEnable":
+        Object.assign(noAccount, { enabled: true, model: p.model });
+        return { ok: true, noAccount: true };
+      case "relay.noAccountDisable":
+        Object.assign(noAccount, { enabled: false, model: null });
+        return { ok: true };
+      case "codex.status":
+        return { running: true, canOpen: true, restartPending: false };
+      case "codex.applySettings":
+        return {
+          outcome: p.restartNow ? "restarting" : p.scope === "backend" ? "reloaded" : "restarting",
+        };
+      case "codex.applyCancel":
         return { ok: true };
       case "updates.check":
         return {

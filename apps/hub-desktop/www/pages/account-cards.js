@@ -326,7 +326,7 @@ window.registerHubAccountCards = ({
         "select",
         { class: "input compact-select", "aria-label": "切换方式" },
         h("option", { value: "ask", selected: settings.mode === "ask" }, "先提醒我"),
-        h("option", { value: "auto", selected: settings.mode === "auto" }, "直接切换并重启 Codex"),
+        h("option", { value: "auto", selected: settings.mode === "auto" }, "直接切换，自动生效"),
       );
       const save = (enabled) =>
         call("accounts.autoSwitchSet", {
@@ -351,7 +351,7 @@ window.registerHubAccountCards = ({
             "aria-label": "自动切换账号",
             onclick: () => save(!settings.enabled),
           }),
-          "低于阈值时切到额度最多的已保存账号，Codex 会重启",
+          "低于阈值时切到额度最多的已保存账号，自动生效，不用手动重启",
         ),
         h(
           "div",

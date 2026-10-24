@@ -9,6 +9,7 @@ window.registerHubSystem = ({
   confirmButton,
   go,
   recentErrors,
+  applyToCodex,
 }) => {
   const bytes = (n) => `${((n || 0) / 1024 / 1024).toFixed(1)} MB`;
   pages.network = (root, alive) => {
@@ -361,7 +362,7 @@ window.registerHubSystem = ({
                 toast("没能修改 Codex 配置");
                 return;
               }
-              toast("已修改，原配置已备份。重启 Codex 后生效");
+              await applyToCodex("backend", "已换成这个模型，原配置已备份");
               await diagnose();
             }),
           );

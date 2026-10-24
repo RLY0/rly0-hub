@@ -1,6 +1,6 @@
 "use strict";
 
-window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
+window.renderClaudeIsolation = ({ h, call, toast, reload, status, applyToCodex }) => {
   const box = h("details", { class: "isolation-panel", open: Boolean(status?.settings) });
   const settings = status?.settings;
   const errors = {
@@ -44,7 +44,16 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
   const login = status.login || { phase: "idle" };
   const loginActive = ["starting", "waitingForCode", "authorizing"].includes(login.phase);
   const busy = ["installing", "preparing"].includes(job.phase) || loginActive;
-  const action = (label, method, params = {}, success = "操作已完成", allowWhileBusy = false) =>
+  // `applies`: the Claude adapter reads isolation once when Codex starts, so a successful switch
+  // reopens Codex by itself (codex-apply.js) instead of asking the person to restart it.
+  const action = (
+    label,
+    method,
+    params = {},
+    success = "操作已完成",
+    allowWhileBusy = false,
+    applies = false,
+  ) =>
     h(
       "button",
       {
@@ -59,13 +68,16 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
               `agents.isolation.${method}`,
               typeof params === "function" ? params() : params,
             );
-            toast(
-              result?.phase === "failed"
-                ? message(result.error)
-                : result?.opened === false
-                  ? "窗口没有打开，请重试。"
-                  : success,
-            );
+            if (applies && result?.phase !== "failed" && applyToCodex)
+              await applyToCodex("window", success);
+            else
+              toast(
+                result?.phase === "failed"
+                  ? message(result.error)
+                  : result?.opened === false
+                    ? "窗口没有打开，请重试。"
+                    : success,
+              );
           } catch (error) {
             toast(message(error?.message));
           } finally {
@@ -248,43 +260,22 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status }) => {
   }
   box.append(
     settings.enabled
-      ? action(
-          "关闭隔离，恢复本地模式",
-          "disable",
-          {},
-          "已选择本地模式；请重新加载助手，已有会话保持原环境",
-        )
+      ? action("关闭隔离，恢复本地模式", "disable", {}, "已恢复本地模式", false, true)
       : action(
           "开启隔离保护",
           "configure",
           { enabled: true, runtimeRoot: settings.runtimeRoot, proxy: settings.proxy },
-          "已选择隔离模式；请重新加载助手后使用",
+          "已开启隔离保护",
+          false,
+          true,
         ),
   );
   box.append(action("刷新状态", "status", {}, "已刷新"));
   box.append(
     h(
-      "button",
-      {
-        class: "btn sm",
-        type: "button",
-        onclick: async () => {
-          try {
-            await call("codex.restart");
-            toast("已请求重启 Codex，助手将读取最新隔离设置");
-          } catch {
-            toast("重启未完成，请保存工作后手动重开 Codex");
-          }
-        },
-      },
-      "重启 Codex 使设置生效",
-    ),
-  );
-  box.append(
-    h(
       "p",
       { class: "sub" },
-      "重启会结束当前 Codex 窗口中的任务，请先保存工作。沙箱会话支持继续对话；第一版暂不支持分叉、回滚和导入本地 Claude 会话。",
+      "开关隔离后 Hub 会让 Codex 自动重新打开一次（等正在进行的任务结束，对话记录都在）。沙箱会话支持继续对话；第一版暂不支持分叉、回滚和导入本地 Claude 会话。",
     ),
   );
   return box;
