@@ -466,8 +466,9 @@ test("accounts quota refresh: loading, cooldown, partial and full failure", asyn
   await expect(when).toHaveText("无法查询额度");
 });
 
-// The saved Claude setup-token (pages/mock.js `?claudeKey=`): quota read off a model response,
-// the probe failing on the network, and a dead token.
+// Saved Claude subscription tokens (pages/mock.js `?claudeKey=` varies the ····QwAA one): each is
+// its own card ("Claude 订阅令牌 · 订阅令牌 · ····last4") with quota read off a model response, the
+// probe failing on the network, and a dead token. The empty draft card stays hidden (0.11.8).
 test("claude setup-token quota: tiles, network failure, invalid token", async ({ page }) => {
   const open = async (query: string) => {
     await page.setViewportSize({ width: 1240, height: HEIGHT });
@@ -476,7 +477,16 @@ test("claude setup-token quota: tiles, network failure, invalid token", async ({
     const close = page.locator(".dialog-backdrop.show .dialog-x");
     if (await close.isVisible().catch(() => false)) await close.click();
     await page.click('.account-tabs button[aria-label^="Anthropic"]');
-    return page.locator(".key-card");
+    const tokens = page.locator(".key-card:not([hidden])");
+    await expect(tokens).toHaveCount(2);
+    await expect(tokens.filter({ hasText: "cd34" })).toContainText("剩 61%");
+    const card = tokens.filter({ hasText: "QwAA" });
+    await expect(card).toContainText("Claude 订阅令牌");
+    await expect(card).toContainText("订阅令牌");
+    // Not bound to Claude Code in the default mock: it can be switched to.
+    await expect(card).not.toHaveClass(/in-use/u);
+    await expect(card.locator('button:has-text("切换到这个")')).toBeVisible();
+    return card;
   };
   // After the assertions: the card has rendered and its entrance animation has settled.
   const shot = async (card: Locator, name: string) => {
@@ -528,10 +538,15 @@ test("maintenance: chat repair lists every problem with its reason", async ({ pa
       if (query) {
         await expect(detail).toContainText("检查了 510 条聊天，没有发现问题");
       } else {
-        await expect(detail).toContainText("检查了 510 条聊天，发现 7 条有问题");
+        // ec1d1bfd: problems are "需检查"; ones Hub cannot fix say what further recovery needs.
+        await expect(detail).toContainText("检查了 510 条聊天，发现 7 条需检查：");
         await expect(detail).toContainText("→ 可以修复：从旧版复制过来");
+        await expect(detail).toContainText("→ 可以修复：换成新内容（旧内容另存一份）");
         await expect(detail).toContainText("（1 条已归档）");
-        await expect(detail).toContainText("→ 无法修复：对话内容只存在 Claude Code 那边");
+        await expect(detail).toContainText("当前 Claude Code 记录目录中未找到会话文件");
+        await expect(detail).toContainText("→ 需要进一步恢复：需检查旧目录、备份或隔离环境");
+        await expect(detail).toContainText("旧服务商未在当前配置中");
+        await expect(detail).not.toContainText("无法修复");
         await expect(detail.locator('button:has-text("修复 2 条")')).toBeVisible();
         await expect(detail).toContainText("同时找回在 Hub 里删掉的 1 条");
       }
@@ -599,11 +614,18 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
   await dismiss();
   await page.click('.account-tabs button[aria-label^="Anthropic"]');
   const card = (text: string) => page.locator(".account-card", { hasText: text });
-  await expect(card("me@example.com")).toContainText("当前登录");
+  // Since 0.11.8 the mock runs Claude Code on its own login (no relay or token bound), so the
+  // current login is the credential in use: 使用中, not 当前登录 (that is for a login that is
+  // signed in while a token or relay is used, see the in-use test with ?claudeUses=key).
+  const inUse = page.locator(".account-card.in-use");
+  await expect(inUse).toHaveCount(1);
+  await expect(inUse).toContainText("me@example.com");
+  await expect(card("me@example.com").locator(".tag.in-use")).toHaveText("使用中");
+  await expect(card("me@example.com")).not.toContainText("当前登录");
+  await expect(card("me@example.com")).toContainText("剩 58%");
+  await expect(card("me@example.com")).not.toContainText("切换到这个");
   await expect(card("工作号")).toContainText("剩 85%");
   await expect(card("工作号")).toContainText("切换到这个");
-  // The mock binds Claude Code to the 零号中转 relay: its login is signed in but not in use.
-  await expect(page.locator(".account-card.in-use")).toHaveCount(0);
   await expect(card("旧号")).toContainText("登录已失效");
   await expect(page.locator(".auto-switch")).toContainText("违反 Anthropic 的使用条款");
   await card("旧号").scrollIntoViewIfNeeded();
@@ -627,7 +649,7 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
   await dialog.locator('button:has-text("提交授权码")').click();
   await expect(dialog).toHaveCount(0, { timeout: 8000 });
   await expect(card("new@example.com")).toBeVisible();
-  await expect(card("me@example.com")).toContainText("当前登录");
+  await expect(card("me@example.com")).toContainText("使用中");
 
   // 从文件导入: a wrong file first, then Claude Code's .credentials.json.
   const pick = async (name: string, content: string) => {
@@ -657,7 +679,10 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
 
   // Switching is manual and per card.
   await card("工作号").locator('button:has-text("切换到这个")').click();
-  await expect(card("工作号")).toContainText("当前登录");
+  await expect(page.locator("#toast")).toContainText("新开的 Claude Code 对话生效");
+  await expect(inUse).toHaveCount(1);
+  await expect(card("工作号").locator(".tag.in-use")).toHaveText("使用中");
+  await expect(card("me@example.com")).toContainText("切换到这个");
 });
 
 // Grok (测试版, pages/mock.js): a weekly and a monthly account and one whose saved login expired;
