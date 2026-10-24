@@ -82,6 +82,14 @@ internal static class Program {
             string bin = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
             return BrandDialog.AskCodexRestart(Path.Combine(bin, "rly0-hub.ico"), english);
         }
+        // Design check of that question without the launcher: rendered off screen into a PNG.
+        // rly0-hub.exe --render-codex-restart <file.png> [zh|en] [stopped]
+        if (args.Length >= 2 && args[0] == "--render-codex-restart") {
+            bool english = args.Length >= 3 && args[2] == "en";
+            bool stopped = args.Length >= 4 && args[3] == "stopped";
+            string bin = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
+            return BrandDialog.RenderCodexRestart(Path.Combine(bin, "rly0-hub.ico"), english, stopped, Path.GetFullPath(args[1]));
+        }
         if (exit) {
             IntPtr target = FindWindow(null, ControlTitle);
             if (target != IntPtr.Zero) PostMessage(target, ExitMessage, IntPtr.Zero, IntPtr.Zero);
@@ -376,75 +384,220 @@ internal sealed class HubContext : ApplicationContext {
 }
 
 /// <summary>
-/// A small borderless dialog in RLY/0's style (dark surface, rounded corners, 阿零, one light
-/// primary button) for the launcher's questions, instead of the system's TaskDialog.
+/// The launcher's "Codex is already running" question in RLY/0's dialog style: an opaque ink
+/// surface with a 1px edge and rounded corners, 阿零, plain copy, one light primary button and a
+/// 3px brand-red focus ring. It opens centred over the Hub window when that is visible, otherwise
+/// centred on the monitor under the cursor, sized for the system DPI. Reopening Codex is the
+/// default: it happens after a short countdown unless the person stops it or picks another button.
+/// Exit codes: 10 restart Codex, 11 retry, 12 cancel.
 /// </summary>
 internal static class BrandDialog {
-    private static readonly Color Back = Color.FromArgb(30, 30, 26);
-    private static readonly Color Edge = Color.FromArgb(62, 62, 54);
-    private static readonly Color Ink = Color.FromArgb(245, 245, 240);
-    private static readonly Color Muted = Color.FromArgb(160, 160, 152);
-    private static readonly Color Paper = Color.FromArgb(233, 233, 227);
-    private static readonly Color Well = Color.FromArgb(46, 46, 40);
+    // RLY/0 tokens: ink-700 transient surface, ink-600 well, paper text, muted-dark, signal-500.
+    internal static readonly Color Back = Color.FromArgb(29, 29, 25);
+    internal static readonly Color Well = Color.FromArgb(38, 38, 31);
+    internal static readonly Color Edge = Color.FromArgb(58, 58, 53);
+    internal static readonly Color Ink = Color.FromArgb(245, 245, 240);
+    internal static readonly Color Paper = Color.FromArgb(233, 233, 227);
+    internal static readonly Color Muted = Color.FromArgb(152, 152, 145);
+    internal static readonly Color Signal = Color.FromArgb(184, 50, 32);
+    internal const int CountdownSeconds = 10;
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
     [DllImport("user32.dll")] private static extern bool ReleaseCapture();
     [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
+    [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
+
+    private sealed class DialogForm : Form {
+        protected override CreateParams CreateParams {
+            get { var p = base.CreateParams; p.ClassStyle |= 0x20000; return p; } // CS_DROPSHADOW
+        }
+    }
+
+    private sealed class Dialog {
+        internal Form Form;
+        internal int Result = 12;
+        internal Action Stop;
+    }
 
     internal static int AskCodexRestart(string iconPath, bool english) {
-        int result = 12;
-        string title = english ? "Codex is already running" : "Codex 已在运行";
-        string body = english
-            ? "This Codex was not started by RLY/0 Hub. To use RLY/0 Hub, Codex needs a restart. Your conversations are kept."
-            : "当前 Codex 不是由 RLY/0 Hub 启动的。要使用 RLY/0 Hub，需要重新启动一次 Codex，对话记录不会丢。";
-        using (var form = new Form()) {
-            float k;
-            using (var probe = form.CreateGraphics()) k = probe.DpiX / 96f;
-            Func<int, int> px = v => (int)Math.Round(v * k);
-            form.FormBorderStyle = FormBorderStyle.None;
-            form.StartPosition = FormStartPosition.CenterScreen;
-            form.BackColor = Back;
-            form.ClientSize = new Size(px(600), px(234));
-            form.ShowInTaskbar = true;
-            form.TopMost = true;
-            form.Text = "RLY/0 Hub";
-            form.KeyPreview = true;
-            form.Font = new Font("Microsoft YaHei UI", 10f);
-            try { form.Icon = new Icon(iconPath); } catch { }
-            form.Paint += delegate (object sender, PaintEventArgs e) {
-                using (var pen = new Pen(Edge)) e.Graphics.DrawRectangle(pen, 0, 0, form.ClientSize.Width - 1, form.ClientSize.Height - 1);
-            };
-            form.HandleCreated += delegate {
-                try { int round = 2; DwmSetWindowAttribute(form.Handle, 33, ref round, sizeof(int)); } catch { }
-            };
-            MouseEventHandler drag = delegate (object sender, MouseEventArgs e) {
-                if (e.Button != MouseButtons.Left) return;
-                ReleaseCapture();
-                SendMessage(form.Handle, 0xA1, (IntPtr)2, IntPtr.Zero); // move the window
-            };
-            form.MouseDown += drag;
+        var dialog = Build(iconPath, english, true);
+        Application.Run(dialog.Form);
+        return dialog.Result;
+    }
 
-            var picture = new PictureBox { Location = new Point(px(28), px(30)), Size = new Size(px(60), px(60)), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Back };
-            picture.Image = LargestIconFrame(iconPath);
-            picture.MouseDown += drag;
-            var heading = new Label { Text = title, ForeColor = Ink, BackColor = Back, Font = new Font("Microsoft YaHei UI", 15f, FontStyle.Bold), AutoSize = true, Location = new Point(px(108), px(28)) };
-            heading.MouseDown += drag;
-            var text = new Label { Text = body, ForeColor = Muted, BackColor = Back, Font = new Font("Microsoft YaHei UI", 10f), Location = new Point(px(110), px(70)), Size = new Size(px(460), px(72)) };
-            text.MouseDown += drag;
-            var close = Button(english ? "×" : "×", false, new Rectangle(px(556), px(12), px(32), px(32)));
-            close.Click += delegate { result = 12; form.Close(); };
-            var retry = Button(english ? "I've quit Codex, try again" : "我已退出，重试", false, new Rectangle(px(110), px(156), px(180), px(46)));
-            retry.Click += delegate { result = 11; form.Close(); };
-            var restart = Button(english ? "Restart Codex for me (recommended)" : "自动退出并重新启动（推荐）", true, new Rectangle(px(302), px(156), px(270), px(46)));
-            restart.Click += delegate { result = 10; form.Close(); };
-            form.Controls.AddRange(new Control[] { picture, heading, text, close, retry, restart });
-            form.KeyDown += delegate (object sender, KeyEventArgs e) {
-                if (e.KeyCode == Keys.Escape) { result = 12; form.Close(); }
-                else if (e.KeyCode == Keys.Enter) { result = 10; form.Close(); }
-            };
-            form.Shown += delegate { form.Activate(); restart.Focus(); };
-            Application.Run(form);
+    /// <summary>Design check without the launcher: draws the dialog into a PNG, off screen.</summary>
+    internal static int RenderCodexRestart(string iconPath, bool english, bool stopped, string output) {
+        var dialog = Build(iconPath, english, false);
+        var form = dialog.Form;
+        form.ShowInTaskbar = false;
+        form.Location = new Point(-32000, -32000);
+        form.Show();
+        if (stopped) dialog.Stop();
+        Application.DoEvents();
+        using (var bitmap = new Bitmap(form.Width, form.Height)) {
+            form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, form.Size));
+            bitmap.Save(output, System.Drawing.Imaging.ImageFormat.Png);
         }
-        return result;
+        form.Close();
+        return 0;
+    }
+
+    private static Dialog Build(string iconPath, bool english, bool live) {
+        var dialog = new Dialog();
+        // System DPI (the process is system-DPI aware), read without creating the form's handle so
+        // the manual position below is the one Windows uses.
+        float k;
+        using (var probe = Graphics.FromHwnd(IntPtr.Zero)) k = probe.DpiX / 96f;
+        Func<int, int> px = v => (int)Math.Round(v * k);
+
+        string title = english ? "Reopen Codex to use RLY/0 Hub" : "需要重新打开 Codex";
+        string body = english
+            ? "This Codex was not opened through RLY/0 Hub, so the Hub's accounts, relays and agents are not available in it. Reopening it once fixes that. Your conversations are kept; a reply in progress will stop."
+            : "现在的 Codex 不是通过 RLY/0 Hub 打开的，Hub 的账号切换、中转站和 AI 助手在里面都用不上。重新打开一次就好，对话记录都会保留；如果 Codex 正在回复，这一条会被中断。";
+        Func<int, string> countdown = s => english
+            ? "Reopening Codex automatically in " + s + " s"
+            : s + " 秒后自动重新打开 Codex";
+        string stoppedText = english ? "Automatic reopen stopped. Choose below." : "已停止自动重新打开，请在下面选择";
+
+        var form = new DialogForm();
+        dialog.Form = form;
+        var titleFont = new Font("Microsoft YaHei UI", 15f, FontStyle.Bold);
+        var bodyFont = new Font("Microsoft YaHei UI", 10.5f);
+        var smallFont = new Font("Microsoft YaHei UI", 9.75f);
+        var buttonFont = new Font("Microsoft YaHei UI", 10.5f, FontStyle.Bold);
+        form.FormBorderStyle = FormBorderStyle.None;
+        form.StartPosition = FormStartPosition.Manual;
+        form.AutoScaleMode = AutoScaleMode.None;
+        form.BackColor = Back;
+        form.ShowInTaskbar = true;
+        form.TopMost = true;
+        form.Text = "RLY/0 Hub";
+        form.AccessibleName = title;
+        form.KeyPreview = true;
+        form.Font = bodyFont;
+        try { form.Icon = new Icon(iconPath); } catch { }
+
+        int pad = px(28);
+        int ring = BrandButton.Ring(k);
+        var retry = new BrandButton(english ? "I closed Codex, try again" : "我已关闭 Codex，重试", BrandButton.Kind.Secondary, k) { Font = buttonFont };
+        var reopen = new BrandButton(english ? "Reopen Codex now (recommended)" : "立即重新打开（推荐）", BrandButton.Kind.Primary, k) { Font = buttonFont };
+        int reopenWidth = TextRenderer.MeasureText(reopen.Text, buttonFont).Width + px(40) + ring * 2;
+        int retryWidth = TextRenderer.MeasureText(retry.Text, buttonFont).Width + px(40) + ring * 2;
+        // Wide enough for both buttons on one row (English is longer).
+        int width = Math.Max(px(540), pad * 2 + reopenWidth + retryWidth + px(8) - ring * 2);
+        int textWidth = width - pad * 2;
+        MouseEventHandler drag = delegate (object sender, MouseEventArgs e) {
+            if (e.Button != MouseButtons.Left) return;
+            ReleaseCapture();
+            SendMessage(form.Handle, 0xA1, (IntPtr)2, IntPtr.Zero); // move the window
+        };
+        form.MouseDown += drag;
+
+        var picture = new PictureBox { Location = new Point(pad, pad), Size = new Size(px(44), px(44)), SizeMode = PictureBoxSizeMode.Zoom, BackColor = Back, AccessibleRole = AccessibleRole.Graphic, AccessibleName = "RLY/0" };
+        picture.Image = LargestIconFrame(iconPath);
+        picture.MouseDown += drag;
+        var heading = new Label { Text = title, ForeColor = Ink, BackColor = Back, Font = titleFont, AutoSize = false, UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft, Location = new Point(pad + px(58), pad), Size = new Size(textWidth - px(58) - px(40), px(44)) };
+        heading.MouseDown += drag;
+        var close = new BrandButton("×", BrandButton.Kind.Ghost, k) { Font = new Font("Microsoft YaHei UI", 13f), Bounds = new Rectangle(width - px(12) - px(44) - ring, px(12), px(44) + ring * 2, px(44) + ring * 2) };
+        close.AccessibleName = english ? "Close" : "关闭";
+        close.Click += delegate { dialog.Result = 12; form.Close(); };
+
+        int y = pad + px(44) + px(18);
+        int bodyHeight = TextRenderer.MeasureText(body, bodyFont, new Size(textWidth, int.MaxValue), TextFormatFlags.WordBreak).Height;
+        var text = new Label { Text = body, ForeColor = Muted, BackColor = Back, Font = bodyFont, UseMnemonic = false, Location = new Point(pad, y), Size = new Size(textWidth, bodyHeight + px(4)), AccessibleName = body };
+        text.MouseDown += drag;
+        y += text.Height + px(18);
+
+        // The countdown strip: a brand-red status dot plus the words (never colour alone), and a
+        // quiet button that stops it.
+        int strip = px(52);
+        var stripPanel = new Rectangle(pad, y, textWidth, strip);
+        var stop = new BrandButton(english ? "Don't reopen automatically" : "不要自动", BrandButton.Kind.Ghost, k) { Font = smallFont, BackColor = Well };
+        int stopWidth = TextRenderer.MeasureText(stop.Text, smallFont).Width + px(28) + ring * 2;
+        int stopHeight = px(36) + ring * 2;
+        stop.Bounds = new Rectangle(stripPanel.Right - stopWidth - px(4), y + (strip - stopHeight) / 2, stopWidth, stopHeight);
+        int seconds = CountdownSeconds;
+        bool running = true;
+        var status = new Label { Text = countdown(seconds), ForeColor = Ink, BackColor = Well, Font = smallFont, UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft, Location = new Point(pad + px(34), y + px(4)), Size = new Size(stop.Left - pad - px(34) - px(4), strip - px(8)), AccessibleRole = AccessibleRole.StatusBar, AccessibleName = countdown(seconds) };
+        y += strip + px(24);
+
+        int buttonHeight = px(44) + ring * 2;
+        reopen.Bounds = new Rectangle(width - pad - reopenWidth + ring, y - ring, reopenWidth, buttonHeight);
+        retry.Bounds = new Rectangle(reopen.Left - px(8) - retryWidth + ring * 2, y - ring, retryWidth, buttonHeight);
+        retry.Click += delegate { dialog.Result = 11; form.Close(); };
+        reopen.Click += delegate { dialog.Result = 10; form.Close(); };
+        form.ClientSize = new Size(width, y + px(44) + pad);
+
+        var timer = new System.Windows.Forms.Timer { Interval = 1000 };
+        dialog.Stop = delegate {
+            running = false;
+            timer.Stop();
+            status.Text = stoppedText;
+            status.AccessibleName = stoppedText;
+            stop.Visible = false;
+            status.Width = stripPanel.Right - status.Left - px(8);
+            form.Invalidate(stripPanel);
+        };
+        stop.Click += delegate { dialog.Stop(); reopen.Focus(); };
+        timer.Tick += delegate {
+            seconds--;
+            if (seconds <= 0) { timer.Stop(); dialog.Result = 10; form.Close(); return; }
+            status.Text = countdown(seconds);
+            status.AccessibleName = status.Text;
+        };
+
+        form.Paint += delegate (object sender, PaintEventArgs e) {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var path = Rounded(stripPanel, px(10))) using (var brush = new SolidBrush(Well)) g.FillPath(brush, path);
+            int dot = px(8);
+            var dotRect = new Rectangle(pad + px(16), stripPanel.Top + (strip - dot) / 2, dot, dot);
+            if (running) { using (var brush = new SolidBrush(Signal)) g.FillEllipse(brush, dotRect); }
+            else { using (var pen = new Pen(Muted, Math.Max(1f, k))) g.DrawEllipse(pen, dotRect); }
+            using (var pen = new Pen(Edge)) g.DrawRectangle(pen, 0, 0, form.ClientSize.Width - 1, form.ClientSize.Height - 1);
+        };
+        form.HandleCreated += delegate {
+            try { int round = 2; DwmSetWindowAttribute(form.Handle, 33, ref round, sizeof(int)); } catch { }
+        };
+        form.Controls.AddRange(new Control[] { picture, heading, close, text, status, stop, retry, reopen });
+        // Tab order: the recommended action first, then retry, stop, close.
+        reopen.TabIndex = 0; retry.TabIndex = 1; stop.TabIndex = 2; close.TabIndex = 3;
+        form.KeyDown += delegate (object sender, KeyEventArgs e) {
+            if (e.KeyCode == Keys.Escape) { dialog.Result = 12; form.Close(); }
+        };
+        form.FormClosed += delegate { timer.Dispose(); };
+        if (live) {
+            Center(form);
+            form.Shown += delegate {
+                form.Activate();
+                reopen.Focus();
+                timer.Start();
+            };
+        }
+        return dialog;
+    }
+
+    /// <summary>Centred over the visible Hub window, else on the monitor under the cursor.</summary>
+    private static void Center(Form form) {
+        Rectangle anchor;
+        Screen screen;
+        IntPtr hub = Program.FindWindow(null, "RLY/0 Hub");
+        NativeRect r;
+        if (hub != IntPtr.Zero && IsWindowVisible(hub) && !IsIconic(hub) && GetWindowRect(hub, out r) && r.Right > r.Left) {
+            anchor = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+            screen = Screen.FromRectangle(anchor);
+        } else {
+            screen = Screen.FromPoint(Cursor.Position);
+            anchor = screen.WorkingArea;
+        }
+        Rectangle area = screen.WorkingArea;
+        int x = anchor.Left + (anchor.Width - form.Width) / 2;
+        int y = anchor.Top + (anchor.Height - form.Height) / 2;
+        x = Math.Max(area.Left, Math.Min(x, area.Right - form.Width));
+        y = Math.Max(area.Top, Math.Min(y, area.Bottom - form.Height));
+        form.Location = new Point(x, y);
     }
 
     /// <summary>The icon's largest frame; PNG frames are decoded directly (Icon cannot).</summary>
@@ -466,32 +619,7 @@ internal static class BrandDialog {
         }
     }
 
-    private static Control Button(string label, bool primary, Rectangle bounds) {
-        var button = new Label {
-            Text = label,
-            Bounds = bounds,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Cursor = Cursors.Hand,
-            Font = new Font("Microsoft YaHei UI", label == "×" ? 13f : 10f, FontStyle.Bold),
-            ForeColor = primary ? Color.FromArgb(13, 13, 11) : Ink,
-            BackColor = Back,
-        };
-        bool hover = false;
-        button.MouseEnter += delegate { hover = true; button.Invalidate(); };
-        button.MouseLeave += delegate { hover = false; button.Invalidate(); };
-        button.Paint += delegate (object sender, PaintEventArgs e) {
-            var g = e.Graphics;
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Back);
-            Color fill = primary ? (hover ? Color.White : Paper) : (hover ? Color.FromArgb(58, 58, 51) : (label == "×" ? Back : Well));
-            var r = new Rectangle(0, 0, button.Width - 1, button.Height - 1);
-            using (var path = Rounded(r, 10)) using (var brush = new SolidBrush(fill)) g.FillPath(brush, path);
-            TextRenderer.DrawText(g, button.Text, button.Font, r, button.ForeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-        };
-        return button;
-    }
-
-    private static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int radius) {
+    internal static System.Drawing.Drawing2D.GraphicsPath Rounded(Rectangle r, int radius) {
         int d = radius * 2;
         var path = new System.Drawing.Drawing2D.GraphicsPath();
         path.AddArc(r.X, r.Y, d, d, 180, 90);
@@ -500,6 +628,77 @@ internal static class BrandDialog {
         path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
         path.CloseFigure();
         return path;
+    }
+}
+
+/// <summary>
+/// A focusable, keyboard-operable button drawn in RLY/0's style: primary = paper fill with ink
+/// text, secondary = transparent with a 40% paper edge, ghost = text only. Keyboard focus shows the
+/// 3px brand-red ring around it; Enter and Space press it.
+/// </summary>
+internal sealed class BrandButton : Control {
+    internal enum Kind { Primary, Secondary, Ghost }
+    private readonly Kind kind;
+    private readonly float k;
+    private bool hover, down;
+
+    /// <summary>Room kept around the button body for the focus ring.</summary>
+    internal static int Ring(float k) { return (int)Math.Round(5 * k); }
+
+    internal BrandButton(string text, Kind kind, float k) {
+        this.kind = kind;
+        this.k = k;
+        Text = text;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.Selectable | ControlStyles.StandardClick, true);
+        TabStop = true;
+        Cursor = Cursors.Hand;
+        BackColor = BrandDialog.Back;
+        AccessibleRole = AccessibleRole.PushButton;
+        AccessibleName = text;
+    }
+
+    protected override bool IsInputKey(Keys keyData) {
+        return keyData == Keys.Enter || keyData == Keys.Space || base.IsInputKey(keyData);
+    }
+    protected override void OnKeyDown(KeyEventArgs e) {
+        if (e.KeyCode == Keys.Enter || e.KeyCode == Keys.Space) { e.Handled = true; OnClick(EventArgs.Empty); return; }
+        base.OnKeyDown(e);
+    }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnMouseDown(MouseEventArgs e) { down = true; Focus(); Invalidate(); base.OnMouseDown(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { down = false; Invalidate(); base.OnMouseUp(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+    protected override void OnPaint(PaintEventArgs e) {
+        var g = e.Graphics;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.Clear(BackColor);
+        int ring = Ring(k);
+        var body = new Rectangle(ring, ring, Width - ring * 2 - 1, Height - ring * 2 - 1);
+        int radius = (int)Math.Round(10 * k);
+        Color text;
+        if (kind == Kind.Primary) {
+            Color fill = down ? Color.FromArgb(214, 214, 207) : hover ? BrandDialog.Ink : BrandDialog.Paper;
+            using (var path = BrandDialog.Rounded(body, radius)) using (var brush = new SolidBrush(fill)) g.FillPath(brush, path);
+            text = Color.FromArgb(13, 13, 11);
+        } else {
+            if (hover || down) {
+                int v = down ? 60 : 50;
+                using (var path = BrandDialog.Rounded(body, radius)) using (var brush = new SolidBrush(Color.FromArgb(v, v, v - 6))) g.FillPath(brush, path);
+            }
+            if (kind == Kind.Secondary) {
+                using (var path = BrandDialog.Rounded(body, radius)) using (var pen = new Pen(Color.FromArgb(102, 233, 233, 227), Math.Max(1f, k))) g.DrawPath(pen, path);
+            }
+            text = kind == Kind.Ghost && !hover && Text != "×" ? BrandDialog.Muted : BrandDialog.Ink;
+        }
+        if (Focused && ShowFocusCues) {
+            float w = 3f * k;
+            var outer = new Rectangle((int)Math.Ceiling(w / 2), (int)Math.Ceiling(w / 2), Width - (int)Math.Ceiling(w) - 1, Height - (int)Math.Ceiling(w) - 1);
+            using (var path = BrandDialog.Rounded(outer, radius + ring / 2)) using (var pen = new Pen(BrandDialog.Signal, w)) g.DrawPath(pen, path);
+        }
+        TextRenderer.DrawText(g, Text, Font, body, text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine);
     }
 }
 
