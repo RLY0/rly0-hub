@@ -4540,6 +4540,17 @@ select.input,
 .auto-switch.unsupported .who b {
   color: var(--muted-dark);
 }
+.auto-switch .who b .beta-tag {
+  margin-left: 8px;
+  vertical-align: 1px;
+}
+/* The one-time terms-risk confirmation before Claude / Grok auto-switch is turned on. */
+.risk-text {
+  color: var(--warn);
+  font-size: 14.5px;
+  line-height: 1.65;
+  margin: 0 0 8px;
+}
 
 /* Quota tiles that cannot show a number: 未知 / 不支持, an empty bar and the reason. */
 .reset-cards.unknown .reset-card.none b {

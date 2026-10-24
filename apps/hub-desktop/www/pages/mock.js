@@ -226,6 +226,11 @@ window.hubManagementMock = (() => {
   const isolatedLogins = new Set();
   // Synthetic reset protocol for this browser-only preview. Never reached by the real bridge.
   const resetRequests = new Set();
+  // Claude / Grok auto-switch (agent-auto-switch.ts): off and unconfirmed until turned on.
+  const agentAutoSwitch = {
+    claude: { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask", riskAccepted: false },
+    grok: { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask", riskAccepted: false },
+  };
   // Synthetic no-account switch (pages/no-account.js); nothing is written anywhere.
   const noAccount = { enabled: false, model: null };
   const noAccountModels = ["gpt-6-astra", "gpt-5.5"];
@@ -816,6 +821,26 @@ window.hubManagementMock = (() => {
             ? { installed: true, usage: agyUsage(), checkedAt: at(0) }
             : { ...agyState, error: "TIMEOUT", checkedAt: at(0) };
         return { ...agyState, __delay: 600 };
+      case "agents.autoSwitch.get":
+        return agentAutoSwitch[p.agent]
+          ? { ...agentAutoSwitch[p.agent] }
+          : { __error: "INVALID_PARAMS" };
+      case "agents.autoSwitch.set": {
+        const before = agentAutoSwitch[p.agent];
+        if (!before) return { __error: "INVALID_PARAMS" };
+        const riskAccepted = before.riskAccepted || p.acceptRisk === true;
+        if (p.enabled && !riskAccepted) return { __error: "AUTO_SWITCH_RISK_NOT_ACCEPTED" };
+        agentAutoSwitch[p.agent] = {
+          enabled: p.enabled,
+          remain5h: p.remain5h,
+          remainWeekly: p.remainWeekly,
+          mode: p.mode,
+          riskAccepted,
+        };
+        return { ...agentAutoSwitch[p.agent] };
+      }
+      case "agents.autoSwitch.apply":
+        return { switched: true, deferred: false };
       // `?claudeUses=key`: Claude Code bound to the saved setup-token (AI 助手 → 使用).
       case "agents.relays.get":
         return { claudeCode: selectedClaudeKey, agents: {} };

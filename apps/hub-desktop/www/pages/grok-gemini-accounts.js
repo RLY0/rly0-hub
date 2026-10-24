@@ -2,8 +2,8 @@
 // 账号 page, xAI · Grok and Google · Gemini tabs (same layout as the Codex and Claude tabs,
 // pages/account-cards.js). Both are 测试版: not yet tried with real accounts.
 // - Grok: saved Grok CLI accounts (copies of its auth.json kept by rly0-core): quota, manual
-//   switch, rename, remove; add by `grok login` in a throw-away folder, an auth.json file, or the
-//   official xAI API key.
+//   switch and the opt-in auto-switch, rename, remove; add by `grok login` in a throw-away
+//   folder, an auth.json file, or the official xAI API key.
 // - Gemini: Antigravity keeps one login in the system keyring, shared with the Antigravity App and
 //   IDE extensions, so the Hub cannot save or switch accounts there. It shows the current login's
 //   quota from Antigravity's own /usage, read only when asked.
@@ -115,7 +115,11 @@ window.registerHubGrokGeminiAccounts = (
         { class: "grid compact account-auto" },
         cards.autoSwitchCard({
           alive,
-          reason: "Grok 账号只能手动切换：不提供自动轮换多个订阅账号。",
+          agent: "grok",
+          vendor: "xAI",
+          sub: "低于阈值时切到额度最多的已保存 Grok 账号；新的对话就用它，不用重启",
+          windows: [["remainWeekly", "每周 / 每月额度", "额度阈值"]],
+          beta: "还没用真实 Grok 账号验证过自动切换；切换方式和「切换到这个」一样，替换 Grok 的登录文件。",
         }),
       ),
       list,

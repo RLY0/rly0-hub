@@ -282,17 +282,71 @@ window.registerHubAccountCards = ({
   }
 
   /* ---------- Auto switch ---------- */
-  // Switch before the current account runs out (AiMaMi's 自动切换). Off by default. Only the
-  // Codex accounts have it; other tabs pass `reason` and get the same card, switched off.
-  function autoSwitchCard({ alive, reason }) {
+  // Switch before the current account runs out (AiMaMi's 自动切换). Off by default. Codex uses
+  // `accounts.autoSwitch*`; Claude and Grok pass `agent` (`agents.autoSwitch.*`, per agent) and
+  // their own wording, and turning theirs on needs a one-time confirmation of the terms risk
+  // (`vendor` names whose terms). A tab that cannot switch passes `reason` and gets the same card,
+  // switched off.
+  const CODEX_WINDOWS = [
+    ["remain5h", "5 小时额度", "5 小时阈值"],
+    ["remainWeekly", "每周额度", "每周阈值"],
+  ];
+  function riskDialog(vendor, onConfirm) {
+    const ui = window.HubUI.dialog({
+      title: "开启自动切换账号？",
+      sub: `${vendor} 的使用条款风险`,
+    });
+    const confirm = h("button", { class: "btn red", type: "button" }, "确定开启");
+    confirm.addEventListener("click", () => {
+      confirm.disabled = true;
+      ui.close();
+      onConfirm();
+    });
+    put(
+      ui.body,
+      h(
+        "p",
+        { class: "risk-text" },
+        `自动在多个订阅账号之间轮换来绕开额度限制，可能违反 ${vendor} 的使用条款，存在账号被限制或封禁的风险。确定开启吗？`,
+      ),
+      h("p", { class: "sub" }, "只问这一次；之后可以随时在这里关掉。"),
+    );
+    put(
+      ui.foot,
+      h("span", { class: "spacer" }),
+      h("button", { class: "btn quiet", type: "button", onclick: () => ui.close() }, "取消"),
+      confirm,
+    );
+  }
+
+  function autoSwitchCard({
+    alive,
+    reason,
+    agent,
+    vendor,
+    sub = "低于阈值时切到额度最多的已保存账号，自动生效，不用手动重启",
+    windows = CODEX_WINDOWS,
+    beta,
+  }) {
     const card = h("section", {
       class: `m tone span-6 auto-switch ${reason ? "unsupported" : ""}`,
+      ...(agent ? { "data-agent": agent } : {}),
     });
-    const head = (toggle, sub) =>
+    const head = (toggle, text) =>
       h(
         "div",
         { class: "row" },
-        h("div", { class: "who" }, h("b", null, "额度快用完时自动切换账号"), h("span", null, sub)),
+        h(
+          "div",
+          { class: "who" },
+          h(
+            "b",
+            null,
+            "额度快用完时自动切换账号",
+            beta ? h("span", { class: "tag beta-tag", "data-tip": beta }, "测试版") : null,
+          ),
+          h("span", null, text),
+        ),
         toggle,
       );
     if (reason) {
@@ -309,8 +363,14 @@ window.registerHubAccountCards = ({
       put(card, head(toggle, "暂不支持"), h("p", { class: "sub quota-note" }, reason));
       return card;
     }
+    const get = () =>
+      agent ? call("agents.autoSwitch.get", { agent }) : call("accounts.autoSwitchGet");
+    const set = (params) =>
+      agent
+        ? call("agents.autoSwitch.set", { agent, ...params })
+        : call("accounts.autoSwitchSet", params);
     async function load() {
-      const settings = await call("accounts.autoSwitchGet").catch(() => null);
+      const settings = await get().catch(() => null);
       if (!alive() || !settings) return;
       const percentSelect = (value, label) =>
         h(
@@ -320,25 +380,32 @@ window.registerHubAccountCards = ({
             h("option", { value: String(n), selected: n === value }, `剩 ${n}%`),
           ),
         );
-      const h5 = percentSelect(settings.remain5h, "5 小时阈值");
-      const weekly = percentSelect(settings.remainWeekly, "每周阈值");
+      const selects = windows.map(([key, , label]) => [key, percentSelect(settings[key], label)]);
       const mode = h(
         "select",
         { class: "input compact-select", "aria-label": "切换方式" },
         h("option", { value: "ask", selected: settings.mode === "ask" }, "先提醒我"),
         h("option", { value: "auto", selected: settings.mode === "auto" }, "直接切换，自动生效"),
       );
-      const save = (enabled) =>
-        call("accounts.autoSwitchSet", {
+      const save = (enabled, extra = {}) =>
+        set({
           enabled,
-          remain5h: Number(h5.value),
-          remainWeekly: Number(weekly.value),
+          remain5h: settings.remain5h,
+          remainWeekly: settings.remainWeekly,
+          ...Object.fromEntries(selects.map(([key, select]) => [key, Number(select.value)])),
           mode: mode.value,
+          ...extra,
         }).then((next) => {
           toast(next.enabled ? "自动切换已开启" : "设置已保存");
           load();
         }, failed);
-      for (const select of [h5, weekly, mode])
+      const toggle = () => {
+        if (settings.enabled) return save(false);
+        if (agent && !settings.riskAccepted)
+          return riskDialog(vendor, () => save(true, { acceptRisk: true }));
+        return save(true);
+      };
+      for (const select of [...selects.map(([, select]) => select), mode])
         select.addEventListener("change", () => save(settings.enabled));
       put(
         card,
@@ -349,17 +416,30 @@ window.registerHubAccountCards = ({
             role: "switch",
             "aria-checked": String(settings.enabled),
             "aria-label": "自动切换账号",
-            onclick: () => save(!settings.enabled),
+            onclick: toggle,
           }),
-          "低于阈值时切到额度最多的已保存账号，自动生效，不用手动重启",
+          sub,
         ),
         h(
           "div",
           { class: "row auto-switch-fields" },
-          h("label", { class: "field" }, h("span", null, "5 小时额度"), h5),
-          h("label", { class: "field" }, h("span", null, "每周额度"), weekly),
+          selects.map(([key, select]) =>
+            h(
+              "label",
+              { class: "field" },
+              h("span", null, windows.find((w) => w[0] === key)[1]),
+              select,
+            ),
+          ),
           h("label", { class: "field" }, h("span", null, "到阈值时"), mode),
         ),
+        agent
+          ? h(
+              "p",
+              { class: "sub quota-note" },
+              `不会切到额度读不到的账号；正在回复时等它结束再切换。自动轮换订阅账号可能违反 ${vendor} 的使用条款。`,
+            )
+          : null,
       );
     }
     load();

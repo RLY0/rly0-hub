@@ -3,6 +3,12 @@ import path from "node:path";
 
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { cleanAlertSettings, type Rly0AlertSettings } from "./alerts.js";
+import {
+  cleanAgentAutoSwitchMap,
+  cleanAgentRecord,
+  type Rly0AgentAutoSwitchSettings,
+  type Rly0AutoSwitchAgent,
+} from "./agent-auto-switch.js";
 import { cleanAutoSwitchSettings, type Rly0AutoSwitchSettings } from "./auto-switch.js";
 
 export const RLY0_HUB_STATE_FILE = "hub-desktop.json";
@@ -21,6 +27,12 @@ export interface Rly0HubState {
   readonly autoSwitch?: Rly0AutoSwitchSettings;
   /** Account, window and reset time an auto-switch notice or switch was made for. */
   readonly autoSwitchHandledFor?: string;
+  /** Claude / Grok auto-switch (agent-auto-switch.ts); each off until turned on and confirmed. */
+  readonly agentAutoSwitch?: Partial<Record<Rly0AutoSwitchAgent, Rly0AgentAutoSwitchSettings>>;
+  /** Per agent: credential, window and reset time a notice or switch was made for. */
+  readonly agentAutoSwitchHandled?: Partial<Record<Rly0AutoSwitchAgent, string>>;
+  /** Per agent: when the last automatic switch happened (ms), for the cooldown. */
+  readonly agentAutoSwitchAt?: Partial<Record<Rly0AutoSwitchAgent, number>>;
   /** Tray-notice thresholds; defaults when absent. */
   readonly alerts?: Rly0AlertSettings;
   /** Hub version a tray "update available" notice was shown for. */
@@ -39,6 +51,25 @@ function clean(value: unknown): Rly0HubState {
       : {}),
     ...(raw.autoSwitch !== undefined
       ? { autoSwitch: cleanAutoSwitchSettings(raw.autoSwitch) }
+      : {}),
+    ...(raw.agentAutoSwitch !== undefined
+      ? { agentAutoSwitch: cleanAgentAutoSwitchMap(raw.agentAutoSwitch) }
+      : {}),
+    ...(raw.agentAutoSwitchHandled !== undefined
+      ? {
+          agentAutoSwitchHandled: cleanAgentRecord(
+            raw.agentAutoSwitchHandled,
+            (v): v is string => typeof v === "string" && v.length <= 200,
+          ),
+        }
+      : {}),
+    ...(raw.agentAutoSwitchAt !== undefined
+      ? {
+          agentAutoSwitchAt: cleanAgentRecord(
+            raw.agentAutoSwitchAt,
+            (v): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0,
+          ),
+        }
       : {}),
     ...(raw.alerts !== undefined ? { alerts: cleanAlertSettings(raw.alerts) } : {}),
     ...(typeof raw.updateNotifiedFor === "string" && raw.updateNotifiedFor.length <= 40

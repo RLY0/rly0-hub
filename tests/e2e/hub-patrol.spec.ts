@@ -627,13 +627,20 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
   await expect(card("工作号")).toContainText("剩 85%");
   await expect(card("工作号")).toContainText("切换到这个");
   await expect(card("旧号")).toContainText("登录已失效");
-  await expect(page.locator(".auto-switch")).toContainText("违反 Anthropic 的使用条款");
+  // Auto-switch is offered (off) with the terms risk spelled out; see the auto-switch test.
+  await expect(page.locator(".auto-switch")).toContainText("可能违反 Anthropic 的使用条款");
+  await expect(page.locator('.auto-switch button[role="switch"]')).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
   await card("旧号").scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(dir, "cards.png") });
 
-  // 网页登录 → dialog → paste a code → saved.
+  // 网页登录 → dialog → paste a code → saved. Back to the top first: scrolling closes menus.
   await dismiss();
+  await page.locator("#page").evaluate((element) => element.scrollTo(0, 0));
+  await page.waitForTimeout(200);
   await page.click('button.menu-trigger:has-text("+ 添加")');
   await page.click('.menu-item:has-text("网页登录")');
   const dialog = page.locator('.dialog-backdrop.show .dialog[aria-label="添加 Claude 账号"]');
@@ -654,6 +661,8 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
   // 从文件导入: a wrong file first, then Claude Code's .credentials.json.
   const pick = async (name: string, content: string) => {
     await dismiss();
+    await page.locator("#page").evaluate((element) => element.scrollTo(0, 0));
+    await page.waitForTimeout(200);
     await page.click('button.menu-trigger:has-text("+ 添加")');
     const chooser = page.waitForEvent("filechooser");
     await page.click('.menu-item:has-text("从文件导入")');
@@ -708,13 +717,14 @@ test("grok accounts: cards, expired login, add by web login, import from file", 
   mkdirSync(dir, { recursive: true });
   const dismiss = await openAccountsTab(page, "xAI");
   const card = (text: string) => page.locator(".account-card", { hasText: text });
-  await expect(page.locator(".beta-tag")).toHaveText("测试版");
+  await expect(page.locator(".account-head .beta-tag")).toHaveText("测试版");
   await expect(card("me@example.com")).toContainText("使用中");
   await expect(card("me@example.com")).toContainText("每周额度");
   await expect(card("SuperGrok 号")).toContainText("每月额度");
   await expect(card("SuperGrok 号")).toContainText("剩 36%");
   await expect(card("旧号")).toContainText("切换一次即可更新额度");
-  await expect(page.locator(".auto-switch")).toContainText("只能手动切换");
+  await expect(page.locator(".auto-switch .beta-tag")).toHaveText("测试版");
+  await expect(page.locator(".auto-switch")).toContainText("每周 / 每月额度");
   await card("旧号").scrollIntoViewIfNeeded();
   await page.waitForTimeout(600);
   await page.screenshot({ path: path.join(dir, "cards.png"), fullPage: true });
@@ -736,6 +746,8 @@ test("grok accounts: cards, expired login, add by web login, import from file", 
 
   const pick = async (name: string, content: string) => {
     await dismiss();
+    await page.locator("#page").evaluate((element) => element.scrollTo(0, 0));
+    await page.waitForTimeout(200);
     await page.click('button.menu-trigger:has-text("+ 添加")');
     const chooser = page.waitForEvent("filechooser");
     await page.click('.menu-item:has-text("从文件导入")');
@@ -757,6 +769,76 @@ test("grok accounts: cards, expired login, add by web login, import from file", 
   await page.screenshot({ path: path.join(dir, "after-switch.png"), fullPage: true });
 });
 
+// Claude and Grok auto-switch (agent-auto-switch.ts, pages/account-cards.js): off by default, the
+// same controls as Codex, and a one-time terms-risk confirmation before the first turn-on.
+test("auto-switch: Claude and Grok need a one-time confirmation, Gemini stays off", async ({
+  page,
+}) => {
+  const dir = path.join(runDir, "auto-switch");
+  mkdirSync(dir, { recursive: true });
+  for (const [tab, agent, vendor, fields] of [
+    ["Anthropic", "claude", "Anthropic", ["5 小时额度", "每周额度", "到阈值时"]],
+    ["xAI", "grok", "xAI", ["每周 / 每月额度", "到阈值时"]],
+  ] as const) {
+    const dismiss = await openAccountsTab(page, tab);
+    const card = page.locator(`.auto-switch[data-agent="${agent}"]`);
+    const toggle = card.locator('button[role="switch"]');
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(toggle).not.toHaveAttribute("aria-disabled", "true");
+    await expect(card).toContainText("额度快用完时自动切换账号");
+    for (const field of fields)
+      await expect(card.locator(".field", { hasText: field })).toBeVisible();
+    await expect(card.locator('select[aria-label="切换方式"]')).toHaveValue("ask");
+    await expect(card.locator('select[aria-label="切换方式"] option')).toHaveText([
+      "先提醒我",
+      "直接切换，自动生效",
+    ]);
+    await expect(card).toContainText("不会切到额度读不到的账号");
+    if (agent === "grok") await expect(card.locator(".beta-tag")).toHaveText("测试版");
+    await card.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: path.join(dir, `${agent}-off.png`) });
+
+    // First turn-on: the risk in plain words; 取消 leaves it off.
+    await dismiss();
+    await toggle.click();
+    const dialog = page.locator('.dialog-backdrop.show .dialog[aria-label="开启自动切换账号？"]');
+    await expect(dialog).toContainText(
+      `自动在多个订阅账号之间轮换来绕开额度限制，可能违反 ${vendor} 的使用条款，存在账号被限制或封禁的风险。确定开启吗？`,
+    );
+    await page.waitForTimeout(400);
+    await dialog.screenshot({ path: path.join(dir, `${agent}-confirm.png`) });
+    await dialog.locator('button:has-text("取消")').click();
+    await expect(dialog).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+
+    await toggle.click();
+    await dialog.locator('button:has-text("确定开启")').click();
+    await expect(page.locator("#toast")).toContainText("自动切换已开启");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    // The threshold and action controls save on change, like Codex's.
+    await card.locator('select[aria-label="切换方式"]').selectOption("auto");
+    await expect(card.locator('select[aria-label="切换方式"]')).toHaveValue("auto");
+    // Off and on again: the confirmation is remembered, no second dialog.
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(page.locator(".dialog-backdrop.show")).toHaveCount(0);
+    await expect(card.locator('select[aria-label="切换方式"]')).toHaveValue("auto");
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: path.join(dir, `${agent}-on.png`) });
+  }
+
+  await openAccountsTab(page, "Google");
+  const gemini = page.locator(".auto-switch");
+  await expect(gemini).toHaveClass(/unsupported/u);
+  await expect(gemini.locator('button[role="switch"]')).toHaveAttribute("aria-disabled", "true");
+  await gemini.locator('button[role="switch"]').click({ force: true });
+  await expect(page.locator(".dialog-backdrop.show")).toHaveCount(0);
+  await page.screenshot({ path: path.join(dir, "gemini-off.png") });
+});
+
 // Gemini (测试版): Antigravity keeps one shared keyring login, so no accounts; its /usage quota is
 // read only on request, and a later failure keeps the last numbers.
 test("gemini: current Antigravity login quota on request, multi-account unsupported", async ({
@@ -768,7 +850,13 @@ test("gemini: current Antigravity login quota on request, multi-account unsuppor
   const card = page.locator(".account-card", { hasText: "Antigravity 当前登录" });
   await expect(page.locator(".beta-tag")).toHaveText("测试版");
   await expect(card).toContainText("点右上角刷新");
+  // Antigravity cannot keep accounts: the auto-switch card stays off with the reason.
   await expect(page.locator(".auto-switch")).toContainText("系统钥匙串");
+  await expect(page.locator(".auto-switch")).toContainText("暂不支持");
+  await expect(page.locator('.auto-switch button[role="switch"]')).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
   await expect(page.locator('button:has-text("保存当前登录")')).toHaveAttribute(
     "aria-disabled",
     "true",

@@ -91,6 +91,9 @@ import {
   decideAutoSwitch,
   RLY0_AUTO_SWITCH_DEFAULTS,
 } from "./auto-switch.js";
+import type { Rly0AgentAutoSwitchDeps } from "./agent-auto-switch.js";
+import { createAgentAutoSwitch } from "./agent-auto-switch-routes.js";
+import { createAgentAutoSwitchSources } from "./agent-auto-switch-sources.js";
 import { codexApplyParams, Rly0CodexApplier } from "./codex-apply.js";
 import { Rly0CodexControl } from "./codex-control.js";
 import { noAccountStatus, relayCodexModels } from "./no-account.js";
@@ -155,6 +158,10 @@ export interface Rly0HubServiceOptions {
   readonly openUrl?: (url: string) => void;
   /** "Add account" sign-ins; built from `core` when omitted. */
   readonly addLogin?: Rly0HubAddLogin;
+  /** Claude / Grok auto-switch timing and busy signal (tests); the Codex heartbeat otherwise. */
+  readonly agentAutoSwitch?: Partial<
+    Pick<Rly0AgentAutoSwitchDeps, "busy" | "now" | "sleep" | "pollMs" | "maxWaitMs">
+  >;
 }
 
 export function isRly0Relay(relay: Pick<Rly0Relay, "baseUrl">): boolean {
@@ -235,6 +242,7 @@ export class Rly0HubService {
   readonly #codexConfig: Rly0RelayCodexConfigManager;
   readonly #addLogin: Rly0HubAddLogin;
   readonly #applier: Rly0CodexApplier;
+  readonly #agentSwitch: ReturnType<typeof createAgentAutoSwitch>;
   readonly #relayLogos = new Map<
     string,
     Promise<{ logo: string | null; siteName: string | null }>
@@ -322,6 +330,18 @@ export class Rly0HubService {
       ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#state = new Rly0HubStateStore(environment);
+    const agentSources = createAgentAutoSwitchSources({
+      core: this.#core,
+      claudeSelection: async () => (await this.#agentRelays.get()).claudeCode ?? null,
+      recordTokenUsage: (relay, info) => this.#officialUsage.record(relay, info),
+      handle: (method, params) => this.handle(method, params),
+    });
+    this.#agentSwitch = createAgentAutoSwitch(this.#state, {
+      candidates: agentSources.candidates,
+      switchTo: agentSources.switchTo,
+      busy: () => codexHeartbeatBusy(dataDirectory),
+      ...options.agentAutoSwitch,
+    });
     this.#codexConfig = new Rly0RelayCodexConfigManager({ environment });
     this.#addLogin =
       options.addLogin ??
@@ -402,8 +422,19 @@ export class Rly0HubService {
       });
       next = { ...state, updateNotifiedFor: update.latestVersion };
     }
-    if (JSON.stringify(next) !== JSON.stringify(before)) await this.#state.update(next);
-    return { alerts: [...(switching?.alert ? [switching.alert] : []), ...alerts, ...extra] };
+    // Only what changed here: the Claude / Grok auto-switch writes its own keys meanwhile.
+    const changed = Object.fromEntries(
+      Object.entries(next).filter(
+        ([key, value]) =>
+          JSON.stringify(value) !== JSON.stringify(before[key as keyof Rly0HubState]),
+      ),
+    );
+    if (Object.keys(changed).length) await this.#state.update(changed);
+    // Claude / Grok keep their own state, written after the Codex part above.
+    const agents = await this.#agentSwitch.switcher.check().catch(() => []);
+    return {
+      alerts: [...(switching?.alert ? [switching.alert] : []), ...agents, ...alerts, ...extra],
+    };
   }
 
   #updater: Rly0HubUpdater | null = null;
@@ -847,6 +878,7 @@ export class Rly0HubService {
           return settings;
         },
       ),
+      ...this.#agentSwitch.routes,
       "relay.noAccountStatus": route(empty, async () => {
         const relays = await core.listRelays();
         return noAccountStatus(this.#codexConfig, relays.available ? relays.relays : []);

@@ -140,7 +140,7 @@ internal sealed class HubContext : ApplicationContext {
     private readonly Control dispatch = new Control();
     private readonly System.Windows.Forms.Timer balanceTimer = new System.Windows.Forms.Timer();
     private readonly System.Windows.Forms.Timer alertTimer = new System.Windows.Forms.Timer();
-    private string balloonAction, balloonAccount;
+    private string balloonAction, balloonAccount, balloonAgent;
     private readonly string webviewData;
     private ChildJob job;
     private Process worker;
@@ -191,6 +191,14 @@ internal sealed class HubContext : ApplicationContext {
         tray.BalloonTipClicked += delegate {
             if (balloonAction == "recharge") SendInternal("links.open", new Dictionary<string, object> { { "target", "recharge" } }, null);
             else if (balloonAction == "open") ShowPanel();
+            else if (balloonAction == "switch" && balloonAccount != null && balloonAgent != null)
+                // Claude / Grok: the credential new requests use; a running reply finishes first.
+                SendInternal("agents.autoSwitch.apply", new Dictionary<string, object> { { "agent", balloonAgent }, { "id", balloonAccount } }, delegate (Dictionary<string, object> r) {
+                    object switched, deferred;
+                    bool ok = r != null && r.TryGetValue("switched", out switched) && switched is bool && (bool)switched;
+                    bool later = r != null && r.TryGetValue("deferred", out deferred) && deferred is bool && (bool)deferred;
+                    tray.ShowBalloonTip(4000, "RLY/0 Hub", ok ? "已切换账号，新的请求就用它。" : later ? "等当前回复结束后就切换。" : "切换没有成功，请在 Hub 的账号页重试。", ToolTipIcon.None);
+                });
             else if (balloonAction == "switch" && balloonAccount != null)
                 SendInternal("accounts.switchAndRestart", new Dictionary<string, object> { { "id", balloonAccount } }, delegate (Dictionary<string, object> r) {
                     object switched, reloaded;
@@ -200,6 +208,7 @@ internal sealed class HubContext : ApplicationContext {
                 });
             balloonAction = null;
             balloonAccount = null;
+            balloonAgent = null;
         };
         if (!background) ShowPanel();
     }
@@ -228,20 +237,21 @@ internal sealed class HubContext : ApplicationContext {
         SendInternal("alerts.check", null, delegate (Dictionary<string, object> result) {
             object list;
             if (result == null || !result.TryGetValue("alerts", out list) || !(list is System.Collections.ArrayList)) return;
-            var titles = new List<string>(); var bodies = new List<string>(); string first = null, account = null;
+            var titles = new List<string>(); var bodies = new List<string>(); string first = null, account = null, agent = null;
             foreach (object item in (System.Collections.ArrayList)list) {
                 var alert = item as Dictionary<string, object>;
                 if (alert == null) continue;
-                object title, body, action, accountId;
+                object title, body, action, accountId, agentId;
                 alert.TryGetValue("title", out title); alert.TryGetValue("body", out body); alert.TryGetValue("action", out action);
-                alert.TryGetValue("accountId", out accountId);
-                if (first == null) { first = Convert.ToString(action); account = accountId as string; }
+                alert.TryGetValue("accountId", out accountId); alert.TryGetValue("agent", out agentId);
+                if (first == null) { first = Convert.ToString(action); account = accountId as string; agent = agentId as string; }
                 titles.Add(Convert.ToString(title)); bodies.Add(Convert.ToString(title) + "：" + Convert.ToString(body));
             }
             if (titles.Count == 0) return;
             // Every notice is shown now: the service already remembered them as said.
             balloonAction = first;
             balloonAccount = account != null && System.Text.RegularExpressions.Regex.IsMatch(account, "^[0-9a-f]{12}$") ? account : null;
+            balloonAgent = agent == "claude" || agent == "grok" ? agent : null;
             if (titles.Count == 1) tray.ShowBalloonTip(8000, titles[0], bodies[0].Substring(titles[0].Length + 1), ToolTipIcon.None);
             else tray.ShowBalloonTip(8000, "RLY/0 Hub 提醒", string.Join(Environment.NewLine, bodies), ToolTipIcon.None);
         });

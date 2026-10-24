@@ -12,6 +12,8 @@ export interface Rly0HubAlert {
   /** What clicking the notice does: recharge, open the Hub, or switch to `accountId`. */
   readonly action: "recharge" | "open" | "switch";
   readonly accountId?: string;
+  /** Claude / Grok auto-switch notices: whose account `accountId` is (absent: Codex). */
+  readonly agent?: "claude" | "grok";
 }
 
 /** The person's own tray-notice thresholds (设置 → 通用). */

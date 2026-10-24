@@ -100,3 +100,14 @@ core 在账号存储目录用 DPAPI 加密保存使用账本，POST 前必须落
 卡片上的“使用”只在张数大于 0 时可点；0 张时按钮禁用并写明原因，张数未知时显示“核实”。点“使用”只打开确认框（不消耗），框内写明账号、消耗 1 张（现有/用后张数）、要重置的额度窗口及当前剩余，焦点默认在“取消”；确认后显示进度和结果，成功后刷新额度。首页当前账号已保存时同样提供这个入口。
 
 使用后查询真实额度；刷新失败保留提示，不能以消费接口成功替代额度到账证明。Claude 的 Code OAuth/Setup Token 不等于浏览器登录，Hub 仅通过固定 `https://claude.ai/settings/usage` 打开官方重置入口，提示核对网页账号；这不称为 Hub 内直接消费，也不显示未经验证的张数。[Claude 官方说明](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset) 当前将重置使用限定在网页/Claude Desktop。Gemini/Grok 全部可在 Hub 直接重置仍未完成。
+
+## 额度快用完时自动切换账号
+
+账号页每个服务商标签都有同一张“额度快用完时自动切换账号”卡片（`pages/account-cards.js` 的 `autoSwitchCard`），全部默认关闭，阈值与“到阈值时（先提醒我 / 直接切换）”控件相同。托盘每 5 分钟的 `alerts.check` 顺带检查，提醒复用托盘气泡。
+
+- Codex：`accounts.autoSwitchGet/Set`（`auto-switch.ts`），见上文账号切换；切换后原地换后台或重启。
+- Claude / Grok：`agents.autoSwitch.get/set/apply`（`agent-auto-switch.ts` 判定与执行，`agent-auto-switch-sources.ts` 取候选与切换，`agent-auto-switch-routes.ts` 路由与按智能体保存在 `hub-desktop.json` 的 `agentAutoSwitch`）。第一次打开要在确认框里确认“自动轮换订阅账号可能违反 Anthropic / xAI 使用条款、有被限制或封禁的风险”（`acceptRisk`，记为 `riskAccepted`，之后再开不再询问）；未确认时服务拒绝开启（`AUTO_SWITCH_RISK_NOT_ACCEPTED`），文件里的 `enabled` 没有确认也视为关闭。
+  - Claude 候选：已保存的 Claude 账号 + 已保存的订阅令牌（`officialKeys`，API Key 没有额度不参与）。正在用的凭据由 AI 助手的中转绑定决定：未绑定时是当前登录的账号，绑定到某个订阅令牌时是该令牌，绑定到其他中转时不检查。切换走页面同一路径：账号用 `agents.claudeAccounts.switch`（并清除绑定），令牌用 `agents.officialKeys.select`。窗口：5 小时（`primary`）与每周（`secondary`）。
+  - Grok（测试版）：已保存的 Grok 账号，当前登录即正在用的；一个额度窗口（`weekly` / `monthly` / `credits`）按“每周 / 每月额度”阈值判断，切换用 `agents.grokAccounts.switch`。
+  - Gemini（Antigravity）：登录只有系统钥匙串里与桌面版共用的一份，卡片保持关闭并写明原因。
+- 规则：平时只读正在用的凭据的额度；低于阈值时再刷新全部候选，只在本次读到额度的候选中挑选，读不到或失败的从不切换过去。目标在每个窗口都要比阈值多 10 个百分点（防止两个账号来回切），同一账号/窗口/重置时间只提醒或切换一次，自动切换后 30 分钟内只提醒不再自动切。切换不重启任何程序，只影响之后的请求；Codex 心跳 `busy` 为真（有回复、工具调用或智能体任务在跑）时等它结束再切（最多 30 分钟），切换前重新读取额度。点托盘提醒（`action: "switch"` 且带 `agent`）由 C# 壳调用 `agents.autoSwitch.apply`。

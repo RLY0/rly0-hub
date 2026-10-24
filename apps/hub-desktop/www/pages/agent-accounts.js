@@ -164,8 +164,9 @@ window.registerHubAgentAccounts = ({
         { class: "grid compact account-auto" },
         cards.autoSwitchCard({
           alive,
-          reason:
-            "Claude 账号只能手动切换：自动轮换多个订阅账号可能违反 Anthropic 的使用条款，所以不提供。",
+          agent: "claude",
+          vendor: "Anthropic",
+          sub: "低于阈值时切到额度最多的已保存账号或订阅令牌；新的请求就用它，不用重启",
         }),
       ),
       list,

@@ -32,7 +32,8 @@ function route<S extends z.ZodTypeAny>(
  * The Grok and Gemini (Antigravity) halves of the 账号 page.
  * - Grok: saved Grok CLI accounts kept by rly0-core (`grok/*`), switched by swapping the CLI's
  *   `auth.json`; added by the official `grok login` in a throw-away GROK_HOME or from a file.
- *   Switching is manual and affects new Grok conversations.
+ *   Switching (by hand, or the opt-in auto-switch in agent-auto-switch.ts) affects new Grok
+ *   conversations.
  * - Antigravity: only the current login's quota from `agy /usage`, on request. Its login lives in
  *   the keyring entry the Antigravity App, CLI and IDEs share, so the Hub keeps no accounts.
  */
