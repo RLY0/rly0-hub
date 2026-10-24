@@ -306,6 +306,9 @@ import {
   threadCommandsInspectParamsSchema,
   externalThreadForkResultSchema,
   THREAD_HANDOFF_METHOD,
+  SHARED_RESOURCES_INSPECT_METHOD,
+  sharedResourcesInspectParamsSchema,
+  sharedResourcesInspectResultSchema,
   threadHandoffParamsSchema,
   threadHandoffResultSchema,
   harnessInspectParamsSchema,
@@ -385,6 +388,7 @@ import {
 } from "./delegation-types.js";
 import { HarnessDelegationCoordinator } from "./harness-delegation-coordinator.js";
 import { runThreadHandoff } from "./thread-handoff-service.js";
+import { sharedResourceStatus } from "./shared-resource-status.js";
 import { loadHarnessPlugins } from "./harness-plugin-loader.js";
 import type { HarnessPluginRegistry } from "./harness-plugin-registry.js";
 import {
@@ -2421,6 +2425,10 @@ export class AppServerHost {
       await this.#inspectThread(request);
       return;
     }
+    if (request.method === SHARED_RESOURCES_INSPECT_METHOD) {
+      this.#dispatchDesktopReply(request, () => this.#inspectSharedResources(request));
+      return;
+    }
     if (request.method === THREAD_HANDOFF_METHOD) {
       this.#dispatchDesktopReply(request, () => this.#handoffThread(request));
       return;
@@ -4184,6 +4192,29 @@ export class AppServerHost {
         )
       : [];
     return { thread, turns };
+  }
+
+  /** Composer "共享自 Codex" line: what this external Agent Thread receives from Codex. */
+  async #inspectSharedResources(request: JsonRpcRequest): Promise<void> {
+    const parsed = sharedResourcesInspectParamsSchema.safeParse(request.params);
+    if (!parsed.success) {
+      await this.#writer.json(rpcError(request, -32602, "Shared resources request is invalid"));
+      return;
+    }
+    const context = this.#options.pluginContext;
+    const record = await this.#repository.find(parsed.data.threadId).catch(() => null);
+    const result = await sharedResourceStatus({
+      environment: context?.environment ?? this.#options.environment ?? process.env,
+      harnessId: record?.harnessId ?? "codex",
+      ...(record ? { cwd: record.cwd } : {}),
+      // Only a Host whose plugins received the local provider shares anything.
+      managedRemoteHost: !context?.sharedResources,
+    });
+    await this.#writer.json(
+      rpcEnvelope(request, {
+        result: jsonValueSchema.parse(sharedResourcesInspectResultSchema.parse(result)),
+      }),
+    );
   }
 
   /** Composer "换个助手接着聊": a new linked Thread on another Harness, see thread-handoff.ts. */

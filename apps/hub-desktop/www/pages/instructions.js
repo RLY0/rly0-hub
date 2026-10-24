@@ -1,7 +1,7 @@
 "use strict";
 // 设置 → 自定义指令: the block RLY/0 Hub owns inside ~/.codex/AGENTS.md. Templates fill the
 // editor, every change is previewed before it is written, and recent versions can be restored.
-window.registerHubInstructions = ({ pages, h, call, toast, failed }) => {
+window.registerHubInstructions = ({ pages, h, call, toast, failed, go }) => {
   const put = (element, ...items) =>
     element.replaceChildren(
       ...items
@@ -31,48 +31,16 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed }) => {
     const preview = h("div");
     const historyCard = h("section", { class: "m span-6" });
     root.append(h("div", { class: "grid compact" }, sharing, status, editorCard, historyCard));
-    call("resources.sharingGet")
-      .then((state) => {
-        if (!alive()) return;
-        const toggle = h(
-          "button",
-          {
-            class: "btn sm",
-            type: "button",
-            role: "switch",
-            "aria-checked": String(state.enabled),
-            onclick: async () => {
-              toggle.disabled = true;
-              try {
-                state = await call("resources.sharingSet", { enabled: !state.enabled });
-                toggle.setAttribute("aria-checked", String(state.enabled));
-                toggle.textContent = state.enabled ? "已开启" : "开启共享";
-                toast("已保存；MCP 在新建或重新打开的助手会话生效");
-              } catch (error) {
-                failed(error);
-              } finally {
-                toggle.disabled = false;
-              }
-            },
-          },
-          state.enabled ? "已开启" : "开启共享",
-        );
-        sharing.append(
-          h("b", null, "向其他助手共享 Codex 资源"),
-          h(
-            "p",
-            { class: "sub" },
-            "共享当前项目记忆、通用偏好和技能索引。Claude/Grok 接入兼容的 MCP；Gemini 当前共享技能和记忆，MCP 尚未转接。工具仍需各助手原有审批，OAuth 授权不复制。",
-          ),
-          toggle,
-        );
-      })
-      .catch(() => {
-        if (alive())
-          sharing.append(
-            h("p", { class: "sub" }, "资源共享设置读取失败，请更新完整安装包后重试。"),
-          );
-      });
+    // The sharing switches live on the AI 助手 page now, next to the agents they affect.
+    sharing.append(
+      h("b", null, "向其他助手共享 Codex 资源"),
+      h(
+        "p",
+        { class: "sub" },
+        "MCP、技能和记忆的共享开关在「AI 助手」页底部，那里也列出了每个助手能接收哪些。",
+      ),
+      h("button", { class: "btn sm", type: "button", onclick: () => go("agents") }, "去设置"),
+    );
     const editor = h("textarea", {
       class: "input instructions-text",
       rows: "10",

@@ -78,7 +78,7 @@ import {
   parseClaudeImport,
   saveAnthropicApiKey,
 } from "./claude-official.js";
-import { listRly0HubAgents, rly0HubAgentDocsUrl } from "./agents.js";
+import { listRly0HubAgents, rly0HubAgentDocsUrl, rly0HubAgentSharing } from "./agents.js";
 import { fetchRelayLogo } from "./relay-logo.js";
 import {
   cleanAlertSettings,
@@ -105,7 +105,12 @@ import { GrokAddLogin } from "./grok-add-login.js";
 import { createAgentAccountRoutes } from "./agent-account-routes.js";
 import { withConnectionHints } from "./agent-connection-hint.js";
 import { AntigravityUsageReader } from "../rly0-agents/antigravity-usage.js";
-import { sharedResourcesEnabled, setSharedResourcesEnabled } from "../shared-harness-resources.js";
+import {
+  DEFAULT_SHARED_RESOURCE_SETTINGS,
+  setSharedResourceSettings,
+  sharedResourceSettings,
+} from "../shared-harness-resources.js";
+import { sharedResourceStatus } from "../shared-resource-status.js";
 import { resetPrepareParams, resetConsumeParams, resetAcknowledgeParams } from "./reset-credits.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
@@ -1010,11 +1015,27 @@ export class Rly0HubService {
       "proxy.stop": route(empty, () => core.proxyStop()),
 
       "accounts.list": route(empty, () => core.listAccounts()),
-      "resources.sharingGet": route(empty, async () => ({
-        enabled: await sharedResourcesEnabled(this.#options.environment),
-      })),
-      "resources.sharingSet": route(z.object({ enabled: z.boolean() }).strict(), (p) =>
-        setSharedResourcesEnabled(this.#options.environment, p.enabled),
+      "resources.sharingGet": route(empty, () => this.#sharingState()),
+      "resources.sharingSet": route(
+        z
+          .object({
+            mcp: z.boolean().optional(),
+            skills: z.boolean().optional(),
+            memory: z.boolean().optional(),
+            /** The former single switch: sets all three. */
+            enabled: z.boolean().optional(),
+          })
+          .strict(),
+        async (p) => {
+          const all = p.enabled;
+          await setSharedResourceSettings(this.#options.environment, {
+            ...(all === undefined ? {} : { mcp: all, skills: all, memory: all }),
+            ...(p.mcp === undefined ? {} : { mcp: p.mcp }),
+            ...(p.skills === undefined ? {} : { skills: p.skills }),
+            ...(p.memory === undefined ? {} : { memory: p.memory }),
+          });
+          return this.#sharingState();
+        },
       ),
       "accounts.usage": route(rly0AccountsUsageParamsSchema, (p) => core.usage(p)),
       "accounts.current": route(empty, () => core.currentAccount()),
@@ -1449,6 +1470,38 @@ export class Rly0HubService {
       "autostart.get": route(empty, () => this.#appearance.autostartStatus()),
       "autostart.set": route(rly0AppearanceAutostartSetParamsSchema, (p) =>
         this.#appearance.setAutostart(p.enabled),
+      ),
+    };
+  }
+
+  /**
+   * Codex MCP / skills / memory shared with other Agents. Agents read the settings each time
+   * they open a session or send a turn (shared-harness-resources.ts), so a change reaches the
+   * next conversation or message without restarting Codex.
+   */
+  async #sharingState() {
+    const environment = this.#options.environment;
+    const settings = await sharedResourceSettings(environment);
+    const agents = listRly0HubAgents(
+      await this.#installer.searchEnvironment(),
+      this.#options.platform,
+    );
+    return {
+      ...settings,
+      enabled: settings.mcp || settings.skills || settings.memory,
+      defaults: DEFAULT_SHARED_RESOURCE_SETTINGS,
+      agents: await Promise.all(
+        agents.map(async (agent) => {
+          const status = await sharedResourceStatus({ environment, harnessId: agent.id, settings });
+          return {
+            id: agent.id,
+            name: agent.name,
+            installed: agent.installed,
+            support: status.support,
+            blocked: status.blocked,
+            note: rly0HubAgentSharing(agent.id).note ?? null,
+          };
+        }),
       ),
     };
   }

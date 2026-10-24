@@ -14,6 +14,24 @@ import { withAgentInstallPaths } from "../rly0-agents/install-paths.js";
 export type Rly0HubAgentCategory = "official" | "community";
 /** How an agent can use a relay: automatically per session, by hand-copied config, or not at all. */
 export type Rly0HubAgentRelaySupport = "auto" | "manual" | "none";
+/**
+ * Which Codex resources the agent's adapter can consume (shared-harness-resources.ts):
+ * `mcp` attaches Codex MCP servers natively; `skills` / `memory` reach the model as reference
+ * context. Must match what each adapter requests from the shared resources provider.
+ */
+export interface Rly0HubAgentSharing {
+  readonly mcp: boolean;
+  readonly skills: boolean;
+  readonly memory: boolean;
+  /** Why something is not shared, in the Hub's words. */
+  readonly note?: string;
+}
+const NO_SHARING: Rly0HubAgentSharing = {
+  mcp: false,
+  skills: false,
+  memory: false,
+  note: "接入方式暂不支持接收 Codex 的资源",
+};
 
 interface CatalogEntry {
   readonly id: string;
@@ -22,6 +40,7 @@ interface CatalogEntry {
   readonly category: Rly0HubAgentCategory;
   readonly openSource: boolean;
   readonly relay: Rly0HubAgentRelaySupport;
+  readonly sharing: Rly0HubAgentSharing;
   /** Official page with install and sign-in instructions; opened only through `links.open`. */
   readonly docsUrl: string;
 }
@@ -34,6 +53,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "auto",
+    sharing: { mcp: true, skills: true, memory: true, note: "开启 Claude 隔离模式时不共享" },
     docsUrl: "https://docs.anthropic.com/en/docs/claude-code/overview",
   },
   {
@@ -43,6 +63,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "none",
+    sharing: { mcp: false, skills: true, memory: true, note: "Antigravity 命令行接入无法挂载 MCP" },
     docsUrl: "https://antigravity.google",
   },
   {
@@ -52,6 +73,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "manual",
+    sharing: { mcp: true, skills: true, memory: true },
     docsUrl: "https://x.ai",
   },
   {
@@ -61,6 +83,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "auto",
+    sharing: NO_SHARING,
     docsUrl: "https://opencode.ai/docs",
   },
   {
@@ -70,6 +93,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "auto",
+    sharing: NO_SHARING,
     docsUrl: "https://pi.dev",
   },
   {
@@ -79,6 +103,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "auto",
+    sharing: NO_SHARING,
     docsUrl: "https://hermes-agent.nousresearch.com",
   },
   {
@@ -88,6 +113,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
+    sharing: NO_SHARING,
     docsUrl: "https://cursor.com/cli",
   },
   {
@@ -97,6 +123,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
+    sharing: NO_SHARING,
     docsUrl: "https://kiro.dev",
   },
 ];
@@ -144,6 +171,10 @@ function antigravityDesktopInstalled(
     path.win32.join(root, "bin", "antigravity.cmd"),
     path.win32.join(root, "Antigravity.exe"),
   ].some((file) => fileExists(file));
+}
+
+export function rly0HubAgentSharing(agent: string): Rly0HubAgentSharing {
+  return RLY0_HUB_AGENTS.find((entry) => entry.id === agent)?.sharing ?? NO_SHARING;
 }
 
 export function rly0HubAgentDocsUrl(agent: string): string | undefined {

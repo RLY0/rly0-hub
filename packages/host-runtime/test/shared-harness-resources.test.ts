@@ -77,16 +77,18 @@ describe("synthetic local shared resources", () => {
       "Potential credentials removed from reference memory",
     );
   });
-  it("is opt-in and unavailable to managed remote Hosts", async () => {
+  it("shares MCP and skills by default, can be turned off, and is unavailable to remote Hosts", async () => {
     const f = await fixture();
-    expect(await f.provider(f.project)).toEqual({ mcpServers: {}, context: "" });
+    const shared = await f.provider(f.project);
+    expect(shared.context).toContain("reference data");
+    expect(payload(shared.context).memory).toEqual([]);
     expect(
       installedHarnessPluginOptions(f.env, true).pluginContext?.sharedResources,
     ).toBeUndefined();
+    await setSharedResourcesEnabled(f.env, false);
+    expect(await f.provider(f.project)).toEqual({ mcpServers: {}, context: "" });
     await setSharedResourcesEnabled(f.env, true);
     expect((await f.provider(f.project)).context).toContain("reference data");
-    await setSharedResourcesEnabled(f.env, false);
-    expect((await f.provider(f.project)).context).toBe("");
   });
   it("isolates malformed or unsupported MCP entries and keeps credentials out of model context", async () => {
     const f = await fixture();

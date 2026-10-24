@@ -15,6 +15,38 @@ window.hubManagementMock = (() => {
     mtimeMs: Date.now(),
   };
   let threads = [sample];
+  const sharing = { mcp: true, skills: true, memory: false };
+  const ALL = { mcp: true, skills: true, memory: true };
+  const NONE = { mcp: false, skills: false, memory: false };
+  const sharingAgents = [
+    ["claude-code", "Claude Code", true, ALL, "开启 Claude 隔离模式时不共享"],
+    [
+      "antigravity",
+      "Antigravity",
+      false,
+      { ...ALL, mcp: false },
+      "Antigravity 命令行接入无法挂载 MCP",
+    ],
+    ["grok", "Grok", false, ALL, null],
+    ["opencode", "OpenCode", true, NONE, "接入方式暂不支持接收 Codex 的资源"],
+    ["pi", "Pi", true, NONE, "接入方式暂不支持接收 Codex 的资源"],
+    ["hermes", "Hermes", true, NONE, "接入方式暂不支持接收 Codex 的资源"],
+    ["cursor-cli", "Cursor", false, NONE, "接入方式暂不支持接收 Codex 的资源"],
+    ["kiro-cli", "Kiro", false, NONE, "接入方式暂不支持接收 Codex 的资源"],
+  ];
+  const sharingState = () => ({
+    ...sharing,
+    enabled: sharing.mcp || sharing.skills || sharing.memory,
+    defaults: { mcp: true, skills: true, memory: false },
+    agents: sharingAgents.map(([id, name, installed, support, note]) => ({
+      id,
+      name,
+      installed,
+      support,
+      blocked: null,
+      note,
+    })),
+  });
   let trash = [];
   let recoveredHistory = false;
   const filters = { imageTool: false, webSearchTool: false };
@@ -910,6 +942,12 @@ window.hubManagementMock = (() => {
               requirementReason: "WINGET_UNAVAILABLE",
             }
           : { state: "idle", automatic: true };
+      case "resources.sharingGet":
+        return sharingState();
+      case "resources.sharingSet":
+        for (const key of ["mcp", "skills", "memory"])
+          if (typeof p[key] === "boolean") sharing[key] = p[key];
+        return sharingState();
       default:
         return null;
     }

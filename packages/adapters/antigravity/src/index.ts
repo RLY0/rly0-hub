@@ -2,6 +2,7 @@ import { packageMetadata as harnessAdapter } from "@codexhost/harness-adapter";
 import { WORKSPACE_CONTRACT_VERSION } from "@codexhost/shared-contracts";
 
 export {
+  ANTIGRAVITY_SHARED_RESOURCE_REQUEST,
   ANTIGRAVITY_WORKSPACE_FILE_INSTRUCTION,
   AntigravityAdapter,
   formatAntigravityTurnPrompt,

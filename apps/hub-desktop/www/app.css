@@ -4708,3 +4708,60 @@ select.input,
 .chat-titles li::before {
   content: none;
 }
+
+/* AI 助手 → 共享 Codex 的 MCP / 技能 / 记忆 (pages/resource-sharing.js). */
+.share-card .who span {
+  white-space: normal;
+  overflow: visible;
+}
+.share-toggles {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 12px;
+}
+.share-toggle {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.share-toggle .switch {
+  margin-top: 2px;
+}
+.share-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+.share-table th,
+.share-table td {
+  text-align: left;
+  padding: 7px 6px;
+  border-top: 1px solid rgba(152, 152, 145, 0.18);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.share-table thead th {
+  border-top: 0;
+  color: var(--muted-dark);
+  font-weight: 600;
+}
+.share-table th[scope="row"] {
+  width: 40%;
+}
+.share-table tr.dormant th[scope="row"] b {
+  color: var(--muted-dark);
+}
+.share-note {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted-dark);
+  font-size: 12px;
+  font-weight: 400;
+}
+.share-cell.yes {
+  color: var(--ok);
+}
+.share-cell.off,
+.share-cell.no {
+  color: var(--muted-dark);
+}

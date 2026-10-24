@@ -34,7 +34,25 @@ export interface SharedHarnessResources {
   readonly mcpServers: Record<string, SharedMcpServer>;
   readonly context: string;
 }
-export type SharedResourcesProvider = (cwd: string) => Promise<SharedHarnessResources>;
+/** Codex resources a Harness can actually consume through its native interface. */
+export interface SharedResourceRequest {
+  /** The requesting Harness, so the Host can report what each Agent received. */
+  readonly harnessId?: string;
+  /** Native MCP attachment (process configuration, never model context). */
+  readonly mcp?: boolean;
+  /** Skill index in model context; the Agent reads SKILL.md files itself. */
+  readonly skills?: boolean;
+  /** Project-scoped Codex memory and general preferences in model context. */
+  readonly memory?: boolean;
+}
+/**
+ * Without a request the Host materializes every enabled kind (older plugins). The Host still
+ * applies the person's sharing settings: a kind turned off is never returned.
+ */
+export type SharedResourcesProvider = (
+  cwd: string,
+  request?: SharedResourceRequest,
+) => Promise<SharedHarnessResources>;
 
 /** Per Host/connection construction context; never contains Host or Renderer internals. */
 export interface HarnessPluginContext {

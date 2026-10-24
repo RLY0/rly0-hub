@@ -65,6 +65,38 @@ describe("independent Hub management", () => {
     );
   });
 
+  it("shares MCP and skills by default and toggles each kind for every agent", async () => {
+    const { service } = await fixture();
+    const initial = (await service.handle("resources.sharingGet", {})) as {
+      mcp: boolean;
+      skills: boolean;
+      memory: boolean;
+      agents: { id: string; support: Record<string, boolean>; note: string | null }[];
+    };
+    expect(initial).toMatchObject({ mcp: true, skills: true, memory: false, enabled: true });
+    expect(initial.agents.find((agent) => agent.id === "antigravity")).toMatchObject({
+      support: { mcp: false, skills: true, memory: true },
+      note: "Antigravity 命令行接入无法挂载 MCP",
+    });
+    expect(initial.agents.find((agent) => agent.id === "pi")).toMatchObject({
+      support: { mcp: false, skills: false, memory: false },
+    });
+    expect(await service.handle("resources.sharingSet", { memory: true })).toMatchObject({
+      mcp: true,
+      skills: true,
+      memory: true,
+    });
+    expect(await service.handle("resources.sharingSet", { enabled: false })).toMatchObject({
+      mcp: false,
+      skills: false,
+      memory: false,
+      enabled: false,
+    });
+    await expect(service.handle("resources.sharingSet", { mcp: "yes" })).rejects.toThrow(
+      "INVALID_PARAMS",
+    );
+  });
+
   it("adds, toggles and removes MCP without a running Codex and hides parser details", async () => {
     const { service, codexHome } = await fixture();
     await service.handle("mcp.add", {

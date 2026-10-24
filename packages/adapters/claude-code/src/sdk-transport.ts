@@ -1,4 +1,7 @@
-import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
+import type {
+  SharedResourceRequest,
+  SharedResourcesProvider,
+} from "@codexhost/harness-adapter/plugin";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 import {
@@ -135,6 +138,13 @@ interface AutonomousSegment {
   /** The autonomous Turn has started; later events go to it as they arrive. */
   live: boolean;
 }
+
+export const CLAUDE_SHARED_RESOURCE_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "claude-code",
+  mcp: true,
+  skills: true,
+  memory: true,
+});
 
 export interface ClaudeSdkTransportOptions {
   sharedResources?: SharedResourcesProvider;
@@ -566,7 +576,8 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
         environment: this.#environment,
       });
     const thinking = claudeThinkingConfiguration(this.#thinkingOptionId);
-    const shared = await this.#sharedResources?.(this.#cwd);
+    // Claude Code attaches MCP natively and reads the skill index and memory as context.
+    const shared = await this.#sharedResources?.(this.#cwd, CLAUDE_SHARED_RESOURCE_REQUEST);
     const activeQuery = this.#queryFactory({
       prompt: this.#input,
       options: {
@@ -585,9 +596,11 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
         ...(thinking.effort ? { effort: thinking.effort } : {}),
         pathToClaudeCodeExecutable: executable,
         settingSources: ["user"],
+        ...(shared && Object.keys(shared.mcpServers).length > 0
+          ? { mcpServers: shared.mcpServers }
+          : {}),
         ...(shared?.context
           ? {
-              mcpServers: shared.mcpServers,
               systemPrompt: {
                 type: "preset" as const,
                 preset: "claude_code" as const,

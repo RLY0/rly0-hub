@@ -413,6 +413,7 @@ describe("Renderer fixed Model request client", () => {
       "inspectHarness",
       "inspectHarnessAccount",
       "inspectHarnessCommands",
+      "inspectSharedResources",
       "inspectThread",
       "inspectThreadCommands",
       "inspectThreadUsage",

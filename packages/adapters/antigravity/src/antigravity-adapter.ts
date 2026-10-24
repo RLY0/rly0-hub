@@ -1,4 +1,7 @@
-import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
+import type {
+  SharedResourceRequest,
+  SharedResourcesProvider,
+} from "@codexhost/harness-adapter/plugin";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
@@ -245,6 +248,17 @@ function invalidState(message: string): HarnessError {
 
 export const ANTIGRAVITY_WORKSPACE_FILE_INSTRUCTION =
   "[System Instruction: When creating new files in the workspace, you MUST use the write_to_file tool. When modifying existing files, use the replace_file_content tool. CRITICAL: NEVER include ArtifactMetadata when calling write_to_file for workspace files (ArtifactMetadata is strictly reserved for artifacts in the brain directory, and providing it for workspace files causes a path validation rejection). Do NOT use terminal commands (such as Set-Content, Out-File, echo, or cat) to create or write code files. For clarification, ask_question is connected to the codexhost Desktop through a Hook. Use single-choice or text questions. The Hook returns the actual user response in its reason while blocking the native auto-skip behavior; do not retry merely because the native tool reports it was blocked.]\n\n";
+
+/** The Antigravity CLI transport cannot attach MCP servers: it asks only for context. */
+export const ANTIGRAVITY_SHARED_RESOURCE_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "antigravity",
+  skills: true,
+  memory: true,
+});
+
+export function antigravityTextWithSharedContext(context: string | undefined, text: string) {
+  return context ? `${context}\n\n[Current user request]\n${text}` : text;
+}
 
 export function formatAntigravityTurnPrompt(text: string): string {
   if (text.startsWith("/") || text.includes("ArtifactMetadata")) {
@@ -813,11 +827,9 @@ class AntigravitySession implements HarnessSession {
       });
     });
     try {
-      const shared = await this.#sharedResources?.(this.#cwd);
+      const shared = await this.#sharedResources?.(this.#cwd, ANTIGRAVITY_SHARED_RESOURCE_REQUEST);
       const turnPrompt = formatAntigravityTurnPrompt(
-        shared?.context
-          ? `${shared.context}\nAntigravity: this transport has not attached the listed Codex MCP servers. They are not callable merely because they appear in the index.\n\n[Current user request]\n${text}`
-          : text,
+        antigravityTextWithSharedContext(shared?.context, text),
       );
       if (child.stdin.writable) {
         child.stdin.write(

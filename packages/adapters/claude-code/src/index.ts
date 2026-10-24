@@ -2,6 +2,7 @@ import { packageMetadata as harnessAdapter } from "@codexhost/harness-adapter";
 import { WORKSPACE_CONTRACT_VERSION } from "@codexhost/shared-contracts";
 
 export { ClaudeCodeAdapter } from "./claude-code-adapter.js";
+export { CLAUDE_SHARED_RESOURCE_REQUEST } from "./sdk-transport.js";
 export type { ClaudeCodeAdapterOptions } from "./claude-code-adapter.js";
 
 export const packageMetadata = {

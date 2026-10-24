@@ -552,6 +552,17 @@ export {
 } from "./thread-handoff.js";
 export type { ThreadHandoffParams, ThreadHandoffResult } from "./thread-handoff.js";
 export {
+  SHARED_RESOURCES_INSPECT_METHOD,
+  sharedResourceKindsSchema,
+  sharedResourcesInspectParamsSchema,
+  sharedResourcesInspectResultSchema,
+} from "./shared-resources.js";
+export type {
+  SharedResourceKinds,
+  SharedResourcesInspectParams,
+  SharedResourcesInspectResult,
+} from "./shared-resources.js";
+export {
   HARNESS_PERMISSION_MODE_CATALOG_MAX_LENGTH,
   HARNESS_PERMISSION_MODE_DESCRIPTION_MAX_LENGTH,
   HARNESS_PERMISSION_MODE_ID_MAX_LENGTH,

@@ -19,7 +19,10 @@ import { sandboxFilePath } from "../src/sandbox.js";
 beforeEach(() => {
   state.verify.mockReset().mockResolvedValue(undefined);
 });
-function fixture(openMode: "create" | "resume") {
+function fixture(
+  openMode: "create" | "resume",
+  sharedResources?: ClaudeSdkTransportOptions["sharedResources"],
+) {
   let waiter: ((message: IteratorResult<unknown>) => void) | undefined;
   const queue: unknown[] = [];
   let closed = false;
@@ -81,6 +84,7 @@ function fixture(openMode: "create" | "resume") {
     onFault: vi.fn(),
     onPlanLimit: vi.fn(),
     queryFactory: factory,
+    ...(sharedResources ? { sharedResources } : {}),
   });
   return { transport, factory, fake, push, options: () => captured?.options };
 }
@@ -128,6 +132,18 @@ describe("Claude SDK inside a selected sandbox", () => {
       expect(f.fake.interrupt).toHaveBeenCalledOnce();
       await f.transport.close();
     }
+  });
+  it("never hands Codex MCP, skills or memory to an isolated Claude", async () => {
+    const provider = vi.fn(async () => ({
+      mcpServers: { codex_docs: { type: "http" as const, url: "https://x.invalid", headers: {} } },
+      context: "shared",
+    }));
+    const f = fixture("create", provider);
+    await f.transport.start();
+    expect(provider).not.toHaveBeenCalled();
+    expect(f.options()).not.toHaveProperty("mcpServers");
+    expect(f.options()).not.toHaveProperty("systemPrompt");
+    await f.transport.close();
   });
   it("stops before creating an SDK query when the sandbox/proxy check fails", async () => {
     state.verify.mockRejectedValue(new Error("ISOLATION_PROXY_UNAVAILABLE"));

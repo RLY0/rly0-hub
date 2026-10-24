@@ -111,6 +111,7 @@ import {
 import { compatibleRendererPluginPresentation, rendererAgentLabel } from "./renderer-agent-icon.js";
 import { openRendererThread } from "./renderer-fork-control.js";
 import { rendererHandoffSupported, startRendererThreadHandoff } from "./renderer-thread-handoff.js";
+import { sharedResourcesSummary } from "./renderer-shared-resources.js";
 import {
   mountRendererModelSelectionNotice,
   type RendererModelSelectionNotice,
@@ -1096,6 +1097,41 @@ export function installRendererBindingProbe(
   };
   const composerAdapterState = (mounted: MountedComposer): RendererAdapterStatus["state"] =>
     composerClient(mounted) ? "ready" : "installing";
+  // "共享自 Codex" line in the Agent menu of an external Agent Thread, per Host and Thread.
+  const sharedSummaries = new Map<string, string | null>();
+  const sharedSummaryRequests = new Set<string>();
+  const sharedSummaryKey = (mounted: MountedComposer): string | null => {
+    const threadId = threadIdFromComposerModelTarget(mounted.modelTarget);
+    const state = controller.get(mounted.composer);
+    return threadId && mounted.hostId && state.phase === "locked" && state.agent !== "codex"
+      ? `${mounted.hostId}\n${threadId}`
+      : null;
+  };
+  const refreshSharedSummary = async (mounted: MountedComposer, force = false) => {
+    const key = sharedSummaryKey(mounted);
+    const client = composerClient(mounted);
+    const threadId = threadIdFromComposerModelTarget(mounted.modelTarget);
+    if (!key || !threadId || !client?.inspectSharedResources) return;
+    if (sharedSummaryRequests.has(key) || (!force && sharedSummaries.has(key))) return;
+    sharedSummaryRequests.add(key);
+    try {
+      const result = await client.inspectSharedResources({ threadId });
+      sharedSummaries.set(key, sharedResourcesSummary(result, settingsLifecycle.locale));
+    } catch {
+      // An older Host has no such method; the menu simply has no sharing line.
+      sharedSummaries.set(key, null);
+    } finally {
+      sharedSummaryRequests.delete(key);
+    }
+    if (isMountedComposer(mounted.composer) && sharedSummaryKey(mounted) === key)
+      renderMounted(mounted);
+  };
+  const sharedSummaryFor = (mounted: MountedComposer): string | null => {
+    const key = sharedSummaryKey(mounted);
+    if (!key) return null;
+    if (!sharedSummaries.has(key)) void refreshSharedSummary(mounted);
+    return sharedSummaries.get(key) ?? null;
+  };
   // Handoff: a started Thread keeps its Agent; another Agent continues in a new linked Thread.
   const handoffPending = new WeakSet<Element>();
   const handoffNotices = new WeakMap<Element, RendererModelSelectionNotice>();
@@ -1188,7 +1224,7 @@ export function installRendererBindingProbe(
       currentCodexAccount ?? null,
       mounted.ownershipStatus === "error",
       quotaView(mounted),
-      { handoff: canHandoff(mounted), sharedSummary: null },
+      { handoff: canHandoff(mounted), sharedSummary: sharedSummaryFor(mounted) },
     );
     // A Codex Composer on a relay model does not use the official Account's usage.
     const codexRelayCandidate =
@@ -2896,6 +2932,9 @@ export function installRendererBindingProbe(
       (agent) => openInstallPage(activeModelHostId(composer), agent),
       () => {
         void loadCodexAccounts();
+        const mounted = mountedByComposer.get(composer);
+        // Counts change after the Agent's first message; refresh whenever the menu opens.
+        if (mounted) void refreshSharedSummary(mounted, true);
       },
       (modelId) => {
         const mounted = mountedByComposer.get(composer);

@@ -673,6 +673,7 @@
   Object.assign(pageApi, window.registerHubResources(pageApi));
   window.registerHubSystem(pageApi);
   Object.assign(pageApi, window.registerHubDiscovery(pageApi));
+  pageApi.resourceSharing = window.registerHubResourceSharing(pageApi);
   window.registerHubAgents(pageApi);
   const relayModule = window.registerHubRelays(pageApi);
   pageApi.relayStrip = relayModule.relayStrip;

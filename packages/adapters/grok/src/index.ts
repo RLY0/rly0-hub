@@ -10,6 +10,8 @@ export { GrokSessionImport } from "./session-import.js";
 export { fetchGrokCredits, parseGrokCreditsResponse } from "./grok-credits.js";
 export type { GrokCreditsSnapshot, GrokProductUsage } from "./grok-credits.js";
 export {
+  GROK_SHARED_CONTEXT_REQUEST,
+  GROK_SHARED_MCP_REQUEST,
   GrokAcpTransport,
   GrokTransportError,
   grokNativeSessionDirectory,

@@ -1,4 +1,8 @@
-import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
+import type {
+  SharedHarnessResources,
+  SharedResourceRequest,
+  SharedResourcesProvider,
+} from "@codexhost/harness-adapter/plugin";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
 import os from "node:os";
@@ -146,6 +150,41 @@ export type GrokTransportEvent =
 export interface GrokPermissionRequest {
   request: RequestPermissionRequest;
   options: PermissionOption[];
+}
+
+/** Codex MCP servers: native ACP Session configuration, requested when a Session opens. */
+export const GROK_SHARED_MCP_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "grok",
+  mcp: true,
+});
+/** Skill index and memory: reference context sent with each prompt. */
+export const GROK_SHARED_CONTEXT_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "grok",
+  skills: true,
+  memory: true,
+});
+
+/** ACP `mcpServers` for `session/new` / `session/load`; options stay out of the prompt. */
+export function grokAcpMcpServers(shared: SharedHarnessResources | undefined) {
+  return Object.entries(shared?.mcpServers ?? {}).map(([name, server]) =>
+    server.type === "stdio"
+      ? {
+          name,
+          command: server.command,
+          args: server.args,
+          env: Object.entries(server.env).map(([name, value]) => ({ name, value })),
+        }
+      : {
+          name,
+          type: "http" as const,
+          url: server.url,
+          headers: Object.entries(server.headers).map(([name, value]) => ({ name, value })),
+        },
+  );
+}
+
+export function grokPromptWithSharedContext(context: string | undefined, text: string): string {
+  return context ? `${context}\n\n[Current user request]\n${text}` : text;
 }
 
 export interface GrokAcpTransportOptions {
@@ -634,22 +673,12 @@ export class GrokAcpTransport {
       const initialize = await this.#ensureInitialized();
       const connection = this.#connection;
       if (!connection) throw new GrokTransportError("unavailable", "Grok ACP is unavailable");
-      const shared = await this.#options.sharedResources?.(this.#options.cwd);
-      const mcpServers = Object.entries(shared?.mcpServers ?? {}).map(([name, server]) =>
-        server.type === "stdio"
-          ? {
-              name,
-              command: server.command,
-              args: server.args,
-              env: Object.entries(server.env).map(([name, value]) => ({ name, value })),
-            }
-          : {
-              name,
-              type: "http" as const,
-              url: server.url,
-              headers: Object.entries(server.headers).map(([name, value]) => ({ name, value })),
-            },
+      // MCP servers attach natively to the ACP Session; context goes with each prompt.
+      const shared = await this.#options.sharedResources?.(
+        this.#options.cwd,
+        GROK_SHARED_MCP_REQUEST,
       );
+      const mcpServers = grokAcpMcpServers(shared);
       this.#replay =
         input.kind === "resume" || input.kind === "fork" || input.kind === "rewind" ? [] : null;
       let session: NewSessionResponse | LoadSessionResponse;
@@ -893,12 +922,12 @@ export class GrokAcpTransport {
     const active = { onEvent, onPermission };
     this.#activePrompt = active;
     try {
-      const context = (await this.#options.sharedResources?.(this.#options.cwd))?.context;
+      const context = (
+        await this.#options.sharedResources?.(this.#options.cwd, GROK_SHARED_CONTEXT_REQUEST)
+      )?.context;
       return await connection.prompt({
         sessionId: this.#sessionId,
-        prompt: [
-          { type: "text", text: context ? `${context}\n\n[Current user request]\n${text}` : text },
-        ],
+        prompt: [{ type: "text", text: grokPromptWithSharedContext(context, text) }],
       });
     } finally {
       // The SDK can resolve prompt before dispatching notifications from the same read.

@@ -19,6 +19,7 @@ window.registerHubAgents = ({
   moneyBadge,
   rateBadge,
   applyToCodex,
+  resourceSharing,
 }) => {
   const LOGOS = {
     "claude-code": "agents/claude-code.svg",
@@ -306,9 +307,16 @@ window.registerHubAgents = ({
     const community = h("div", { class: "grid compact agent-grid" });
     const officialHead = h("div");
     const communityHead = h("div");
+    const sharingCard = h("section", { class: "m span-6 share-card" });
+    resourceSharing.mount(sharingCard, alive);
     root.append(
       h("section", { class: "agent-section official" }, officialHead, official),
       h("section", { class: "agent-section community" }, communityHead, community),
+      h(
+        "section",
+        { class: "agent-section sharing" },
+        h("div", { class: "grid compact" }, sharingCard),
+      ),
     );
     let relays = [];
     let claudeRelay = null;

@@ -346,6 +346,11 @@ import {
 export const HARNESS_INSPECT_METHOD = "codexhost/harness/inspect";
 export const HARNESS_PLUGIN_LIST_METHOD = "codexhost/harness/plugins/list";
 import {
+  SHARED_RESOURCES_INSPECT_METHOD,
+  sharedResourcesInspectParamsSchema,
+  sharedResourcesInspectResultSchema,
+  type SharedResourcesInspectParams,
+  type SharedResourcesInspectResult,
   THREAD_HANDOFF_METHOD,
   threadHandoffParamsSchema,
   threadHandoffResultSchema,
@@ -441,6 +446,10 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   forkThread(input: ExternalThreadForkParams): Promise<ExternalThreadForkResult>;
   /** Continue the conversation with another Agent in a new linked Thread. */
   handoffThread?(input: ThreadHandoffParams): Promise<ThreadHandoffResult>;
+  /** Which Codex MCP / skills / memory an external Agent Thread receives. */
+  inspectSharedResources?(
+    input: SharedResourcesInspectParams,
+  ): Promise<SharedResourcesInspectResult>;
   inspectHarness(
     input: HarnessInspectParams,
     options?: RendererRequestOptions,
@@ -717,6 +726,14 @@ export function createRendererModelClient(
       const params = externalThreadForkParamsSchema.parse(input);
       const result = await manager.sendRequest(THREAD_FORK_METHOD, params);
       return externalThreadForkResultSchema.parse(result);
+    },
+    async inspectSharedResources(
+      input: SharedResourcesInspectParams,
+    ): Promise<SharedResourcesInspectResult> {
+      const params = sharedResourcesInspectParamsSchema.parse(input);
+      return sharedResourcesInspectResultSchema.parse(
+        await manager.sendRequest(SHARED_RESOURCES_INSPECT_METHOD, params),
+      );
     },
     async handoffThread(input: ThreadHandoffParams): Promise<ThreadHandoffResult> {
       const params = threadHandoffParamsSchema.parse(input);
