@@ -346,6 +346,13 @@ import {
 export const HARNESS_INSPECT_METHOD = "codexhost/harness/inspect";
 export const HARNESS_PLUGIN_LIST_METHOD = "codexhost/harness/plugins/list";
 import {
+  THREAD_HANDOFF_METHOD,
+  threadHandoffParamsSchema,
+  threadHandoffResultSchema,
+  type ThreadHandoffParams,
+  type ThreadHandoffResult,
+} from "@codexhost/shared-contracts";
+import {
   CREDENTIAL_IMPORTS_METHOD,
   credentialImportsParamsSchema,
   credentialImportsResultSchema,
@@ -432,6 +439,8 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   listHarnessPlugins?(): Promise<HarnessPluginListResult>;
   clientForHost?(hostId: string): RendererModelClient | null;
   forkThread(input: ExternalThreadForkParams): Promise<ExternalThreadForkResult>;
+  /** Continue the conversation with another Agent in a new linked Thread. */
+  handoffThread?(input: ThreadHandoffParams): Promise<ThreadHandoffResult>;
   inspectHarness(
     input: HarnessInspectParams,
     options?: RendererRequestOptions,
@@ -708,6 +717,12 @@ export function createRendererModelClient(
       const params = externalThreadForkParamsSchema.parse(input);
       const result = await manager.sendRequest(THREAD_FORK_METHOD, params);
       return externalThreadForkResultSchema.parse(result);
+    },
+    async handoffThread(input: ThreadHandoffParams): Promise<ThreadHandoffResult> {
+      const params = threadHandoffParamsSchema.parse(input);
+      return threadHandoffResultSchema.parse(
+        await manager.sendRequest(THREAD_HANDOFF_METHOD, params),
+      );
     },
     inspectHarness,
     async listHarnessPlugins(): Promise<HarnessPluginListResult> {

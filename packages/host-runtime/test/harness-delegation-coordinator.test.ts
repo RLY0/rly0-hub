@@ -164,6 +164,32 @@ describe("HarnessDelegationCoordinator", () => {
     }
   });
 
+  it("starts a handoff Thread with normal approvals, its title, and the chosen permission", async () => {
+    const adapter = new RecordingAdapter(harnessIdSchema.parse("pi"));
+    const value = await fixture(adapter);
+    try {
+      const result = await value.coordinator.start({
+        harnessId: "pi",
+        task: "[接力对话] transcript",
+        cwd: "/synthetic",
+        parentThreadId: "parent-thread",
+        requestId: "handoff:click-1",
+        handoff: { title: "↪ 修复登录 · 接力 Pi" },
+      });
+      expect(adapter.openInputs[0]).toMatchObject({ kind: "create" });
+      expect(adapter.openInputs[0]).not.toHaveProperty("executionPolicy");
+      const record = await value.repository.find(result.threadId);
+      expect(record?.title).toBe("↪ 修复登录 · 接力 Pi");
+      expect(
+        await value.repository.getDelegationByChild(hostThreadIdSchema.parse(result.threadId)),
+      ).toMatchObject({ parentHostThreadId: "parent-thread", requestId: "handoff:click-1" });
+      const source = await value.coordinator.handoffSource(result.threadId);
+      expect(source).toMatchObject({ harnessId: "pi", cwd: path.resolve("/synthetic") });
+    } finally {
+      await value.close();
+    }
+  });
+
   it("receives, persists, and resumes WorkBuddy delegation through the ordinary Thread path", async () => {
     const environment = {
       CODEXHOST_CLI_PATH: "/opt/codexhost/bin/codexhost",

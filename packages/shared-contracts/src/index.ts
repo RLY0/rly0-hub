@@ -546,6 +546,12 @@ export {
 } from "./external-thread-fork.js";
 export type { ExternalThreadForkParams, ExternalThreadForkResult } from "./external-thread-fork.js";
 export {
+  THREAD_HANDOFF_METHOD,
+  threadHandoffParamsSchema,
+  threadHandoffResultSchema,
+} from "./thread-handoff.js";
+export type { ThreadHandoffParams, ThreadHandoffResult } from "./thread-handoff.js";
+export {
   HARNESS_PERMISSION_MODE_CATALOG_MAX_LENGTH,
   HARNESS_PERMISSION_MODE_DESCRIPTION_MAX_LENGTH,
   HARNESS_PERMISSION_MODE_ID_MAX_LENGTH,

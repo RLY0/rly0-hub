@@ -2,6 +2,7 @@ import type { RoutedHarnessId } from "@codexhost/protocol-core";
 import type {
   HarnessInspection,
   HarnessModelRef,
+  HarnessPermissionModeId,
   HarnessSessionState,
   HarnessThinkingOptionId,
 } from "@codexhost/harness-adapter";
@@ -64,6 +65,11 @@ export interface DelegationStartInput {
   requestId?: string;
   model?: HarnessModelRef;
   thinkingOptionId?: HarnessThinkingOptionId;
+  /**
+   * A person continuing a conversation with another Harness from the Composer. The new Thread
+   * keeps that Harness's normal permission semantics (no unattended full access) and is titled.
+   */
+  handoff?: { title: string; permissionModeId?: HarnessPermissionModeId };
 }
 
 export interface HarnessInspectInput {

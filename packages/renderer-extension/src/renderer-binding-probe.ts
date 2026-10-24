@@ -110,6 +110,11 @@ import {
 } from "./renderer-delegation-mention.js";
 import { compatibleRendererPluginPresentation, rendererAgentLabel } from "./renderer-agent-icon.js";
 import { openRendererThread } from "./renderer-fork-control.js";
+import { rendererHandoffSupported, startRendererThreadHandoff } from "./renderer-thread-handoff.js";
+import {
+  mountRendererModelSelectionNotice,
+  type RendererModelSelectionNotice,
+} from "./renderer-model-selection-notice.js";
 import type {
   RendererConnectionDiagnostics,
   RendererConnectionSnapshot,
@@ -1091,6 +1096,67 @@ export function installRendererBindingProbe(
   };
   const composerAdapterState = (mounted: MountedComposer): RendererAdapterStatus["state"] =>
     composerClient(mounted) ? "ready" : "installing";
+  // Handoff: a started Thread keeps its Agent; another Agent continues in a new linked Thread.
+  const handoffPending = new WeakSet<Element>();
+  const handoffNotices = new WeakMap<Element, RendererModelSelectionNotice>();
+  const canHandoff = (mounted: MountedComposer): boolean =>
+    controller.get(mounted.composer).phase === "locked" &&
+    mounted.ownershipStatus === "ready" &&
+    threadIdFromComposerModelTarget(mounted.modelTarget) !== null &&
+    rendererHandoffSupported(composerClient(mounted));
+  const showHandoffNotice = (mounted: MountedComposer, heading: string, message: string) => {
+    let notice = handoffNotices.get(mounted.composer);
+    if (!notice || !notice.element.isConnected) {
+      notice = mountRendererModelSelectionNotice(mounted.control.picker.trigger);
+      handoffNotices.set(mounted.composer, notice);
+    }
+    notice.show(heading, message);
+  };
+  const handoffComposer = async (mounted: MountedComposer, agent: RendererAgent) => {
+    const client = composerClient(mounted);
+    const threadId = threadIdFromComposerModelTarget(mounted.modelTarget);
+    if (!client || !threadId || handoffPending.has(mounted.composer)) return;
+    if (agent !== "codex" && composerAvailability(mounted)[agent] !== "ready") return;
+    const zh = settingsLifecycle.locale === "zh-CN";
+    handoffPending.add(mounted.composer);
+    renderMounted(mounted);
+    let created: string | null = null;
+    try {
+      await startRendererThreadHandoff({
+        client,
+        threadId,
+        hostId: mounted.hostId,
+        agent,
+        open: async (target) => {
+          created = target;
+          await openRendererThread(target, {
+            ...(mounted.hostId ? { hostId: mounted.hostId } : {}),
+            timeoutMs: 15_000,
+          });
+        },
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (created) {
+        showHandoffNotice(
+          mounted,
+          zh ? "新对话已经开好" : "The new conversation is ready",
+          zh
+            ? "没能自动打开它，请在左侧对话列表里点开以 ↪ 开头的那一条。"
+            : "It could not be opened automatically; open the one starting with ↪ in the sidebar.",
+        );
+      } else {
+        showHandoffNotice(
+          mounted,
+          zh ? "没能换个助手接着聊" : "Could not continue with another agent",
+          reason,
+        );
+      }
+    } finally {
+      handoffPending.delete(mounted.composer);
+      if (isMountedComposer(mounted.composer)) renderMounted(mounted);
+    }
+  };
 
   const renderMounted = (mounted: MountedComposer): void => {
     if (!isMountedComposer(mounted.composer)) return;
@@ -1110,7 +1176,9 @@ export function installRendererBindingProbe(
       mounted.control,
       controller.get(mounted.composer),
       composerAdapterState(mounted),
-      controller.isSwitching(mounted.composer) || mounted.ownershipStatus === "loading",
+      controller.isSwitching(mounted.composer) ||
+        mounted.ownershipStatus === "loading" ||
+        handoffPending.has(mounted.composer),
       composerAvailability(mounted),
       mounted.modelView,
       mounted.permissionModeView,
@@ -1120,6 +1188,7 @@ export function installRendererBindingProbe(
       currentCodexAccount ?? null,
       mounted.ownershipStatus === "error",
       quotaView(mounted),
+      { handoff: canHandoff(mounted), sharedSummary: null },
     );
     // A Codex Composer on a relay model does not use the official Account's usage.
     const codexRelayCandidate =
@@ -2818,6 +2887,10 @@ export function installRendererBindingProbe(
       (agent) => {
         const mounted = mountedByComposer.get(composer);
         if (!composer.isConnected || !mounted) return;
+        if (controller.get(composer).phase === "locked") {
+          if (canHandoff(mounted)) void handoffComposer(mounted, agent);
+          return;
+        }
         void switchComposerAgent(mounted, agent);
       },
       (agent) => openInstallPage(activeModelHostId(composer), agent),

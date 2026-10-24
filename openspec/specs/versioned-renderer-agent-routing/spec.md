@@ -89,7 +89,9 @@ The Renderer Extension SHALL keep Agent state isolated by logical Composer, SHAL
 #### Scenario: User attempts to switch after submission
 
 - **WHEN** a Composer Agent is locked
-- **THEN** the Agent controls are disabled and selecting another Agent requires a new Thread
+- **THEN** the Thread's Agent does not change and selecting another Agent requires a new Thread
+- **AND** when the Host supports `codexhost/thread/handoff`, the Agent control stays enabled and selecting another ready Agent creates a new linked Thread on that Agent seeded with a bounded transcript of this Thread, then opens it
+- **AND** without that Host capability the Agent controls are disabled
 
 ### Requirement: Versioned Adapter drives the native create Model state
 For a supported Desktop build, the Renderer Adapter SHALL synchronously update the uniquely associated Composer's optimistic native Model state to a bounded internal Pi transport carrier only when that Composer selects Pi. The generic carrier SHALL be `codexhost/pi-native`; an explicit selected Pi Model SHALL be represented by the same carrier plus an opaque Harness Model Ref and SHALL remain internal rather than user-visible.

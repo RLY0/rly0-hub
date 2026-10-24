@@ -32,6 +32,25 @@ const { outputFiles } = await build({
         };
       };
 
+      globalThis.setupHandoffPicker = () => {
+        const preference = createAgentGroupPreferenceStore(null);
+        globalThis.handoffSelections = [];
+        const shell = document.createElement("div");
+        shell.style.cssText = "position:fixed;left:0;right:0;bottom:24px;display:flex;justify-content:center";
+        const control = mountRendererAgentPicker(
+          "handoff-composer", ["codex", "claude-code", "grok", "pi"],
+          (agent) => globalThis.handoffSelections.push(agent), () => {}, undefined, preference,
+        );
+        shell.append(control.root);
+        document.body.append(shell);
+        renderRendererAgentPicker(
+          control, { agent: "claude-code", phase: "locked" }, "ready", false,
+          { "claude-code": "ready", grok: "ready", pi: "notInstalled" },
+          null, false,
+          { handoff: true, sharedSummary: "共享自 Codex：MCP 2 个 · 技能 5 个 · 记忆 未共享" },
+        );
+      };
+
       globalThis.setupRendererAgentPicker = () => {
         document.documentElement.style.setProperty("--codex-window-zoom", "1.6");
 
@@ -146,4 +165,48 @@ test("defaults uninstalled Harnesses to More and restores order after installati
   expect(await order()).toEqual(["codex", "omp", "grok", "claude-code", "pi"]);
   await update({ pi: "ready", "claude-code": "ready", grok: "ready", omp: "ready" });
   expect(await order()).toEqual(["codex", "claude-code", "omp", "pi", "grok"]);
+});
+
+test.describe("handoff on a started Thread", () => {
+  test.use({ locale: "zh-CN" });
+
+  test("enables the Agent control with an honest tooltip and keyboard handoff", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 760, height: 560 });
+    await page.setContent(
+      '<!doctype html><body style="margin:0;background:#1e1e1e;color:#eee"></body>',
+    );
+    await page.addScriptTag({ content: browserBundle });
+    await page.evaluate(() => Reflect.get(globalThis, "setupHandoffPicker")());
+    const trigger = page.locator(
+      '[data-codexhost-agent-control="handoff-composer"] > button[aria-haspopup="menu"]',
+    );
+    const menu = page.locator("#handoff-composer-agent-menu");
+    await expect(trigger).toBeEnabled();
+    await expect(trigger).toHaveAttribute(
+      "title",
+      "claude-code · 换个助手接着聊：会新开一个对话并带上之前的内容",
+    );
+    await expect(trigger).toHaveAttribute("aria-label", "换个助手接着聊，当前：claude-code");
+    await trigger.focus();
+    await page.keyboard.press("ArrowDown");
+    await expect(menu).toBeVisible();
+    await expect(menu.locator("[data-codexhost-handoff-note]")).toContainText("原对话保持不变");
+    await expect(menu.locator("[data-codexhost-shared-resources]")).toContainText("MCP 2 个");
+    await expect(menu.locator('button[data-agent="claude-code"]')).toBeDisabled();
+    await expect(menu.locator('button[data-agent="pi"]')).toBeDisabled();
+    await expect(menu.locator('button[data-agent="codex"]')).toBeFocused();
+    const shotDirectory = process.env.HANDOFF_SCREENSHOT_DIR;
+    if (shotDirectory) {
+      await page.screenshot({ path: `${shotDirectory}/handoff-picker-760.png` });
+    }
+    await page.keyboard.press("ArrowDown");
+    await expect(menu.locator('button[data-agent="grok"]')).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeHidden();
+    expect(await page.evaluate(() => Reflect.get(globalThis, "handoffSelections"))).toEqual([
+      "grok",
+    ]);
+  });
 });

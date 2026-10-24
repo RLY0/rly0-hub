@@ -17,6 +17,7 @@ import {
   mountRendererAgentPicker,
   renderRendererAgentPicker,
   type RendererAgentPickerControl,
+  type RendererAgentPickerExtras,
 } from "./renderer-agent-picker.js";
 import {
   mountRendererModelPicker,
@@ -789,6 +790,7 @@ export function renderComposerAgentControl(
   currentCodexAccount: CodexAccountSummary | null = null,
   ownershipError = false,
   quota: RendererQuotaView | null = null,
+  pickerExtras?: RendererAgentPickerExtras,
 ): boolean {
   if (control.usage === null) {
     control.usage = mountRendererUsageControl(control.composerId, locale);
@@ -832,6 +834,7 @@ export function renderComposerAgentControl(
     availability,
     currentCodexAccount,
     ownershipError,
+    pickerExtras,
   );
   reconcileComposerNativeControls(
     control,

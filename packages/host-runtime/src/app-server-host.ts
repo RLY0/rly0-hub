@@ -305,6 +305,9 @@ import {
   threadCommandExecuteResultSchema,
   threadCommandsInspectParamsSchema,
   externalThreadForkResultSchema,
+  THREAD_HANDOFF_METHOD,
+  threadHandoffParamsSchema,
+  threadHandoffResultSchema,
   harnessInspectParamsSchema,
   harnessConfigurationStateSchema,
   harnessInspectionSchema,
@@ -381,6 +384,7 @@ import {
   DelegationControlError,
 } from "./delegation-types.js";
 import { HarnessDelegationCoordinator } from "./harness-delegation-coordinator.js";
+import { runThreadHandoff } from "./thread-handoff-service.js";
 import { loadHarnessPlugins } from "./harness-plugin-loader.js";
 import type { HarnessPluginRegistry } from "./harness-plugin-registry.js";
 import {
@@ -1196,6 +1200,7 @@ export class AppServerHost {
       startOfficial: (input) => this.#startOfficialDelegation(input),
       listOfficial: (input) => this.#listDelegationThreads(input),
       officialThreadCwd: (threadId) => this.#readOfficialThreadCwd(threadId),
+      readOfficialTurns: (threadId) => this.#readOfficialThreadTurns(threadId),
       activeOfficialParents: () => [...this.#activeOfficialTurns.keys()],
       externalThreadBusy: (thread) => this.#externalThreadBusy(thread),
     });
@@ -2414,6 +2419,10 @@ export class AppServerHost {
     }
     if (request.method === "codexhost/thread/inspect") {
       await this.#inspectThread(request);
+      return;
+    }
+    if (request.method === THREAD_HANDOFF_METHOD) {
+      this.#dispatchDesktopReply(request, () => this.#handoffThread(request));
       return;
     }
     if (request.method === "codexhost/thread/usage/inspect") {
@@ -3952,8 +3961,8 @@ export class AppServerHost {
     const started = await this.#officialRuntime.request("thread/start", {
       cwd: input.cwd,
       ...(nativeModelId ? { model: nativeModelId } : {}),
-      approvalPolicy: "never",
-      sandbox: "danger-full-access",
+      // A handoff is the person's own conversation: Codex's configured approvals apply.
+      ...(input.handoff ? {} : { approvalPolicy: "never", sandbox: "danger-full-access" }),
       ephemeral: false,
       historyMode: "paginated",
     });
@@ -3982,6 +3991,12 @@ export class AppServerHost {
       throw error;
     }
     this.#activeOfficialTurns.set(threadId, turnId);
+    if (input.handoff) {
+      await this.#requestOfficial("thread/name/set", {
+        threadId,
+        name: input.handoff.title,
+      }).catch((error: unknown) => this.#diagnose(error));
+    }
     const delegationId = hostThreadIdSchema.parse(randomUUID());
     try {
       const source = await this.#repository.find(input.parentThreadId);
@@ -4152,6 +4167,70 @@ export class AppServerHost {
       );
     }
     return { threadId: input.threadId, turnId, harnessId: "codex", cancelled: true };
+  }
+
+  async #readOfficialThreadTurns(
+    threadId: string,
+  ): Promise<{ thread: JsonObject; turns: JsonObject[] }> {
+    const response = await this.#requestOfficial("thread/read", { threadId, includeTurns: true });
+    if (isRecord(response.error)) throw officialThreadReadError(response.error);
+    const result = isRecord(response.result) ? response.result : null;
+    const thread = result && isRecord(result.thread) ? result.thread : null;
+    if (!thread)
+      throw new DelegationControlError("INTERNAL_ERROR", "Official Thread read returned no Thread");
+    const turns = Array.isArray(thread.turns)
+      ? thread.turns.filter(
+          (turn): turn is JsonObject => isRecord(turn) && turn.status !== "inProgress",
+        )
+      : [];
+    return { thread, turns };
+  }
+
+  /** Composer "换个助手接着聊": a new linked Thread on another Harness, see thread-handoff.ts. */
+  async #handoffThread(request: JsonRpcRequest): Promise<void> {
+    const parsed = threadHandoffParamsSchema.safeParse(request.params);
+    if (!parsed.success) {
+      await this.#writer.json(rpcError(request, -32602, "Handoff request is invalid"));
+      return;
+    }
+    await this.#waitForPlugins();
+    const target = parsed.data.targetHarnessId;
+    if (target !== "codex" && !this.#externalAdapters.has(target as ExternalHarnessId)) {
+      await this.#writer.json(rpcError(request, -32070, `Agent '${target}' is unavailable`));
+      return;
+    }
+    const label = (harnessId: string): string =>
+      harnessId === "codex"
+        ? "Codex"
+        : (this.#pluginDescriptors.find(({ id }) => id === harnessId)?.name ?? harnessId);
+    try {
+      const result = await runThreadHandoff(
+        {
+          source: (threadId) => this.#delegationCoordinator.handoffSource(threadId),
+          start: (input) => this.#delegationCoordinator.start(input),
+          send: (input) => this.#delegationCoordinator.send(input),
+          delegationByChild: (threadId) =>
+            this.#repository.getDelegationByChild(hostThreadIdSchema.parse(threadId)),
+          label,
+        },
+        parsed.data,
+      );
+      await this.#writer.json(
+        rpcEnvelope(request, {
+          result: jsonValueSchema.parse(threadHandoffResultSchema.parse(result)),
+        }),
+      );
+    } catch (error) {
+      await this.#writer.json(
+        rpcError(
+          request,
+          error instanceof DelegationControlError && error.code === "INVALID_ARGUMENT"
+            ? -32602
+            : -32603,
+          errorMessage(error),
+        ),
+      );
+    }
   }
 
   async #readOfficialDelegationThread(input: ThreadReadInput): Promise<DelegationThreadSnapshot> {

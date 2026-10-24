@@ -130,6 +130,48 @@ describe("Renderer Agent picker presentation", () => {
     });
   });
 
+  it("keeps a started Thread's Agent but offers the others for a handoff", () => {
+    expect(
+      rendererAgentPickerView(
+        { agent: "codex", phase: "locked" },
+        "ready",
+        false,
+        ["codex", "claude-code", "pi", "grok"],
+        { "claude-code": "ready", pi: "notInstalled", grok: "error" },
+        undefined,
+        true,
+      ),
+    ).toMatchObject({
+      triggerDisabled: false,
+      optionDisabled: { codex: true, "claude-code": false, pi: true, grok: true },
+      downloadVisible: { pi: true },
+    });
+    expect(
+      rendererAgentPickerView(
+        { agent: "claude-code", phase: "locked" },
+        "ready",
+        false,
+        ["codex", "claude-code"],
+        { "claude-code": "ready" },
+        undefined,
+        true,
+      ),
+    ).toMatchObject({
+      triggerDisabled: false,
+      optionDisabled: { codex: false, "claude-code": true },
+    });
+    // Without a handoff-capable Host the started Thread stays locked as before.
+    expect(
+      rendererAgentPickerView(
+        { agent: "codex", phase: "locked" },
+        "ready",
+        false,
+        ["codex", "claude-code"],
+        { "claude-code": "ready" },
+      ),
+    ).toMatchObject({ triggerDisabled: true, optionDisabled: { "claude-code": true } });
+  });
+
   it("hides the native Model and disables all choices while switching", () => {
     expect(
       rendererAgentPickerView({ agent: "codex", phase: "draft" }, "ready", true, ["codex", "pi"]),

@@ -405,6 +405,7 @@ describe("Renderer fixed Model request client", () => {
       "forkThread",
       "getHarnessDisplaySettings",
       "getHarnessLaunchSettings",
+      "handoffThread",
       "importCurrentRly0Account",
       "importHarnessSession",
       "importRly0Skill",

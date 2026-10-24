@@ -4,6 +4,7 @@ import path from "node:path";
 import type {
   HarnessAdapter,
   HarnessModelRef,
+  HarnessPermissionModeId,
   HarnessSession,
   HarnessSessionState,
   HarnessThinkingOptionId,
@@ -113,6 +114,7 @@ export class HarnessDelegationCoordinator {
     turns: JsonObject[];
     requestedModel?: HarnessModelRef;
     requestedThinkingOptionId?: HarnessThinkingOptionId;
+    requestedPermissionModeId?: HarnessPermissionModeId;
     restoredState?: HarnessSessionState;
   }) => ExternalThread;
   readonly #startExternalTurn: (
@@ -130,6 +132,9 @@ export class HarnessDelegationCoordinator {
   ) => Promise<DelegationStartResult>;
   readonly #listOfficial: (input: ThreadListInput) => Promise<DelegationThreadListResult>;
   readonly #officialThreadCwd: (threadId: string) => Promise<string | undefined>;
+  readonly #readOfficialTurns: (
+    threadId: string,
+  ) => Promise<{ thread: JsonObject; turns: JsonObject[] }>;
   readonly #activeOfficialParents: () => string[];
   readonly #externalThreadBusy: (thread: ExternalThread) => boolean;
 
@@ -146,6 +151,7 @@ export class HarnessDelegationCoordinator {
       turns: JsonObject[];
       requestedModel?: HarnessModelRef;
       requestedThinkingOptionId?: HarnessThinkingOptionId;
+      requestedPermissionModeId?: HarnessPermissionModeId;
       restoredState?: HarnessSessionState;
     }): ExternalThread;
     startExternalTurn(thread: ExternalThread, text: string, turnId: string): Promise<void>;
@@ -159,6 +165,7 @@ export class HarnessDelegationCoordinator {
     ): Promise<DelegationStartResult>;
     listOfficial(input: ThreadListInput): Promise<DelegationThreadListResult>;
     officialThreadCwd(threadId: string): Promise<string | undefined>;
+    readOfficialTurns?(threadId: string): Promise<{ thread: JsonObject; turns: JsonObject[] }>;
     activeOfficialParents(): string[];
     externalThreadBusy(thread: ExternalThread): boolean;
   }) {
@@ -176,6 +183,10 @@ export class HarnessDelegationCoordinator {
     this.#startOfficial = input.startOfficial;
     this.#listOfficial = input.listOfficial;
     this.#officialThreadCwd = input.officialThreadCwd;
+    this.#readOfficialTurns =
+      input.readOfficialTurns ??
+      (() =>
+        Promise.reject(new DelegationControlError("THREAD_NOT_FOUND", "Thread was not found")));
     this.#activeOfficialParents = input.activeOfficialParents;
     this.#externalThreadBusy = input.externalThreadBusy;
   }
@@ -263,18 +274,20 @@ export class HarnessDelegationCoordinator {
     const childThreadId = hostThreadIdSchema.parse(randomUUID());
     const turnId = hostTurnIdSchema.parse(randomUUID());
     const createRequestId = input.requestId ? `delegation:${input.requestId}` : randomUUID();
+    const permissionModeId = input.handoff?.permissionModeId;
     let record = await this.#repository.createProvisional(
       createExternalThreadRecordInput({
         hostThreadId: childThreadId,
         createRequestId,
         harnessId: harnessIdSchema.parse(targetHarnessId),
         cwd: startInput.cwd,
-        title: input.task.trim().slice(0, 120),
+        title: (input.handoff?.title ?? input.task.trim()).slice(0, 120),
         transportModelId:
-          input.model || input.thinkingOptionId
+          input.model || input.thinkingOptionId || permissionModeId
             ? encodeExternalTransportSelection(targetHarnessId, {
                 ...(input.model ? { model: input.model } : {}),
                 ...(input.thinkingOptionId ? { thinkingOptionId: input.thinkingOptionId } : {}),
+                ...(permissionModeId ? { permissionModeId } : {}),
               })
             : transportModelIdForHarness(targetHarnessId),
         ephemeral: false,
@@ -299,9 +312,11 @@ export class HarnessDelegationCoordinator {
           kind: "create",
           cwd: record.cwd,
           environment: { ...this.#environment, [DELEGATION_THREAD_ID_ENV]: childThreadId },
-          executionPolicy: "unattended-full-access",
+          // A handoff is the person's own conversation: keep the Harness's normal approvals.
+          ...(input.handoff ? {} : { executionPolicy: "unattended-full-access" as const }),
           ...(input.model ? { model: input.model } : {}),
           ...(input.thinkingOptionId ? { thinkingOptionId: input.thinkingOptionId } : {}),
+          ...(permissionModeId ? { permissionModeId } : {}),
         });
         if (!opened.ok) throw new DelegationControlError("DELEGATION_FAILED", opened.error.message);
         session = opened.value;
@@ -325,6 +340,7 @@ export class HarnessDelegationCoordinator {
           turns: [],
           ...(input.model ? { requestedModel: input.model } : {}),
           ...(input.thinkingOptionId ? { requestedThinkingOptionId: input.thinkingOptionId } : {}),
+          ...(permissionModeId ? { requestedPermissionModeId: permissionModeId } : {}),
           ...(session.initialState.nativeRef ? {} : { restoredState: session.initialState }),
         });
         const beforeRevision = thread.stateObserver.revision;
@@ -400,6 +416,45 @@ export class HarnessDelegationCoordinator {
           error instanceof Error ? error.message : String(error),
         );
       }
+    });
+  }
+
+  /** The Host-projected turns of any Thread, for a handoff transcript. Read-only. */
+  async handoffSource(threadId: string): Promise<{
+    harnessId: RoutedHarnessId;
+    thread: JsonObject;
+    turns: JsonObject[];
+    cwd?: string;
+    running: boolean;
+  }> {
+    const location = await this.#externalRuntime.locate(threadId);
+    if (location.kind === "official") {
+      const official = await this.#readOfficialTurns(threadId);
+      const cwd = typeof official.thread.cwd === "string" ? official.thread.cwd : undefined;
+      return {
+        harnessId: "codex",
+        ...official,
+        ...(cwd ? { cwd } : {}),
+        running: this.#activeOfficialParents().includes(threadId),
+      };
+    }
+    if (location.kind === "error")
+      throw new DelegationControlError("THREAD_NOT_FOUND", location.error.message);
+    return this.#externalRuntime.idleRelease.runOperation(threadId, async () => {
+      const resolution = await this.#externalRuntime.resolve(threadId);
+      if (resolution.kind !== "external")
+        throw new DelegationControlError("THREAD_NOT_FOUND", "Thread was not found");
+      const thread = resolution.thread;
+      if (!this.#externalThreadBusy(thread) && !resolution.historyFresh)
+        await this.#externalRuntime.refresh(thread);
+      return {
+        harnessId: thread.harnessId,
+        thread: thread.thread,
+        // Only settled turns: an in-flight reply is not yet part of the conversation.
+        turns: thread.turns.filter((turn) => turn.status !== "inProgress"),
+        cwd: thread.record.cwd,
+        running: this.#externalThreadBusy(thread),
+      };
     });
   }
 

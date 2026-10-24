@@ -28,16 +28,37 @@ function pickerGroupMessages(): Pick<
   "pickerMoreAgentsLabel" | "pickerManageLink" | "pickerHideUnusedAgentsCta"
 > & {
   readonly ownershipErrorLabel: string;
+  readonly handoffTooltip: string;
+  readonly handoffNote: string;
+  readonly handoffLabel: (agent: string) => string;
 } {
   const languages = typeof navigator !== "undefined" ? navigator.languages : [];
   const messages = rendererSettingsMessages(resolveRendererSettingsLocale(languages));
+  const zh = messages.locale === "zh-CN";
   return {
     ...messages,
-    ownershipErrorLabel:
-      messages.locale === "zh-CN"
-        ? "无法确认会话的 Agent；重新聚焦窗口以重试"
-        : "Unable to determine the Thread Agent; refocus the window to retry",
+    ownershipErrorLabel: zh
+      ? "无法确认会话的 Agent；重新聚焦窗口以重试"
+      : "Unable to determine the Thread Agent; refocus the window to retry",
+    handoffTooltip: zh
+      ? RENDERER_HANDOFF_TOOLTIP_ZH
+      : "Continue with another agent: opens a new conversation that carries this one over",
+    handoffNote: zh
+      ? "换个助手接着聊：会新开一个对话，第一条消息就是带过去的内容（用户和助手的消息、命令结果摘要、改动过的文件；太长时省略较早的轮次）。原对话保持不变；选回原来的助手会把新内容带回原对话。"
+      : "Opens a new conversation whose first message carries this one over (messages, command result summaries, changed files; older turns are left out when long). This conversation stays as it is; picking the original agent again brings the new turns back here.",
+    handoffLabel: (agent) =>
+      zh ? `换个助手接着聊，当前：${agent}` : `Continue with another agent, current ${agent}`,
   };
+}
+
+export const RENDERER_HANDOFF_TOOLTIP_ZH = "换个助手接着聊：会新开一个对话并带上之前的内容";
+
+/** Extra picker state that is not part of draft Agent selection. */
+export interface RendererAgentPickerExtras {
+  /** The Thread is locked but the Host can continue it with another Agent (handoff). */
+  readonly handoff: boolean;
+  /** One line about Codex resources shared with this Agent, or null. */
+  readonly sharedSummary: string | null;
 }
 
 // Opens the Connections settings page from the picker's "More Agents" group.
@@ -80,6 +101,7 @@ interface AgentOptionControl {
 
 export interface RendererAgentPickerControl {
   root: HTMLElement;
+  note: { root: HTMLElement; handoff: HTMLElement; shared: HTMLElement };
   trigger: HTMLButtonElement;
   iconSlot: HTMLElement;
   spinner: HTMLElement;
@@ -140,12 +162,16 @@ export function rendererAgentPickerView(
   agents: readonly RendererAgent[],
   availability: AgentAvailability = {},
   plugin?: HarnessPluginDescriptor,
+  handoff = false,
 ): RendererAgentPickerView {
+  // A locked Thread keeps its Agent; with handoff another Agent continues in a new Thread.
+  const lockedWithoutHandoff = state.phase === "locked" && !handoff;
   const optionDisabled = Object.fromEntries(
     agents.map((agent) => [
       agent,
       switching ||
-        state.phase === "locked" ||
+        lockedWithoutHandoff ||
+        (state.phase === "locked" && agent === state.agent) ||
         (agent !== "codex" && (adapterState !== "ready" || availability[agent] !== "ready")),
     ]),
   ) as Partial<Record<RendererAgent, boolean>>;
@@ -162,7 +188,10 @@ export function rendererAgentPickerView(
   return {
     label: rendererAgentLabel(state.agent, plugin),
     triggerDisabled:
-      switching || state.phase === "locked" || (agents.length < 2 && state.agent === "codex"),
+      switching ||
+      lockedWithoutHandoff ||
+      (state.phase === "locked" && adapterState !== "ready") ||
+      (agents.length < 2 && state.agent === "codex"),
     nativeModelHidden: switching || state.agent !== "codex",
     optionDisabled,
     downloadVisible,
@@ -282,6 +311,21 @@ export function mountRendererAgentPicker(
   menu.style.overflowY = "auto";
   menu.style.zIndex = "2147483647";
   trigger.setAttribute("aria-controls", menu.id);
+
+  const note = document.createElement("div");
+  note.dataset.codexhostAgentNote = "true";
+  note.hidden = true;
+  note.style.padding = "6px 8px 8px";
+  note.style.marginBottom = "2px";
+  note.style.borderBottom = "1px solid rgba(127, 127, 127, 0.16)";
+  note.style.font = "12px/1.45 system-ui, sans-serif";
+  note.style.opacity = "0.78";
+  note.style.whiteSpace = "normal";
+  const handoffNote = document.createElement("div");
+  handoffNote.dataset.codexhostHandoffNote = "true";
+  const sharedNote = document.createElement("div");
+  sharedNote.dataset.codexhostSharedResources = "true";
+  note.append(handoffNote, sharedNote);
 
   const options: Partial<Record<RendererAgent, AgentOptionControl>> = {};
   const rowsByAgent = new Map<RendererAgent, HTMLDivElement>();
@@ -638,7 +682,7 @@ export function mountRendererAgentPicker(
   regroup();
   const unsubscribeGroup = groupPreference.subscribe(regroup);
 
-  menu.append(mainGroup, moreToggle, morePanel, cta, remoteEntry);
+  menu.append(note, mainGroup, moreToggle, morePanel, cta, remoteEntry);
   root.append(trigger, menu);
 
   const onTriggerClick = (): void => {
@@ -692,6 +736,7 @@ export function mountRendererAgentPicker(
 
   const control: RendererAgentPickerControl = {
     root,
+    note: { root: note, handoff: handoffNote, shared: sharedNote },
     trigger,
     iconSlot,
     spinner,
@@ -736,7 +781,9 @@ export function renderRendererAgentPicker(
   availability: AgentAvailability = {},
   currentCodexAccount: CodexAccountSummary | null = null,
   ownershipError = false,
+  extras: RendererAgentPickerExtras = { handoff: false, sharedSummary: null },
 ): RendererAgentPickerView {
+  const handoff = extras.handoff && state.phase === "locked";
   const view = rendererAgentPickerView(
     state,
     adapterState,
@@ -744,7 +791,16 @@ export function renderRendererAgentPicker(
     control.agents,
     availability,
     control.plugins.find(({ id }) => id === state.agent),
+    handoff,
   );
+  const messages = pickerGroupMessages();
+  control.note.handoff.textContent = handoff ? messages.handoffNote : "";
+  control.note.handoff.hidden = !handoff;
+  control.note.shared.textContent = extras.sharedSummary ?? "";
+  control.note.shared.hidden = !extras.sharedSummary;
+  control.note.shared.style.marginTop = handoff ? "4px" : "0";
+  control.note.root.hidden = !handoff && !extras.sharedSummary;
+  control.menu.setAttribute("aria-label", handoff ? messages.handoffTooltip : "Agent");
   control.updateAvailability(availability);
   if (control.iconSlot.dataset.agent !== state.agent) {
     control.iconSlot.replaceChildren(
@@ -762,18 +818,22 @@ export function renderRendererAgentPicker(
   control.trigger.setAttribute(
     "aria-label",
     ownershipError
-      ? pickerGroupMessages().ownershipErrorLabel
-      : state.phase === "locked"
-        ? `Agent: ${view.label}`
-        : `Select Agent, current ${view.label}`,
+      ? messages.ownershipErrorLabel
+      : handoff
+        ? messages.handoffLabel(view.label)
+        : state.phase === "locked"
+          ? `Agent: ${view.label}`
+          : `Select Agent, current ${view.label}`,
   );
   control.trigger.title = ownershipError
-    ? pickerGroupMessages().ownershipErrorLabel
-    : rendererAgentPickerTooltip(
-        state,
-        currentCodexAccount ?? undefined,
-        control.plugins.find(({ id }) => id === state.agent),
-      );
+    ? messages.ownershipErrorLabel
+    : handoff
+      ? `${view.label} · ${messages.handoffTooltip}`
+      : rendererAgentPickerTooltip(
+          state,
+          currentCodexAccount ?? undefined,
+          control.plugins.find(({ id }) => id === state.agent),
+        );
   control.trigger.style.cursor = control.trigger.disabled ? "not-allowed" : "pointer";
   control.trigger.style.opacity = control.trigger.disabled && !switching ? "0.72" : "1";
   control.iconSlot.style.display = switching || ownershipError ? "none" : "inline-flex";
