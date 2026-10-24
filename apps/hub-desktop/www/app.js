@@ -655,6 +655,7 @@
     rateBadge,
   };
   pageApi.applyToCodex = window.registerHubCodexApply(pageApi).apply;
+  pageApi.noAccount = window.registerHubNoAccount(pageApi);
   Object.assign(pageApi, window.registerHubResources(pageApi));
   window.registerHubSystem(pageApi);
   Object.assign(pageApi, window.registerHubDiscovery(pageApi));
@@ -935,11 +936,19 @@
       }, 2000);
       pollers.add(timer);
     }
+    // Same switch as 中转站 and 首页 (pages/no-account.js).
+    const noAccountSection = h("section", { class: "m span-6 no-account" });
+    pageApi.noAccount.mount(noAccountSection, alive);
     root.append(
       head,
       filePicker,
       addStatus,
-      h("div", { class: "grid compact account-auto" }, cards.autoSwitchCard({ alive })),
+      h(
+        "div",
+        { class: "grid compact account-auto" },
+        cards.autoSwitchCard({ alive }),
+        noAccountSection,
+      ),
       list,
     );
 

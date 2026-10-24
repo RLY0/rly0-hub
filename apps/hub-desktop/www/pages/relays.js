@@ -14,6 +14,7 @@ window.registerHubRelays = ({
   isOfficialKey,
   moneyBadge,
   rateBadge,
+  noAccount: { mount: noAccountMount },
 }) => {
   const RLY0_BASE = "https://api.rly0.com/v1";
   const put = (element, ...items) =>
@@ -344,121 +345,9 @@ window.registerHubRelays = ({
       list,
     );
 
-    // No-account mode is a switch. It changes ~/.codex/config.toml, so turning it on shows the
-    // exact changes first; it can only be turned on once a relay offers GPT models.
-    async function loadNoAccount() {
-      const status = await call("relay.noAccountStatus").catch(() => null);
-      if (!alive() || !status) return;
-      const blocked = status.enabled
-        ? null
-        : status.models.length
-          ? null
-          : "先添加一个有 GPT 模型的中转站，才能打开";
-      const toggle = h("button", {
-        class: `switch ${blocked ? "off" : ""}`,
-        type: "button",
-        role: "switch",
-        "aria-checked": String(Boolean(status.enabled)),
-        "aria-disabled": blocked ? "true" : null,
-        "data-tip": blocked,
-        "aria-label": "不登录 OpenAI 也能用",
-        onclick: () => {
-          if (blocked) return toast(blocked);
-          if (status.enabled)
-            call("relay.noAccountDisable").then(() => {
-              toast("已恢复原来的 Codex 设置，重启 Codex 生效");
-              loadNoAccount();
-            }, failed);
-          else enableDialog(status.models);
-        },
-      });
-      put(
-        noAccount,
-        h(
-          "div",
-          { class: "row" },
-          h(
-            "div",
-            { class: "who" },
-            h("b", null, "不登录 OpenAI 也能用"),
-            h(
-              "span",
-              null,
-              status.enabled
-                ? `已开启 · 默认模型 ${status.model || ""}`
-                : "没有 OpenAI 账号时，Codex 直接用中转站的 GPT 模型",
-            ),
-          ),
-          h("span", { class: "spacer" }),
-          toggle,
-        ),
-        status.enabled
-          ? h(
-              "p",
-              { class: "sub" },
-              "请保持 Hub 在托盘里运行。关掉开关会恢复原来的设置，重启 Codex 生效。",
-            )
-          : h("p", { class: "sub" }, blocked || "打开前会先列出要改的设置，改之前自动备份。"),
-      );
-    }
-
-    function enableDialog(models) {
-      const ui = window.HubUI.dialog({
-        title: "不登录 OpenAI 也能用",
-        sub: "会修改 Codex 的设置文件，改之前先备份，随时可以关掉恢复",
-      });
-      const model = h(
-        "select",
-        { class: "input", "aria-label": "默认模型" },
-        models.map((m) => h("option", { value: m }, m)),
-      );
-      const plan = h("div");
-      const confirm = h(
-        "button",
-        { class: "btn red", type: "button", disabled: true },
-        "我已了解，开启",
-      );
-      const preview = async () => {
-        confirm.disabled = true;
-        const result = await call("relay.noAccountPreview", { model: model.value }).catch(
-          (error) => {
-            failed(error);
-            return null;
-          },
-        );
-        if (!result) return;
-        put(
-          plan,
-          h("span", { class: "label" }, "会修改"),
-          h("p", { class: "sub tabular" }, result.configPath),
-          h("pre", { class: "plan-lines" }, result.changes.join("\n")),
-          h(
-            "ul",
-            { class: "plan-notes" },
-            h("li", null, "开启后 Codex 只用中转站的模型，官方模型暂时不可用。"),
-            h("li", null, "Hub 要一直在托盘里运行（开机自启已默认打开）。"),
-            h("li", null, "重启 Codex 后生效。"),
-          ),
-        );
-        confirm.disabled = false;
-      };
-      model.addEventListener("change", preview);
-      confirm.addEventListener("click", () =>
-        call("relay.noAccountEnable", { model: model.value, confirmed: true }).then((r) => {
-          toast(r.noAccount ? "已开启，重启 Codex 生效" : "没有开启成功");
-          ui.close();
-          loadNoAccount();
-        }, failed),
-      );
-      put(ui.body, h("label", { class: "field" }, h("span", null, "默认模型"), model), plan);
-      put(
-        ui.foot,
-        h("span", { class: "spacer" }),
-        h("button", { class: "btn quiet", type: "button", onclick: () => ui.close() }, "取消"),
-        confirm,
-      );
-      preview();
-    }
+    // No-account switch: the shared card (no-account.js), also on 首页 and 账号.
+    const noAccountCard = noAccountMount(noAccount, alive);
+    const loadNoAccount = noAccountCard.reload;
 
     const rly0Key = h("input", {
       class: "input on-red",

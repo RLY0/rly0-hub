@@ -275,7 +275,12 @@ window.registerHubHome = (api) => {
     const people = h("section", { class: "m panel span-6 accounts-panel" });
     const agentsModule = h("section", { class: "m panel span-3" });
     const lines = h("section", { class: "m panel span-3" });
-    root.append(h("div", { class: "grid home-grid" }, promo, people, agentsModule, lines));
+    // Same switch as 中转站 and 账号 (pages/no-account.js).
+    const noAccount = h("section", { class: "m span-6 no-account home-no-account" });
+    root.append(
+      h("div", { class: "grid home-grid" }, promo, people, noAccount, agentsModule, lines),
+    );
+    api.noAccount.mount(noAccount, alive, { compact: true });
 
     async function loadPromo() {
       const result = await call("balance.get").catch((error) => ({
