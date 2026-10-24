@@ -10,7 +10,13 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-import { encodeHarnessPluginRoute } from "@codexhost/shared-contracts";
+import {
+  harnessIdSchema,
+  harnessModelRefIdSchema,
+  harnessThinkingOptionIdSchema,
+  harnessPermissionModeIdSchema,
+  encodeHarnessPluginRoute,
+} from "@codexhost/shared-contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -26,7 +32,12 @@ const A = "aaaaaaaa-0000-4000-8000-000000000001";
 const B = "bbbbbbbb-0000-4000-8000-000000000002";
 
 const record = (id: string, updatedAt: string, title = id) =>
-  JSON.stringify({ hostThreadId: id, updatedAt, title, harnessId: "claude-code" });
+  JSON.stringify({
+    hostThreadId: id,
+    updatedAt,
+    title,
+    harnessId: harnessIdSchema.parse("claude-code"),
+  });
 
 function makeHome(): string {
   const home = mkdtempSync(path.join(os.tmpdir(), "rly0-legacy-import-"));
@@ -48,6 +59,15 @@ const legacyThread = (home: string, id: string) =>
   path.join(home, ".codexhost", "mapping-store", "threads", `${id}.json`);
 
 describe("importLegacyCodexHostData", () => {
+  it("preserves a modern selection when native repair cannot represent its thinking option", () => {
+    const modern = encodeHarnessPluginRoute({
+      harnessId: harnessIdSchema.parse("deepseek-harness"),
+      model: { id: harnessModelRefIdSchema.parse("synthetic-model") },
+      thinkingOptionId: harnessThinkingOptionIdSchema.parse("medium"),
+    });
+    expect(canonicalize("deepseek-harness", modern)).toBeNull();
+    expect(canonicalize("claude-code", modern)).toBeNull();
+  });
   it("copies thread mappings, leaving the legacy directory untouched", () => {
     const home = makeHome();
     expect(importLegacyCodexHostData({}, { home })).toEqual({
@@ -116,10 +136,10 @@ describe("importLegacyCodexHostData", () => {
   it("re-encodes upstream's generic model route so the chat can be continued", () => {
     const home = makeHome();
     const upstream = encodeHarnessPluginRoute({
-      harnessId: "claude-code",
-      model: { id: "claude-model-v1.b3B1cw" },
-      thinkingOptionId: "medium",
-      permissionModeId: "bypassPermissions",
+      harnessId: harnessIdSchema.parse("claude-code"),
+      model: { id: harnessModelRefIdSchema.parse("claude-model-v1.b3B1cw") },
+      thinkingOptionId: harnessThinkingOptionIdSchema.parse("medium"),
+      permissionModeId: harnessPermissionModeIdSchema.parse("bypassPermissions"),
     });
     const withRoute = (id: string, updatedAt: string) =>
       JSON.stringify({ ...JSON.parse(record(id, updatedAt)), transportModelId: upstream });
@@ -161,12 +181,12 @@ describe("importLegacyCodexHostData", () => {
 
   it("leaves plugin agents' routes alone (that is their canonical form)", () => {
     const home = makeHome();
-    const hermes = encodeHarnessPluginRoute({ harnessId: "hermes" });
+    const hermes = encodeHarnessPluginRoute({ harnessId: harnessIdSchema.parse("hermes") });
     writeFileSync(
       legacyThread(home, A),
       JSON.stringify({
         ...JSON.parse(record(A, "2026-10-01T00:00:00.000Z")),
-        harnessId: "hermes",
+        harnessId: harnessIdSchema.parse("hermes"),
         transportModelId: hermes,
       }),
     );
@@ -185,8 +205,8 @@ describe("importLegacyCodexHostData", () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "rly0-legacy-gone-"));
     mkdirSync(target(home, "threads"), { recursive: true });
     const upstream = encodeHarnessPluginRoute({
-      harnessId: "claude-code",
-      model: { id: "claude-model-v1.b3B1cw" },
+      harnessId: harnessIdSchema.parse("claude-code"),
+      model: { id: harnessModelRefIdSchema.parse("claude-model-v1.b3B1cw") },
     });
     writeFileSync(
       target(home, "threads", `${A}.json`),

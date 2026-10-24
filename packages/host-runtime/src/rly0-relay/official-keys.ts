@@ -98,7 +98,7 @@ export class Rly0OfficialKeyModels {
     const next: Record<string, { models: readonly string[] }> = {};
     for (const [key, list] of Object.entries(current)) if (list) next[key] = { models: list };
     if (models) next[vendor] = { models: [...new Set(models.map(cleanModelId))].filter(Boolean) };
-    else delete next[vendor];
+    else Reflect.deleteProperty(next, vendor);
     await fs.mkdir(path.dirname(this.#file), { recursive: true });
     const temporary = `${this.#file}.tmp-${process.pid}-${Date.now()}`;
     await fs.writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, "utf8");

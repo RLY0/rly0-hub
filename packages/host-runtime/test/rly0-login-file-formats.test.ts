@@ -25,8 +25,9 @@ describe("login files from other tools", () => {
       ]),
     );
     expect(logins).toHaveLength(1);
-    expect(logins[0]!.alias).toBe("ChatGPT-A");
-    const auth = JSON.parse(logins[0]!.json);
+    if (!logins[0]) throw new Error("Synthetic login was not parsed");
+    expect(logins[0].alias).toBe("ChatGPT-A");
+    const auth = JSON.parse(logins[0].json);
     expect(auth.tokens).toEqual({
       id_token: "id-1",
       access_token: "at-1",

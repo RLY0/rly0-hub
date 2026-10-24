@@ -9,8 +9,10 @@ import {
 
 describe("RLY/0 Hub agent catalog in Codex", () => {
   it("offers official agents first, then third-party ones, and hides the rest", () => {
+    // Agent IDs now come from the Host plugin directory; the store only orders that catalog.
+    const catalog = KNOWN_RENDERER_AGENTS.map((id) => ({ id, name: id }));
     const order = createAgentGroupPreferenceStore(null)
-      .list()
+      .list(undefined, catalog)
       .map((entry) => entry.agent);
     expect(order.slice(0, 8)).toEqual(RLY0_AGENT_DISPLAY_ORDER.filter((a) => a !== "codex"));
     for (const hidden of RLY0_HIDDEN_RENDERER_AGENTS) {
@@ -18,5 +20,16 @@ describe("RLY/0 Hub agent catalog in Codex", () => {
       expect(KNOWN_RENDERER_AGENTS).toContain(hidden);
       expect(RLY0_AGENT_DISPLAY_ORDER).not.toContain(hidden);
     }
+  });
+
+  it("orders plugins the Host reports even when RLY/0 has never seen them", () => {
+    const order = createAgentGroupPreferenceStore(null)
+      .list(undefined, [
+        { id: "new-plugin", name: "New Plugin" },
+        { id: "pi", name: "Pi" },
+        { id: "claude-code", name: "Claude Code" },
+      ])
+      .map((entry) => entry.agent);
+    expect(order).toEqual(["claude-code", "pi", "new-plugin"]);
   });
 });

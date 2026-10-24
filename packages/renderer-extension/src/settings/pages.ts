@@ -1,4 +1,11 @@
 import {
+  createUsageStatisticsPage,
+  type RendererUsageStatisticsRequest,
+} from "../console/pages/usage-statistics.js";
+import { consoleMessages } from "../console/messages.js";
+import { createRemoteConnectionsPage } from "./remote-connections-page.js";
+import type { RemoteConnectionsControl } from "../remote-connections-control.js";
+import {
   RLY0_GITHUB_RELEASE_DOWNLOAD_URL_PREFIX,
   RLY0_GITHUB_RELEASES_LATEST_URL,
   RLY0_GITHUB_REPOSITORY_URL,
@@ -87,6 +94,7 @@ function windowsInstallerDownloadUrl(window: Window | null | undefined, version:
 export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = [
   "dashboard",
   "connections",
+  "remote-connections",
   "accounts",
   "relay",
   "session-import",
@@ -94,6 +102,7 @@ export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = [
   "mcp",
   "skills",
   "maintenance",
+  "usage-statistics",
   "appearance",
   "updates",
   "about",
@@ -102,9 +111,11 @@ export const DEFAULT_RENDERER_SETTINGS_PAGE_IDS = [
 export type DefaultRendererSettingsPageId = (typeof DEFAULT_RENDERER_SETTINGS_PAGE_IDS)[number];
 
 export interface RendererUpdateClient {
-  checkUpdate(): Promise<UpdateCheckResult>;
+  checkUpdate(): Promise<UpdateCheckResult | null>;
   startUpdate(): Promise<UpdateStartResult>;
   readUpdateStatus(): Promise<UpdateStatusResult>;
+  /** Opens the local codexhost console; absent on Hosts that cannot. */
+  openConsole?(): Promise<unknown>;
 }
 
 function panelIconName(view: string): RendererSettingsIconName {
@@ -176,7 +187,46 @@ function formatUpdateBytes(value: number): string {
   return `${scaled.toFixed(scaled >= 10 ? 0 : 1)} ${unit}`;
 }
 
-function aboutPage(messages: RendererSettingsMessages): RendererSettingsPageDefinition {
+function consoleSection(
+  document: Document,
+  messages: RendererSettingsMessages,
+  client: RendererUpdateClient | null,
+): HTMLElement | null {
+  if (!client?.openConsole) return null;
+  const openConsole = client.openConsole.bind(client);
+  const section = document.createElement("div");
+  section.className = "settings-about-repository";
+  const copy = document.createElement("p");
+  copy.textContent = messages.aboutConsole;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "settings-command-button settings-command-button--secondary";
+  button.textContent = messages.aboutConsoleOpen;
+  const status = document.createElement("p");
+  status.setAttribute("role", "status");
+  status.hidden = true;
+  button.addEventListener("click", () => {
+    button.disabled = true;
+    button.textContent = messages.aboutConsoleOpening;
+    status.hidden = true;
+    void openConsole()
+      .catch((error: unknown) => {
+        status.textContent = `${messages.aboutConsoleFailed}: ${error instanceof Error ? error.message : String(error)}`;
+        status.hidden = false;
+      })
+      .finally(() => {
+        button.disabled = false;
+        button.textContent = messages.aboutConsoleOpen;
+      });
+  });
+  section.append(copy, button, status);
+  return section;
+}
+
+function aboutPage(
+  messages: RendererSettingsMessages,
+  getClient: () => RendererUpdateClient | null = () => null,
+): RendererSettingsPageDefinition {
   return Object.freeze({
     id: "about",
     label: messages.pageLabels.about,
@@ -228,6 +278,8 @@ function aboutPage(messages: RendererSettingsMessages): RendererSettingsPageDefi
         createSponsorEntry(document, context.content, messages.sponsor, context.signal),
       );
       panel.append(product, tagline, introduction, starCallout, repositorySection, sponsorSection);
+      const consoleEntry = consoleSection(document, messages, getClient());
+      if (consoleEntry) panel.append(consoleEntry);
       context.content.append(heading, panel);
       return undefined;
     },
@@ -404,7 +456,20 @@ function updatesPage(
         }
       };
 
+      // Unavailable can follow a rendered check (Retry after an error), so it
+      // restores the metadata and manual controls to their unchecked state.
       const renderUnavailable = (detail: string): void => {
+        currentVersionValue.textContent = "-";
+        latestVersionValue.textContent = "-";
+        latestVersionValue.className = "";
+        installationValue.textContent = "-";
+        manualTitle.hidden = false;
+        manualNpm.hidden = true;
+        manualWindowsInstaller.hidden = true;
+        manualWindowsInstallerLink.href = CODEXHOST_RELEASES_LATEST_URL;
+        releaseLink.hidden = false;
+        releaseLink.href = CODEXHOST_RELEASES_LATEST_URL;
+        controls.className = "settings-update-controls";
         panel.dataset.updateState = "unavailable";
         delete panel.dataset.inline;
         panel.replaceChildren();
@@ -518,7 +583,14 @@ function updatesPage(
         );
       };
 
-      const renderCheck = (result: UpdateCheckResult, client: RendererUpdateClient): void => {
+      const renderCheck = (
+        result: UpdateCheckResult | null,
+        client: RendererUpdateClient,
+      ): void => {
+        if (result === null) {
+          renderUnavailable(messages.runtimeCapabilityNotInstalled);
+          return;
+        }
         currentVersionValue.textContent = `v${result.currentVersion}`;
         latestVersionValue.textContent = result.latestVersion ? `v${result.latestVersion}` : "-";
         latestVersionValue.className = result.updateAvailable
@@ -548,7 +620,7 @@ function updatesPage(
             ? result.status
             : null;
         // Before the first public release GitHub answers 404; that is not a failure.
-        const noRelease = result.error !== null && /HTTP 404/.test(result.error);
+        const noRelease = result.error !== null && /\bHTTP 404\b/.test(result.error);
         const resultError = noRelease ? null : result.error;
         const view = resultError ? "error" : result.updateAvailable ? "available" : "current";
         panel.dataset.updateState = view;
@@ -647,9 +719,13 @@ export function createDefaultRendererSettingsPages(
   getDiagnostics: () => RendererConnectionDiagnostics | null = () => null,
   getAccountClient: () => RendererCodexAccountClient | null = () => null,
   getSessionImportClient: () => RendererSessionImportClient | null = () => null,
-  openImportedThread: RendererImportedThreadOpener = () =>
+  openImportedThread: RendererImportedThreadOpener | null = () =>
     Promise.reject(new Error("Imported Thread navigation is unavailable")),
   getLoadedSessionsClient: () => LoadedSessionsClient | null = () => null,
+  // Upstream positions first (index 8 is the statistics transport); RLY/0 clients follow.
+  getRemoteConnections: () => RemoteConnectionsControl | null = () => null,
+  requestUsageStatistics: RendererUsageStatisticsRequest = () =>
+    Promise.reject(new Error("Local Host connection is unavailable")),
   getMcpClient: () => RendererMcpClient | null = () => null,
   getSkillsClient: () => RendererSkillsClient | null = () => null,
   getDashboardClient: () => RendererDashboardClient | null = () => null,
@@ -661,17 +737,28 @@ export function createDefaultRendererSettingsPages(
 ): readonly RendererSettingsPageDefinition[] {
   return Object.freeze([
     createDashboardSettingsPage(messages, getDashboardClient),
-    createConnectionsSettingsPage(messages, getDiagnostics),
+    createConnectionsSettingsPage(messages, getDiagnostics, undefined, getRemoteConnections),
+    createRemoteConnectionsPage(messages, getRemoteConnections),
     createAccountsSettingsPage(messages, getAccountClient, codexOnly),
     createRelaySettingsPage(messages, getRelayClient),
-    createSessionImportSettingsPage(messages, getSessionImportClient, openImportedThread),
+    createSessionImportSettingsPage(
+      messages,
+      getSessionImportClient,
+      openImportedThread,
+      getDiagnostics,
+    ),
     createThreadsSettingsPage(messages, getThreadsClient),
     createMcpSettingsPage(messages, getMcpClient),
     createSkillsSettingsPage(messages, getSkillsClient),
     createMaintenanceSettingsPage(messages, getMaintenanceClient),
+    createUsageStatisticsPage(
+      consoleMessages(messages.locale),
+      requestUsageStatistics,
+      messages.locale,
+    ),
     createAppearanceSettingsPage(messages, getLoadedSessionsClient, getAppearanceClient, codexOnly),
     updatesPage(messages, getUpdateClient),
-    aboutPage(messages),
+    aboutPage(messages, getUpdateClient),
   ]);
 }
 
@@ -682,7 +769,7 @@ export function createDefaultRendererSettingsRegistry(
   getAccountClient: () => RendererCodexAccountClient | null = () => null,
   getSessionImportClient: () => RendererSessionImportClient | null = () => null,
   openImportedThread?: RendererImportedThreadOpener,
-  getLoadedSessionsClient?: () => LoadedSessionsClient | null,
+  requestUsageStatistics?: RendererUsageStatisticsRequest,
   getMcpClient?: () => RendererMcpClient | null,
   getSkillsClient?: () => RendererSkillsClient | null,
   getDashboardClient?: () => RendererDashboardClient | null,
@@ -699,7 +786,9 @@ export function createDefaultRendererSettingsRegistry(
       getAccountClient,
       getSessionImportClient,
       openImportedThread,
-      getLoadedSessionsClient,
+      undefined,
+      undefined,
+      requestUsageStatistics,
       getMcpClient,
       getSkillsClient,
       getDashboardClient,

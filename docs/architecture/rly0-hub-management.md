@@ -1,5 +1,17 @@
 # RLY/0 Hub 独立管理窗口
 
+## macOS 开发壳（未验收）
+
+`apps/hub-desktop/macos/` 提供 AppKit/WKWebView 的独立开发壳，复用现有页面和 stdio service；不是当前正式 Mac 产品。`scripts/release/macos/hub-dev-kit.mjs --prepare-only --output <新目录>` 可在 Windows 离线准备源文件、页面和实际后台 bundle，并记录 SHA-256 与 `not_run` 状态。默认 arm64，Intel 添加 `--arch x64`。开发包自带 `build-on-mac.sh`，使用与包和主机同架构的 Swift 和 Node 22/24 构建仅 ad-hoc 签名的 `.app`；不启动应用，不进入原有 release pipeline。
+
+原生壳限制本地资源路径、来源主框架、请求形状和大小，屏蔽远程资源与导航，复用页面既有 bridge API；后台退出时返回不可用并且不重发请求。开发运行使用独立 HOME 与 Codex/Claude/Hub/Core 目录。未捆绑 Core；Core 源码中的 Mac Keychain 加密预览默认关闭，尚未原生验证或独立复核，不回退到明文。已有 Windows 更新器不因此获得 Mac 支持。
+
+Mac `locateOfficialCodex` 只读查找指定 `.app` 或 `/Applications/Codex.app`、`~/Applications/Codex.app` 的新嵌套/旧平铺 CLI；要求解析后仍在包内、可执行位与 Mach-O 标头。指定无效路径时不自动选择别的安装；这不是签名/官方身份或架构兼容性的证明。Mac `Rly0CodexControl.open` 仅在安装根有 `bin/codexhost` 时调用原生启动器，源码包未包含该文件时报告不可用；Mac 的强退和重启仍未接通。Intel Hub 壳与当前 Codex Desktop 的 Intel 支持分别验证。
+
+状态与 Mac 验收清单见 [macOS 开发包说明](../../apps/hub-desktop/macos/README.md)。Swift 编译、WKWebView 行为、目录隔离、子进程清理与真实账号均须在 Mac 上验证；仅有 Windows 合成测试不能放行。原生通信尚未独立安全审查。
+
+`scripts/release/macos/validation-kit.mjs` 可离线生成仅供本机交接的组合验证包：复用Hub开发包，并按限定文件类型/路径复制私有Core源文件、清单、锁与验证说明，记录两仓提交及是否存在本地改动。包内验证器逐文件核对SHA-256、拒绝路径越界/重复路径/链接与目标架构不一致；主脚本在Mac检查工具链，分别验证Core与构建Hub，结束再次核对源码。只有全部通过才写汇总，窗口运行/持久Keychain/真实账号/独立审核仍not_run。此包不含依赖缓存、Core可执行文件或正式安装器，不自动上传或启动。
+
 管理入口位于 `bin/rly0-hub.exe`：C#/WebView2 壳加载 `app/hub-ui/`，并以捆绑 Node 启动 `app/hub-service.mjs`，通过 stdio 请求固定方法。Codex 不运行时也可以管理 MCP、Skills、本机会话、诊断、Hub 缓存、网络代理和更新检查。
 
 ## 入口与回退
@@ -75,3 +87,13 @@ Codex 模型目录保留官方原条目，每个已启用中转模型另用 `rly
 `.app` 的网格行限制在窗口内，`.stage` 和 `#page` 允许收缩，页面内容在 `#page` 内滚动；菜单自身也能滚动，支持壳的最小窗口。新管理页面位于 `www/pages/resources.js`、`system.js`，mock 数据位于 `mock.js`，由 `index.html` 的同源脚本加载，保持 CSP `script-src 'self'`。新增资源同时列入 Windows payload 清单。
 
 后端测试使用隔离的临时 HOME、CODEX_HOME 和 Hub 数据目录；安装分支使用虚拟 runner。浏览器 mock 预览可验证页面交互和滚动，但不代表 C#/WebView2、真实安装、登录或启动器进程控制验收。
+
+## 额度重置卡
+
+重置权益属于账号所属平台，不属于助手程序。账号与令牌卡使用同一个额度组件，始终显示重置卡状态：Codex 显示接口返回的张数，未知不当作零；Claude 显示“官方查看”；Gemini/Grok 未核实到使用接口时显示“未接通”；普通 API Key 显示“不适用”。Pi、Hermes 等复用哪个平台账号，就受该账号权益范围约束，不能跨平台套用卡片。
+
+Codex 已保存账号的 `accounts.resetPrepare` 读取官方卡库存，用户确认后 `accounts.resetConsume` 提交明确的卡 ID 和 UUID 请求；不切账号、不刷新令牌、不改写额度为 100%。仅调用固定 ChatGPT 官方地址，不接受页面或环境覆盖消费目标，不跟随重定向、不自动重试 POST。契约依据 [官方 App Server 文档](https://learn.chatgpt.com/docs/app-server#8-earned-rate-limit-resets-chatgpt) 和 openai/codex `a6839a48` 的 backend-client 实现。只有 `reset/alreadyRedeemed/nothingToReset/noCredit` 为已知结果，未知响应保留待核实。
+
+core 在账号存储目录用 DPAPI 加密保存使用账本，POST 前必须落盘；跨进程 OS 文件锁防止同时提交。未知结果保留原账号、卡 ID、请求 ID 与凭据版本；页面重开或缓存清空后从后台找回，拒绝新请求越过未确认记录。官方成功但 RPC 丢失时，终态记录也保留，直到页面接收结果并用 `accounts.resetAcknowledge` 确认收据。终态重试从账本返回，无额外 POST。凭据版本变化、账本不可读/不可写时停止，不消耗另一张卡。此状态可能需要在官方页面核实，不能自动清除未确认记录。
+
+使用后查询真实额度；刷新失败保留提示，不能以消费接口成功替代额度到账证明。Claude 的 Code OAuth/Setup Token 不等于浏览器登录，Hub 仅通过固定 `https://claude.ai/settings/usage` 打开官方重置入口，提示核对网页账号；这不称为 Hub 内直接消费，也不显示未经验证的张数。[Claude 官方说明](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset) 当前将重置使用限定在网页/Claude Desktop。Gemini/Grok 全部可在 Hub 直接重置仍未完成。

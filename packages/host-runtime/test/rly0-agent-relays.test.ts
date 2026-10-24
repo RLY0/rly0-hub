@@ -105,7 +105,7 @@ describe("Claude Code through a relay", () => {
     });
     const opencode = JSON.parse(
       opencodeRelayEnvironment({}, url, ["gpt-5.4", "claude-*"], "gpt-5.4")
-        .OPENCODE_CONFIG_CONTENT!,
+        .OPENCODE_CONFIG_CONTENT ?? "",
     );
     expect(opencode.model).toBe("rly0/gpt-5.4");
     expect(Object.keys(opencode.provider.rly0.models)).toEqual(["gpt-5.4"]);

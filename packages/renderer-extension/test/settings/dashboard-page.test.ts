@@ -210,10 +210,13 @@ describe("createDashboardSettingsPage", () => {
     const rendered = text(root);
     expect(rendered).toContain("me@example.com");
     expect(rendered).toContain("Plus");
-    // Quota bars come from renderAccountUsage (the accounts page renderer).
-    expect(
-      descendants(root).filter((el) => el.className === "settings-account-usage-cell"),
-    ).toHaveLength(2);
+    // Quota bars come from renderAccountUsage (the accounts page renderer). Upstream 0.13.3 packs
+    // only the windows that exist, so the single five-hour window is one full-width cell.
+    const usageCells = descendants(root).filter(
+      (el) => el.className === "settings-account-usage-cell",
+    );
+    expect(usageCells).toHaveLength(1);
+    expect(usageCells[0]?.colSpan).toBe(2);
 
     const goButton = descendants(root).find((el) => el.dataset.action === "go-accounts");
     expect(goButton?.textContent).toBe(messages.dashboard.goToAccounts);

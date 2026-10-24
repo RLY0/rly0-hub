@@ -100,6 +100,8 @@ import { GrokAddLogin } from "./grok-add-login.js";
 import { createAgentAccountRoutes } from "./agent-account-routes.js";
 import { withConnectionHints } from "./agent-connection-hint.js";
 import { AntigravityUsageReader } from "../rly0-agents/antigravity-usage.js";
+import { sharedResourcesEnabled, setSharedResourcesEnabled } from "../shared-harness-resources.js";
+import { resetPrepareParams, resetConsumeParams, resetAcknowledgeParams } from "./reset-credits.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
@@ -112,13 +114,23 @@ export const RLY0_HUB_LINKS = {
   releases: RLY0_GITHUB_RELEASES_LATEST_URL,
   keys: "https://rly0.com/keys",
   codexWebGpt: "https://github.com/miuuyy/codex-chatgpt-web/releases",
+  claudeUsage: "https://claude.ai/settings/usage",
 } as const;
 
 const empty = z.object({}).strict();
 const addLoginIdParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/u) }).strict();
 const linkParams = z
   .object({
-    target: z.enum(["site", "recharge", "github", "nodejs", "releases", "keys", "codexWebGpt"]),
+    target: z.enum([
+      "site",
+      "recharge",
+      "github",
+      "nodejs",
+      "releases",
+      "keys",
+      "codexWebGpt",
+      "claudeUsage",
+    ]),
   })
   .strict();
 
@@ -947,10 +959,19 @@ export class Rly0HubService {
       "proxy.stop": route(empty, () => core.proxyStop()),
 
       "accounts.list": route(empty, () => core.listAccounts()),
+      "resources.sharingGet": route(empty, async () => ({
+        enabled: await sharedResourcesEnabled(this.#options.environment),
+      })),
+      "resources.sharingSet": route(z.object({ enabled: z.boolean() }).strict(), (p) =>
+        setSharedResourcesEnabled(this.#options.environment, p.enabled),
+      ),
       "accounts.usage": route(rly0AccountsUsageParamsSchema, (p) => core.usage(p)),
       "accounts.current": route(empty, () => core.currentAccount()),
       "accounts.usageCurrent": route(empty, () => core.usageCurrent()),
       "accounts.usageAll": route(empty, () => core.usageAll()),
+      "accounts.resetPrepare": route(resetPrepareParams, (p) => core.resetPrepare(p)),
+      "accounts.resetConsume": route(resetConsumeParams, (p) => core.resetConsume(p)),
+      "accounts.resetAcknowledge": route(resetAcknowledgeParams, (p) => core.resetAcknowledge(p)),
       "accounts.switch": route(rly0AccountsSwitchParamsSchema, (p) => core.switchAccount(p)),
       "accounts.rename": route(rly0AccountsRenameParamsSchema, (p) => core.rename(p)),
       "accounts.remove": route(rly0AccountsRemoveParamsSchema, (p) => core.remove(p)),

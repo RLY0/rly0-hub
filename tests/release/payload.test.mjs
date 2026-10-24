@@ -93,16 +93,20 @@ describe("release Payload", () => {
       await createPayload(root, target);
       const paths = await validatePayload({ payloadRoot: root, target, root: "/repo/source" });
       expect(paths).toEqual(expectedPayloadPaths(target));
-      expect(paths).toHaveLength(24 + preinstalledHarnessPluginPaths().length);
+      expect(paths).toHaveLength(29 + preinstalledHarnessPluginPaths().length);
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toHaveLength(
-        26 + RLY0_HUB_WINDOWS_PAYLOAD_PATHS.length + preinstalledHarnessPluginPaths().length,
+        31 + RLY0_HUB_WINDOWS_PAYLOAD_PATHS.length + preinstalledHarnessPluginPaths().length,
       );
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toContain("bin/rly0-hub.exe");
       expect(paths).not.toContain("bin/rly0-hub.exe");
       expect(paths).toContain("licenses/tailwindcss-LICENSE.txt");
       expect(paths).toContain("licenses/smol-toml-LICENSE.txt");
       expect(paths).toContain("app/plugins/enabled.json");
+      expect(paths).toContain("app/console-server.mjs");
+      expect(paths).toContain("app/console-web.js");
       expect(paths).toContain("app/plugins/claude-code/plugin.mjs");
+      expect(paths).toContain("app/plugins/codex-usage/plugin.mjs");
+      expect(paths).toContain("app/plugins/codex-usage/manifest.json");
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toContain(
         "libexec/codexhost-node-repl.exe",
       );
@@ -130,8 +134,11 @@ describe("release Payload", () => {
       await createPayload(root, target);
       await rm(path.join(root, "app/renderer-extension.js"));
       await symlink(
-        path.join(root, "app/host-runtime.mjs"),
+        process.platform === "win32"
+          ? path.join(root, "runtime")
+          : path.join(root, "app/host-runtime.mjs"),
         path.join(root, "app/renderer-extension.js"),
+        process.platform === "win32" ? "junction" : "file",
       );
       await expect(
         validatePayload({ payloadRoot: root, target, root: "/repo/source" }),
@@ -181,6 +188,10 @@ describe("release Payload", () => {
       expect(notice).toContain("@qoder-ai/qoder-agent-sdk");
       expect(notice).toContain("@qodercn-ai/qodercn-agent-sdk");
       expect(notice).toContain("@opencode-ai/sdk");
+      expect(notice).toContain("@opencode/client");
+      expect(
+        await readFile(path.join(output, "licenses/OpenCode-v2-Client-LICENSE.txt"), "utf8"),
+      ).toContain("MIT License");
       expect(notice).toContain("licenses/OpenCode-SDK-LICENSE.txt");
       expect(license).toContain("Copyright (c) 2025 opencode");
     } finally {

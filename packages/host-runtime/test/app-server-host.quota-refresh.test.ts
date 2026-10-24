@@ -1,3 +1,4 @@
+import type { JsonObject } from "@codexhost/protocol-core";
 import { describe, expect, it } from "vitest";
 import { FakeHarnessAdapter } from "@codexhost/harness-adapter/testing";
 import {
@@ -42,7 +43,7 @@ class QuotaAdapter extends FakeHarnessAdapter {
 async function inspect(
   fixture: ReturnType<typeof createFixture>,
   id: number,
-  params: Record<string, unknown>,
+  params: JsonObject,
 ): Promise<Record<string, unknown>> {
   writeRequest(fixture.desktopInput, { id, method: "codexhost/thread/usage/inspect", params });
   return (await fixture.collector.waitFor((message) => requestId(message, id))) as Record<
@@ -73,6 +74,9 @@ describe("AppServerHost explicit quota refresh", () => {
     const observedAt = (live.result as { quota: { observedAt?: string } }).quota.observedAt;
     expect(observedAt && Number.isFinite(Date.parse(observedAt))).toBe(true);
     expect(claude.calls.at(-1)).toBe(true);
+    // Quota refresh reads account windows; exact session-token telemetry is a separate request.
+    expect(claude.sessions[0]?.usageRefreshes).toBe(0);
+    await inspect(fixture, 16, { threadId, refresh: "exact" });
     expect(claude.sessions[0]?.usageRefreshes).toBe(1);
 
     // Later passive inspections carry the time of the last good read.
@@ -117,7 +121,12 @@ describe("AppServerHost explicit quota refresh", () => {
       inspect(fixture, 22, { threadId: "official-thread", refresh: "quota" }),
     ).resolves.toEqual({
       id: 22,
-      result: { threadId: "official-thread", usage: null, quota: { status: "unavailable" } },
+      result: {
+        threadId: "official-thread",
+        usage: null,
+        accountCreditsSupported: true,
+        quota: { status: "unavailable" },
+      },
     });
     await stopFixture(fixture);
   });

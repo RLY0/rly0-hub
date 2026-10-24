@@ -12,6 +12,8 @@ import Coffee from "lucide/dist/esm/icons/coffee.mjs";
 import Copy from "lucide/dist/esm/icons/copy.mjs";
 import Download from "lucide/dist/esm/icons/download.mjs";
 import ExternalLink from "lucide/dist/esm/icons/external-link.mjs";
+import Eye from "lucide/dist/esm/icons/eye.mjs";
+import EyeOff from "lucide/dist/esm/icons/eye-off.mjs";
 import Ellipsis from "lucide/dist/esm/icons/ellipsis.mjs";
 import FolderInput from "lucide/dist/esm/icons/folder-input.mjs";
 import GraduationCap from "lucide/dist/esm/icons/graduation-cap.mjs";
@@ -21,6 +23,7 @@ import Languages from "lucide/dist/esm/icons/languages.mjs";
 import LayoutDashboard from "lucide/dist/esm/icons/layout-dashboard.mjs";
 import MessagesSquare from "lucide/dist/esm/icons/messages-square.mjs";
 import Network from "lucide/dist/esm/icons/network.mjs";
+import Play from "lucide/dist/esm/icons/play.mjs";
 import PlugZap from "lucide/dist/esm/icons/plug-zap.mjs";
 import RefreshCw from "lucide/dist/esm/icons/refresh-cw.mjs";
 import RotateCcw from "lucide/dist/esm/icons/rotate-ccw.mjs";
@@ -32,6 +35,7 @@ import TriangleAlert from "lucide/dist/esm/icons/triangle-alert.mjs";
 import Ticket from "lucide/dist/esm/icons/ticket.mjs";
 import Trash from "lucide/dist/esm/icons/trash-2.mjs";
 import Terminal from "lucide/dist/esm/icons/terminal.mjs";
+import ScrollText from "lucide/dist/esm/icons/scroll-text.mjs";
 import Search from "lucide/dist/esm/icons/search.mjs";
 import Server from "lucide/dist/esm/icons/server.mjs";
 import CircleHelp from "lucide/dist/esm/icons/circle-question-mark.mjs";
@@ -64,6 +68,8 @@ export const RENDERER_SETTINGS_ICON_NAMES = [
   "info",
   "external-link",
   "refresh",
+  "eye",
+  "eye-off",
   "unavailable",
   "alert",
   "check",
@@ -83,6 +89,8 @@ export const RENDERER_SETTINGS_ICON_NAMES = [
   "help",
   "ellipsis",
   "coffee",
+  "logs",
+  "play",
 ] as const;
 
 export type RendererSettingsIconName = (typeof RENDERER_SETTINGS_ICON_NAMES)[number];
@@ -119,6 +127,8 @@ const iconNodes = {
   info: Info,
   "external-link": ExternalLink,
   refresh: RefreshCw,
+  eye: Eye,
+  "eye-off": EyeOff,
   unavailable: CircleOff,
   alert: TriangleAlert,
   check: Check,
@@ -138,6 +148,8 @@ const iconNodes = {
   help: CircleHelp,
   ellipsis: Ellipsis,
   coffee: Coffee,
+  logs: ScrollText,
+  play: Play,
 } satisfies Record<RendererSettingsIconName, IconNode>;
 
 export function isRendererSettingsIconName(value: string): value is RendererSettingsIconName {

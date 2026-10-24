@@ -260,12 +260,12 @@ export function createDashboardSettingsPage(
         table.className = "settings-account-table settings-rly0-dashboard__usage";
         const head = document.createElement("thead");
         const headRow = document.createElement("tr");
-        for (const period of ["five_hour", "seven_day"] as const) {
-          const cell = document.createElement("th");
-          cell.scope = "col";
-          cell.textContent = accountUsageColumnLabel(period, "remaining", messages);
-          headRow.append(cell);
-        }
+        // Upstream packs the actual windows two per row; each window carries its own label.
+        const headCell = document.createElement("th");
+        headCell.scope = "col";
+        headCell.colSpan = 2;
+        headCell.textContent = accountUsageColumnLabel("remaining", messages);
+        headRow.append(headCell);
         head.append(headRow);
         const body = document.createElement("tbody");
         const rendered = renderAccountUsage(document, usage, messages, "remaining", () =>
@@ -281,7 +281,6 @@ export function createDashboardSettingsPage(
         }
         table.append(head, body);
         accountSection.replaceChildren(titleRow, identity, table);
-        if (rendered.additional) accountSection.append(rendered.additional);
       };
 
       const healthRow = (label: string, value: string, ok: boolean | null): HTMLElement => {

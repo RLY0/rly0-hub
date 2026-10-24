@@ -61,6 +61,12 @@ function failedUpdateCheck(): UpdateCheckResult {
   };
 }
 
+type UpdateClientStub = ReturnType<typeof updateClient>;
+
+function updateClient(check: () => Promise<UpdateCheckResult | null>) {
+  return { checkUpdate: vi.fn(check), startUpdate: vi.fn(), readUpdateStatus: vi.fn() };
+}
+
 describe("Renderer Settings lifecycle", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -116,6 +122,80 @@ describe("Renderer Settings lifecycle", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(checkUpdate).toHaveBeenCalledTimes(2);
 
+    lifecycle.dispose();
+  });
+
+  function installWithClients(clients: { current: UpdateClientStub }) {
+    const ownerWindow = {
+      navigator: { languages: ["en"] },
+      document: {},
+      setTimeout,
+      clearTimeout,
+    } as unknown as Window;
+    return installRendererSettingsLifecycle(ownerWindow, {
+      getUpdateClient: () => clients.current,
+    });
+  }
+
+  it("treats a null update check as final and clears the indicator", async () => {
+    vi.useFakeTimers();
+    const client = updateClient(async () => null);
+    const lifecycle = installWithClients({ current: client });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(triggerSetUpdateAvailable).toHaveBeenLastCalledWith(false);
+
+    for (let index = 0; index < 20; index += 1) lifecycle.refresh();
+    await vi.advanceTimersByTimeAsync(60_000);
+    lifecycle.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(client.checkUpdate).toHaveBeenCalledTimes(1);
+    lifecycle.dispose();
+  });
+
+  it.each([
+    ["a structured error", async () => failedUpdateCheck()],
+    ["a rejected request", async () => Promise.reject(new Error("unavailable"))],
+  ])("stops refresh-driven checks after retries are exhausted by %s", async (_, check) => {
+    vi.useFakeTimers();
+    const clients = { current: updateClient(check) };
+    const failing = clients.current;
+    const lifecycle = installWithClients(clients);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(failing.checkUpdate).toHaveBeenCalledTimes(5);
+
+    for (let index = 0; index < 20; index += 1) lifecycle.refresh();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(failing.checkUpdate).toHaveBeenCalledTimes(5);
+
+    clients.current = updateClient(async () => ({
+      ...failedUpdateCheck(),
+      latestVersion: "0.3.3",
+      updateAvailable: true,
+      error: null,
+    }));
+    lifecycle.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(clients.current.checkUpdate).toHaveBeenCalledTimes(1);
+    expect(triggerSetUpdateAvailable).toHaveBeenLastCalledWith(true);
+
+    for (let index = 0; index < 20; index += 1) lifecycle.refresh();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(clients.current.checkUpdate).toHaveBeenCalledTimes(1);
+    lifecycle.dispose();
+  });
+
+  it("passes the local statistics transport to settings pages", () => {
+    const requestUsageStatistics = vi.fn(async () => ({}));
+    const ownerWindow = {
+      navigator: { languages: ["en"] },
+      document: {},
+      setTimeout,
+      clearTimeout,
+    } as unknown as Window;
+    const lifecycle = installRendererSettingsLifecycle(ownerWindow, { requestUsageStatistics });
+    expect(vi.mocked(createDefaultRendererSettingsPages).mock.calls.at(-1)?.[8]).toBe(
+      requestUsageStatistics,
+    );
     lifecycle.dispose();
   });
 
@@ -240,6 +320,33 @@ describe("Renderer Settings lifecycle", () => {
     expect(f.openSettings).not.toHaveBeenCalled();
     // No Codex-side menu any more: right-click does nothing, everything lives in the Hub.
     expect(f.listeners.get("contextmenu")).toBeUndefined();
+    lifecycle.dispose();
+  });
+
+  it("keeps Codex-only upstream pages in Codex while the Hub is present", async () => {
+    const f = hubFixture(true);
+    const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
+      getHubClient: () => f.client,
+    });
+    await vi.waitFor(() => expect(f.client.rly0HubStatus).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(
+        vi
+          .mocked(installRendererSettingsShell)
+          .mock.calls.at(-1)?.[0]
+          ?.some((p) => p.id === "mcp"),
+      ).toBe(false),
+    );
+    const shell = vi.mocked(installRendererSettingsShell).mock.results.at(-1)?.value as {
+      openSettings(opener?: HTMLElement, pageId?: string): boolean;
+    };
+    shell.openSettings(undefined, "remote-connections");
+    shell.openSettings(undefined, "usage-statistics");
+    expect(f.openSettings).toHaveBeenCalledTimes(2);
+    expect(f.client.rly0OpenHub).not.toHaveBeenCalled();
+    shell.openSettings(undefined, "accounts");
+    await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(1));
+    expect(f.openSettings).toHaveBeenCalledTimes(2);
     lifecycle.dispose();
   });
 

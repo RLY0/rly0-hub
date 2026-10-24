@@ -41,6 +41,7 @@ import {
 } from "@codexhost/shared-contracts";
 
 import { Rly0CoreClient, type Rly0CoreClientOptions } from "./client.js";
+import { resetPrepareResult, resetConsumeResult } from "../rly0-hub-service/reset-credits.js";
 import {
   applyProxyEnvironment,
   DEFAULT_RLY0_PROXY_SETTINGS,
@@ -501,6 +502,42 @@ export class Rly0CoreBridge {
       return [{ id: entry.id, error: code }];
     });
     return { available: true, results };
+  }
+
+  async resetPrepare(params: { id: string }) {
+    const response = await this.#client.request<unknown>("accounts/resetPrepare", params, {
+      timeoutMs: USAGE_TIMEOUT_MS,
+    });
+    if (!response.available) throw coreError("RLY0_CORE_UNAVAILABLE");
+    const parsed = resetPrepareResult.safeParse(response.result);
+    if (!parsed.success) throw coreError("USAGE_BAD_RESPONSE");
+    return parsed.data;
+  }
+
+  async resetAcknowledge(params: { id: string; requestId: string }) {
+    const response = await this.#client.request<{ ok?: boolean }>(
+      "accounts/resetAcknowledge",
+      params,
+    );
+    if (!response.available || response.result?.ok !== true)
+      throw coreError("RESET_STATE_UNAVAILABLE");
+    return { ok: true };
+  }
+
+  async resetConsume(params: {
+    id: string;
+    requestId: string;
+    creditId: string;
+    revision: string;
+    confirmed: true;
+  }) {
+    const response = await this.#client.request<unknown>("accounts/resetConsume", params, {
+      timeoutMs: USAGE_TIMEOUT_MS,
+    });
+    if (!response.available) throw coreError("RLY0_CORE_UNAVAILABLE");
+    const parsed = resetConsumeResult.safeParse(response.result);
+    if (!parsed.success) throw coreError("RESET_RESULT_UNKNOWN");
+    return parsed.data;
   }
 
   async listRelays(): Promise<Rly0RelayListResult> {

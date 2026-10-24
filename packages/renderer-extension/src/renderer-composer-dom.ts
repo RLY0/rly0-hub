@@ -5,9 +5,11 @@ import type {
   RendererAgentAvailability,
 } from "./agent-selection-state.js";
 import type { RendererQuotaView } from "./renderer-quota-refresh.js";
+import { catalogModelForRef } from "@codexhost/shared-contracts";
 import type {
   AccountCreditsSnapshot,
   CodexAccountSummary,
+  HarnessPluginDescriptor,
   ThreadUsageSnapshot,
 } from "@codexhost/shared-contracts";
 import {
@@ -44,6 +46,7 @@ import {
 } from "./renderer-usage-control.js";
 import type { RendererSettingsLocale } from "./settings/localization.js";
 import type { RendererAdapterStatus } from "./versioned-renderer-adapter.js";
+import { isOrbitComposer } from "./renderer-composer-kind.js";
 import {
   mountRendererHarnessCommandControl,
   type RendererHarnessCommandControl,
@@ -83,6 +86,7 @@ export interface ComposerAgentControl {
   composer: Element;
   root: HTMLElement;
   picker: RendererAgentPickerControl;
+  setPlugins(plugins: readonly HarnessPluginDescriptor[]): void;
   modelPicker: RendererModelPickerControl;
   permissionModePicker: RendererPermissionModePickerControl;
   nativeModelControl: NativeModelControlState | null;
@@ -211,11 +215,12 @@ export function isComposerSubmissionKey(event: KeyboardEvent): boolean {
 }
 
 export function composerForEditor(editor: Element): Element | null {
-  return editor.closest(CODEX_COMPOSER_SELECTOR);
+  return composerForElement(editor);
 }
 
 export function composerForElement(element: Element): Element | null {
-  return element.closest(CODEX_COMPOSER_SELECTOR);
+  const composer = element.closest(CODEX_COMPOSER_SELECTOR);
+  return composer && !isOrbitComposer(composer) ? composer : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -434,9 +439,11 @@ function captureNativeControl(element: HTMLElement | null): NativeControlState |
 
 function restoreNativeControl(state: NativeControlState | null | undefined): void {
   if (!state) return;
-  state.element.hidden = state.hidden;
-  if (state.ariaHidden === null) state.element.removeAttribute("aria-hidden");
-  else state.element.setAttribute("aria-hidden", state.ariaHidden);
+  if (state.element.hidden !== state.hidden) state.element.hidden = state.hidden;
+  if (state.element.getAttribute("aria-hidden") !== state.ariaHidden) {
+    if (state.ariaHidden === null) state.element.removeAttribute("aria-hidden");
+    else state.element.setAttribute("aria-hidden", state.ariaHidden);
+  }
 }
 
 function refreshNativeContextUsageControl(control: ComposerAgentControl): void {
@@ -478,6 +485,8 @@ function usagePlacementAnchor(control: ComposerAgentControl): HTMLElement | null
  * account limits, not the current thread's context window.
  */
 export function creditsPlacementAnchor(control: ComposerAgentControl): HTMLElement | null {
+  // An unverified picker can be mounted at the Composer's end, outside the toolbar.
+  if (!control.nativePermissionModeControlVerified) return null;
   const root = control.permissionModePicker?.root;
   return root?.parentElement ? root : null;
 }
@@ -704,6 +713,35 @@ export function mountComposerAgentControl(
     composerId,
     root: picker.root,
     picker,
+    setPlugins(plugins: readonly HarnessPluginDescriptor[]) {
+      // Rendering can produce a new array (and remote presentation objects)
+      // without changing the catalog. Replacing the picker closes its popover.
+      const current = control.picker.plugins;
+      if (
+        current === plugins ||
+        (current.length === plugins.length &&
+          current.every(
+            (plugin, index) =>
+              plugin === plugins[index] ||
+              JSON.stringify(plugin) === JSON.stringify(plugins[index]),
+          ))
+      ) {
+        return;
+      }
+      const next = mountRendererAgentPicker(
+        composerId,
+        ["codex", ...plugins.map(({ id }) => id)],
+        onSelect,
+        onDownload,
+        onOpenProviderPicker,
+        undefined,
+        plugins,
+      );
+      control.picker.root.replaceWith(next.root);
+      control.picker.dispose();
+      control.picker = next;
+      control.root = next.root;
+    },
     modelPicker,
     permissionModePicker,
     nativeModelControl,
@@ -757,9 +795,7 @@ export function renderComposerAgentControl(
   }
 
   const selectedModel = modelView.selected;
-  const selectedCatalogModel = modelView.catalog?.models.find(
-    (model) => model.ref.id === selectedModel?.id,
-  );
+  const selectedCatalogModel = catalogModelForRef(modelView.catalog, selectedModel);
   const availableThinkingOptions =
     modelView.thinkingSelectionSupported === false
       ? []
@@ -770,11 +806,11 @@ export function renderComposerAgentControl(
   const modelReady = selectedModel !== undefined && selectedCatalogModel !== undefined;
   const modelBlocked =
     state.agent !== "codex" && (modelView.status === "selecting" || !modelReady || !thinkingReady);
+  // Recording replaces the native footer, including its permission trigger.
+  // Submission depends on confirmed Harness configuration, not that UI slot;
+  // native ownership verification still guards picker visibility and placement.
   const permissionModeBlocked =
-    state.agent !== "codex" &&
-    (!isPermissionModeControlReady(permissionModeView) ||
-      (permissionModeView.status !== "unsupported" &&
-        !control.nativePermissionModeControlVerified));
+    state.agent !== "codex" && !isPermissionModeControlReady(permissionModeView);
   const submissionBlocked = switching || ownershipError || modelBlocked || permissionModeBlocked;
   if (submissionBlocked && control.sendDisabledBeforeSwitch === null) {
     control.sendDisabledBeforeSwitch = control.sendButton.disabled;
@@ -802,7 +838,13 @@ export function renderComposerAgentControl(
     pickerView.nativeModelHidden,
     switching || state.agent !== "codex",
   );
-  renderRendererModelPicker(control.modelPicker, modelView, state.agent !== "codex", state.agent);
+  renderRendererModelPicker(
+    control.modelPicker,
+    modelView,
+    state.agent !== "codex",
+    state.agent,
+    locale,
+  );
   const permissionModeVisible =
     state.agent !== "codex" &&
     permissionModeView.status !== "idle" &&
@@ -815,16 +857,8 @@ export function renderComposerAgentControl(
     permissionModeVisible,
     locale,
   );
-  const selectedCodexAccount =
-    state.agent === "codex" && !ownershipError ? currentCodexAccount : undefined;
   if (control.usage) {
-    renderRendererUsageControl(
-      control.usage,
-      usage,
-      locale,
-      selectedCodexAccount?.email ?? selectedCodexAccount?.label ?? null,
-      quota,
-    );
+    renderRendererUsageControl(control.usage, usage, locale, quota);
   }
   control.harnessCommands.setLocale(locale);
   control.harnessCommands.root.hidden = state.agent === "codex";

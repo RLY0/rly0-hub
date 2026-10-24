@@ -295,7 +295,6 @@ export function mountRly0Accounts(
       }
       table.append(body);
       wrapper.append(table);
-      if (rendered.additional) wrapper.append(rendered.additional);
     }
     const status = document.createElement("div");
     status.className = "settings-rly0-accounts__usage-status";

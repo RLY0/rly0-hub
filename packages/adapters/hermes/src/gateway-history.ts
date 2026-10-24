@@ -15,7 +15,7 @@ import {
   type JsonValue,
 } from "@codexhost/shared-contracts";
 import { GATEWAY_HISTORY_SCRIPT } from "./gateway-history-script.js";
-import { hermesPythonInvocation } from "./hermes-inventory.js";
+import { hermesPythonCommand, type HermesPythonRuntime } from "./hermes-runtime.js";
 
 type Row = Record<string, unknown>;
 export interface GatewayHistoryData {
@@ -147,7 +147,7 @@ export function projectGatewayHistory(
 }
 
 export interface HermesGatewayHistoryOptions {
-  python: string;
+  python: HermesPythonRuntime;
   cwd: string;
   environment: NodeJS.ProcessEnv;
   nativeSessionId: string;
@@ -235,15 +235,15 @@ export class HermesGatewayHistory {
     return result.deleted === true;
   }
 
-  #run(input: Row): Promise<Row> {
+  async #run(input: Row): Promise<Row> {
+    const command = await hermesPythonCommand(this.options.python, GATEWAY_HISTORY_SCRIPT, {
+      ...process.env,
+      ...this.options.environment,
+    });
     return new Promise((resolve, reject) => {
-      const invocation = hermesPythonInvocation(this.options.python, GATEWAY_HISTORY_SCRIPT, [
-        "-I",
-        "-u",
-      ]);
-      const child = spawn(this.options.python, invocation.args, {
+      const child = spawn(command.command, command.arguments, {
         cwd: this.options.cwd,
-        env: { ...process.env, ...this.options.environment, ...invocation.environment },
+        env: { ...process.env, ...this.options.environment },
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });

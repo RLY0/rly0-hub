@@ -267,6 +267,7 @@ window.registerHubAgentAccounts = ({
         current: account.current && using === "login",
         signedIn: account.current && using !== "login",
         quota: cards.quotaCards(account.lastUsage, {
+          reset: { vendor: "anthropic" },
           updated: true,
           reason: "额度未知：点右上角刷新读取",
           stale: claudeUsageError(failures.get(account.id), account.current),

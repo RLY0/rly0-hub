@@ -1,3 +1,4 @@
+export { readRuntimeMetadata } from "./runtime-metadata.js";
 export type {
   ArtifactDownloadProgress,
   ArtifactDownloader,
@@ -34,6 +35,7 @@ export {
 export {
   acquireUpdateOperationLock,
   cleanupTerminalUpdateState,
+  discoverActiveUpdateStatus,
   discoverLatestUpdateStatus,
   isUpdateOperationActive,
   recoverUpdateOperationLock,

@@ -2,14 +2,15 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { access } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { sanitizeDiagnosticTail } from "@codexhost/harness-adapter";
-import {
-  hermesPythonInvocation,
-  inventoryPythonCandidates,
-  resolveHermesRuntime,
-  venvPythonFromShim,
-} from "./hermes-inventory.js";
+import { inventoryPythonCandidates, venvPythonFromShim } from "./hermes-inventory.js";
 import { prepareGatewayDelegation } from "./gateway-delegation.js";
-import { withTimeout, HermesTransportError } from "./acp-transport.js";
+import { withTimeout, HermesTransportError } from "./hermes-transport.js";
+import {
+  hermesPythonCommand,
+  legacyHermesPythonCommand,
+  nativeHermesPythonCommand,
+  type HermesPythonRuntime,
+} from "./hermes-runtime.js";
 
 export type GatewayRecord = Record<string, unknown>;
 export function gatewayRecord(value: unknown): GatewayRecord {
@@ -33,6 +34,7 @@ export class HermesGatewayTransport {
   #nextId = 0;
   #pending = new Map<string, { resolve(value: GatewayRecord): void; reject(error: Error): void }>();
   #closed = false;
+  #startRequested = false;
   #closePromise: Promise<void> | null = null;
   #processClosed: Promise<void> = Promise.resolve();
   #sessionErrors = new Map<string, Error>();
@@ -44,7 +46,7 @@ export class HermesGatewayTransport {
   #stderr = "";
   #delegation: Awaited<ReturnType<typeof prepareGatewayDelegation>> | undefined;
   constructor(
-    readonly python: string,
+    readonly runtime: HermesPythonRuntime,
     readonly cwd: string,
     readonly environment: NodeJS.ProcessEnv,
     readonly timeoutMs = 30_000,
@@ -54,17 +56,37 @@ export class HermesGatewayTransport {
     executable: string,
     cwd: string,
     environment: NodeJS.ProcessEnv,
-  ): Promise<string | null> {
+  ): Promise<HermesPythonRuntime | null> {
+    const override = environment.CODEXHOST_HERMES_GATEWAY_PYTHON;
+    if (override) {
+      const transport = new HermesGatewayTransport(override, cwd, environment, 20_000);
+      try {
+        await transport.start();
+        return override;
+      } finally {
+        await transport.close();
+      }
+    }
+    const command = await nativeHermesPythonCommand(executable, GATEWAY_LAUNCH, {
+      ...process.env,
+      ...environment,
+    });
+    if (command) {
+      const runtime = { launcher: executable };
+      const transport = new HermesGatewayTransport(runtime, cwd, environment, 20_000);
+      try {
+        await transport.start();
+        return runtime;
+      } finally {
+        await transport.close();
+      }
+    }
     const shim = await venvPythonFromShim(executable);
-    const runtime = await resolveHermesRuntime(executable, environment);
     const candidates = [
       ...new Set(
-        [
-          environment.CODEXHOST_HERMES_GATEWAY_PYTHON,
-          runtime,
-          shim,
-          ...inventoryPythonCandidates(executable),
-        ].filter((candidate): candidate is string => !!candidate),
+        [shim, ...inventoryPythonCandidates(executable)].filter(
+          (candidate): candidate is string => !!candidate,
+        ),
       ),
     ];
     for (const candidate of candidates) {
@@ -78,7 +100,7 @@ export class HermesGatewayTransport {
         await transport.start();
         return candidate;
       } catch {
-        /* Installations without a usable gateway keep their ACP path. */
+        /* Try the next legacy interpreter candidate for the selected installation. */
       } finally {
         await transport.close();
       }
@@ -87,7 +109,7 @@ export class HermesGatewayTransport {
   }
 
   async prepareSession(): Promise<void> {
-    if (this.#child || this.#closed)
+    if (this.#startRequested || this.#closed)
       throw new Error("Hermes gateway Session cannot be prepared after start");
     const prepared = await prepareGatewayDelegation(this.environment);
     if (this.#closed) {
@@ -97,18 +119,26 @@ export class HermesGatewayTransport {
     this.#delegation = prepared;
   }
   async start(): Promise<void> {
-    if (this.#child || this.#closed) throw new Error("Hermes gateway cannot be started twice");
-    const invocation = hermesPythonInvocation(
-      this.python,
-      (this.#delegation?.bootstrap ?? "") + GATEWAY_LAUNCH,
-      ["-I", "-u"],
-    );
-    const child = spawn(this.python, invocation.args, {
+    if (this.#startRequested || this.#closed)
+      throw new Error("Hermes gateway cannot be started twice");
+    this.#startRequested = true;
+    const environment = this.#delegation?.environment ?? this.environment;
+    const script = (this.#delegation?.bootstrap ?? "") + GATEWAY_LAUNCH;
+    const command =
+      typeof this.runtime === "string"
+        ? legacyHermesPythonCommand(this.runtime, script)
+        : await hermesPythonCommand(
+            this.runtime,
+            script,
+            { ...process.env, ...environment },
+            this.timeoutMs,
+          );
+    if (this.#closed) throw new Error("Hermes gateway closed during runtime resolution");
+    const child = spawn(command.command, command.arguments, {
       cwd: this.cwd,
       env: {
         ...process.env,
         ...(this.#delegation?.environment ?? this.environment),
-        ...invocation.environment,
         HERMES_TUI_TOOL_PROGRESS: "all",
       },
       stdio: ["pipe", "pipe", "pipe"],
@@ -156,6 +186,7 @@ export class HermesGatewayTransport {
     method: string,
     params: GatewayRecord,
     timeoutMs = this.timeoutMs,
+    fatalOnTimeout = true,
   ): Promise<GatewayRecord> {
     if (this.#closed || !this.#child) throw new Error("Hermes gateway is closed");
     const id = `codexhost-${++this.#nextId}`;
@@ -166,7 +197,7 @@ export class HermesGatewayTransport {
     try {
       return await withTimeout(response, timeoutMs, `Hermes ${method}`);
     } catch (error) {
-      if (error instanceof HermesTransportError) this.#fault(error);
+      if (fatalOnTimeout && error instanceof HermesTransportError) this.#fault(error);
       throw error;
     } finally {
       this.#pending.delete(id);

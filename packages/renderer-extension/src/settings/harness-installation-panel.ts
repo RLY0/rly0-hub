@@ -1,4 +1,4 @@
-import type { Rly0AgentInstallStatus } from "@codexhost/shared-contracts";
+import type { HarnessPluginDescriptor, Rly0AgentInstallStatus } from "@codexhost/shared-contracts";
 
 import type { ExternalRendererAgent } from "../agent-selection-state.js";
 import { harnessInstallationGuide } from "./harness-installation-guides.js";
@@ -13,6 +13,10 @@ export interface HarnessInstaller {
 }
 
 export interface HarnessInstallationPanelOptions {
+  /** Agent ID for the RLY/0 installer when the plugin descriptor has not arrived yet. */
+  readonly agent?: ExternalRendererAgent;
+  /** Re-runs detection after the RLY/0 installer succeeds. */
+  readonly refresh?: () => void;
   readonly installer?: HarnessInstaller;
   /** Start installing as soon as the panel opens (the row's "Install" button). */
   readonly autoStart?: boolean;
@@ -118,17 +122,29 @@ function elapsed(status: Rly0AgentInstallStatus, now: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+/** Host-side installation declared by the plugin (upstream); used when RLY/0 cannot install. */
+export interface HarnessHostInstallation {
+  run: () => void;
+  status: "idle" | "installing" | "checking";
+}
+
+/**
+ * Installation actions and manual commands; the website link lives in the header.
+ * On this computer RLY/0 Hub's one-click installer comes first and the plugin's manual commands
+ * are folded below it. Elsewhere (remote Hosts, Hosts without the RLY/0 installer) the plugin's
+ * own Host installation is offered instead.
+ */
 export function createHarnessInstallationPanel(
   document: Document,
-  agent: ExternalRendererAgent,
+  plugin: HarnessPluginDescriptor | undefined,
   hostId: string,
   messages: RendererSettingsMessages,
   copy: (button: HTMLButtonElement, command: string, label: string) => void,
-  refresh: () => void,
+  installation?: HarnessHostInstallation,
   options: HarnessInstallationPanelOptions = {},
 ): HTMLElement {
   const zh = messages.locale === "zh-CN";
-  const guide = harnessInstallationGuide(agent, messages.locale);
+  const guide = harnessInstallationGuide(plugin, messages.locale);
   const panel = document.createElement("div");
   panel.className = "settings-harness-installation";
   const paragraph = (value: string, parent: HTMLElement = panel): HTMLElement => {
@@ -148,13 +164,128 @@ export function createHarnessInstallationPanel(
     anchor.append(label, createRendererSettingsIcon("external-link", 14));
     parent.append(anchor);
   };
-  const installer = hostId === "local" ? options.installer : undefined;
+  const agent = plugin?.id ?? options.agent;
+  const installer = hostId === "local" && agent ? options.installer : undefined;
+  const refresh = options.refresh ?? (() => undefined);
 
-  // ---- One-click install ----------------------------------------------------
+  // ---- One-click install (RLY/0 Hub, this computer) -------------------------
+  if (installer && agent) {
+    mountRly0Installer(
+      document,
+      panel,
+      agent,
+      installer,
+      options,
+      refresh,
+      zh,
+      guide,
+      link,
+      paragraph,
+    );
+  }
+
+  // ---- Manual installation (fallback, or the only way on remote hosts) ------
+  const manual = installer ? document.createElement("details") : panel;
+  if (installer) {
+    manual.className = "settings-harness-installation-manual";
+    const summary = document.createElement("summary");
+    summary.textContent = text(zh, "Install by hand instead", "手动安装（备用）");
+    manual.append(summary);
+    panel.append(manual);
+  }
+  if (hostId !== "local") {
+    paragraph(zh ? "请在远程 Host 上安装。" : "Install on the remote Host.", manual);
+  }
+  if (guide.before) paragraph(guide.before, manual);
+  // The plugin's Host installation is never offered next to the RLY/0 installer.
+  const hostInstall = installer ? undefined : installation;
+  const install =
+    hostInstall && guide.commands.length > 0 ? document.createElement("button") : null;
+  if (install && hostInstall) {
+    install.type = "button";
+    install.className = "settings-command-button";
+    install.dataset.connectionAction = "install";
+    install.disabled = hostInstall.status !== "idle";
+    install.textContent =
+      hostInstall.status === "installing"
+        ? messages.connectionStatusInstalling
+        : hostInstall.status === "checking"
+          ? messages.connectionStatusChecking
+          : zh
+            ? "一键安装"
+            : "Install automatically";
+    install.addEventListener("click", () => {
+      if (install.disabled) return;
+      install.disabled = true;
+      install.textContent = messages.connectionStatusInstalling;
+      hostInstall.run();
+    });
+    if (guide.commands.length > 1) manual.append(install);
+  }
+  for (const { terminal, command } of guide.commands) {
+    const block = document.createElement("div");
+    block.className = "settings-harness-installation-command";
+    const label = document.createElement("strong");
+    label.textContent = terminal;
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.textContent = command;
+    pre.append(code);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "settings-command-button settings-command-button--secondary";
+    button.dataset.connectionAction = "copy-install";
+    const copyLabel = zh ? "复制命令" : "Copy command";
+    button.setAttribute("aria-label", `${copyLabel}: ${terminal}`);
+    button.append(createRendererSettingsIcon("copy", 16), copyLabel);
+    button.addEventListener("click", () => copy(button, command, copyLabel));
+    const actions = document.createElement("div");
+    actions.className = "settings-harness-installation-actions";
+    if (install && guide.commands.length === 1) actions.append(install);
+    actions.append(button);
+    block.append(label, pre, actions);
+    manual.append(block);
+  }
+  for (const download of guide.downloads ?? []) {
+    const anchor = document.createElement("a");
+    anchor.className = "settings-command-button settings-command-button--secondary";
+    anchor.href = download.url;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.textContent = zh ? "下载" : "Download";
+    anchor.setAttribute("aria-label", `${anchor.textContent} ${download.label}`);
+    manual.append(anchor);
+  }
+  if (guide.after) paragraph(guide.after, manual);
+  if (!plugin?.installation && guide.url) {
+    const anchor = document.createElement("a");
+    anchor.href = guide.url;
+    anchor.target = "_blank";
+    anchor.rel = "noopener noreferrer";
+    anchor.textContent = zh ? "安装说明" : "Installation instructions";
+    manual.append(anchor);
+  }
+  return panel;
+}
+
+type GuideView = ReturnType<typeof harnessInstallationGuide>;
+
+function mountRly0Installer(
+  document: Document,
+  panel: HTMLElement,
+  agent: ExternalRendererAgent,
+  installer: HarnessInstaller,
+  options: HarnessInstallationPanelOptions,
+  refresh: () => void,
+  zh: boolean,
+  guide: GuideView,
+  link: (url: string, label: string, parent?: HTMLElement, primary?: boolean) => void,
+  paragraph: (value: string, parent?: HTMLElement) => HTMLElement,
+): void {
   const auto = document.createElement("div");
   auto.className = "settings-harness-installation-auto";
   auto.dataset.agentInstall = agent;
-  if (installer) panel.append(auto);
+  panel.append(auto);
 
   const renderAuto = (status: Rly0AgentInstallStatus | undefined): void => {
     auto.replaceChildren();
@@ -315,62 +446,6 @@ export function createHarnessInstallationPanel(
         })
         .catch(() => undefined);
   }
-
-  // ---- Manual installation (fallback, or the only way on remote hosts) ------
-  const manual = installer ? document.createElement("details") : panel;
-  if (installer) {
-    manual.className = "settings-harness-installation-manual";
-    const summary = document.createElement("summary");
-    summary.textContent = text(zh, "Install by hand instead", "手动安装（备用）");
-    manual.append(summary);
-    panel.append(manual);
-  }
-  if (hostId !== "local") {
-    paragraph(zh ? "请在远程 Host 上安装。" : "Install on the remote Host.", manual);
-  }
-  if (guide.before) paragraph(guide.before, manual);
-  for (const { terminal, command } of guide.commands) {
-    const block = document.createElement("div");
-    block.className = "settings-harness-installation-command";
-    const label = document.createElement("strong");
-    label.textContent = terminal;
-    const pre = document.createElement("pre");
-    const code = document.createElement("code");
-    code.textContent = command;
-    pre.append(code);
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "settings-command-button settings-command-button--secondary";
-    button.dataset.connectionAction = "copy-install";
-    const copyLabel = zh ? "复制命令" : "Copy command";
-    button.setAttribute("aria-label", `${copyLabel}: ${terminal}`);
-    button.append(createRendererSettingsIcon("copy", 16), copyLabel);
-    button.addEventListener("click", () => copy(button, command, copyLabel));
-    block.append(label, pre, button);
-    manual.append(block);
-  }
-  for (const download of guide.downloads ?? []) {
-    link(
-      download.url,
-      `${download.label} · ${zh ? "下载与安装指南" : "Download and installation guide"}`,
-      manual,
-    );
-  }
-  paragraph(guide.after, manual);
-
-  const check = document.createElement("button");
-  check.type = "button";
-  check.className = "settings-command-button settings-command-button--secondary";
-  check.dataset.connectionAction = "check-install";
-  check.textContent = zh ? "重新检测" : "Check again";
-  check.addEventListener("click", () => {
-    check.disabled = true;
-    check.textContent = messages.connectionRefreshing;
-    refresh();
-  });
-  manual.append(check);
-  link(guide.url, zh ? "查看官方安装说明" : "View official installation instructions", manual);
-  return panel;
 }
 
 /** For tests: forget remembered install states. */

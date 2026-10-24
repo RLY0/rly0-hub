@@ -18,7 +18,7 @@ interface Activity {
   closeFailed: boolean;
 }
 
-/** Host-only coordination. This deliberately makes no claim about native background work. */
+/** Host-only coordination. Native background work is judged by `canRelease` (via `HarnessSession.hasBackgroundWork`). */
 export class ExternalThreadIdleRelease {
   readonly #activity = new WeakMap<ExternalThread, Activity>();
   readonly #operations = new Map<string, number>();
@@ -70,6 +70,17 @@ export class ExternalThreadIdleRelease {
     this.touch(thread);
     const state = this.#activity.get(thread);
     if (state) state.outputFailed = true;
+  }
+
+  /** After a successful Session revival, allow idle release again. */
+  clearOutputFailed(thread: ExternalThread): void {
+    const state = this.#activity.get(thread);
+    if (state) {
+      state.outputFailed = false;
+      state.lastActivity = Date.now();
+    } else {
+      this.touch(thread);
+    }
   }
 
   failure(thread: ExternalThread): string | undefined {

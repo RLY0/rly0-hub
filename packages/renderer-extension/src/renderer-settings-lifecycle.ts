@@ -1,4 +1,6 @@
 import { consumePendingNewChat, openNewChatWith } from "./settings/rly0-quick-start.js";
+import type { RendererUsageStatisticsRequest } from "./console/pages/usage-statistics.js";
+import type { RemoteConnectionsControl } from "./remote-connections-control.js";
 import type { LoadedSessionsClient } from "./settings/loaded-sessions-table.js";
 import { RLY0_WELCOME_DISMISSED_STORAGE_KEY } from "./settings/rly0-welcome.js";
 import { readCodexLocaleSettings, type CodexLocaleSettings } from "./codex-locale-adapter.js";
@@ -45,10 +47,18 @@ export interface RendererHubClient {
 
 export const CODEX_ONLY_SETTINGS_PAGES = [
   "connections",
+  "remote-connections",
   "accounts",
   "session-import",
+  "usage-statistics",
   "appearance",
 ] as const;
+
+/**
+ * Upstream pages the standalone Hub does not offer: remote Host routes and local usage statistics
+ * stay in the Codex settings shell even when the Hub is present, so they remain reachable.
+ */
+export const CODEX_DIRECT_SETTINGS_PAGES = ["remote-connections", "usage-statistics"] as const;
 
 export interface RendererSettingsLifecycleOptions {
   getHubClient?(): RendererHubClient | null;
@@ -64,6 +74,8 @@ export interface RendererSettingsLifecycleOptions {
   getMaintenanceClient?(): RendererMaintenanceClient | null;
   getAppearanceClient?(): RendererAppearanceClient | null;
   getRelayClient?(): RendererRelayClient | null;
+  getRemoteConnections?(): RemoteConnectionsControl | null;
+  requestUsageStatistics?: RendererUsageStatisticsRequest;
   openImportedThread?: RendererImportedThreadOpener;
   onLocaleChange?(locale: RendererSettingsLocale): void;
 }
@@ -125,6 +137,8 @@ export function installRendererSettingsLifecycle(
         if (!disposed && !signal.aborted) shell?.close();
       },
       options.getLoadedSessionsClient ?? (() => null),
+      options.getRemoteConnections ?? (() => null),
+      options.requestUsageStatistics,
       options.getMcpClient ?? (() => null),
       options.getSkillsClient ?? (() => null),
       options.getDashboardClient ?? (() => null),
@@ -140,11 +154,19 @@ export function installRendererSettingsLifecycle(
         )
       : definitions;
     // While the Hub check is pending the full settings stay mounted as the fallback.
-    const nextShell = installRendererSettingsShell(selectedPages, messages, ownerWindow.document);
+    const nextShell = installRendererSettingsShell(selectedPages, messages, ownerWindow.document, {
+      onOpenChange(open) {
+        trigger?.setSelected(open);
+      },
+    });
     if (nextShell && hubAvailable) {
       const openTools = nextShell.openSettings.bind(nextShell);
       nextShell.openSettings = (opener, pageId) => {
-        // Every entry (the rail icon, the agent picker's "管理" and "!") opens the Hub; the
+        // Pages that only exist on the Codex side (remote Hosts, local statistics) open here.
+        if (pageId && (CODEX_DIRECT_SETTINGS_PAGES as readonly string[]).includes(pageId)) {
+          return openTools(opener, pageId);
+        }
+        // Every other entry (the rail icon, the agent picker's "管理" and "!") opens the Hub; the
         // Codex-side pages appear only when the Hub cannot be opened at all.
         void openHub().catch(() => openTools(opener, pageId));
         return true;
@@ -155,6 +177,8 @@ export function installRendererSettingsLifecycle(
       messages,
       ownerDocument: ownerWindow.document,
       onOpen(opener, pageId) {
+        // Like a native destination, the current page ignores repeat activation.
+        if (shell?.open) return;
         const generation = ++openGeneration;
         void refreshLocale().then(async () => {
           if (disposed || generation !== openGeneration) return;
@@ -277,6 +301,7 @@ export function installRendererSettingsLifecycle(
     if (disposed || updateRetryTimer !== null) return;
     const delay = UPDATE_RETRY_DELAYS_MS[updateRetryAttempt];
     if (delay === undefined) return;
+    checkedUpdateClient = null;
     updateRetryAttempt += 1;
     updateRetryTimer = ownerWindow.setTimeout(() => {
       updateRetryTimer = null;
@@ -318,21 +343,19 @@ export function installRendererSettingsLifecycle(
     void checkUpdateWithTimeout(client)
       .then((result) => {
         if (disposed || generation !== updateCheckGeneration) return;
-        updateAvailable = result.updateAvailable;
+        updateAvailable = result?.updateAvailable ?? false;
         trigger?.setUpdateAvailable(updateAvailable);
-        if (result.error === null) {
+        if (result === null || result.error === null) {
           updateRetryAttempt = 0;
           clearUpdateRetry();
           return;
         }
-        checkedUpdateClient = null;
         scheduleUpdateRetry(client);
       })
       .catch(() => {
         if (disposed || generation !== updateCheckGeneration || checkedUpdateClient !== client) {
           return;
         }
-        checkedUpdateClient = null;
         scheduleUpdateRetry(client);
       });
   };

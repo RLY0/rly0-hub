@@ -78,6 +78,18 @@
     },
     {
       "path": "./packages/sandbox-runtime/tsconfig.json"
+    },
+    {
+      "path": "./packages/harness-plugin-files/tsconfig.json"
+    },
+    {
+      "path": "./packages/console-server/tsconfig.json"
+    },
+    {
+      "path": "./packages/adapters/zcode/tsconfig.json"
+    },
+    {
+      "path": "./packages/adapters/codex-usage/tsconfig.json"
     }
   ]
 }

@@ -177,8 +177,7 @@
       return false;
     }
   };
-  // 官方赠送的额度重置卡: how many the account has; they are used from Codex itself.
-  function resetCardTile(count) {
+  function resetCardTile(count, options = {}) {
     return h(
       "div",
       { class: `reset-card cards ${count ? "" : "none"}` },
@@ -187,13 +186,21 @@
         { class: "row" },
         h("span", { class: "reset-kind" }, "额度重置卡"),
         h("span", { class: "spacer" }),
-        h("b", { class: "tabular" }, `× ${count}`),
+        h(
+          "b",
+          { class: "tabular" },
+          options.status || (Number.isInteger(count) ? `× ${count}` : "待核实"),
+        ),
       ),
       h(
         "span",
         { class: "reset-when" },
-        count ? "OpenAI 官方赠送，额度用完时可在 Codex 里使用" : "暂时没有官方赠送的重置卡",
+        options.reason ||
+          (count ? "OpenAI 官方赠送，可到账号页核实和使用" : "暂时没有官方赠送的重置卡"),
       ),
+      options.onUse
+        ? h("button", { class: "btn sm", type: "button", onclick: options.onUse }, options.action)
+        : null,
     );
   }
   const accountName = (account) => account.alias || account.email || "Codex 账号";
@@ -1001,6 +1008,14 @@
         ],
         current: account.current,
         quota: cards.quotaCards(account.lastUsage, {
+          reset: {
+            vendor: account.plan === "api-key" ? "api-key" : "openai",
+            account,
+            refreshed: async () => {
+              await call("accounts.usage", { id: account.id });
+              await load();
+            },
+          },
           reason: "额度未知：切换到这个账号后会读取",
           stale: failures.get(account.id),
         }),

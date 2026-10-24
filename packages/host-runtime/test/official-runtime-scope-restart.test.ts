@@ -1,11 +1,14 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 
-import { OfficialRuntimeScope } from "../src/codex-runtime/official-runtime-scope.js";
+import {
+  OfficialRuntimeScope,
+  type OfficialRuntimeRecoveryOptions,
+} from "../src/codex-runtime/official-runtime-scope.js";
 import type { OwnedOfficialBackend } from "../src/codex-runtime/official-runtime-owner.js";
 import type { OfficialAppServerExit } from "../src/official-app-server-connection.js";
 
-function fixture() {
+function fixture(recovery?: OfficialRuntimeRecoveryOptions) {
   const events: string[] = [];
   let failNextStart = false;
   const backends: OwnedOfficialBackend[] = [];
@@ -36,6 +39,7 @@ function fixture() {
     permanentHome: "/synthetic/home",
     createBackend,
     diagnosticOutput: new PassThrough(),
+    ...(recovery ? { recovery } : {}),
   });
   return {
     scope,
@@ -45,15 +49,6 @@ function fixture() {
       failNextStart = true;
     },
   };
-}
-
-async function settled(promise: Promise<unknown>): Promise<boolean> {
-  let done = false;
-  void promise.then(() => {
-    done = true;
-  });
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  return done;
 }
 
 describe("OfficialRuntimeScope.restartBackend", () => {
@@ -74,7 +69,9 @@ describe("OfficialRuntimeScope.restartBackend", () => {
       expect(f.scope.owner.generation).toBe(generation + 1);
       expect(f.scope.owner.running).toBe(true);
       expect(f.scope.restarting).toBe(false);
-      expect(await settled(f.scope.failure())).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(f.scope.gate.phase).toBe("ready");
+      expect(f.createBackend).toHaveBeenCalledTimes(2);
     } finally {
       await f.scope.close();
     }
@@ -117,16 +114,69 @@ describe("OfficialRuntimeScope.restartBackend", () => {
     await expect(f.scope.restartBackend()).rejects.toMatchObject({ code: "unavailable" });
   });
 
-  it("reports a Scope failure when the replacement backend cannot start", async () => {
+  it("keeps a failed replacement unavailable until an explicit retry without recovery", async () => {
     const f = fixture();
     try {
       await f.scope.start();
       f.failNextStart();
       await expect(f.scope.restartBackend()).rejects.toThrow("unavailable");
       expect(f.scope.gate.phase).toBe("unavailable");
-      await expect(f.scope.failure()).resolves.toBeInstanceOf(Error);
+      expect(f.scope.owner.running).toBe(false);
+      expect(f.scope.restarting).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(f.createBackend).toHaveBeenCalledTimes(2);
+      await f.scope.restartBackend();
+      expect(f.scope.gate.phase).toBe("ready");
+      expect(f.scope.owner.running).toBe(true);
+      expect(f.createBackend).toHaveBeenCalledTimes(3);
     } finally {
       await f.scope.close();
     }
+  });
+
+  it("joins a concurrent start to the manual restart without another generation", async () => {
+    const f = fixture({ delaysMs: [1], stableMs: 1_000 });
+    try {
+      await f.scope.start();
+      const restart = f.scope.restartBackend();
+      expect(f.scope.start()).toBe(restart);
+      await restart;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(f.events).toEqual(["start:0", "stop:0", "start:1"]);
+      expect(f.createBackend).toHaveBeenCalledTimes(2);
+      expect(f.scope.gate.phase).toBe("ready");
+    } finally {
+      await f.scope.close();
+    }
+  });
+
+  it("recovers a failed manual replacement when automatic recovery is enabled", async () => {
+    const f = fixture({ delaysMs: [1], stableMs: 1_000 });
+    try {
+      await f.scope.start();
+      f.failNextStart();
+      await expect(f.scope.restartBackend()).rejects.toThrow("unavailable");
+      await vi.waitFor(() => {
+        expect(f.scope.gate.phase).toBe("ready");
+        expect(f.scope.owner.running).toBe(true);
+        expect(f.createBackend).toHaveBeenCalledTimes(3);
+      });
+      expect(f.scope.restarting).toBe(false);
+    } finally {
+      await f.scope.close();
+    }
+  });
+
+  it("does not launch a replacement when closed during a manual restart", async () => {
+    const f = fixture({ delaysMs: [1], stableMs: 1_000 });
+    await f.scope.start();
+    const restart = f.scope.restartBackend();
+    const rejected = expect(restart).rejects.toMatchObject({ code: "unavailable" });
+    await f.scope.close();
+    await rejected;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(f.scope.closed).toBe(true);
+    expect(f.scope.owner.running).toBe(false);
+    expect(f.createBackend).toHaveBeenCalledTimes(1);
   });
 });

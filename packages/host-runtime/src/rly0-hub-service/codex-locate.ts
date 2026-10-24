@@ -15,7 +15,7 @@ import path from "node:path";
  *    executable by the signed-in user.
  */
 
-export type CodexLocationSource = "portable" | "desktopCache" | "storePackage";
+export type CodexLocationSource = "portable" | "desktopCache" | "storePackage" | "macosBundle";
 
 export interface CodexLocation {
   readonly path: string;
@@ -24,9 +24,10 @@ export interface CodexLocation {
 
 export interface CodexLocateFileSystem {
   readdir(directory: string): Promise<{ name: string; isDirectory(): boolean }[]>;
-  stat(file: string): Promise<{ isFile(): boolean; mtimeMs: number }>;
+  stat(file: string): Promise<{ isFile(): boolean; mtimeMs: number; mode?: number }>;
   realpath(file: string): Promise<string>;
   readlink(file: string): Promise<string>;
+  readHeader?(file: string): Promise<Uint8Array>;
 }
 
 export interface CodexLocateOptions {
@@ -40,6 +41,16 @@ const nodeFileSystem: CodexLocateFileSystem = {
   stat: (file) => fs.stat(file),
   realpath: (file) => fs.realpath(file),
   readlink: (file) => fs.readlink(file),
+  async readHeader(file) {
+    const handle = await fs.open(file, "r");
+    try {
+      const buffer = Buffer.alloc(4);
+      const { bytesRead } = await handle.read(buffer, 0, 4, 0);
+      return buffer.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+  },
 };
 
 const STORE_ALIAS_DIRECTORY = /^OpenAI\.Codex_[A-Za-z0-9]+$/u;
@@ -143,6 +154,7 @@ async function storePackage(
 export async function locateOfficialCodex(
   options: CodexLocateOptions,
 ): Promise<CodexLocation | null> {
+  if ((options.platform ?? process.platform) === "darwin") return locateMacCodex(options);
   if ((options.platform ?? process.platform) !== "win32") return null;
   const fileSystem = options.fileSystem ?? nodeFileSystem;
   const { environment } = options;
@@ -154,4 +166,60 @@ export async function locateOfficialCodex(
   if (cached) return { path: cached, source: "desktopCache" };
   const packaged = await storePackage(fileSystem, localAppData);
   return packaged ? { path: packaged, source: "storePackage" } : null;
+}
+
+async function locateMacCodex(options: CodexLocateOptions): Promise<CodexLocation | null> {
+  const fileSystem = options.fileSystem ?? nodeFileSystem;
+  if (!fileSystem.readHeader) return null;
+  const explicit = options.environment.CODEXHOST_INSTALL_ROOT;
+  const home = options.environment.HOME;
+  const bundles =
+    explicit !== undefined
+      ? [explicit]
+      : [
+          "/Applications/Codex.app",
+          ...(home && path.posix.isAbsolute(home)
+            ? [path.posix.join(home, "Applications/Codex.app")]
+            : []),
+        ];
+  for (const bundle of bundles) {
+    if (!path.posix.isAbsolute(bundle) || !bundle.endsWith(".app")) continue;
+    let canonicalBundle: string;
+    try {
+      canonicalBundle = await fileSystem.realpath(bundle);
+    } catch {
+      continue;
+    }
+    for (const relative of [
+      "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+      "Contents/Resources/codex",
+    ]) {
+      try {
+        const candidate = await fileSystem.realpath(path.posix.join(canonicalBundle, relative));
+        const inside = path.posix.relative(canonicalBundle, candidate);
+        if (!inside || inside === ".." || inside.startsWith("../") || path.posix.isAbsolute(inside))
+          continue;
+        const info = await fileSystem.stat(candidate);
+        if (!info.isFile() || info.mode === undefined || (info.mode & 0o111) === 0) continue;
+        const header = Buffer.from(await fileSystem.readHeader(candidate)).toString("hex");
+        if (
+          ![
+            "cffaedfe",
+            "cefaedfe",
+            "feedfacf",
+            "feedface",
+            "cafebabe",
+            "bebafeca",
+            "cafebabf",
+            "bfbafeca",
+          ].includes(header)
+        )
+          continue;
+        return { path: candidate, source: "macosBundle" };
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
 }

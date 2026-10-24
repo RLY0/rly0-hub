@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
@@ -109,6 +110,7 @@ import {
 } from "./tool-projection.js";
 
 export interface AntigravityAdapterOptions {
+  sharedResources?: SharedResourcesProvider;
   command?: string;
   environment?: NodeJS.ProcessEnv;
   inspectTimeoutMs?: number;
@@ -437,7 +439,11 @@ function normalizedProcessError(
   return {
     code: "nativeFailure",
     message: exposeDetail && nativeDetail ? `${fallback}: ${nativeDetail}` : fallback,
-    retryable: true,
+    // These native rejections need a changed precondition or a quota reset;
+    // immediately replaying a Turn (and its tools) cannot resolve them.
+    retryable: !/User location is not supported for the API use|Individual quota reached/iu.test(
+      nativeDetail,
+    ),
     ...(diagnostic ? { stderrTail: diagnostic.slice(-4_000) } : {}),
   };
 }
@@ -481,6 +487,7 @@ async function runBuffered(
 }
 
 class AntigravitySession implements HarnessSession {
+  readonly #sharedResources: SharedResourcesProvider | undefined;
   readonly harnessId: HarnessId = antigravityHarnessId;
   readonly capabilities = CAPABILITIES;
   readonly commands: HarnessCommandCapability;
@@ -507,6 +514,7 @@ class AntigravitySession implements HarnessSession {
   readonly #catalog: HarnessModelCatalog | undefined;
 
   constructor(input: {
+    sharedResources?: SharedResourcesProvider;
     catalog?: HarnessModelCatalog;
     cwd: string;
     environment: NodeJS.ProcessEnv;
@@ -522,6 +530,7 @@ class AntigravitySession implements HarnessSession {
     onClosed(): void;
   }) {
     this.#catalog = input.catalog;
+    this.#sharedResources = input.sharedResources;
     this.#cwd = input.cwd;
     this.#environment = input.environment;
     this.#executable = input.executable;
@@ -804,7 +813,12 @@ class AntigravitySession implements HarnessSession {
       });
     });
     try {
-      const turnPrompt = formatAntigravityTurnPrompt(text);
+      const shared = await this.#sharedResources?.(this.#cwd);
+      const turnPrompt = formatAntigravityTurnPrompt(
+        shared?.context
+          ? `${shared.context}\nAntigravity: this transport has not attached the listed Codex MCP servers. They are not callable merely because they appear in the index.\n\n[Current user request]\n${text}`
+          : text,
+      );
       if (child.stdin.writable) {
         child.stdin.write(
           `${JSON.stringify({ event: "user", message: { content: turnPrompt } })}\n`,
@@ -901,6 +915,22 @@ class AntigravitySession implements HarnessSession {
 
   async #handleResult(active: ActiveTurn, event: AntigravityResultEvent): Promise<void> {
     if (this.#active !== active) return;
+    const resultConversationId = event.result.conversation_id.trim();
+    if (
+      resultConversationId &&
+      this.#nativeRef &&
+      resultConversationId !== this.#nativeRef.nativeSessionId
+    ) {
+      this.#completeTurn(active, {
+        status: "failed",
+        error: {
+          code: "protocolError",
+          message: "Antigravity returned a result for a different Conversation",
+          retryable: false,
+        },
+      });
+      return;
+    }
     const usage = hostUsage(event.result.usage, active.model?.id);
     if (usage) this.#publishUsage(active, usage);
     this.#ensureContextUsage(active, event.result.conversation_id);
@@ -910,10 +940,7 @@ class AntigravitySession implements HarnessSession {
     }
     await active.subagents.refresh();
     if (this.#active !== active) return;
-    const convId =
-      event.result.conversation_id && event.result.conversation_id.trim().length > 0
-        ? event.result.conversation_id.trim()
-        : (this.#nativeRef?.nativeSessionId ?? "");
+    const convId = resultConversationId || this.#nativeRef?.nativeSessionId || "";
 
     if (!this.#nativeRef && convId) {
       this.#nativeRef = nativeSessionRefSchema.parse({
@@ -1392,6 +1419,7 @@ function historySubagentState(
 }
 
 export class AntigravityAdapter implements HarnessAdapter {
+  readonly #sharedResources: SharedResourcesProvider | undefined;
   readonly commandCatalog = ANTIGRAVITY_COMMAND_CATALOG;
   readonly harnessId: HarnessId = antigravityHarnessId;
   readonly subagents = {
@@ -1448,6 +1476,7 @@ export class AntigravityAdapter implements HarnessAdapter {
   readonly #quotaAbort = new AbortController();
 
   constructor(options: AntigravityAdapterOptions = {}) {
+    this.#sharedResources = options.sharedResources;
     this.#command = options.command;
     this.#environment = options.environment ?? process.env;
     this.#inspectTimeoutMs = options.inspectTimeoutMs ?? DEFAULT_INSPECT_TIMEOUT_MS;
@@ -1535,7 +1564,8 @@ export class AntigravityAdapter implements HarnessAdapter {
     if (!snapshot) return null;
     return {
       credits: {
-        label: snapshot.label,
+        ...(snapshot.label ? { label: snapshot.label } : {}),
+        ...(snapshot.scope ? { scope: snapshot.scope } : {}),
         usedPercent: snapshot.usedPercent,
         periodType: snapshot.periodType,
         ...(snapshot.resetsAt ? { resetsAt: snapshot.resetsAt } : {}),
@@ -1544,7 +1574,7 @@ export class AntigravityAdapter implements HarnessAdapter {
     };
   }
 
-  /** Duck-typed by the Host Runtime to populate the account credits surface. */
+  /** Public account telemetry cache; never attributes quota to historical Thread spend. */
   credits(): AntigravityQuotaSnapshot | null {
     return this.#quota;
   }
@@ -1750,6 +1780,7 @@ export class AntigravityAdapter implements HarnessAdapter {
     }
     if (model || thinkingOptionId) history.setSelection(model, thinkingOptionId);
     const session = new AntigravitySession({
+      ...(this.#sharedResources ? { sharedResources: this.#sharedResources } : {}),
       ...(catalog ? { catalog } : {}),
       cwd: input.cwd,
       environment: sessionEnvironment,

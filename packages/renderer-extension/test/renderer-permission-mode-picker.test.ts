@@ -12,6 +12,7 @@ import {
   isPermissionModeControlReady,
   rendererPermissionModeLabel,
   rendererPermissionModeMenuPlacement,
+  rendererPermissionModeSelectionFailed,
 } from "../src/renderer-permission-mode-picker.js";
 
 const catalog = harnessPermissionModeCatalogSchema.parse({
@@ -19,6 +20,12 @@ const catalog = harnessPermissionModeCatalogSchema.parse({
     {
       id: "plan",
       label: "Plan mode",
+      localizations: {
+        "zh-CN": {
+          label: "规划模式",
+          description: "探索并制定计划；批准计划后退出规划，恢复此前的权限模式。",
+        },
+      },
       description:
         "Explore and prepare a plan; approval exits planning and resumes the previous permission mode.",
     },
@@ -66,17 +73,55 @@ describe("Renderer Permission Mode picker presentation", () => {
     );
   });
 
+  it("flags a rejected selection while keeping the previous confirmed mode usable", () => {
+    const selected = harnessPermissionModeIdSchema.parse("default");
+    const rejected = {
+      status: "error" as const,
+      catalog,
+      selected,
+      error: "Bypass permissions is unavailable",
+      selectionRejected: true,
+    };
+    expect(rendererPermissionModeSelectionFailed(rejected)).toBe(true);
+    expect(isPermissionModeControlReady(rejected)).toBe(true);
+    expect(rendererPermissionModeLabel(rejected)).toBe("Default");
+
+    expect(rendererPermissionModeSelectionFailed({ status: "ready", catalog, selected })).toBe(
+      false,
+    );
+    expect(rendererPermissionModeSelectionFailed({ status: "error", catalog, selected })).toBe(
+      false,
+    );
+    expect(
+      rendererPermissionModeSelectionFailed({ status: "error", error: "inspection failed" }),
+    ).toBe(false);
+    expect(
+      rendererPermissionModeSelectionFailed({
+        status: "error",
+        catalog,
+        selected,
+        error: "Model catalog refresh failed",
+      }),
+    ).toBe(false);
+    expect(rendererPermissionModeSelectionFailed({ ...rejected, selectionLocked: true })).toBe(
+      false,
+    );
+  });
+
   it("treats a structurally unsupported Harness as complete without inventing a mode", () => {
     expect(isPermissionModeControlReady({ status: "unsupported" })).toBe(true);
     expect(rendererPermissionModeLabel({ status: "unsupported" })).toBe("Permissions");
   });
 
-  it("localizes shared permission presentation without changing Adapter catalogs", () => {
+  it("uses plugin localizations without changing Adapter catalogs", () => {
     const ompMode = harnessPermissionModeCatalogSchema.parse({
       modes: [
         {
           id: "always-ask",
           label: "Always ask",
+          localizations: {
+            "zh-CN": { label: "始终询问", description: "自动允许读取；写入或执行操作前询问。" },
+          },
           description: "Automatically allow reads and ask before write or execution actions.",
         },
       ],
@@ -93,6 +138,9 @@ describe("Renderer Permission Mode picker presentation", () => {
         {
           id: "always-approve",
           label: "Always approve",
+          localizations: {
+            "zh-CN": { label: "始终批准", description: "无需提示即可批准所有工具操作。" },
+          },
           description: "Approve all tool actions without prompting.",
           dangerous: true,
         },
@@ -324,6 +372,10 @@ describe("Renderer Permission Mode picker presentation", () => {
           {
             id,
             label: nativeLabel,
+            localizations: {
+              en: { label: en },
+              "zh-CN": { label: zh, ...(zhDescription ? { description: zhDescription } : {}) },
+            },
             ...(description ? { description } : {}),
             ...(dangerous ? { dangerous } : {}),
           },
@@ -400,10 +452,10 @@ describe("Renderer Permission Mode picker presentation", () => {
       }),
     ).toBe("Default");
     expect(rendererHarnessMessages("en").permissionModeFixedAtCreate).toBe(
-      "Grok fixes its Permission Mode when the Session is created. Start a new Thread to change it.",
+      "This Permission Mode is fixed when the Session is created. Start a new Thread to change it.",
     );
     expect(rendererHarnessMessages("zh-CN").permissionModeFixedAtCreate).toBe(
-      "Grok 的权限模式在会话创建时确定，如需更改请新建会话",
+      "此权限模式在会话创建时确定，如需更改请新建会话",
     );
   });
 });

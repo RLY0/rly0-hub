@@ -99,7 +99,7 @@ export class Rly0AgentRelaySettings {
     const current = await this.get();
     const agents = { ...(current.agents ?? {}) };
     if (choice) agents[id] = choice;
-    else delete agents[id];
+    else Reflect.deleteProperty(agents, id);
     const next = { claudeCode: current.claudeCode, agents };
     await this.#write(next);
     return next;

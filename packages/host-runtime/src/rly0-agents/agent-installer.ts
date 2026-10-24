@@ -235,8 +235,8 @@ export function decodeTranscript(bytes: Buffer): string {
   // Header and footer are fenced by lines of asterisks; keep only what ran in between.
   const fences = lines.flatMap((line, index) => (/^\*{6,}$/u.test(line) ? [index] : []));
   const body =
-    fences.length >= 2
-      ? lines.slice(fences[1]! + 1, fences[2] ?? lines.length)
+    fences[1] !== undefined
+      ? lines.slice(fences[1] + 1, fences[2] ?? lines.length)
       : lines.filter((line) => !/^\*{6,}$/u.test(line));
   return body
     .filter((line) => !/^(Transcript started|已启动脚本)/u.test(line))

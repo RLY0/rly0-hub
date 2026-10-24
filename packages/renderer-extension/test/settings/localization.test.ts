@@ -87,6 +87,7 @@ describe("Renderer settings localization", () => {
     ).toEqual([
       "仪表盘",
       "连接",
+      "远程连接",
       "账号",
       "中转站",
       "会话导入",
@@ -94,6 +95,7 @@ describe("Renderer settings localization", () => {
       "MCP 管理",
       "Skills 管理",
       "维护工具",
+      "用量统计",
       "通用",
       "更新",
       "关于",

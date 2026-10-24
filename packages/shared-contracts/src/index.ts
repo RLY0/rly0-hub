@@ -1,7 +1,25 @@
 import { z } from "zod";
+export * from "./delegation-read.js";
 export * from "./credential-imports.js";
 export * from "./product-directories.js";
 export * from "./repository.js";
+export * from "./harness-display-settings.js";
+export * from "./harness-presentation.js";
+export * from "./account-credits-presentation.js";
+export * from "./model-price-overrides.js";
+export * from "./usage-statistics.js";
+export * from "./thread-prewarm.js";
+export {
+  CONSOLE_HOST_METHODS,
+  CONSOLE_OPEN_METHOD,
+  isConsoleHostMethod,
+  type ConsoleHostMethod,
+  consoleAnnouncementSchema,
+  type ConsoleAnnouncement,
+  consoleOpenParamsSchema,
+  consoleOpenResultSchema,
+  type ConsoleOpenResult,
+} from "./console.js";
 import { WORKSPACE_CONTRACT_VERSION } from "./version.js";
 export {
   IDLE_RELEASE_SETTINGS_METHOD,
@@ -16,8 +34,14 @@ export {
   loadedSessionsSchema,
   type LoadedSession,
 } from "./loaded-sessions.js";
+export {
+  THREAD_MANUAL_COMPACTION_STARTED_METHOD,
+  threadManualCompactionStartedSchema,
+  type ThreadManualCompactionStarted,
+} from "./manual-compaction.js";
 
 export {
+  accountBalanceSnapshotSchema,
   harnessAccountSnapshotSchema,
   harnessAccountSourceSchema,
   harnessAccountSourceListParamsSchema,
@@ -28,6 +52,7 @@ export {
   harnessAccountListResultSchema,
 } from "./harness-accounts.js";
 export type {
+  AccountBalanceSnapshot,
   HarnessAccountSnapshot,
   HarnessAccountSource,
   HarnessAccountSourceListResult,
@@ -64,6 +89,7 @@ export type {
   HarnessPluginManifest,
 } from "./harness-plugins.js";
 export * from "./harness-launch-settings.js";
+export * from "./harness-installation.js";
 export { codexhostErrorSchema } from "./errors.js";
 export {
   codexAccountUsageParamsSchema,
@@ -542,6 +568,7 @@ export {
   harnessInspectParamsSchema,
   harnessInspectionSchema,
   harnessModelCatalogSchema,
+  catalogModelForRef,
   harnessModelRefIdSchema,
   harnessModelRefSchema,
   harnessModelSchema,
@@ -728,3 +755,28 @@ export {
   rly0AgentAccountImportFileParamsSchema,
   rly0AgentAddLoginIdParamsSchema,
 } from "./rly0-agent-accounts.js";
+
+export {
+  REMOTE_SSH_SETUP_METHOD,
+  remoteSshSetupParamsSchema,
+  remoteSshSetupResultSchema,
+  type RemoteSshSetupParams,
+  type RemoteSshSetupResult,
+  RUNTIME_STATUS_METHOD,
+  REMOTE_UPDATE_METHOD,
+  runtimeStatusSchema,
+  remoteUpdateParamsSchema,
+  type RuntimeStatus,
+  type RemoteUpdateParams,
+} from "./remote-runtime.js";
+export {
+  CONSOLE_REMOTE_CONNECTIONS_METHOD,
+  codexSshConnectionSchema,
+  codexSshDraftSchema,
+  remoteConnectionsRequestSchema,
+  remoteConnectionsReplySchema,
+  type RemoteConnectionsRequest,
+  type RemoteConnectionsReply,
+  type CodexSshConnection,
+  type CodexSshDraft,
+} from "./remote-connections.js";

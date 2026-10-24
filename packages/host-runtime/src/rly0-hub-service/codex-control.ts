@@ -82,6 +82,9 @@ export class Rly0CodexControl {
   }
 
   #startExecutable(): string {
+    if ((this.#options.platform ?? process.platform) === "darwin") {
+      return path.posix.join(this.#options.installRoot, "bin", "codexhost");
+    }
     return path.join(this.#options.installRoot, "bin", "codexhost-start.exe");
   }
 
@@ -112,8 +115,10 @@ export class Rly0CodexControl {
   }
 
   async status(): Promise<Rly0CodexStatus> {
+    const platform = this.#options.platform ?? process.platform;
     const canOpen =
-      this.#windows() && (this.#options.fileExists ?? existsSync)(this.#startExecutable());
+      (this.#windows() || platform === "darwin") &&
+      (this.#options.fileExists ?? existsSync)(this.#startExecutable());
     // The Launcher's descriptor, or the Codex side's own heartbeat (the Launcher may have exited
     // while Codex keeps running).
     const running =

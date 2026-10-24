@@ -13,6 +13,7 @@ window.registerHubAccountCards = ({
   resetText,
   resetCardTile,
 }) => {
+  const resets = window.registerHubResetCredits({ h, call, toast, resetCardTile });
   const put = (element, ...items) =>
     element.replaceChildren(
       ...items
@@ -74,7 +75,7 @@ window.registerHubAccountCards = ({
   // `kinds`: the placeholder tiles when nothing is known (the 5-hour and weekly ones by default).
   function quotaCards(
     usage,
-    { value = "未知", reason, stale, updated, kinds = ["5 小时额度", "每周额度"] } = {},
+    { value = "未知", reason, stale, updated, kinds = ["5 小时额度", "每周额度"], reset } = {},
   ) {
     const known = Boolean(usage && usage.windows && usage.windows.length);
     const staleNote = stale
@@ -113,7 +114,7 @@ window.registerHubAccountCards = ({
               ),
             );
           }),
-          usage.resetCredits === undefined ? null : resetCardTile(usage.resetCredits),
+          resets.tile(usage.resetCredits, reset),
         ),
         staleNote ||
           (updated && usage.fetchedAt
@@ -140,6 +141,7 @@ window.registerHubAccountCards = ({
             h("div", { class: "bar" }),
           ),
         ),
+        resets.tile(usage && usage.resetCredits, reset),
       ),
       staleNote || (reason ? h("p", { class: "sub quota-note" }, reason) : null),
     );
@@ -685,10 +687,11 @@ window.registerHubAccountCards = ({
             })
           : subscription
             ? info.usage
-              ? quotaCards(info.usage, { updated: true })
-              : quotaCards(null, { reason: keyQuota(info).reason })
+              ? quotaCards(info.usage, { updated: true, reset: { vendor: "anthropic" } })
+              : quotaCards(null, { reason: keyQuota(info).reason, reset: { vendor: "anthropic" } })
             : quotaCards(null, {
                 value: "不支持",
+                reset: { vendor: "api-key" },
                 reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
               }),
         notes: [

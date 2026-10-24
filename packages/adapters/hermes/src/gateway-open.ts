@@ -35,11 +35,23 @@ export function gatewayPermissionModes() {
       {
         id: "default",
         label: "原生审批策略",
+        localizations: {
+          en: {
+            label: "Native approval policy",
+            description: "Follow the Hermes global approval policy; disable YOLO for this Session.",
+          },
+        },
         description: "遵循 Hermes 全局审批策略，关闭本会话 YOLO。",
       },
       {
         id: "dont_ask",
         label: "会话 YOLO",
+        localizations: {
+          en: {
+            label: "Session YOLO",
+            description: "Automatically approve Hermes tool actions in this Session.",
+          },
+        },
         description: "本会话自动批准 Hermes 工具操作。",
         dangerous: true,
       },
@@ -51,7 +63,7 @@ export function isGatewayRef(ref: NativeSessionRef): boolean {
   return ref.harnessId === "hermes" && gatewayRecord(ref.locator).transport === "gateway";
 }
 
-/** One stdio gateway owns one public Session. Legacy ACP refs never enter this path. */
+/** One stdio Gateway owns one public Session, including native identities from import discovery. */
 export async function openGatewaySession(
   input: OpenSessionInput,
   transport: HermesGatewayTransport,
@@ -60,7 +72,11 @@ export async function openGatewaySession(
 ): Promise<HermesSession> {
   const source =
     input.kind === "create" ? null : input.kind === "resume" ? input.nativeRef : input.sourceRef;
-  if (source && !isGatewayRef(source))
+  if (
+    source &&
+    !isGatewayRef(source) &&
+    !(input.kind === "resume" && source.harnessId === "hermes" && !source.locator)
+  )
     throw new HermesGatewayHistoryError(
       "unsupported",
       "This Hermes native reference is not a supported gateway Session",
@@ -72,7 +88,7 @@ export async function openGatewaySession(
   if (mode && mode !== "default" && mode !== "dont_ask")
     throw new HermesGatewayHistoryError(
       "unsupported",
-      "Hermes gateway supports native policy and session YOLO; accept_edits remains ACP-only",
+      "Hermes gateway supports only native approval policy and session YOLO",
     );
   if (
     input.kind === "create" &&
@@ -104,7 +120,7 @@ export async function openGatewaySession(
     await transport.start();
     if (source && (input.kind === "fork" || input.kind === "rollbackLastTurn")) {
       sourceHistory = new HermesGatewayHistory({
-        python: transport.python,
+        python: transport.runtime,
         cwd: transport.cwd,
         environment: transport.environment,
         nativeSessionId: source.nativeSessionId,
@@ -172,7 +188,6 @@ export async function openGatewaySession(
       }),
       transport: bridge,
       open,
-      supportsDerivation: true,
       onSettle,
     });
   } catch (error) {

@@ -97,7 +97,8 @@ describe("Codex model check", () => {
     expect(readFileSync(path.join(home, "config.toml"), "utf8")).toBe(
       '# mine\r\nmodel = "gpt-6-sol"\r\nmodel_provider = "openai"\r\n',
     );
-    expect(readFileSync(result.backupPath!, "utf8")).toContain('model = "gpt-6.1-sol"');
+    if (!result.backupPath) throw new Error("Missing synthetic backup");
+    expect(readFileSync(result.backupPath, "utf8")).toContain('model = "gpt-6.1-sol"');
   });
 
   it("adds a model line above the first table when there is none", async () => {

@@ -1,7 +1,14 @@
 import {
   decodeExternalTransportSelection,
-  encodeExternalTransportSelection,
+  encodePiTransportModel,
+  encodeClaudeTransportModel,
+  encodeDeepSeekHarnessTransportModel,
+  encodeOpenCodeTransportModel,
+  encodeGrokTransportModel,
+  encodeOmpTransportModel,
+  encodeAntigravityTransportModel,
 } from "@codexhost/protocol-core";
+import { isDeepStrictEqual } from "node:util";
 
 import type { TransportCanonicalizer } from "./legacy-codexhost-import.js";
 
@@ -14,6 +21,57 @@ import type { TransportCanonicalizer } from "./legacy-codexhost-import.js";
 export const canonicalTransportModelId: TransportCanonicalizer = (harnessId, transportModelId) => {
   const selection = decodeExternalTransportSelection(harnessId, transportModelId);
   if (!selection) return null;
-  const canonical = encodeExternalTransportSelection(harnessId, selection);
+  // Generic plugin encoding is now the upstream default. This legacy repair still needs
+  // the explicit native encoder; calling the generic encoder would leave the record unchanged.
+  let canonical: string;
+  switch (harnessId) {
+    case "pi":
+      canonical = encodePiTransportModel(selection.model, selection.thinkingOptionId);
+      break;
+    case "claude-code":
+      canonical = encodeClaudeTransportModel(
+        selection.model,
+        selection.permissionModeId,
+        selection.thinkingOptionId,
+      );
+      break;
+    case "deepseek-harness":
+      canonical = encodeDeepSeekHarnessTransportModel(selection.model, selection.permissionModeId);
+      break;
+    case "opencode":
+      canonical = encodeOpenCodeTransportModel(
+        selection.model,
+        selection.permissionModeId,
+        selection.thinkingOptionId,
+      );
+      break;
+    case "grok":
+      canonical = encodeGrokTransportModel(
+        selection.model,
+        selection.permissionModeId,
+        selection.thinkingOptionId,
+      );
+      break;
+    case "omp":
+      canonical = encodeOmpTransportModel(
+        selection.model,
+        selection.thinkingOptionId,
+        selection.permissionModeId,
+      );
+      break;
+    case "antigravity":
+      canonical = encodeAntigravityTransportModel(
+        selection.model,
+        selection.permissionModeId,
+        selection.thinkingOptionId,
+      );
+      break;
+    default:
+      return null;
+  }
+  // Some native formats cannot express every modern plugin selection (e.g. DeepSeek thinking).
+  // Preserve the original route whenever rewriting would lose a field.
+  if (!isDeepStrictEqual(decodeExternalTransportSelection(harnessId, canonical), selection))
+    return null;
   return canonical !== transportModelId ? canonical : null;
 };

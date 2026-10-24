@@ -25,11 +25,54 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed }) => {
     ERRORS[error && error.message] ? toast(ERRORS[error.message]) : failed(error);
 
   pages.instructions = (root, alive) => {
+    const sharing = h("section", { class: "m span-6" });
     const status = h("section", { class: "m tone span-6" });
     const editorCard = h("section", { class: "m span-6 instructions-editor" });
     const preview = h("div");
     const historyCard = h("section", { class: "m span-6" });
-    root.append(h("div", { class: "grid compact" }, status, editorCard, historyCard));
+    root.append(h("div", { class: "grid compact" }, sharing, status, editorCard, historyCard));
+    call("resources.sharingGet")
+      .then((state) => {
+        if (!alive()) return;
+        const toggle = h(
+          "button",
+          {
+            class: "btn sm",
+            type: "button",
+            role: "switch",
+            "aria-checked": String(state.enabled),
+            onclick: async () => {
+              toggle.disabled = true;
+              try {
+                state = await call("resources.sharingSet", { enabled: !state.enabled });
+                toggle.setAttribute("aria-checked", String(state.enabled));
+                toggle.textContent = state.enabled ? "已开启" : "开启共享";
+                toast("已保存；MCP 在新建或重新打开的助手会话生效");
+              } catch (error) {
+                failed(error);
+              } finally {
+                toggle.disabled = false;
+              }
+            },
+          },
+          state.enabled ? "已开启" : "开启共享",
+        );
+        sharing.append(
+          h("b", null, "向其他助手共享 Codex 资源"),
+          h(
+            "p",
+            { class: "sub" },
+            "共享当前项目记忆、通用偏好和技能索引。Claude/Grok 接入兼容的 MCP；Gemini 当前共享技能和记忆，MCP 尚未转接。工具仍需各助手原有审批，OAuth 授权不复制。",
+          ),
+          toggle,
+        );
+      })
+      .catch(() => {
+        if (alive())
+          sharing.append(
+            h("p", { class: "sub" }, "资源共享设置读取失败，请更新完整安装包后重试。"),
+          );
+      });
     const editor = h("textarea", {
       class: "input instructions-text",
       rows: "10",

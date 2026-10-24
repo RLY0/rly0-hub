@@ -224,6 +224,8 @@ window.hubManagementMock = (() => {
   let isolation = null;
   let isolationLogin = { phase: "idle" };
   const isolatedLogins = new Set();
+  // Synthetic reset protocol for this browser-only preview. Never reached by the real bridge.
+  const resetRequests = new Set();
   const isolationRoot = "C:\\Users\\demo\\.rly0-hub\\sandbox-runtime";
   return ({ method, params: p }) => {
     switch (method) {
@@ -549,6 +551,33 @@ window.hubManagementMock = (() => {
         };
       case "accounts.list":
         return { available: true, accounts: codexAccounts };
+      case "accounts.resetPrepare": {
+        const account = codexAccounts.find((a) => a.id === p.id);
+        const count = account && account.lastUsage ? account.lastUsage.resetCredits || 0 : 0;
+        return {
+          availableCount: count,
+          creditId: count ? `synthetic-card-${p.id}` : null,
+          revision: "a".repeat(64),
+          expiresAt: null,
+        };
+      }
+      case "accounts.resetAcknowledge":
+        return { ok: true };
+      case "accounts.resetConsume": {
+        if (resetRequests.has(p.requestId)) return { outcome: "alreadyRedeemed" };
+        const account = codexAccounts.find((a) => a.id === p.id);
+        if (!account || !account.lastUsage || !account.lastUsage.resetCredits)
+          return { outcome: "noCredit" };
+        resetRequests.add(p.requestId);
+        account.lastUsage = usage(0, 0, 18000, 604800, account.lastUsage.resetCredits - 1);
+        return { outcome: "reset" };
+      }
+      case "accounts.usage": {
+        const account = codexAccounts.find((a) => a.id === p.id);
+        return account
+          ? { available: true, usage: account.lastUsage }
+          : { __error: "ACCOUNT_NOT_FOUND" };
+      }
       case "accounts.rename": {
         const account = codexAccounts.find((entry) => entry.id === p.id);
         if (!account) return { __error: "ACCOUNT_NOT_FOUND" };

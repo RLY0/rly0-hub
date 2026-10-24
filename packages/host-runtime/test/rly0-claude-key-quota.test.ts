@@ -76,7 +76,7 @@ describe("Claude official key quota", () => {
       },
       observedAt: new Date(FETCHED * 1000).toISOString(),
     });
-    expect(projectClaudeKeyUsage({ windows: [], source: "live" })).toBeNull();
+    expect(projectClaudeKeyUsage({ windows: [], source: "live", fetchedAt: FETCHED })).toBeNull();
     expect(withClaudeKeyPlanUsage({ totalTokens: 5 }, snapshot?.plan)).toMatchObject({
       totalTokens: 5,
       planSevenDayUsedPercent: 18,

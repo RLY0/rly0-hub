@@ -1,6 +1,8 @@
 import {
   harnessModelCatalogSchema,
   harnessModelRefSchema,
+  encodeHarnessPluginRoute,
+  harnessIdSchema,
   harnessPermissionModeCatalogSchema,
   harnessPermissionModeIdSchema,
   harnessThinkingOptionIdSchema,
@@ -154,6 +156,42 @@ describe("Renderer connection diagnostics", () => {
     resolveRemote();
     await refresh;
     expect(completed).toBe(true);
+  });
+
+  it.each([false, true])(
+    "starts a new target Host inspection after pending diagnostics settle (failure=%s)",
+    async (failed) => {
+      const pending = Promise.withResolvers<undefined>();
+      const fresh = Promise.withResolvers<undefined>();
+      let observed = "notInstalled";
+      const refreshHost = vi.fn(async () => {
+        await fresh.promise;
+        observed = "ready";
+      });
+      const pendingHost = vi.fn(() => pending.promise);
+      const refresh = refreshConnectionHosts(["remote"], refreshHost, pendingHost);
+      expect(pendingHost).toHaveBeenCalledExactlyOnceWith("remote");
+      expect(refreshHost).not.toHaveBeenCalled();
+      if (failed) pending.reject(new Error("old inspection failed"));
+      else pending.resolve(undefined);
+      await vi.waitFor(() => expect(refreshHost).toHaveBeenCalledExactlyOnceWith("remote"));
+      expect(observed).toBe("notInstalled");
+      fresh.resolve(undefined);
+      await refresh;
+      expect(observed).toBe("ready");
+    },
+  );
+
+  it("propagates fresh inspection failure after draining the old request", async () => {
+    await expect(
+      refreshConnectionHosts(
+        ["local"],
+        async () => {
+          throw new Error("fresh failure");
+        },
+        () => Promise.resolve(),
+      ),
+    ).rejects.toThrow("fresh failure");
   });
 
   it("rejects when one Host refresh fails", async () => {
@@ -369,13 +407,12 @@ describe("Renderer Composer DOM behavior", () => {
   });
 
   it("retries external Usage after an early empty inspection", () => {
-    expect(shouldRetryExternalThreadUsage("pi", null)).toBe(true);
-    expect(shouldRetryExternalThreadUsage("claude-code", null)).toBe(true);
-    expect(shouldRetryExternalThreadUsage("codex", null)).toBe(true);
-    expect(shouldRetryExternalThreadUsage("codex", { totalCostUsd: 0.168 })).toBe(true);
+    expect(shouldRetryExternalThreadUsage(false, null)).toBe(true);
+    expect(shouldRetryExternalThreadUsage(true, null)).toBe(true);
+    expect(shouldRetryExternalThreadUsage(true, { totalCostUsd: 0.168 })).toBe(true);
     expect(
       shouldRetryExternalThreadUsage(
-        "codex",
+        true,
         { totalCostUsd: 0.168 },
         {
           usedPercent: 33,
@@ -383,11 +420,11 @@ describe("Renderer Composer DOM behavior", () => {
         },
       ),
     ).toBe(false);
-    expect(shouldRetryExternalThreadUsage("pi", { totalCostUsd: 0.168 })).toBe(false);
-    expect(shouldRetryExternalThreadUsage("grok", { totalCostUsd: 0.168 })).toBe(true);
+    expect(shouldRetryExternalThreadUsage(false, { totalCostUsd: 0.168 })).toBe(false);
+    expect(shouldRetryExternalThreadUsage(true, { totalCostUsd: 0.168 })).toBe(true);
     expect(
       shouldRetryExternalThreadUsage(
-        "grok",
+        true,
         { totalCostUsd: 0.168 },
         {
           usedPercent: 33,
@@ -395,13 +432,11 @@ describe("Renderer Composer DOM behavior", () => {
         },
       ),
     ).toBe(false);
-    // Same "keep retrying for Account Credits" carve-out Grok gets: without it, revisiting a
-    // Claude Code Thread whose Usage was already known (so the initial retry never engaged)
-    // would leave the credits pill permanently blank.
-    expect(shouldRetryExternalThreadUsage("claude-code", { totalCostUsd: 0.168 })).toBe(true);
+    // Any plugin advertising quota gets the same retry, even after Usage has arrived.
+    expect(shouldRetryExternalThreadUsage(true, { totalCostUsd: 0.168 })).toBe(true);
     expect(
       shouldRetryExternalThreadUsage(
-        "claude-code",
+        true,
         { totalCostUsd: 0.168 },
         { usedPercent: 62, periodType: "five_hour" },
       ),
@@ -655,12 +690,12 @@ describe("Renderer Composer DOM behavior", () => {
 
     expect(isNativeContextUsageControlCandidate(native)).toBe(true);
     expect(nativeContextUsageControlForComposer(composer)).toBe(native);
-    expect(formatRendererCacheHitRate(99.9)).toBe("CH 99.9%");
+    expect(formatRendererCacheHitRate(99.9)).toBe("99.9%");
     expect(formatRendererCost(0.168)).toBe("$0.168");
-    expect(formatRendererTokenCount(87000)).toBe("87k");
-    expect(formatRendererTokenCount(6700)).toBe("6.7k");
-    expect(formatRendererTokenCount(375000)).toBe("375k");
-    expect(rendererUsageTriggerMaxWidth()).toBe("min(140px, 22vw)");
+    expect(formatRendererTokenCount(87000)).toBe("87K");
+    expect(formatRendererTokenCount(6700)).toBe("6.7K");
+    expect(formatRendererTokenCount(375000)).toBe("375K");
+    expect(rendererUsageTriggerMaxWidth()).toBe("min(240px, 30vw)");
   });
 
   it("places Usage beside the native context wrapper when it is present", () => {
@@ -741,28 +776,31 @@ describe("Renderer Composer DOM behavior", () => {
     expect(placeCredits).not.toHaveBeenCalled();
   });
 
-  it("anchors credits to the permission-mode picker's own root", () => {
+  it.each([true, false])("anchors credits only in a verified permission slot (%s)", (verified) => {
     const permissionModeRoot = { parentElement: {} } as HTMLElement;
     const control = {
       permissionModePicker: { root: permissionModeRoot },
+      nativePermissionModeControlVerified: verified,
     } as unknown as ComposerAgentControl;
 
-    expect(creditsPlacementAnchor(control)).toBe(permissionModeRoot);
+    expect(creditsPlacementAnchor(control)).toBe(verified ? permissionModeRoot : null);
   });
 
   it("does not anchor credits until the permission-mode picker has been inserted into the DOM", () => {
     const permissionModeRoot = { parentElement: null } as unknown as HTMLElement;
     const control = {
       permissionModePicker: { root: permissionModeRoot },
+      nativePermissionModeControlVerified: true,
     } as unknown as ComposerAgentControl;
 
     expect(creditsPlacementAnchor(control)).toBeNull();
   });
 
-  it("places credits immediately before the permission-mode picker, independent of Usage", () => {
+  it("removes credits when the native permission slot is unavailable", () => {
     const permissionModeRoot = { parentElement: {} } as HTMLElement;
     const placeUsage = vi.fn();
     const placeCredits = vi.fn();
+    const removeCredits = vi.fn();
     const control = {
       composer: { querySelectorAll: () => [] },
       modelPicker: { root: {}, trigger: {} },
@@ -771,9 +809,9 @@ describe("Renderer Composer DOM behavior", () => {
       nativeContextUsageControl: null,
       permissionModePicker: { root: permissionModeRoot },
       credits: {
-        anchor: null,
+        anchor: permissionModeRoot,
         place: placeCredits,
-        root: { remove: vi.fn() },
+        root: { remove: removeCredits },
       },
       usage: {
         anchor: null,
@@ -784,7 +822,9 @@ describe("Renderer Composer DOM behavior", () => {
 
     reconcileComposerNativeControls(control, true, false);
 
-    expect(placeCredits).toHaveBeenCalledWith(permissionModeRoot);
+    expect(placeCredits).not.toHaveBeenCalled();
+    expect(removeCredits).toHaveBeenCalledOnce();
+    expect(control.credits.anchor).toBeNull();
   });
 
   it("does not treat codexhost Usage controls as native anchors", () => {
@@ -1262,7 +1302,7 @@ describe("Renderer Composer DOM behavior", () => {
       restoredThreadOwnership({
         owner: "external",
         harnessId: "hermes",
-        transportModelId: "codexhost/plugin-v1@synthetic",
+        transportModelId: encodeHarnessPluginRoute({ harnessId: harnessIdSchema.parse("hermes") }),
         history: { fork: false, forkAcrossCwd: false, rollbackLastTurn: false },
         effectiveModel: harnessModelRefSchema.parse({
           id: "hermes-model-v1.emFpOmdsbS01LXR1cmJv",
@@ -1398,7 +1438,7 @@ describe("Renderer Composer DOM behavior", () => {
     expect(lateConversationTargetResolution(defaultTarget, conversationTarget, "locked")).toBe(
       "transfer",
     );
-    expect(shouldRetryExternalThreadUsage("pi", null)).toBe(true);
+    expect(shouldRetryExternalThreadUsage(false, null)).toBe(true);
     expect(lateConversationTargetResolution(defaultTarget, defaultTarget, "draft")).toBe("none");
     expect(isLateConversationTarget(conversationTarget, conversationTarget)).toBe(false);
     expect(isLateConversationTarget(conversationTarget, ["conversation", "opaque-2"])).toBe(true);
