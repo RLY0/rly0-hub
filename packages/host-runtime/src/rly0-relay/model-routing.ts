@@ -2,6 +2,7 @@ import {
   RLY0_CODEX_PROVIDER_ID,
   RLY0_CODEX_PROVIDER_NAME,
   RLY0_PROXY_DEFAULT_PORT,
+  RLY0_RELAY_MODEL_ID_PREFIX,
   type Rly0ProxyStatusResult,
   type Rly0RelayListResult,
   type Rly0RelayModelCatalogStatusResult,
@@ -45,7 +46,7 @@ export interface Rly0RelayModel {
 
 /** Stable, non-secret selector; the core unwraps it only after validating the named relay. */
 export function relayModelId(relayId: string, model: string): string {
-  return `rly0/${relayId}/${model}`;
+  return `${RLY0_RELAY_MODEL_ID_PREFIX}${relayId}/${model}`;
 }
 
 type JsonRecord = Record<string, unknown>;

@@ -38,6 +38,17 @@ export const RLY0_PROXY_DEFAULT_PORT = 25917;
 /** Provider table name written into Codex's config.toml. */
 export const RLY0_CODEX_PROVIDER_ID = "rly0";
 export const RLY0_CODEX_PROVIDER_NAME = "RLY/0 Hub 本地代理";
+/**
+ * Prefix of the model ids the Host appends to Codex's `model/list` for relay models
+ * (`rly0/<relayId>/<model>`). A thread on such a model is routed through the local proxy and never
+ * consumes the signed-in ChatGPT Account's Codex usage.
+ */
+export const RLY0_RELAY_MODEL_ID_PREFIX = "rly0/";
+
+/** Whether `model` is a relay model id appended by the Host (not an official Codex model). */
+export function isRly0RelayModelId(model: unknown): model is string {
+  return typeof model === "string" && /^rly0\/[A-Za-z0-9_-]{1,64}\/\S+$/u.test(model);
+}
 
 export const rly0RelayIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/u);
 export type Rly0RelayId = z.infer<typeof rly0RelayIdSchema>;

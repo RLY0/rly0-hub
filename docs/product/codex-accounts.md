@@ -28,6 +28,8 @@ ChatGPT 登录的 Codex 订阅额度耗尽时，Desktop 在 Renderer 中用两�
 
 门按其 selector 实际读取的字段识别，不依赖压缩名或 hook 序号。兼容直接 `[store, atom]` 订阅及 Desktop 26.928 的 readonly signal adapter / lazy snapshot wrapper：以成对的订阅 effect 和原生快照一致性验证 wrapper，限量重放 readonly 布尔 selector 的依赖以识别间接 reserve 门；拒绝循环依赖、追踪型 render、混合门和快照不匹配。Desktop 26.1002 的 Account 门可读取 reserve `active` 作为豁免，并同时由 submit owner 和编辑器到 owner 之间的子组件订阅；这些订阅按组件分别投影。每次重试从 React 当前已提交树重新发现作用域，包括 alternate 切换后才挂载的子组件；无法确认当前作用域时恢复原生限制。释放时分别恢复 subscriber 与 React instance 原来的 getter，不把 wrapper 替换成另一个函数。无法唯一识别时保留原生限制，并在 Agent 控件悬停提示中说明。升级后的诊断步骤见 [Desktop 更新兼容性诊断手册](../operations/codex-desktop-upgrade-diagnosis-playbook.md#检查-codex-额度门)。
 
+Desktop 26.1016 中这两道门都在 submit owner（`onLocalSubmitStart` + `submitDisabled`）里按 `hostId === "local"` 订阅，与 Thread、Harness、Model 无关，因此官方额度耗尽会锁住本机所有 Composer。RLY/0 中转模型（`model/list` 末尾追加的 `rly0/<relayId>/<model>`）走本地代理，不消耗 ChatGPT 账号的 Codex 额度：Codex Composer 的 `activeCollaborationMode.settings.model`（及存在时的 `modelSelection.model`）一致指向中转模型时，同样只投影该 Composer 的两道门，每次刷新重新读取所选模型；切回官方模型、模型来源不一致或无法读取时恢复原生限制。中转模型下横幅保持显示，作为官方账号额度的提示；官方模型的额度数字与限制不做任何改动。
+
 ## 其他 Harness 的只读账号额度
 
 统一列表中展示 Grok Build、agy（Antigravity）、Claude Code、Cursor、Kimi Code、Qoder 和 Pi 当前原生认证可读取的真实额度或预付费余额。导入 Pi 的入口位于账号信息下方，不单独占列；原生管理边界保留在账号信息的说明中。这不是多账号管理：不提供添加、删除、切换、设为默认或重置卡操作，也不修改 Codex 当前账号。搜索和已用/剩余切换作用于所有行，刷新按钮重新查询两类额度。各 Harness 独立并行查询，任一有效结果返回后立即显示，不等待其他 Harness；全局刷新期间同样逐项恢复。

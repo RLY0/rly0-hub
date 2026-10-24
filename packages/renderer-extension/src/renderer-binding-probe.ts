@@ -1121,7 +1121,15 @@ export function installRendererBindingProbe(
       mounted.ownershipStatus === "error",
       quotaView(mounted),
     );
-    showCodexUsageGateStatus(mounted, mounted.codexUsageGate.update(externalSubmissionReady));
+    // A Codex Composer on a relay model does not use the official Account's usage.
+    const codexRelayCandidate =
+      controller.get(mounted.composer).agent === "codex" &&
+      !controller.isSwitching(mounted.composer) &&
+      !isOwnershipSubmissionBlocked(mounted.ownershipStatus);
+    showCodexUsageGateStatus(
+      mounted,
+      mounted.codexUsageGate.update(externalSubmissionReady, { codexRelayCandidate }),
+    );
     if (mounted.control.usage) {
       mounted.control.usage.onOpen = () => {
         void refreshThreadUsage(

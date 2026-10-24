@@ -12,9 +12,17 @@
  *
  * Desktop 26.1002 moved the Account gate into a child of the submit owner and
  * lets an active reserve exempt it, so gates are collected along the Composer's
- * committed ancestors up to the owner.
+ * committed ancestors up to the owner. Desktop 26.1016 keeps both gates in the
+ * owner, scoped to `hostId === "local"`, not to a Thread or Model.
+ *
+ * A Codex Composer whose selected model is an RLY/0 relay model is lifted the
+ * same way: that Thread is routed through the local relay proxy and never
+ * consumes the ChatGPT Account's Codex usage. Official Codex models keep the
+ * native gate and the real usage numbers. The usage banner stays visible there
+ * as information about the Account.
  */
 import { committedReactAncestors } from "@codexhost/desktop-control/renderer-bindings";
+import { isRly0RelayModelId } from "@codexhost/shared-contracts";
 
 import { createRendererCodexUsageBanner } from "./renderer-codex-usage-banner.js";
 
@@ -83,10 +91,8 @@ interface GateScope {
  * pass-through component with the same props but no gate hooks, so props alone
  * are ambiguous.
  */
-function submitOwners(
-  composer: Element,
-  projections?: ReadonlyMap<Instance, Projection>,
-): GateScope[] {
+/** Committed fibers from the editor's nearest React host up to the root. */
+function composerAncestors(composer: Element): Fiber[] | null {
   // The ProseMirror editor is not rendered by React; start at its nearest React host.
   let element: Element | null = composer.querySelector(EDITOR_SELECTOR) ?? composer;
   for (let depth = 0; element && depth < MAX_DOM_DEPTH; depth += 1) {
@@ -94,32 +100,66 @@ function submitOwners(
       name.startsWith("__reactFiber$"),
     );
     if (key) {
-      const ancestors = committedReactAncestors(
+      return committedReactAncestors(
         Object.getOwnPropertyDescriptor(element, key)?.value,
       ) as Fiber[];
-      const scopes: GateScope[] = [];
-      ancestors.forEach(({ memoizedProps: props }, index) => {
-        if (
-          isRecord(props) &&
-          "onLocalSubmitStart" in props &&
-          typeof props.submitDisabled === "boolean"
-        ) {
-          scopes.push({ owner: ancestors[index] as Fiber, fibers: ancestors.slice(0, index + 1) });
-        }
-      });
-      // An outer pass-through wrapper's scope contains the inner owner's, so
-      // only the innermost owner whose scope holds the reserve gate counts.
-      const valid = scopes.filter((scope) => {
-        const gates = gateSubscriptions(scope, projections);
-        return !gates.invalid && gates.reserve.length > 0;
-      });
-      return valid.filter(
-        (scope) => !valid.some((other) => other !== scope && scope.fibers.includes(other.owner)),
-      );
     }
     element = element.parentElement;
   }
-  return [];
+  return null;
+}
+
+function isSubmitOwnerProps(props: unknown): boolean {
+  return (
+    isRecord(props) && "onLocalSubmitStart" in props && typeof props.submitDisabled === "boolean"
+  );
+}
+
+function submitOwners(
+  composer: Element,
+  projections?: ReadonlyMap<Instance, Projection>,
+): GateScope[] {
+  const ancestors = composerAncestors(composer);
+  if (!ancestors) return [];
+  const scopes: GateScope[] = [];
+  ancestors.forEach(({ memoizedProps: props }, index) => {
+    if (isSubmitOwnerProps(props)) {
+      scopes.push({ owner: ancestors[index] as Fiber, fibers: ancestors.slice(0, index + 1) });
+    }
+  });
+  // An outer pass-through wrapper's scope contains the inner owner's, so
+  // only the innermost owner whose scope holds the reserve gate counts.
+  const valid = scopes.filter((scope) => {
+    const gates = gateSubscriptions(scope, projections);
+    return !gates.invalid && gates.reserve.length > 0;
+  });
+  return valid.filter(
+    (scope) => !valid.some((other) => other !== scope && scope.fibers.includes(other.owner)),
+  );
+}
+
+/**
+ * The model this Codex Composer submits with, read from the committed props
+ * between the editor and its first submit owner: the active collaboration
+ * mode's `settings.model` (what `turn/start` carries) and, when present, the
+ * owner's pending `modelSelection.model`. `null` unless every source found
+ * names the same model, so an in-flight model change keeps the native gate.
+ */
+export function composerNativeModel(composer: Element): string | null {
+  const ancestors = composerAncestors(composer);
+  if (!ancestors) return null;
+  const models = new Set<string>();
+  for (const { memoizedProps: props } of ancestors) {
+    if (isRecord(props)) {
+      const mode = props.activeCollaborationMode;
+      const settings = isRecord(mode) ? mode.settings : undefined;
+      if (isRecord(settings) && typeof settings.model === "string") models.add(settings.model);
+      const selection = props.modelSelection;
+      if (isRecord(selection) && typeof selection.model === "string") models.add(selection.model);
+    }
+    if (isSubmitOwnerProps(props)) break;
+  }
+  return models.size === 1 ? ([...models][0] ?? null) : null;
 }
 
 function findSubmitScope(
@@ -407,9 +447,17 @@ function isBound(projections: Iterable<Projection>): boolean {
 
 export type RendererCodexUsageGateStatus = "native" | "bypassed" | "unsupported";
 
+export interface RendererCodexUsageGateOptions {
+  /**
+   * This Composer submits to the Codex Harness. It is lifted only while its
+   * selected native model is an RLY/0 relay model, re-read on every refresh.
+   */
+  codexRelayCandidate?: boolean;
+}
+
 export interface RendererCodexUsageGate {
   /** `allowed`: this Composer submits to a ready external Harness. */
-  update(allowed: boolean): RendererCodexUsageGateStatus;
+  update(allowed: boolean, options?: RendererCodexUsageGateOptions): RendererCodexUsageGateStatus;
   /** Re-apply the last decision, rebinding if Desktop replaced the Composer hooks. */
   refresh(): RendererCodexUsageGateStatus;
   dispose(): void;
@@ -420,6 +468,9 @@ export function createRendererCodexUsageGate(composer: Element): RendererCodexUs
   const projections = new Map<Instance, Projection>();
   let retryAt = 0;
   let allowed = false;
+  let codexRelayCandidate = false;
+  /** Whether the current decision lifts the gate for a relay model of the Codex Harness. */
+  let relayLifted = false;
   const banner = createRendererCodexUsageBanner();
   const release = (): void => {
     banner.restore();
@@ -448,15 +499,19 @@ export function createRendererCodexUsageGate(composer: Element): RendererCodexUs
     }
     return "bypassed";
   };
-  // The usage banner only describes the Codex path; hide it while bypassed.
+  // The usage banner only describes the Codex path; hide it while an external
+  // Harness is bypassed. A relay model stays on the Codex path, so the banner
+  // remains as information about the official Account.
   const apply = (): RendererCodexUsageGateStatus => {
+    relayLifted =
+      !allowed && codexRelayCandidate && isRly0RelayModelId(composerNativeModel(composer));
     const status = applyGate();
-    if (status === "bypassed" && owner) banner.hide(owner.owner);
+    if (status === "bypassed" && owner && !relayLifted) banner.hide(owner.owner);
     else banner.restore();
     return status;
   };
   const applyGate = (): RendererCodexUsageGateStatus => {
-    if (!allowed || !composer.isConnected) {
+    if ((!allowed && !relayLifted) || !composer.isConnected) {
       release();
       retryAt = 0;
       return "native";
@@ -475,13 +530,16 @@ export function createRendererCodexUsageGate(composer: Element): RendererCodexUs
     }
   };
   return {
-    update(next) {
+    update(next, options = {}) {
       allowed = next;
+      codexRelayCandidate = options.codexRelayCandidate === true;
       return apply();
     },
     refresh: apply,
     dispose() {
       allowed = false;
+      codexRelayCandidate = false;
+      relayLifted = false;
       release();
     },
   };

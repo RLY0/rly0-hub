@@ -90,6 +90,9 @@ function composerFixture(
     signalReserve?: boolean;
     /** Desktop 26.1002: exempting Account gate, also subscribed in a child of the owner. */
     childAccount?: boolean;
+    /** The child's active collaboration mode model and, optionally, a differing pending selection. */
+    nativeModel?: string;
+    pendingModel?: string;
   } = {},
 ) {
   const accountGate = options.childAccount ? source.exemptAccountGate : source.accountGate;
@@ -170,13 +173,24 @@ function composerFixture(
   };
   // 26.1002 subscribes the Account gate again in a child without owner props.
   const child = {
-    memoizedProps: { submitDisabled: false, onSubmitLocal() {} },
+    memoizedProps: {
+      submitDisabled: false,
+      onSubmitLocal() {},
+      ...(options.nativeModel === undefined
+        ? {}
+        : {
+            activeCollaborationMode: { mode: "default", settings: { model: options.nativeModel } },
+          }),
+      ...(options.pendingModel === undefined
+        ? {}
+        : { modelSelection: { model: options.pendingModel } }),
+    },
     memoizedState: childHooks[0] ?? null,
     return: owner,
   };
   const editor = {
     parentElement: null,
-    __reactFiber$test: options.childAccount ? child : owner,
+    __reactFiber$test: options.childAccount || options.nativeModel !== undefined ? child : owner,
   };
   const composer = {
     isConnected: true,
@@ -568,5 +582,103 @@ describe("Codex usage gate for external Harness Composers", () => {
     Object.defineProperty(f.composer, "isConnected", { value: false });
     expect(f.gate.refresh()).toBe("native");
     expect(f.blocked()).toBe(true);
+  });
+
+  it("binds the 26.1016 layout: signal reserve gates and exempting Account gates in owner and child", () => {
+    const source = desktopStore();
+    const shape = { childAccount: true, signalReserve: true, snapshotWrapper: true } as const;
+    const external = composerFixture(source, shape);
+    const codex = composerFixture(source, { ...shape, nativeModel: "gpt-6-luna" });
+    expect(inspectComposerCodexUsageGate(external.composer)).toEqual({
+      ownerCount: 1,
+      reserveGateCount: 1,
+      accountGateCount: 2,
+    });
+    expect(external.blocked()).toBe(true);
+    expect(external.gate.update(true)).toBe("bypassed");
+    expect(external.blocked()).toBe(false);
+    // An official model on the Codex Harness keeps the real, Account-wide restriction.
+    expect(codex.gate.update(false, { codexRelayCandidate: true })).toBe("native");
+    expect(codex.blocked()).toBe(true);
+    expect(source.store.get(source.exemptAccountGate)).toBe(true);
+    expect(source.store.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("Codex usage gate for relay models on the Codex Harness", () => {
+  const shape = { childAccount: true, signalReserve: true, snapshotWrapper: true } as const;
+
+  it("lifts a Codex Composer whose selected model is a relay model", () => {
+    const source = desktopStore();
+    const relay = composerFixture(source, { ...shape, nativeModel: "rly0/relay-1/gpt-6-astra" });
+    const official = composerFixture(source, { ...shape, nativeModel: "gpt-6-astra" });
+    expect(relay.blocked()).toBe(true);
+    expect(relay.gate.update(false, { codexRelayCandidate: true })).toBe("bypassed");
+    expect(relay.blocked()).toBe(false);
+    expect(official.gate.update(false, { codexRelayCandidate: true })).toBe("native");
+    expect(official.blocked()).toBe(true);
+    // The Account's real usage is not rewritten for anyone.
+    expect(source.store.get(source.exemptAccountGate)).toBe(true);
+    expect(source.store.set).not.toHaveBeenCalled();
+  });
+
+  it("keeps the usage banner as information for a relay model but hides it for an external Harness", () => {
+    const source = desktopStore();
+    const f = composerFixture(source, { ...shape, nativeModel: "rly0/relay-1/gpt-6-astra" });
+    const style = {
+      setProperty: vi.fn(),
+      removeProperty: vi.fn(),
+      getPropertyValue: () => "",
+      getPropertyPriority: () => "",
+    };
+    const banner = {
+      style,
+      setAttribute: vi.fn(),
+      getAttribute: () => null,
+      removeAttribute: vi.fn(),
+    };
+    Object.assign(f.owner, {
+      child: {
+        memoizedProps: { banner: {}, rateLimitStatus: {}, sendBlocked: true },
+        child: { stateNode: banner },
+      },
+    });
+    expect(f.gate.update(false, { codexRelayCandidate: true })).toBe("bypassed");
+    expect(style.setProperty).not.toHaveBeenCalled();
+    expect(f.gate.update(true)).toBe("bypassed");
+    expect(style.setProperty).toHaveBeenCalledWith("display", "none", "important");
+  });
+
+  it("keeps the native gate without the Codex candidate flag or with an ambiguous model", () => {
+    const source = desktopStore();
+    const relay = composerFixture(source, { ...shape, nativeModel: "rly0/relay-1/gpt-6-astra" });
+    expect(relay.gate.update(false)).toBe("native");
+    expect(relay.blocked()).toBe(true);
+    const switching = composerFixture(source, {
+      ...shape,
+      nativeModel: "rly0/relay-1/gpt-6-astra",
+      pendingModel: "gpt-6-astra",
+    });
+    expect(switching.gate.update(false, { codexRelayCandidate: true })).toBe("native");
+    expect(switching.blocked()).toBe(true);
+    const malformed = composerFixture(source, { ...shape, nativeModel: "rly0//gpt-6-astra" });
+    expect(malformed.gate.update(false, { codexRelayCandidate: true })).toBe("native");
+    expect(malformed.blocked()).toBe(true);
+  });
+
+  it("re-reads the selected model on refresh and restores the gate for an official model", () => {
+    const source = desktopStore();
+    const f = composerFixture(source, { ...shape, nativeModel: "rly0/relay-1/gpt-6-astra" });
+    expect(f.gate.update(false, { codexRelayCandidate: true })).toBe("bypassed");
+    expect(f.blocked()).toBe(false);
+    const props = f.child.memoizedProps as {
+      activeCollaborationMode: { settings: { model: string } };
+    };
+    props.activeCollaborationMode.settings.model = "gpt-6-astra";
+    expect(f.gate.refresh()).toBe("native");
+    expect(f.blocked()).toBe(true);
+    props.activeCollaborationMode.settings.model = "rly0/relay-1/gpt-6-astra";
+    expect(f.gate.refresh()).toBe("bypassed");
+    expect(f.blocked()).toBe(false);
   });
 });
