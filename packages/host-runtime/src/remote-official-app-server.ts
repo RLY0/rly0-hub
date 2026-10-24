@@ -40,7 +40,12 @@ type WaitUntilReady = (
 ) => Promise<void>;
 
 const DEFAULT_CLOSE_TIMEOUT_MS = 2_000;
-const DEFAULT_LISTEN_TIMEOUT_MS = 10_000;
+/**
+ * A cold official app-server start (first run after an update, antivirus scanning the new
+ * binary, a busy machine) can take well over 10s. Startup no longer blocks Desktop on this
+ * wait, so it can be generous; a failed attempt is retried by the Runtime Scope.
+ */
+const DEFAULT_LISTEN_TIMEOUT_MS = 45_000;
 
 export function remoteOfficialAppServerSocketPath(
   desktopControlSocketPath: string,

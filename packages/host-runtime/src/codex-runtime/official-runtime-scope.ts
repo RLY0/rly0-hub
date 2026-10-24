@@ -23,6 +23,48 @@ export interface OfficialRuntimeRecoveryOptions {
 const DEFAULT_RECOVERY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 30_000] as const;
 const DEFAULT_RECOVERY_STABLE_MS = 60_000;
 
+/**
+ * How long Host startup waits for the official backend before continuing without it. Desktop's
+ * initialize handshake waits on Host startup, so this stays close to the previous 10s readiness
+ * limit while the start itself may take longer in the background.
+ */
+export const OFFICIAL_START_GRACE_MS = 8_000;
+
+export type OfficialStartOutcome =
+  { status: "ready" } | { status: "starting" } | { status: "failed"; error: unknown };
+
+/** Waits at most `graceMs` for `starting`; never rejects and never cancels the start. */
+export async function officialStartWithin(
+  starting: Promise<void>,
+  graceMs: number,
+): Promise<OfficialStartOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const pending = new Promise<OfficialStartOutcome>((resolve) => {
+    timer = setTimeout(() => resolve({ status: "starting" }), graceMs);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([
+      starting.then(
+        (): OfficialStartOutcome => ({ status: "ready" }),
+        (error: unknown): OfficialStartOutcome => ({ status: "failed", error }),
+      ),
+      pending,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** The startup failure chain without stack traces; never includes native stderr. */
+export function officialStartFailureMessage(error: unknown): string {
+  const messages: string[] = [];
+  for (let cause = error; cause instanceof Error && messages.length < 4; cause = cause.cause) {
+    if (!messages.includes(cause.message)) messages.push(cause.message);
+  }
+  return messages.length > 0 ? messages.join(": ") : String(error);
+}
+
 /** Process ownership shared by all AppServerHost clients in one Host deployment. */
 export class OfficialRuntimeScope {
   readonly owner: OfficialRuntimeOwner;
@@ -106,10 +148,43 @@ export class OfficialRuntimeScope {
       },
       () => {
         if (this.#starting === starting) this.#starting = undefined;
+        // Prove the failed generation's exit now rather than at the next attempt.
+        if (!this.#closed) void this.owner.stop().catch(() => undefined);
         this.#scheduleRecovery();
       },
     );
     return starting;
+  }
+
+  /**
+   * Starts the official backend without making its failure fatal to the caller. Waits at most
+   * `graceMs`; a slower start keeps running in the background, and a failed one is retried by
+   * the recovery policy (when configured). External Harnesses and relay models do not depend on
+   * the official backend, so Host startup continues in every case.
+   */
+  async startWithin(graceMs: number): Promise<OfficialStartOutcome> {
+    const startedAt = Date.now();
+    const starting = this.start();
+    const outcome = await officialStartWithin(starting, graceMs);
+    const write = (message: string): void => {
+      this.#diagnosticOutput.write(`codexhost: ${message}\n`);
+    };
+    const continuing = "other Agents and relay models stay available";
+    if (outcome.status === "starting") {
+      write(
+        `official Codex is still starting after ${String(graceMs)}ms; ${continuing} while it finishes in the background`,
+      );
+      void starting.then(
+        () => write(`official Codex became ready after ${String(Date.now() - startedAt)}ms`),
+        (error: unknown) =>
+          write(`official Codex failed to start: ${officialStartFailureMessage(error)}`),
+      );
+    } else if (outcome.status === "failed") {
+      write(
+        `official Codex failed to start: ${officialStartFailureMessage(outcome.error)}; ${continuing}${this.#recovery ? " and it is retried in the background" : ""}`,
+      );
+    }
+    return outcome;
   }
 
   attach(output: CodexRuntimeOutput, onBackendStopped?: () => void): OfficialClientSession {

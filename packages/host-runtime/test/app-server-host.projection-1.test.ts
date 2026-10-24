@@ -101,6 +101,32 @@ describe("AppServerHost HarnessAdapter projection", () => {
     }
   });
 
+  it("forwards Desktop and external Harnesses while the official backend is still starting", async () => {
+    const connection = Promise.withResolvers<never>();
+    const createOfficialConnection = vi.fn(() => connection.promise);
+    const fixture = createFixture({ createOfficialConnection, officialStartGraceMs: 20 });
+    try {
+      const threadId = await startPiThread(fixture);
+      const turnId = await startPiTurn(fixture, threadId);
+      const session = fixture.adapter.sessions[0];
+      if (!session) throw new Error("Fake Pi Session was not opened");
+      session.succeedTurn();
+      await fixture.collector.waitFor((message) => turnEvent(message, "turn/completed", turnId));
+      writeRequest(fixture.desktopInput, { id: 903, method: "model/list", params: {} });
+      await expect(
+        fixture.collector.waitFor((message) => message.id === 903),
+      ).resolves.toMatchObject({ error: { code: -32001 } });
+      // A late failure is handled in the background; Host shutdown below must not hang on it.
+      connection.reject(new Error("synthetic late startup failure"));
+      expect(createOfficialConnection).toHaveBeenCalledOnce();
+      expect(fixture.desktopInput.destroyed).toBe(false);
+    } finally {
+      fixture.host.close();
+      await fixture.running;
+      rmSync(fixture.mappingStoreDirectory, { recursive: true, force: true });
+    }
+  });
+
   it.each([false, true])("preserves native auth with account management=%s", async (managed) => {
     const accountControl = Object.assign(
       new SingleNativeCodexAccount(() => ({

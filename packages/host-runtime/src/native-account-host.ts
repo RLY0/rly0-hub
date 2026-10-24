@@ -8,7 +8,10 @@ import {
   type CodexAccountControl,
 } from "./account/codex-account-control.js";
 import { officialEnvironment } from "./app-server-host.js";
-import { OfficialRuntimeScope } from "./codex-runtime/official-runtime-scope.js";
+import {
+  OFFICIAL_START_GRACE_MS,
+  OfficialRuntimeScope,
+} from "./codex-runtime/official-runtime-scope.js";
 import { createOwnedLoopbackBackend } from "./codex-runtime/owned-official-backends.js";
 
 export interface PreparedLocalCodex {
@@ -34,6 +37,8 @@ export async function prepareLocalCodex(input: {
   arguments: string[];
   environment: NodeJS.ProcessEnv;
   diagnosticOutput: Writable;
+  /** How long to wait for the official backend before continuing without it. */
+  officialStartGraceMs?: number;
 }): Promise<PreparedLocalCodex> {
   const home = await canonicalCodexHome(
     input.environment.CODEX_HOME ?? path.join(homedir(), ".codex"),
@@ -59,13 +64,9 @@ export async function prepareLocalCodex(input: {
     clientInfo: { name: "codexhost_identity_reader", version: "1" },
     capabilities: { experimentalApi: true },
   });
-  try {
-    await scope.start();
-  } catch (error) {
-    await scope.close();
-    identityReader.close();
-    throw error;
-  }
+  // A slow or failed official start must not stop Desktop from launching: external Harnesses
+  // and relay models do not need it, and the Scope keeps retrying it in the background.
+  await scope.startWithin(input.officialStartGraceMs ?? OFFICIAL_START_GRACE_MS);
   let current: ReturnType<typeof currentCodexAccountFromOfficialRead> = null;
   const snapshot = () => ({
     version: 2 as const,

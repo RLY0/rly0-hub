@@ -285,6 +285,7 @@ export function createFixture(
     consoleOpener?: HostConsoleOpener;
     accountControl?: CodexAccountControl;
     officialRuntimeScope?: OfficialRuntimeScope;
+    officialStartGraceMs?: number;
     onDelegationApi?: (api: DelegationControlRegistration) => (() => void) | undefined;
     onCreateRequestRoute?: AppServerHostOptions["onCreateRequestRoute"];
     modelPrices?: AppServerHostOptions["modelPrices"];
@@ -345,6 +346,9 @@ export function createFixture(
     spawnOfficial: spawnOfficial as unknown as typeof spawn,
     // The fake process exits synchronously on kill; real-time grace only slows tests.
     officialCloseTimeoutMs: 50,
+    ...(options.officialStartGraceMs === undefined
+      ? {}
+      : { officialStartGraceMs: options.officialStartGraceMs }),
     ...(createOfficialConnection
       ? {
           createOfficialConnection: async () => {

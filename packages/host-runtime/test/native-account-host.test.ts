@@ -25,7 +25,7 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-function nativeFixture() {
+function nativeFixture(startReady?: Promise<void>) {
   const exit = Promise.withResolvers<OfficialAppServerExit>();
   const requests: JsonObject[] = [];
   const connections: Array<{ close(): void }> = [];
@@ -83,7 +83,9 @@ function nativeFixture() {
   });
   vi.mocked(createOwnedLoopbackBackend).mockReturnValue({
     closed: exit.promise,
-    start: vi.fn(async () => {}),
+    start: vi.fn(async () => {
+      await startReady;
+    }),
     connect,
     stop,
   });
@@ -98,16 +100,25 @@ function nativeFixture() {
   };
 }
 
-async function startLocal() {
+const diagnostics = new WeakMap<PreparedLocalCodex, () => string>();
+
+async function startLocal(officialStartGraceMs?: number) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "codexhost-native-account-host-"));
   temporaryDirectories.add(directory);
+  const diagnosticOutput = new PassThrough();
+  let text = "";
+  diagnosticOutput.on("data", (chunk: Buffer) => {
+    text += chunk.toString();
+  });
   const local = await prepareLocalCodex({
     stockCodexPath: "/synthetic/codex",
     arguments: ["app-server"],
     environment: { CODEX_HOME: path.join(directory, "missing-codex-home") },
-    diagnosticOutput: new PassThrough(),
+    diagnosticOutput,
+    ...(officialStartGraceMs === undefined ? {} : { officialStartGraceMs }),
   });
   prepared.add(local);
+  diagnostics.set(local, () => text);
   return local;
 }
 
@@ -157,12 +168,46 @@ describe("local Codex read-only identity startup", () => {
     }
   });
 
-  it("closes the owned backend when identity connection initialization fails", async () => {
+  it("keeps launching when the official backend fails to start and recovers it in the background", async () => {
     const f = nativeFixture();
     f.connect.mockRejectedValueOnce(new Error("Synthetic connection failure"));
-    await expect(startLocal()).rejects.toThrow();
-    expect(f.stop).toHaveBeenCalledOnce();
+    const local = await startLocal();
+    expect(local.officialRuntimeScope.gate.phase).toBe("unavailable");
+    expect(local.officialRuntimeScope.closed).toBe(false);
+    // The failed generation's exit is proven, not left to the next attempt.
+    await vi.waitFor(() => expect(f.stop).toHaveBeenCalledOnce());
     expect(f.requests).toEqual([]);
+    expect(diagnostics.get(local)?.()).toContain(
+      "official Codex failed to start: Codex is unavailable: Synthetic connection failure; other Agents and relay models stay available and it is retried in the background",
+    );
+    const replacement = nativeFixture();
+    await vi.waitFor(() => expect(local.officialRuntimeScope.gate.phase).toBe("ready"), {
+      timeout: 3000,
+    });
+    expect(await local.accountControl.refresh?.()).toMatchObject({
+      phase: "ready",
+      currentAccountId: "current",
+    });
+    expect(replacement.requests.slice(0, 2).map((r) => r.method)).toEqual([
+      "initialize",
+      "initialized",
+    ]);
+  });
+
+  it("continues past a slow official start and becomes ready when it finishes", async () => {
+    const ready = Promise.withResolvers<undefined>();
+    const f = nativeFixture(ready.promise);
+    const local = await startLocal(20);
+    expect(local.officialRuntimeScope.gate.phase).toBe("unavailable");
+    expect(diagnostics.get(local)?.()).toContain(
+      "official Codex is still starting after 20ms; other Agents and relay models stay available while it finishes in the background",
+    );
+    await expect(local.accountControl.refresh?.()).rejects.toThrow("unavailable");
+    ready.resolve(undefined);
+    await vi.waitFor(() => expect(local.officialRuntimeScope.gate.phase).toBe("ready"));
+    expect(diagnostics.get(local)?.()).toMatch(/official Codex became ready after \d+ms/u);
+    expect(await local.accountControl.refresh?.()).toMatchObject({ phase: "ready" });
+    expect(f.stop).not.toHaveBeenCalled();
   });
 
   it("initializes the native read connection before projecting the current identity", async () => {

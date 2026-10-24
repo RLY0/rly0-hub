@@ -422,6 +422,7 @@ import {
 
 import {
   createOwnedConnectionBackend,
+  officialStartWithin,
   OfficialRuntimeClient,
   OfficialRuntimeScope,
 } from "./codex-runtime/official-runtime-scope.js";
@@ -429,6 +430,11 @@ import { OfficialAdmissionError } from "./codex-runtime/official-work-gate.js";
 import type { HostUpdateCoordinator } from "./update-coordinator.js";
 import type { HostConsoleOpener } from "./console-opener.js";
 
+/**
+ * After Host startup already waited for the shared official backend, Desktop forwarding waits only
+ * briefly more; a still-starting backend finishes in the background.
+ */
+const OFFICIAL_HOST_START_GRACE_MS = 2_000;
 const CONSOLE_REQUEST_TIMEOUT_MS = 120_000;
 
 export type ConsoleHostReply = { result: JsonValue } | { error: { code: number; message: string } };
@@ -572,6 +578,8 @@ export interface AppServerHostOptions {
   accountControl?: CodexAccountControl;
   /** Shared by all Desktop/Remote Control sessions belonging to one Host. */
   officialRuntimeScope?: OfficialRuntimeScope;
+  /** How long `run()` waits for the official backend before forwarding Desktop without it. */
+  officialStartGraceMs?: number;
   onCreateRequestRoute?: (observation: CreateRequestRouteObservation) => void;
   onRequestRoute?: (observation: RequestRouteObservation) => void;
   updateCoordinator?: HostUpdateCoordinator;
@@ -1553,15 +1561,27 @@ export class AppServerHost {
       await this.#closeOfficialRuntime();
       return this.#closeRequested ? 0 : 1;
     }
-    try {
-      if (!this.#options.externalOnly) await this.#officialRuntime.initialize();
-    } catch (error) {
-      this.#diagnose(`Official app-server connection failed: ${errorMessage(error)}`);
-      // Keep the Desktop client attached for Host initialization and later recovery.
-      if (this.#ownsOfficialRuntimeScope) {
-        await this.#officialRuntimeScope.owner
-          .stop()
-          .catch((closeError: unknown) => this.#diagnose(closeError));
+    if (!this.#options.externalOnly) {
+      const officialFailed = async (error: unknown): Promise<void> => {
+        this.#diagnose(`Official app-server connection failed: ${errorMessage(error)}`);
+        // Keep the Desktop client attached for Host initialization and later recovery.
+        if (this.#ownsOfficialRuntimeScope) {
+          await this.#officialRuntimeScope.owner
+            .stop()
+            .catch((closeError: unknown) => this.#diagnose(closeError));
+        }
+      };
+      // A slow official start must not hold Desktop's initialize handshake: forward Desktop
+      // (external Harnesses, relay models) and let the start finish in the background.
+      const starting = this.#officialRuntime.initialize();
+      const outcome = await officialStartWithin(
+        starting,
+        this.#options.officialStartGraceMs ?? OFFICIAL_HOST_START_GRACE_MS,
+      );
+      if (outcome.status === "failed") await officialFailed(outcome.error);
+      else if (outcome.status === "starting") {
+        this.#diagnose("Official app-server is still starting; Desktop continues without it");
+        void starting.catch(officialFailed);
       }
     }
     // Load statistics plugins before native subscription negotiation; Session plugins continue

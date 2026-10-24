@@ -151,6 +151,35 @@ describe("shared remote official app-server", () => {
     expect(child.kill).toHaveBeenCalledWith("SIGTERM");
   });
 
+  it("waits past 10s for a cold loopback start before failing at the default limit", async () => {
+    vi.useFakeTimers();
+    const slow = new FakeOfficialListenerProcess();
+    const listen = (child: FakeOfficialListenerProcess) =>
+      createLoopbackOfficialAppServerListener({
+        stockCodexPath: "synthetic-codex",
+        arguments: ["app-server"],
+        environment: {},
+        diagnosticOutput: new PassThrough(),
+        spawnOfficial: vi.fn(() => child as unknown as ChildProcess) as unknown as typeof spawn,
+        closeTimeoutMs: 10,
+      }).listen();
+    const cold = listen(slow);
+    await vi.advanceTimersByTimeAsync(12_000);
+    slow.stderr.write("  listening on: ws://127.0.0.1:40002\n");
+    await expect(cold).resolves.toBe("ws://127.0.0.1:40002");
+
+    const silent = new FakeOfficialListenerProcess();
+    const stuck = listen(silent);
+    const failure = expect(stuck).rejects.toThrow(
+      "Shared official app-server startup failed: loopback endpoint was not ready after 45000ms",
+    );
+    await vi.advanceTimersByTimeAsync(44_999);
+    expect(silent.kill).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10);
+    await failure;
+    expect(silent.kill).toHaveBeenCalledWith("SIGTERM");
+  });
+
   it.each(["unix", "loopback"])(
     "does not report %s listener shutdown success without exit",
     async (transport) => {
