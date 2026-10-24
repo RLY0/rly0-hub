@@ -198,8 +198,22 @@
         options.reason ||
           (count ? "OpenAI 官方赠送，可到账号页核实和使用" : "暂时没有官方赠送的重置卡"),
       ),
-      options.onUse
-        ? h("button", { class: "btn sm", type: "button", onclick: options.onUse }, options.action)
+      options.onUse || options.disabledReason
+        ? h(
+            "button",
+            {
+              class: `btn sm ${options.primary ? "paper" : ""}`,
+              type: "button",
+              disabled: options.disabledReason ? true : null,
+              "aria-disabled": options.disabledReason ? "true" : null,
+              "data-tip": options.disabledReason || null,
+              "aria-label": options.disabledReason
+                ? `${options.action}（${options.disabledReason}）`
+                : options.label || null,
+              onclick: options.disabledReason ? null : options.onUse,
+            },
+            options.action,
+          )
         : null,
     );
   }

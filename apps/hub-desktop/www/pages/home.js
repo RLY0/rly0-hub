@@ -240,7 +240,8 @@ window.registerHubHome = (api) => {
         : agent.name.slice(0, 2),
     );
   // Quota windows, plus the reset cards OpenAI gave the account (官方赠送的额度重置卡).
-  const quotaTiles = (windows, resetCredits) =>
+  // `reset`: the saved current account, so the tile can offer 使用 (pages/reset-credits.js).
+  const quotaTiles = (windows, resetCredits, reset) =>
     h(
       "div",
       { class: "reset-cards" },
@@ -266,7 +267,11 @@ window.registerHubHome = (api) => {
           ),
         );
       }),
-      resetCredits === undefined ? null : api.resetCardTile(resetCredits),
+      resetCredits === undefined
+        ? null
+        : reset && api.accountCards
+          ? api.accountCards.resetTile(resetCredits, reset)
+          : api.resetCardTile(resetCredits),
     );
 
   pages.home = (root, alive) => {
@@ -374,6 +379,9 @@ window.registerHubHome = (api) => {
         (a) => !a.current,
       );
       const quota = h("div", { class: "work-quota" });
+      const savedCurrent = ((result && result.available && result.accounts) || []).find(
+        (a) => a.current,
+      );
       const current = account
         ? h(
             "div",
@@ -467,7 +475,17 @@ window.registerHubHome = (api) => {
           put(
             quota,
             windows.length || (ok && usage.usage.resetCredits !== undefined)
-              ? quotaTiles(windows, ok ? usage.usage.resetCredits : undefined)
+              ? quotaTiles(
+                  windows,
+                  ok ? usage.usage.resetCredits : undefined,
+                  savedCurrent && ok
+                    ? {
+                        vendor: savedCurrent.plan === "api-key" ? "api-key" : "openai",
+                        account: { ...savedCurrent, lastUsage: usage.usage },
+                        refreshed: () => load(),
+                      }
+                    : null,
+                )
               : h("span", { class: "sub" }, "暂时读不到额度"),
           );
         });

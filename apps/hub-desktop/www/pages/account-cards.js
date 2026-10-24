@@ -946,6 +946,8 @@ window.registerHubAccountCards = ({
 
   return {
     quotaCards,
+    /** The 额度重置卡 tile with its 使用 action (pages/reset-credits.js). */
+    resetTile: resets.tile,
     accountCard,
     pageHead,
     autoSwitchCard,

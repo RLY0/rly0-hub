@@ -764,3 +764,55 @@ test("gemini: current Antigravity login quota on request, multi-account unsuppor
   await card.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(dir, "stale.png"), fullPage: true });
 });
+
+// One no-account switch on 首页, 账号 → OpenAI and 中转站 (pages/no-account.js), and a reset card
+// that is only used after a confirmation naming the account, the one card and the windows.
+test("no-account switch everywhere, auto-applied; reset card confirm", async ({ page }) => {
+  const dir = path.join(runDir, "settings-apply");
+  mkdirSync(dir, { recursive: true });
+  const settled = async () => {
+    await page.waitForFunction(() => !document.getElementById("boot")?.classList.contains("show"));
+    await page.waitForTimeout(400);
+  };
+  const dismiss = await openAccountsTab(page, "OpenAI");
+  const accountsSwitch = page.locator(".no-account").first();
+  await expect(accountsSwitch).toContainText("不登录 OpenAI 也能用");
+  await settled();
+  await page.screenshot({ path: path.join(dir, "accounts-codex.png"), fullPage: true });
+
+  // 0 cards: 使用 is disabled; >0: 使用 opens a confirmation and consumes nothing yet.
+  const team = page.locator(".account-card", { hasText: "团队号" });
+  await expect(team.locator(".reset-card.cards button")).toBeDisabled();
+  const me = page.locator(".account-card", { hasText: "me@example.com" }).first();
+  await me.locator('.reset-card.cards button:has-text("使用")').click();
+  const confirm = page.locator('.dialog-backdrop.show .dialog[aria-label^="使用 1 张额度重置卡"]');
+  await expect(confirm).toContainText("me@example.com");
+  await expect(confirm).toContainText("现有 2 张，用后剩 1 张");
+  await expect(confirm).toContainText("5 小时额度（现在剩");
+  await page.waitForTimeout(300);
+  await confirm.screenshot({ path: path.join(dir, "reset-confirm.png") });
+  await confirm.locator('button:has-text("确认使用 1 张")').click();
+  await expect(confirm).toContainText("额度已刷新");
+  await confirm.screenshot({ path: path.join(dir, "reset-done.png") });
+  await confirm.locator('button:has-text("完成")').click();
+
+  // Turning it on from 账号 applies by itself; 首页 and 中转站 show the same state.
+  await accountsSwitch.locator('button[role="switch"]').click();
+  const enable = page.locator('.dialog-backdrop.show .dialog[aria-label="不登录 OpenAI 也能用"]');
+  await expect(enable).toContainText("自动让 Codex 重新打开一次");
+  await enable.locator('button:has-text("开启并应用")').click();
+  await expect(page.locator("#toast")).toContainText("Codex 正在自动重新打开");
+  await expect(accountsSwitch).toContainText("已开启 · 默认模型 gpt-6-astra");
+  await page.click('.rail button[data-page="home"]');
+  await dismiss();
+  const home = page.locator(".home-no-account");
+  await expect(home).toContainText("已开启 · 默认模型 gpt-6-astra");
+  await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "true");
+  await settled();
+  await page.screenshot({ path: path.join(dir, "home.png"), fullPage: true });
+  await page.click('.rail button[data-page="relays"]');
+  await expect(page.locator(".relay-top .no-account")).toContainText("并自动应用到 Codex");
+  await settled();
+  await page.screenshot({ path: path.join(dir, "relays.png"), fullPage: true });
+  await expect(page.locator("body")).not.toContainText("重启 Codex 生效");
+});

@@ -3077,6 +3077,34 @@ select.input,
 .reset-card.cards.none b {
   color: var(--muted-dark);
 }
+.reset-card.cards .btn {
+  justify-self: start;
+}
+
+/* Reset-card confirmation: what exactly happens, one fact per line. */
+.reset-facts {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-md);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--edge);
+}
+.reset-fact {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+.reset-fact b {
+  font-weight: 600;
+  color: var(--paper-50);
+  overflow-wrap: anywhere;
+}
+.reset-result:empty {
+  display: none;
+}
 
 /* Relays: add + no-account side by side at the top. */
 .relay-top {

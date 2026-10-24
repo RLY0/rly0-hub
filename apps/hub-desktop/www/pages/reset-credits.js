@@ -38,31 +38,60 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
         return;
       }
       dialog = window.HubUI.dialog({
-        title: attempt ? "核实上次重置" : "使用一张额度重置卡",
-        sub: account.email || account.alias || "所选 Codex 账号",
+        title: attempt ? "核实上次重置" : "使用 1 张额度重置卡？",
+        sub: attempt
+          ? account.email || account.alias || "所选 Codex 账号"
+          : "确认后才会使用，取消不会消耗",
         onClose: () => {
           closed = true;
           if (!submitting) busy.delete(account.id);
         },
       });
-      const result = h("p", { class: "sub", role: "status" });
+      const result = h("p", { class: "sub reset-result", role: "status", "aria-live": "polite" });
+      const name = account.email || account.alias || "所选 Codex 账号";
+      const windows = (account.lastUsage && account.lastUsage.windows) || [];
+      const windowText = windows.length
+        ? windows
+            .map(
+              (w) =>
+                `${w.label || (w.kind === "primary" ? "5 小时额度" : "每周额度")}（现在剩 ${Math.max(0, Math.round(100 - w.usedPercent))}%）`,
+            )
+            .join("、")
+        : "5 小时额度和每周额度";
+      const fact = (label, text) =>
+        h("div", { class: "reset-fact" }, h("span", { class: "label" }, label), h("b", null, text));
       dialog.body.append(
-        h(
-          "p",
-          null,
-          attempt
-            ? "上次结果尚未确认，将用原请求核实同一张卡。"
-            : "将消耗所选账号的一张卡，重置官方允许的 Codex 额度窗口；不能撤销，也不会切换当前登录。",
-        ),
-        !attempt && ready.expiresAt
-          ? h("p", { class: "sub" }, `到期时间：${ready.expiresAt}`)
-          : h("span"),
+        attempt
+          ? h("p", null, "上次使用的结果还没确认。这次只会用原来的请求核实同一张卡，不会另用一张。")
+          : h(
+              "div",
+              { class: "reset-facts" },
+              fact("账号", name),
+              fact(
+                "消耗",
+                `1 张额度重置卡（现有 ${ready.availableCount} 张，用后剩 ${ready.availableCount - 1} 张）`,
+              ),
+              fact("重置", `这个账号的 ${windowText}，以官方实际重置为准`),
+              ready.expiresAt ? fact("这张卡到期", ready.expiresAt) : null,
+            ),
+        attempt
+          ? h("span")
+          : h(
+              "p",
+              { class: "sub" },
+              "用掉后不能撤销；不会切换 Codex 当前登录。点“取消”或关掉这个窗口不会消耗。",
+            ),
         result,
       );
       const confirm = h(
         "button",
         { class: "btn paper", type: "button" },
-        attempt ? "核实上次使用结果" : "确认使用一张",
+        attempt ? "核实上次使用结果" : "确认使用 1 张",
+      );
+      const close = h(
+        "button",
+        { class: "btn", type: "button", style: { "margin-left": "auto" }, onclick: dialog.close },
+        "取消",
       );
       confirm.onclick = async () => {
         if (confirm.disabled) return;
@@ -81,14 +110,15 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
           }
           const response = await call("accounts.resetConsume", attempt);
           const messages = {
-            reset: "官方确认已使用一张重置卡。正在重新查询额度。",
-            alreadyRedeemed: "官方确认这次请求此前已使用，未重复消耗。正在查询额度。",
-            nothingToReset: "官方确认当前没有可重置的额度窗口。",
-            noCredit: "官方确认没有可用的重置卡。",
+            reset: "成功：官方确认已用掉 1 张重置卡，额度已重置。",
+            alreadyRedeemed: "官方确认这次请求此前已经用过，没有重复消耗。",
+            nothingToReset: "官方确认现在没有可以重置的额度窗口，没有消耗重置卡。",
+            noCredit: "官方确认这个账号没有可用的重置卡，没有消耗。",
           };
           if (!response || !messages[response.outcome]) throw new Error("RESET_RESULT_UNKNOWN");
           // Never fake 100% or decrement a cached count. Read actual usage after confirmation.
-          result.textContent = messages[response.outcome];
+          const refreshes = response.outcome === "reset" || response.outcome === "alreadyRedeemed";
+          result.textContent = messages[response.outcome] + (refreshes ? " 正在刷新额度…" : "");
           if (closed) toast(messages[response.outcome]);
           try {
             await call("accounts.resetAcknowledge", {
@@ -101,10 +131,13 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
           if (refreshed) {
             try {
               await refreshed();
+              if (refreshes)
+                result.textContent = `${messages[response.outcome]} 额度已刷新，卡片上是最新数字。`;
             } catch {
               result.textContent += " 额度刷新失败，请稍后刷新核实。";
             }
           }
+          close.textContent = "完成";
         } catch (error) {
           result.textContent = errors[error.message] || "无法确认使用结果。请稍后核实同一请求。";
           confirm.textContent = "核实上次使用结果";
@@ -114,10 +147,9 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
           if (closed) busy.delete(account.id);
         }
       };
-      dialog.foot.append(
-        h("button", { class: "btn", type: "button", onclick: dialog.close }, "关闭"),
-        confirm,
-      );
+      dialog.foot.append(close, confirm);
+      // Focus starts on 取消, so Enter alone never uses a card.
+      if (typeof close.focus === "function") setTimeout(() => close.focus(), 0);
     } catch (error) {
       toast(errors[error.message] || "无法读取重置卡，未发起新的使用操作。");
     } finally {
@@ -126,12 +158,24 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
   }
   function tile(count, options = {}) {
     const { vendor, account, refreshed } = options;
-    if (vendor === "openai" && account && account.plan !== "api-key")
+    if (vendor === "openai" && account && account.plan !== "api-key") {
+      // Never consumes on click: "使用" opens the confirmation, which checks the official stock.
+      if (count === 0)
+        return resetCardTile(0, {
+          reason: "暂时没有官方赠送的重置卡",
+          action: "使用",
+          disabledReason: "没有可用的重置卡",
+        });
       return resetCardTile(count, {
         onUse: () => use(account, refreshed),
-        reason: "点击核实官方库存，再确认使用所选账号的一张卡。",
-        action: "使用重置卡",
+        reason: Number.isInteger(count)
+          ? "点“使用”先核对，确认后才会消耗 1 张"
+          : "张数待核实；点“核实”向官方查询，确认后才会使用",
+        action: Number.isInteger(count) ? "使用" : "核实",
+        primary: Number.isInteger(count),
+        label: `使用一张额度重置卡：${account.email || account.alias || "所选 Codex 账号"}`,
       });
+    }
     if (vendor === "anthropic")
       return resetCardTile(undefined, {
         status: "官方查看",

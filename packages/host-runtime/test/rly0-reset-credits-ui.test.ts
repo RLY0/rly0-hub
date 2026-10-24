@@ -44,7 +44,12 @@ function fixture(outcomes: (string | Error | Promise<string>)[] = ["reset"]) {
       tile: (
         count: number | undefined,
         options: unknown,
-      ) => { onUse: () => Promise<void>; reason: string };
+      ) => {
+        onUse: () => Promise<void>;
+        reason: string;
+        action?: string;
+        disabledReason?: string;
+      };
     },
     HubUI: {
       dialog: (o: { onClose: () => void }) => {
@@ -169,5 +174,35 @@ describe("reset-credit interactions (synthetic)", () => {
     await f.tile().onUse();
     expect(f.calls.map((c) => c.method)).toEqual(["accounts.resetPrepare"]);
     expect(f.dialogs).toEqual([]);
+  });
+  it("offers 使用 only when a card exists; 0 is disabled with the reason", async () => {
+    const f = fixture();
+    const none = f.api.tile(0, { vendor: "openai", account });
+    expect(none.onUse).toBeUndefined();
+    expect(none.disabledReason).toBe("没有可用的重置卡");
+    expect(f.tile().action).toBe("使用");
+    const unknown = f.api.tile(undefined, { vendor: "openai", account });
+    expect(unknown.action).toBe("核实");
+    expect(f.calls).toEqual([]);
+  });
+  it("states account, the one card it consumes and the windows before anything is used", async () => {
+    const f = fixture();
+    const withUsage = {
+      ...account,
+      lastUsage: {
+        windows: [
+          { kind: "primary", usedPercent: 88 },
+          { kind: "secondary", usedPercent: 40 },
+        ],
+      },
+    };
+    await f.api.tile(1, { vendor: "openai", account: withUsage }).onUse();
+    const text = (e: Element): string => e.textContent + e.children.map(text).join(" ");
+    const body = text(item(f.dialogs, 0).body);
+    expect(body).toContain("synthetic@example.test");
+    expect(body).toContain("1 张额度重置卡（现有 1 张，用后剩 0 张）");
+    expect(body).toContain("5 小时额度（现在剩 12%）、每周额度（现在剩 60%）");
+    expect(body).toContain("不会消耗");
+    expect(f.calls.map((c) => c.method)).toEqual(["accounts.resetPrepare"]);
   });
 });
