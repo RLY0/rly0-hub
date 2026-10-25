@@ -56,6 +56,7 @@ Codex Renderer 通过 `codexhost/rly0/hub/status` 查询安装目录下的 Hub �
 - **代理**：设置→网络代理选“直连”不走代理，“自定义”用填写的地址；“跟随系统”依次用 `HTTPS_PROXY`/`ALL_PROXY`/`HTTP_PROXY`（`NO_PROXY` 含 github.com 时直连）和 Windows 系统代理（HKCU Internet Settings 的 `ProxyEnable`/`ProxyServer`）。只支持 HTTP(S) 代理（CONNECT 隧道），仅用 Node 内置模块，不给服务包加依赖。
 - **下载**：固定的 `RLY0-Hub-<version>-setup.exe.partial`，重试时用 `Range` 续传（服务器不支持则重下）；结束后必须 SHA-256 一致才改名并运行，不一致删除该文件并报 `UPDATE_VERIFY_FAILED`。
 - **错误码**：`UPDATE_RATE_LIMITED`（API 403/429）、`UPDATE_NETWORK`（连不上，含代理失败）、`UPDATE_DOWNLOAD_FAILED`（下载中断，可续传）、`UPDATE_VERIFY_FAILED`、`UPDATE_CHECK_FAILED`（其他查询失败），页面各有中文提示。
+- **安装时的占用进程**：正在运行的 exe 不能删除（`DeleteFile` 错误 5），而 Restart Manager 关不掉无窗口的控制台助手——`libexec\codexhost-node-repl.exe` 由 Codex 自带 CLI、Claude Code 和 Codex 的 CUA Node 作为 MCP 服务启动，父进程都不在安装目录。`Installer.iss` 的 `PrepareToInstall` 在复制任何文件之前运行内嵌的 `stop-install-processes.ps1`：结束所有可执行文件位于 `{app}` 的进程（`\\?\` 前缀归一化）及其子进程，先关窗口、再强制结束，重新枚举直到清空或超时，不结束安装器自身及其祖先。若 Codex Desktop 正在使用本安装（`codexhost-shim.exe`/`codexhost.exe` 在运行），先提示“需要先关闭 Codex，安装完会自动重新打开”，同意后一并关闭 Codex 并在安装后打开；Hub 内更新已在窗口里征得同意并传 `/REOPENCODEX=1`，静默安装（`/SUPPRESSMSGBOXES`）按同意处理。仍结束不了的进程，其位于 `{app}` 的模块被改名为 `*.rly0-old-*`（运行中的 exe 允许改名），下次安装时删除；改名也失败则安装器在复制前中止并说明“没有做任何更改”，不会留下半装状态。测试：`tests/release/windows-install-processes.test.mjs`（`RLY0_INSTALLER_SANDBOX=1` 时用 `/DSandboxTest` 编译真实 `Installer.iss`——独立 AppId、无卸载项/快捷方式/注册表——装进临时目录验证）。
 
 ## Windows 安装依赖
 

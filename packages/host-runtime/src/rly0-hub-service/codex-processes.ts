@@ -30,6 +30,8 @@ $n = 0
 foreach ($p in Get-CimInstance Win32_Process) {
   $exe = $p.ExecutablePath
   if (-not $exe -or $keep -contains [int]$p.ProcessId) { continue }
+  # Codex Desktop starts the shim, REPL and CLI through \\?\ paths, which StartsWith would miss.
+  if ($exe.StartsWith('\\?\')) { $exe = $exe.Substring(4) }
   $name = [IO.Path]::GetFileName($exe).ToLowerInvariant()
   $hit = $exe -like '*\WindowsApps\OpenAI.Codex_*'
   if (-not $hit -and $local) { $hit = $exe.StartsWith($local, [StringComparison]::OrdinalIgnoreCase) }
