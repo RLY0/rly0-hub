@@ -35,8 +35,9 @@ Codex Renderer 通过 `codexhost/rly0/hub/status` 查询安装目录下的 Hub �
 
 | 方法 | 归属与约束 |
 | --- | --- |
-| `mcp.list/add/setEnabled/remove` | `Rly0McpManager`；仅修改目标 MCP 配置，沿用原子写入与备份。 |
-| `skills.list/import/deactivate/restore` | `Rly0SkillsManager`；导入本地含 `SKILL.md` 的目录，停用移入备份，可恢复。 |
+| `mcp.list/add/update/setEnabled/remove` | `Rly0McpManager`；仅修改目标 MCP 配置，沿用原子写入与备份。`update` 只改连接方式（command/args 或 url），保留该服务器的其他设置。页面在「打通设置 → MCP」。 |
+| `skills.list/import/deactivate/restore/openFolder` | `Rly0SkillsManager`；导入本地含 `SKILL.md` 的目录，停用移入备份，可恢复；`openFolder` 只打开技能根目录或其下已存在的技能文件夹。 |
+| `memory.list/add/forget/export/openFolder/importCodex`、`bridge.status/globalSet/syncCodex` | `bridge-routes.ts`：共享记忆 rly0-memory、Codex 的 `[mcp_servers.rly0_memory]`、Antigravity / Hermes 的可选全局块。见 [打通设置](../product/shared-codex-resources.md)。 |
 | `threads.list/listTrash/trash/restore` | `Rly0ThreadsManager`；最多展示最新 500 条，复用 rollout 头部解析与路径检查，回收站可恢复。操作前结束相关会话。 |
 | `maintenance.diagnostics/exportDiagnostics/cacheInfo/clearCache` | `Rly0MaintenanceManager`；诊断只检查登录文件是否存在，不读取其内容；导出脱敏诊断到本地，只清理 Hub 固定的 `cache`、`tmp` 目录。 |
 | `window.capture` + `maintenance.exportFeedback` | “反馈问题”：C# 壳用 WebView2 `CapturePreviewAsync` 把当前页面存为 `diagnostics/feedback-yyyyMMdd-HHmmss/screen.png`（与服务同一数据目录，`CODEXHOST_DATA_DIR` 优先），只回传文件夹名；服务只接受 `^feedback-\d{8}-\d{6}$` 的文件夹名和至多 50 条、每条至多 500 字的页面错误，脱敏后写 `diagnostics.json`、`errors.json`。截图失败时页面自己生成文件夹名，其余照常保存。`maintenance.openDiagnosticsFolder` 可带同样格式的 `folder` 打开该报告。 |
