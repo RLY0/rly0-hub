@@ -34,7 +34,9 @@ describe("Cursor shared resources", () => {
     expect((info as { _meta?: { mcpServers: unknown } })._meta?.mcpServers).toEqual([
       { name: "rly0_memory", command: "node", args: ["m.js"], env: [] },
     ]);
-    const result = (await native.prompt("hi", callbacks)) as { _meta?: { prompt: { text: string }[] } };
+    const result = (await native.prompt("hi", callbacks)) as unknown as {
+      _meta?: { prompt: { text: string }[] };
+    };
     expect(result._meta?.prompt[0]?.text).toBe("[RLY/0 shared resources] index\n\n[Current user request]\nhi");
     expect(provider).toHaveBeenCalledWith(process.cwd(), CURSOR_SHARED_MCP_REQUEST);
     expect(provider).toHaveBeenCalledWith(process.cwd(), CURSOR_SHARED_CONTEXT_REQUEST);
