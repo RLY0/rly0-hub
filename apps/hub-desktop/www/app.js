@@ -996,9 +996,6 @@
     // Same switch as 中转站 and 首页 (pages/no-account.js).
     const noAccountSection = h("section", { class: "m span-6 no-account" });
     pageApi.noAccount.mount(noAccountSection, alive);
-    // Same switch as 中转站 and 首页 (pages/unified-channel.js).
-    const unifiedSection = h("section", { class: "m span-6 unified-channel" });
-    pageApi.unifiedChannel.mount(unifiedSection, alive);
     root.append(
       head,
       filePicker,
@@ -1008,7 +1005,6 @@
         { class: "grid compact account-auto" },
         cards.autoSwitchCard({ alive }),
         noAccountSection,
-        unifiedSection,
       ),
       list,
     );

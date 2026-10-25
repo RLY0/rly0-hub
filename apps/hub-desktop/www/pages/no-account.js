@@ -136,6 +136,8 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
         h(
           "div",
           { class: "row" },
+          // 首页: the switch leads, right beside its label, instead of across a wide card.
+          compact ? toggle : null,
           h(
             "div",
             { class: "who" },
@@ -148,8 +150,8 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
                 : "没有 OpenAI 账号时，Codex 直接用中转站的 GPT 模型",
             ),
           ),
-          h("span", { class: "spacer" }),
-          toggle,
+          compact ? null : h("span", { class: "spacer" }),
+          compact ? null : toggle,
         ),
         compact
           ? null

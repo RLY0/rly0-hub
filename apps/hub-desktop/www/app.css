@@ -1,6 +1,7 @@
 /* RLY/0 Hub window. Brand manual 3.0: ink surfaces, paper text, brand red #B83220 only as
    graphics on dark (dots, bars, packets) plus one filled data module per screen (the balance).
-   Brand red never colors text on a dark surface. Radii 7 / 10 / 14 / pill, 4 px spacing grid. */
+   Brand red never colors text on a dark surface. Square corners throughout (all radius tokens are
+   0; only true circles — status dots, avatars — stay round). 4 px spacing grid. */
 @font-face {
   font-family: "Geist RLY0";
   src: url("fonts/Geist-Variable.woff2") format("woff2");
@@ -27,10 +28,10 @@
   --brand-press: #8e2517;
   --ok: #5bd08a;
   --warn: #e6b450;
-  --r-sm: 7px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-pill: 999px;
+  --r-sm: 0;
+  --r-md: 0;
+  --r-lg: 0;
+  --r-pill: 0;
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
   color-scheme: dark;
 }
@@ -119,7 +120,7 @@ button {
   top: 12px;
   width: 4px;
   height: 20px;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--brand);
 }
 .rail svg {
@@ -462,7 +463,7 @@ button {
   left: 8px;
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--brand);
   opacity: 0;
 }
@@ -645,7 +646,7 @@ button {
 }
 .bar {
   height: 6px;
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--ink-600);
   overflow: hidden;
 }
@@ -653,7 +654,7 @@ button {
   display: block;
   height: 100%;
   background: var(--brand);
-  border-radius: 3px;
+  border-radius: 0;
 }
 .log {
   font-family: var(--font-ui);
@@ -719,7 +720,7 @@ select.input {
   left: 3px;
   width: 18px;
   height: 18px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--muted-dark);
   transition: transform 0.15s ease;
 }
@@ -862,7 +863,7 @@ body.guided .ad {
 .steps i {
   width: 24px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--ink-600);
 }
 .steps i.done {
@@ -1363,7 +1364,7 @@ textarea.models {
 }
 .renamable {
   cursor: text;
-  border-radius: 4px;
+  border-radius: 0;
 }
 .renamable:hover {
   background: var(--ink-700);
@@ -1377,6 +1378,15 @@ textarea.models {
 /* ---------- 不登录 OpenAI 也能用 ---------- */
 .no-account {
   gap: 12px;
+}
+/* 首页: a slim strip, switch first and right beside its label. */
+.home-no-account {
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+.home-no-account .row {
+  justify-content: flex-start;
+  gap: 14px;
 }
 .plan-lines {
   margin: 0;
@@ -1658,7 +1668,7 @@ select.input option {
   position: absolute;
   width: 10px;
   height: 10px;
-  border-radius: 2px;
+  border-radius: 0;
   background: var(--paper-50);
   top: 52px;
   left: 92px;
@@ -1854,7 +1864,7 @@ select.input option {
 .boot-bars i {
   width: 22px;
   height: 6px;
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--ink-600);
 }
 .boot-text {
@@ -2655,7 +2665,7 @@ select.input,
   right: 24px;
   top: 0;
   height: 2px;
-  border-radius: 0 0 2px 2px;
+  border-radius: 0;
   background: linear-gradient(90deg, transparent, rgba(233, 233, 227, 0.55), transparent);
 }
 .agent-card.community {
@@ -3425,7 +3435,7 @@ select.input,
   margin-left: 8px;
   padding: 1px 6px;
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--warn);
@@ -3517,7 +3527,7 @@ select.input,
   width: 22px;
   height: 22px;
   padding: 3px;
-  border-radius: 6px;
+  border-radius: 0;
   background: rgba(233, 233, 227, 0.08);
 }
 .link-chip-arrow {
@@ -4121,7 +4131,7 @@ select.input,
 .update-progress {
   height: 8px;
   margin-top: 16px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
 }
@@ -4159,7 +4169,7 @@ select.input,
   border: 1px solid var(--edge);
   background: rgba(255, 255, 255, 0.03);
   color: var(--paper-100);
-  border-radius: 12px;
+  border-radius: 0;
   padding: 10px 8px;
   display: grid;
   gap: 2px;
@@ -4589,7 +4599,7 @@ select.input,
   margin: 12px 0;
   padding: 12px;
   border: 1px solid var(--line, #30343c);
-  border-radius: 12px;
+  border-radius: 0;
 }
 .isolation-panel summary {
   cursor: pointer;
@@ -4990,7 +5000,7 @@ select.input,
   overflow: hidden;
 }
 .heat-cell {
-  border-radius: 2px;
+  border-radius: 0;
   background: rgba(233, 233, 227, 0.07);
 }
 /* Brand red only as graphics: the heat cells. */
@@ -5077,7 +5087,7 @@ select.input,
 }
 .memory-item {
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 0;
   border: 1px solid rgba(152, 152, 145, 0.22);
   min-width: 0;
 }
