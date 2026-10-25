@@ -873,6 +873,7 @@ window.registerHubSystem = ({
         tool({
           name: "import",
           title: "会话导入",
+          brief: "把其他助手的会话导入 Codex",
           text: "把 Claude Code 等助手的原生会话导入 Codex 继续用。",
           action: button("导入会话", () => consoleFeatures.openSessionImport()),
         }),
@@ -917,6 +918,7 @@ window.registerHubSystem = ({
         tool({
           name: "restart",
           title: "重启 Codex",
+          brief: "关闭并重新打开 Codex",
           text: "关闭并重新打开 Codex，让配置变更生效或恢复异常状态。",
           action: confirmButton("重启", () => restart()),
         }),
