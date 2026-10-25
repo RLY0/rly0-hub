@@ -10,6 +10,7 @@
 - 在接力出来的对话里再选回原来的 Agent：不新建第三个对话，而是把接力对话里新增的内容（不含第一条接力消息本身；只有对它的确认回复时不发）作为一条消息发回原对话并打开原对话。原对话正在回复时会报错，不会打断它。
 - 目标 Agent 使用此人为该 Agent 记住的模型 / 思考 / 权限（与新建对话相同的偏好）；没有偏好或偏好已失效时用该 Agent 自己的默认值。Handoff 不使用委派的无人值守全权限；Codex 目标使用 Codex 自己的审批与沙箱配置。
 - 目标是外部 Agent 时不消耗官方 Codex 额度；读取 Codex 源对话只读本地 `thread/read`。
+- 唯一的同 Agent 接力：Codex 对话因模型需要另一个 provider 被拒绝（`RLY0_THREAD_PROVIDER_LOCKED`，见 `docs/architecture/rly0-hub-management.md`）后，错误提示里的“在新对话里继续（带上之前的内容）”以目标 `codex` 调用 Handoff，Host 用被拒绝的那个模型（中转模型走 `rly0` provider）新建 Codex 对话，没发出的那条消息作为新请求。
 
 ## 带过去的内容
 

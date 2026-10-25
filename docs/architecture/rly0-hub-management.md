@@ -91,6 +91,8 @@ Codex 模型目录保留官方原条目，每个已启用中转模型另用 `rly
 
 “不登录 OpenAI 也能用”（no-account：config.toml 的 `rly0` provider 写 `requires_openai_auth = false`）开启时，没有官方模型能回答，所以 `model/list` 只返回中转模型（官方行在每一页都去掉，按中转站分组，`config.toml` 写入的默认模型标为默认）；没有任何可用中转模型时才保留官方行并在名称后加“走零号中转”。仍点名官方模型的 `thread/start|resume|fork`，以及已在 `rly0` provider 上的对话的 `turn/start`，改用同名中转模型，没有同名时用配置的默认模型。关闭后菜单与路由恢复原样（每次 `model/list` 重新读取模式）。
 
+对话的 provider 由 Codex 在加载对话时固定（`thread/start`，或对未运行对话的 `thread/resume`）：`turn/start` 与 `thread/settings/update` 只能改模型，已运行对话的 resume 会忽略所有覆盖；resume 只要点名 model 或 provider 就不再用存储的那一对。所以 Host 在 resume 时决定 provider：no-account 开启且 resume 没点名模型时，先用 `thread/read`（只读元数据）查存储的 provider，不是 `rly0` 的旧对话（例如用 ChatGPT 登录开始的）改为同名中转模型或配置的默认模型并加 `modelProvider: "rly0"`；no-account 关闭且点名官方模型、而对话存储在 `rly0` 上时，改回该对话之前的 provider（Host 没见过时用 Codex 的 `openai`）。`turn/start` 的模型以 `collaborationMode.settings.model` 为准（Desktop 发 `model: null`），都没有时用该对话最后一次已知的选择（resume 响应、上一轮、`thread/settings/update`）。模型所需 provider 与对话已加载的 provider 不一致时（已加载在官方账号上却选中转模型，或在中转上选官方模型而需要登录），Host 不转发，回中文错误并带 `RLY0_THREAD_PROVIDER_LOCKED` 标记；Renderer 据此给出“在新对话里继续（带上之前的内容）”，调用 `codexhost/thread/handoff` 在同一 Agent（Codex）上用被拒绝的那个模型新建接力对话。rollout 文件从不修改。
+
 `.app` 的网格行限制在窗口内，`.stage` 和 `#page` 允许收缩，页面内容在 `#page` 内滚动；菜单自身也能滚动，支持壳的最小窗口。新管理页面位于 `www/pages/resources.js`、`system.js`，mock 数据位于 `mock.js`，由 `index.html` 的同源脚本加载，保持 CSP `script-src 'self'`。新增资源同时列入 Windows payload 清单。
 
 后端测试使用隔离的临时 HOME、CODEX_HOME 和 Hub 数据目录；安装分支使用虚拟 runner。浏览器 mock 预览可验证页面交互和滚动，但不代表 C#/WebView2、真实安装、登录或启动器进程控制验收。

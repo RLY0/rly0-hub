@@ -216,6 +216,25 @@ describe("runThreadHandoff", () => {
     ).rejects.toThrow("already uses the selected Agent");
   });
 
+  it("continues a Codex Thread in a new Codex Thread when its model needs another provider", async () => {
+    const fake = deps({ sameHarnessModel: () => ({ id: "codex-model-relay" }) as never });
+    const result = await runThreadHandoff(fake, {
+      threadId: "source" as never,
+      targetHarnessId: "codex" as never,
+      requestId: "click-0009",
+      followUp: "继续写支付回调",
+    });
+    expect(result).toMatchObject({ threadId: "created-thread", mode: "created" });
+    expect(fake.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        harnessId: "codex",
+        parentThreadId: "source",
+        model: { id: "codex-model-relay" },
+        task: expect.stringContaining("继续写支付回调"),
+      }),
+    );
+  });
+
   it("treats an agent-initiated delegation as a normal source, not a return", async () => {
     const fake = deps({
       source: vi.fn(async () => ({

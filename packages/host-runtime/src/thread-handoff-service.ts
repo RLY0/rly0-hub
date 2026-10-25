@@ -1,6 +1,10 @@
 import type { StoredDelegationRecordV1 } from "@codexhost/mapping-store";
 import type { JsonObject, RoutedHarnessId } from "@codexhost/protocol-core";
-import type { ThreadHandoffParams, ThreadHandoffResult } from "@codexhost/shared-contracts";
+import type {
+  HarnessModelRef,
+  ThreadHandoffParams,
+  ThreadHandoffResult,
+} from "@codexhost/shared-contracts";
 
 import {
   DelegationControlError,
@@ -32,6 +36,11 @@ export interface ThreadHandoffDeps {
   delegationByChild(threadId: string): Promise<StoredDelegationRecordV1 | null>;
   /** Display name of a Harness ("Claude Code"); falls back to the ID. */
   label(harnessId: string): string;
+  /**
+   * The model a Thread's own Harness must continue with in a new Thread, when the source Thread
+   * cannot take it in place (a Codex Thread is loaded on another provider than that model needs).
+   */
+  sameHarnessModel?(threadId: string): HarnessModelRef | undefined;
 }
 
 /**
@@ -44,7 +53,11 @@ export async function runThreadHandoff(
   params: ThreadHandoffParams,
 ): Promise<ThreadHandoffResult> {
   const source = await deps.source(params.threadId);
-  if (source.harnessId === params.targetHarnessId) {
+  const sameHarnessModel =
+    source.harnessId === params.targetHarnessId
+      ? deps.sameHarnessModel?.(params.threadId)
+      : undefined;
+  if (source.harnessId === params.targetHarnessId && !sameHarnessModel) {
     throw new DelegationControlError(
       "INVALID_ARGUMENT",
       "This conversation already uses the selected Agent",
@@ -55,6 +68,7 @@ export async function runThreadHandoff(
   const title = sourceThreadTitle(source.thread);
   const link = await deps.delegationByChild(params.threadId);
   if (
+    !sameHarnessModel &&
     link?.requestId?.startsWith(HANDOFF_REQUEST_PREFIX) &&
     link.sourceHarnessId === params.targetHarnessId
   ) {
@@ -100,7 +114,11 @@ export async function runThreadHandoff(
     parentThreadId: params.threadId,
     requestId: `${HANDOFF_REQUEST_PREFIX}${params.requestId}`,
     ...(source.cwd ? { cwd: source.cwd } : {}),
-    ...(params.model ? { model: params.model } : {}),
+    ...(sameHarnessModel
+      ? { model: sameHarnessModel }
+      : params.model
+        ? { model: params.model }
+        : {}),
     ...(params.thinkingOptionId ? { thinkingOptionId: params.thinkingOptionId } : {}),
     handoff: {
       title: newTitle,

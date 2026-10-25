@@ -8,6 +8,14 @@ import {
   type Rly0RelayModelCatalogStatusResult,
 } from "@codexhost/shared-contracts";
 
+import {
+  isRelaySelector,
+  OFFICIAL_CODEX_PROVIDER_ID,
+  type StoredThreadRoute,
+  turnRequestModel,
+  withTurnRequestModel,
+} from "./thread-provider.js";
+
 /** The slice of the rly0-core bridge that relay model routing needs. */
 export interface Rly0RelayRoutingCore {
   listRelays(): Promise<Rly0RelayListResult>;
@@ -77,6 +85,16 @@ const PROXY_PORT_ATTEMPTS = 10;
 /** After a failed official catalog read, relay decisions do not wait on another one for this long. */
 const OFFICIAL_RETRY_MS = 60_000;
 
+/** Sets `key` as the newest entry, dropping the oldest beyond `MAX_TRACKED_THREADS`. */
+function remember(map: Map<string, string>, key: string, value: string): void {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > MAX_TRACKED_THREADS) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+}
+
 /** Resolves `undefined` on timeout; a rejection resolves `undefined` too unless `rethrow` is set. */
 function withTimeout<T>(promise: Promise<T>, ms: number, rethrow = false): Promise<T | undefined> {
   return new Promise((resolve, reject) => {
@@ -141,6 +159,10 @@ export class Rly0RelayModelRouter {
   #officialLoad: Promise<void> | null = null;
   #officialFailedAt = -Infinity;
   readonly #threadProviders = new Map<string, string>();
+  /** Last known model choice per Thread (resume response, turn, settings update). */
+  readonly #threadModels = new Map<string, string>();
+  /** First provider other than `rly0` seen per Thread: where an official model goes back to. */
+  readonly #originalProviders = new Map<string, string>();
 
   constructor(core: Rly0RelayRoutingCore, options: Rly0RelayModelRouterOptions = {}) {
     this.#core = core;
@@ -271,8 +293,7 @@ export class Rly0RelayModelRouter {
    * nothing changes (mode off, already a selector, or no relay model known).
    */
   async #noAccountSelector(model: unknown): Promise<string | undefined> {
-    if (typeof model !== "string" || !model || model.startsWith(RLY0_RELAY_MODEL_ID_PREFIX))
-      return undefined;
+    if (typeof model !== "string" || !model || isRelaySelector(model)) return undefined;
     const mode = await this.#readNoAccount();
     if (!mode) return undefined;
     const { models } = await this.#relayModels();
@@ -288,8 +309,72 @@ export class Rly0RelayModelRouter {
    * or `null` when nothing changes. Only for threads already on the `rly0` provider.
    */
   async migrateTurnParams(params: JsonRecord): Promise<JsonRecord | null> {
-    const selector = await this.#noAccountSelector(params.model);
-    return selector ? { ...params, model: selector } : null;
+    const selector = await this.#noAccountSelector(turnRequestModel(params));
+    return selector ? withTurnRequestModel(params, selector) : null;
+  }
+
+  /**
+   * `thread/resume` params that load the Thread on the provider its model needs, or `null` to
+   * forward the original request. Codex keeps a resumed Thread's stored provider unless the resume
+   * names a model or provider, so an older Thread started with the ChatGPT login would otherwise
+   * send relay model ids to the official backend. Read the stored Thread only when it matters:
+   * - no-account mode, no model named, stored on another provider: the matching relay model (or
+   *   the configured default) on `rly0`;
+   * - no-account mode off, an official model named, stored on `rly0`: back on the provider the
+   *   Thread had before (Codex's `openai` when the Host never saw another one).
+   * Everything else is `rewriteThreadParams`.
+   */
+  async rewriteResumeParams(
+    input: JsonRecord,
+    readStored: (threadId: string) => Promise<StoredThreadRoute | undefined>,
+  ): Promise<JsonRecord | null> {
+    const threadId = typeof input.threadId === "string" && input.threadId ? input.threadId : null;
+    const named = typeof input.model === "string" && input.model ? input.model : undefined;
+    if (!threadId || typeof input.modelProvider === "string")
+      return this.rewriteThreadParams(input);
+    const noAccount = await this.#readNoAccount();
+    if (noAccount && !named) {
+      const stored = await this.#storedRoute(threadId, readStored);
+      if (stored?.provider && stored.provider !== RLY0_CODEX_PROVIDER_ID) {
+        const selector = await this.#noAccountSelector(
+          stored.model && !isRelaySelector(stored.model) ? stored.model : (noAccount.model ?? "*"),
+        );
+        if (selector) return this.rewriteThreadParams({ ...input, model: selector });
+      }
+    } else if (!noAccount && named && !isRelaySelector(named)) {
+      const stored = await this.#storedRoute(threadId, readStored);
+      if (stored?.provider === RLY0_CODEX_PROVIDER_ID) {
+        return {
+          ...input,
+          modelProvider: this.#originalProviders.get(threadId) ?? OFFICIAL_CODEX_PROVIDER_ID,
+        };
+      }
+    }
+    return this.rewriteThreadParams(input);
+  }
+
+  async #storedRoute(
+    threadId: string,
+    readStored: (threadId: string) => Promise<StoredThreadRoute | undefined>,
+  ): Promise<StoredThreadRoute | undefined> {
+    const known = this.#threadProviders.get(threadId);
+    if (known) return { provider: known };
+    // A slow or failed read leaves the resume as Desktop sent it.
+    return withTimeout(readStored(threadId), LIST_TIMEOUT_MS);
+  }
+
+  /**
+   * The model a `turn/start` runs with: the one it names (a collaboration mode's first), else the
+   * Thread's last known choice (resume response, earlier turn, `thread/settings/update`).
+   */
+  turnModel(threadId: string, params: JsonRecord): string | undefined {
+    return turnRequestModel(params) ?? this.#threadModels.get(threadId);
+  }
+
+  /** Remembers a model choice that Codex will apply to the Thread's later turns. */
+  noteThreadModel(threadId: string, model: unknown): void {
+    if (typeof model !== "string" || !model) return;
+    remember(this.#threadModels, threadId, model);
   }
 
   /** Appends relay models to a `model/list` result. Returns `null` when nothing changes. */
@@ -486,13 +571,27 @@ export class Rly0RelayModelRouter {
         : thread && typeof thread.modelProvider === "string"
           ? thread.modelProvider
           : null;
-    if (!threadId || !provider) return;
-    this.#threadProviders.delete(threadId);
-    this.#threadProviders.set(threadId, provider);
-    if (this.#threadProviders.size > MAX_TRACKED_THREADS) {
-      const oldest = this.#threadProviders.keys().next().value;
-      if (oldest !== undefined) this.#threadProviders.delete(oldest);
+    if (!threadId || !provider) {
+      // `thread/list` rows carry each stored Thread's provider; a loaded Thread's own response wins.
+      if (!thread && Array.isArray(result.data)) {
+        for (const row of result.data) {
+          if (!isRecord(row) || typeof row.id !== "string" || typeof row.modelProvider !== "string")
+            continue;
+          if (!row.modelProvider || this.#threadProviders.has(row.id)) continue;
+          this.#recordProvider(row.id, row.modelProvider);
+        }
+      }
+      return;
     }
+    this.#recordProvider(threadId, provider);
+    // The model the loaded Thread really runs with (a resume response's `model`).
+    if (typeof result.model === "string") this.noteThreadModel(threadId, result.model);
+  }
+
+  #recordProvider(threadId: string, provider: string): void {
+    if (provider !== RLY0_CODEX_PROVIDER_ID && !this.#originalProviders.has(threadId))
+      remember(this.#originalProviders, threadId, provider);
+    remember(this.#threadProviders, threadId, provider);
   }
 
   threadProvider(threadId: string): string | undefined {
@@ -500,7 +599,5 @@ export class Rly0RelayModelRouter {
   }
 }
 
-export const RLY0_RELAY_THREAD_MISMATCH_MESSAGE =
-  "这个对话不是用中转模型开始的，无法中途切换到中转模型。请新建对话后再选择中转模型。 (This conversation was not started on a relay model; start a new conversation to use one.)";
 export const RLY0_RELAY_PROXY_FAILED_MESSAGE =
   "RLY/0 本地代理启动失败，无法使用中转模型。请到 设置 → 中转站 查看。 (The RLY/0 local proxy could not start.)";

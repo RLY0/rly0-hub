@@ -430,6 +430,93 @@ describe("RLY/0 relay model routing", () => {
         await router.migrateTurnParams({ threadId: "t", model: "rly0/r1/gpt-5.5" }),
       ).toBeNull();
       expect(await router.migrateTurnParams({ threadId: "t" })).toBeNull();
+      // Desktop names the model in the collaboration mode (with `model: null`).
+      expect(
+        await router.migrateTurnParams({
+          threadId: "t",
+          model: null,
+          collaborationMode: { mode: "default", settings: { model: "gpt-5.5" } },
+        }),
+      ).toEqual({
+        threadId: "t",
+        model: null,
+        collaborationMode: { mode: "default", settings: { model: "rly0/r1/gpt-5.5" } },
+      });
+    });
+
+    it("resumes an older Thread stored on another provider on the rly0 provider", async () => {
+      const { core } = fakeCore();
+      const router = new Rly0RelayModelRouter(core, {
+        providerRequiresOpenaiAuth: async () => false,
+        noAccountMode: async () => ({ model: "gpt-relay-1" }),
+      });
+      const reads: string[] = [];
+      const stored = (provider: string, model?: string) => async (threadId: string) => {
+        reads.push(threadId);
+        return { provider, ...(model ? { model } : {}), status: "notLoaded" };
+      };
+      // Its own model when a relay offers it, else the configured default.
+      expect(
+        await router.rewriteResumeParams({ threadId: "a" }, stored("openai", "gpt-5.5")),
+      ).toMatchObject({ threadId: "a", model: "rly0/r1/gpt-5.5", modelProvider: "rly0" });
+      expect(
+        await router.rewriteResumeParams({ threadId: "b", model: null }, stored("openai", "o3")),
+      ).toMatchObject({ model: "rly0/r1/gpt-relay-1", modelProvider: "rly0" });
+      // A Thread already on rly0 keeps its stored relay model.
+      const kept = await router.rewriteResumeParams({ threadId: "c" }, stored("rly0"));
+      expect(kept?.model).toBeUndefined();
+      expect(kept?.modelProvider).toBeUndefined();
+      // A known provider (from an earlier response) needs no read.
+      router.observeResponse({ result: { thread: { id: "d", modelProvider: "openai" } } });
+      expect(await router.rewriteResumeParams({ threadId: "d" }, stored("rly0"))).toMatchObject({
+        model: "rly0/r1/gpt-relay-1",
+        modelProvider: "rly0",
+      });
+      expect(reads).toEqual(["a", "b", "c"]);
+      // An unreadable Thread is resumed as Desktop asked.
+      expect(
+        (await router.rewriteResumeParams({ threadId: "e" }, async () => undefined))?.modelProvider,
+      ).toBeUndefined();
+    });
+
+    it("sends an official model back to the provider the Thread had before the relay", async () => {
+      const { core } = fakeCore();
+      const router = new Rly0RelayModelRouter(core, { noAccountMode: async () => null });
+      router.observeResponse({ result: { data: [{ id: "x", modelProvider: "azure" }] } });
+      router.observeResponse({ result: { thread: { id: "x", modelProvider: "rly0" } } });
+      expect(
+        await router.rewriteResumeParams(
+          { threadId: "x", model: "gpt-5.5" },
+          async () => undefined,
+        ),
+      ).toEqual({ threadId: "x", model: "gpt-5.5", modelProvider: "azure" });
+      expect(
+        await router.rewriteResumeParams({ threadId: "y", model: "gpt-5.5" }, async () => ({
+          provider: "rly0",
+        })),
+      ).toEqual({ threadId: "y", model: "gpt-5.5", modelProvider: "openai" });
+      // Not on rly0: nothing to undo.
+      expect(
+        await router.rewriteResumeParams({ threadId: "z", model: "gpt-5.5" }, async () => ({
+          provider: "openai",
+        })),
+      ).toBeNull();
+    });
+
+    it("knows the model a turn runs with from the request, else the Thread's last choice", async () => {
+      const router = new Rly0RelayModelRouter(fakeCore().core);
+      router.observeResponse({
+        result: { thread: { id: "t", modelProvider: "openai" }, model: "gpt-5.5" },
+      });
+      expect(router.turnModel("t", { model: null })).toBe("gpt-5.5");
+      router.noteThreadModel("t", "rly0/r1/gpt-5.5");
+      expect(router.turnModel("t", {})).toBe("rly0/r1/gpt-5.5");
+      expect(
+        router.turnModel("t", {
+          model: "gpt-5.5",
+          collaborationMode: { settings: { model: "rly0/r1/gpt-relay-1" } },
+        }),
+      ).toBe("rly0/r1/gpt-relay-1");
     });
 
     it("keeps official rows labelled when no relay model is available", async () => {

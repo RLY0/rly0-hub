@@ -44,6 +44,12 @@ export const RLY0_CODEX_PROVIDER_NAME = "RLY/0 Hub 本地代理";
  * consumes the signed-in ChatGPT Account's Codex usage.
  */
 export const RLY0_RELAY_MODEL_ID_PREFIX = "rly0/";
+/**
+ * Marker at the end of the Host's `turn/start` error when a Codex Thread is loaded on another
+ * provider than its chosen model needs (official account vs. relay). Codex fixes a Thread's provider
+ * when the Thread is loaded, so the Renderer offers to continue in a new conversation instead.
+ */
+export const RLY0_THREAD_PROVIDER_LOCKED_CODE = "RLY0_THREAD_PROVIDER_LOCKED";
 
 /** Whether `model` is a relay model id appended by the Host (not an official Codex model). */
 export function isRly0RelayModelId(model: unknown): model is string {

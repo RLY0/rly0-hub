@@ -188,10 +188,14 @@ import {
 } from "./rly0-relay/codex-config.js";
 import {
   RLY0_RELAY_PROXY_FAILED_MESSAGE,
-  RLY0_RELAY_THREAD_MISMATCH_MESSAGE,
   type Rly0OfficialCatalogRead,
   Rly0RelayModelRouter,
 } from "./rly0-relay/model-routing.js";
+import {
+  storedThreadRoute,
+  threadProviderLockedMessage,
+  turnRequestModel,
+} from "./rly0-relay/thread-provider.js";
 import { createLauncherProcessControl } from "./rly0-maintenance/launcher-process-control.js";
 import { Rly0FirstRunBackup } from "./rly0-maintenance/first-run-backup.js";
 import { ClaudeCodeAuth } from "./rly0-agents/claude-code-auth.js";
@@ -983,6 +987,8 @@ export class AppServerHost {
   readonly #replyGuards = new Map<unknown, Set<{ answered: boolean }>>();
   #pendingOfficialTurnStarts = new Map<unknown, string>();
   readonly #pendingRelayModelLists = new Set<unknown>();
+  /** Threads whose last turn was refused because its model needs another provider: that model. */
+  readonly #providerLockedThreads = new Map<string, string>();
   #activeWorkDrainWaiters = new Set<() => void>();
   #deferredBackendReload: Promise<void> | undefined;
   #pendingOfficialDelegationThreads = new Set<string>();
@@ -3081,7 +3087,14 @@ export class AppServerHost {
     ) {
       let next: Record<string, unknown> | null;
       try {
-        next = await router.rewriteThreadParams(params);
+        next =
+          request.method === "thread/resume"
+            ? await router.rewriteResumeParams(params, async (threadId) =>
+                storedThreadRoute(
+                  await this.#requestOfficial("thread/read", { threadId, includeTurns: false }),
+                ),
+              )
+            : await router.rewriteThreadParams(params);
       } catch {
         await this.#writer.json(rpcError(request, -32001, RLY0_RELAY_PROXY_FAILED_MESSAGE));
         return "handled";
@@ -3095,31 +3108,26 @@ export class AppServerHost {
       const migrated =
         provider === RLY0_CODEX_PROVIDER_ID ? await router.migrateTurnParams(params) : null;
       const turnParams = migrated ?? params;
-      const relayModel = await router.isRelayModel(turnParams.model);
-      if (
-        provider === RLY0_CODEX_PROVIDER_ID &&
-        !relayModel &&
-        typeof turnParams.model === "string" &&
-        (await router.requiresOfficialAuth())
-      ) {
+      // Desktop names the model in `collaborationMode.settings` (with `model: null`), or not at all
+      // when the Thread's earlier choice applies; Codex never changes the provider on a turn.
+      const turnModel = router.turnModel(params.threadId, turnParams);
+      const relayModel = await router.isRelayModel(turnModel);
+      const locked =
+        (provider === RLY0_CODEX_PROVIDER_ID &&
+          !relayModel &&
+          typeof turnModel === "string" &&
+          (await router.requiresOfficialAuth())) ||
+        (relayModel && provider !== RLY0_CODEX_PROVIDER_ID);
+      if (locked && typeof turnModel === "string") {
         this.#pendingOfficialTurnStarts.delete(request.id);
         this.#signalActiveWorkChanged();
-        await this.#writer.json(
-          rpcError(
-            request,
-            -32602,
-            "这个对话正在使用中转。继续用中转请重新选择带站点名的模型；改用官方模型请新建对话。",
-          ),
-        );
+        this.#providerLockedThreads.set(params.threadId, turnModel);
+        await this.#writer.json(rpcError(request, -32602, threadProviderLockedMessage(relayModel)));
         return "handled";
       }
+      this.#providerLockedThreads.delete(params.threadId);
+      router.noteThreadModel(params.threadId, turnRequestModel(turnParams));
       if (!relayModel && provider !== RLY0_CODEX_PROVIDER_ID) return null;
-      if (relayModel && provider !== RLY0_CODEX_PROVIDER_ID) {
-        this.#pendingOfficialTurnStarts.delete(request.id);
-        this.#signalActiveWorkChanged();
-        await this.#writer.json(rpcError(request, -32602, RLY0_RELAY_THREAD_MISMATCH_MESSAGE));
-        return "handled";
-      }
       try {
         await router.ensureProxy();
       } catch {
@@ -3129,6 +3137,10 @@ export class AppServerHost {
         return "handled";
       }
       if (migrated) return { ...request, params: migrated } as unknown as JsonObject;
+    }
+    if (request.method === "thread/settings/update" && typeof params.threadId === "string") {
+      // The next turn may name no model at all; it then runs with this one.
+      router.noteThreadModel(params.threadId, turnRequestModel(params));
     }
     return null;
   }
@@ -4014,7 +4026,14 @@ export class AppServerHost {
         },
       };
     }
-    if (requestedModel || input.thinkingOptionId) {
+    // A relay model (from "在新对话里继续") is not in the official catalog; the router validates it.
+    let relayModel = false;
+    try {
+      relayModel = await this.#rly0RelayModels.isRelayModel(nativeModelId);
+    } catch {
+      throw new DelegationControlError("INVALID_ARGUMENT", "Relay Model is unavailable");
+    }
+    if (!relayModel && (requestedModel || input.thinkingOptionId)) {
       const inspected = await this.#inspectOfficialDelegationTarget({
         harnessId: "codex",
         cwd: input.cwd,
@@ -4052,14 +4071,27 @@ export class AppServerHost {
         }
       }
     }
-    const started = await this.#officialRuntime.request("thread/start", {
+    const startParams: JsonObject = {
       cwd: input.cwd,
       ...(nativeModelId ? { model: nativeModelId } : {}),
       // A handoff is the person's own conversation: Codex's configured approvals apply.
       ...(input.handoff ? {} : { approvalPolicy: "never", sandbox: "danger-full-access" }),
       ephemeral: false,
       historyMode: "paginated",
-    });
+    };
+    let routedStart: Record<string, unknown> | null = null;
+    if (relayModel) {
+      try {
+        routedStart = await this.#rly0RelayModels.rewriteThreadParams(startParams);
+      } catch {
+        throw new DelegationControlError("DELEGATION_FAILED", RLY0_RELAY_PROXY_FAILED_MESSAGE);
+      }
+    }
+    const started = await this.#officialRuntime.request(
+      "thread/start",
+      routedStart ? (routedStart as unknown as JsonObject) : startParams,
+    );
+    this.#rly0RelayModels.observeResponse(started);
     const startedResult = isRecord(started.result) ? started.result : null;
     const thread = startedResult && isRecord(startedResult.thread) ? startedResult.thread : null;
     const threadId = thread && typeof thread.id === "string" ? thread.id : null;
@@ -4329,6 +4361,11 @@ export class AppServerHost {
           delegationByChild: (threadId) =>
             this.#repository.getDelegationByChild(hostThreadIdSchema.parse(threadId)),
           label,
+          // "在新对话里继续": the turn this Codex Thread refused needs another provider.
+          sameHarnessModel: (threadId) => {
+            const model = this.#providerLockedThreads.get(threadId);
+            return model ? encodeOfficialCodexModelRef(model) : undefined;
+          },
         },
         parsed.data,
       );
