@@ -157,7 +157,10 @@ for (const width of WIDTHS) {
         } else if (target.kind === "bridge") {
           await page.click('.rail button[data-page="bridge"]');
           await settle(150);
-          await page.locator(".bridge-tabs button", { hasText: target.label ?? "" }).first().click();
+          await page
+            .locator(".bridge-tabs button", { hasText: target.label ?? "" })
+            .first()
+            .click();
         } else if (target.kind === "accounts") {
           await page.click('.rail button[data-page="accounts"]');
           await settle(150);
@@ -947,6 +950,41 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
   await expect(page.locator(".relay-top .no-account")).toContainText("并自动应用到 Codex");
   await settled();
   await page.screenshot({ path: path.join(dir, "relays.png"), fullPage: true });
+  await expect(page.locator("body")).not.toContainText("重启 Codex 生效");
+});
+
+// 统一渠道 (pages/unified-channel.js): on by default on 中转站, 账号 → OpenAI and 首页, with the
+// one-line note about official traffic; switching it reaches Codex by itself.
+test("unified channel switch: on by default, note and tooltip, auto-applied both ways", async ({
+  page,
+}) => {
+  const dir = path.join(runDir, "unified-channel");
+  mkdirSync(dir, { recursive: true });
+  await page.setViewportSize({ width: WIDTHS[0] ?? 1240, height: HEIGHT });
+  await page.goto("/index.html");
+  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+  if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+  await page.click('.rail button[data-page="relays"]');
+  const card = page.locator(".unified-channel");
+  await expect(card).toContainText("统一渠道（一个对话里随便切换账号和中转）");
+  await expect(card).toContainText("官方账号的请求也会经过本机零号枢纽再发给官方");
+  await expect(card.locator(".unified-note")).toHaveAttribute("data-tip", /同一个账号和凭据/);
+  const toggle = card.locator('button[role="switch"]');
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await card.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(dir, "relays-on.png"), fullPage: true });
+  await toggle.click();
+  await expect(page.locator("#toast")).toContainText("已关闭统一渠道");
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(card).toContainText("每个对话固定用开始时的账号或中转");
+  await page.click('.rail button[data-page="home"]');
+  const home = page.locator(".home-unified");
+  await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "false");
+  await home.locator('button[role="switch"]').click();
+  await expect(page.locator("#toast")).toContainText("已开启统一渠道");
+  await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "true");
+  await page.screenshot({ path: path.join(dir, "home-on.png"), fullPage: true });
   await expect(page.locator("body")).not.toContainText("重启 Codex 生效");
 });
 

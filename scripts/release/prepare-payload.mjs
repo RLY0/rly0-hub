@@ -285,6 +285,7 @@ export const RLY0_HUB_WINDOWS_PAYLOAD_PATHS = Object.freeze([
   "app/hub-ui/pages/ui.js",
   "app/hub-ui/pages/codex-apply.js",
   "app/hub-ui/pages/no-account.js",
+  "app/hub-ui/pages/unified-channel.js",
   "app/hub-ui/pages/resource-sharing.js",
   "app/hub-ui/pages/bridge.js",
   "app/hub-ui/pages/console-features.js",

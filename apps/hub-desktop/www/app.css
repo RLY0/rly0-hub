@@ -1394,6 +1394,17 @@ textarea.models {
   line-height: 1.7;
 }
 
+/* ---------- 统一渠道 ---------- */
+.unified-channel {
+  gap: 12px;
+  justify-content: center;
+}
+.unified-note[data-tip] {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
 /* ---------- 自定义指令 ---------- */
 .instructions-editor {
   gap: 12px;

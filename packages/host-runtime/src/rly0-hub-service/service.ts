@@ -112,6 +112,7 @@ import {
   type HubHostRequest,
 } from "./host-console-routes.js";
 import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
+import { readUnifiedChannel, writeUnifiedChannel } from "../rly0-relay/unified-channel.js";
 import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
 import { Rly0HubAddLogin } from "./add-login.js";
 import { ClaudeAddLogin, importClaudeAccountFile } from "./claude-add-login.js";
@@ -951,6 +952,14 @@ export class Rly0HubService {
           return { ok: result.ok, noAccount: result.status.noAccount === true };
         },
       ),
+      // 统一渠道: only RLY/0 Hub's own setting file changes; Codex's config.toml is never written.
+      "relay.unifiedStatus": route(empty, async () => ({
+        enabled: await readUnifiedChannel(this.#options.environment),
+      })),
+      "relay.unifiedSet": route(z.object({ enabled: z.boolean() }).strict(), async (p) => {
+        await writeUnifiedChannel(p.enabled, this.#options.environment);
+        return { enabled: await readUnifiedChannel(this.#options.environment) };
+      }),
       "relay.noAccountDisable": route(empty, async () => {
         const result = await this.#codexConfig.restore();
         return { ok: result.ok };

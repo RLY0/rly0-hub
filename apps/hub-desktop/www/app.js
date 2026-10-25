@@ -707,6 +707,7 @@
   };
   pageApi.applyToCodex = window.registerHubCodexApply(pageApi).apply;
   pageApi.noAccount = window.registerHubNoAccount(pageApi);
+  pageApi.unifiedChannel = window.registerHubUnifiedChannel(pageApi);
   Object.assign(pageApi, window.registerHubResources(pageApi));
   pageApi.consoleFeatures = window.registerHubConsoleFeatures(pageApi);
   window.registerHubSystem(pageApi);
@@ -995,6 +996,9 @@
     // Same switch as 中转站 and 首页 (pages/no-account.js).
     const noAccountSection = h("section", { class: "m span-6 no-account" });
     pageApi.noAccount.mount(noAccountSection, alive);
+    // Same switch as 中转站 and 首页 (pages/unified-channel.js).
+    const unifiedSection = h("section", { class: "m span-6 unified-channel" });
+    pageApi.unifiedChannel.mount(unifiedSection, alive);
     root.append(
       head,
       filePicker,
@@ -1004,6 +1008,7 @@
         { class: "grid compact account-auto" },
         cards.autoSwitchCard({ alive }),
         noAccountSection,
+        unifiedSection,
       ),
       list,
     );
@@ -1860,6 +1865,7 @@
         current: "始终用简体中文回答。",
         next: "始终用简体中文回答。\n回答先给结论。",
       },
+      "relay.unifiedStatus": { enabled: true },
       "relay.noAccountStatus": {
         enabled: false,
         configPath: "C:/Users/me/.codex/config.toml",

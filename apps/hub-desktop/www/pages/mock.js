@@ -57,13 +57,52 @@ window.hubManagementMock = (() => {
     })),
   });
   const globals = [
-    { agent: "antigravity", enabled: false, file: "C:\\Users\\me\\.gemini\\config\\mcp_config.json", servers: [], skipped: [] },
-    { agent: "hermes", enabled: false, file: "C:\\Users\\me\\.hermes\\config.yaml", servers: [], skipped: [] },
+    {
+      agent: "antigravity",
+      enabled: false,
+      file: "C:\\Users\\me\\.gemini\\config\\mcp_config.json",
+      servers: [],
+      skipped: [],
+    },
+    {
+      agent: "hermes",
+      enabled: false,
+      file: "C:\\Users\\me\\.hermes\\config.yaml",
+      servers: [],
+      skipped: [],
+    },
   ];
   let memories = [
-    { id: "m1", text: "提交前先跑 npm run typecheck，再跑 sync-workspace-copies。", tags: ["workflow"], agent: "claude-code", scope: "project", project: "f:/dev/projects/rly0-hub", time: Date.now() - 3600e3, source: null },
-    { id: "m2", text: "回复用中文，结论先说。", tags: [], agent: "codex", scope: "global", project: null, time: Date.now() - 86400e3, source: "import" },
-    { id: "m3", text: "部署脚本在 scripts/release 下，发布前不要推送。", tags: ["release"], agent: "pi", scope: "project", project: "f:/dev/projects/rly0-hub", time: Date.now() - 7200e3, source: null },
+    {
+      id: "m1",
+      text: "提交前先跑 npm run typecheck，再跑 sync-workspace-copies。",
+      tags: ["workflow"],
+      agent: "claude-code",
+      scope: "project",
+      project: "f:/dev/projects/rly0-hub",
+      time: Date.now() - 3600e3,
+      source: null,
+    },
+    {
+      id: "m2",
+      text: "回复用中文，结论先说。",
+      tags: [],
+      agent: "codex",
+      scope: "global",
+      project: null,
+      time: Date.now() - 86400e3,
+      source: "import",
+    },
+    {
+      id: "m3",
+      text: "部署脚本在 scripts/release 下，发布前不要推送。",
+      tags: ["release"],
+      agent: "pi",
+      scope: "project",
+      project: "f:/dev/projects/rly0-hub",
+      time: Date.now() - 7200e3,
+      source: null,
+    },
   ];
   let trash = [];
   const launchPaths = {};
@@ -286,6 +325,7 @@ window.hubManagementMock = (() => {
   };
   // Synthetic no-account switch (pages/no-account.js); nothing is written anywhere.
   const noAccount = { enabled: false, model: null };
+  const unified = { enabled: true };
   const noAccountModels = ["gpt-6-astra", "gpt-5.5"];
   const codexConfigPath = "C:\\Users\\demo\\.codex\\config.toml";
   const isolationRoot = "C:\\Users\\demo\\.rly0-hub\\sandbox-runtime";
@@ -634,6 +674,11 @@ window.hubManagementMock = (() => {
         return { ok: true, killed: 4 };
       case "maintenance.restartCodex":
         return { ok: true };
+      case "relay.unifiedStatus":
+        return { enabled: unified.enabled };
+      case "relay.unifiedSet":
+        unified.enabled = p.enabled === true;
+        return { enabled: unified.enabled };
       case "relay.noAccountStatus":
         return {
           enabled: noAccount.enabled,
@@ -999,7 +1044,11 @@ window.hubManagementMock = (() => {
       case "resources.sharingSet":
         for (const key of ["mcp", "skills", "memory"])
           if (typeof p[key] === "boolean") sharing[key] = p[key];
-        return { ...sharingState(), codexMemory: typeof p.memory === "boolean" ? (p.memory ? "added" : "removed") : "unchanged" };
+        return {
+          ...sharingState(),
+          codexMemory:
+            typeof p.memory === "boolean" ? (p.memory ? "added" : "removed") : "unchanged",
+        };
       case "bridge.status":
         return { memoryServer: { available: true }, globals: globals.map((g) => ({ ...g })) };
       case "bridge.globalSet": {
@@ -1012,8 +1061,16 @@ window.hubManagementMock = (() => {
       case "memory.list": {
         const q = (p.query || "").toLowerCase();
         const records = memories
-          .filter((m) => (p.scope === "global" ? m.scope === "global" : p.scope === "project" ? m.scope === "project" : true))
-          .filter((m) => !q || m.text.toLowerCase().includes(q) || m.tags.some((t) => t.includes(q)))
+          .filter((m) =>
+            p.scope === "global"
+              ? m.scope === "global"
+              : p.scope === "project"
+                ? m.scope === "project"
+                : true,
+          )
+          .filter(
+            (m) => !q || m.text.toLowerCase().includes(q) || m.tags.some((t) => t.includes(q)),
+          )
           .sort((a, b) => b.time - a.time);
         return {
           records,
@@ -1025,7 +1082,16 @@ window.hubManagementMock = (() => {
         };
       }
       case "memory.add": {
-        const record = { id: `m${Date.now()}`, text: p.text, tags: p.tags || [], agent: "hub", scope: p.scope, project: p.project || null, time: Date.now(), source: null };
+        const record = {
+          id: `m${Date.now()}`,
+          text: p.text,
+          tags: p.tags || [],
+          agent: "hub",
+          scope: p.scope,
+          project: p.project || null,
+          time: Date.now(),
+          source: null,
+        };
         memories = [record, ...memories];
         return record;
       }
@@ -1033,7 +1099,10 @@ window.hubManagementMock = (() => {
         memories = memories.filter((m) => m.id !== p.id);
         return { forgotten: true };
       case "memory.export":
-        return { file: "C:\\Users\\me\\.rly0-hub\\memory\\exports\\memory-20261025T120000.json", count: memories.length };
+        return {
+          file: "C:\\Users\\me\\.rly0-hub\\memory\\exports\\memory-20261025T120000.json",
+          count: memories.length,
+        };
       case "memory.openFolder":
       case "skills.openFolder":
         return { ok: true };
