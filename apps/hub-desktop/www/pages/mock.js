@@ -654,6 +654,27 @@ window.hubManagementMock = (() => {
         return { filePath: "C:/Users/demo/.rly0-hub/diagnostics/rly0-diag-preview.json" };
       case "window.capture":
         return { folder: "feedback-20261019-120000" };
+      // Claude's usage page in a Hub window (Rly0Hub.cs ClaudeUsageWindow); the patrol closes
+      // it with window.__hubShellMessage({ event: "claudeUsageClosed", accountId }).
+      case "window.claudeUsage":
+        (window.__hubClaudeUsageOpened = window.__hubClaudeUsageOpened || []).push({
+          accountId: p.accountId,
+          label: p.label,
+        });
+        return { opened: true };
+      // A reply on the current Codex account just carried its numbers (live-quota.ts).
+      case "quota.live":
+        return {
+          updates: [
+            {
+              provider: "codex",
+              id: "0123456789ab",
+              usage: { ...codexAccounts[0].lastUsage, source: "live" },
+              observedAt: Date.now(),
+              source: "conversation",
+            },
+          ],
+        };
       case "maintenance.exportFeedback":
         return {
           folderPath: "C:/Users/demo/.rly0-hub/diagnostics/" + p.folder,

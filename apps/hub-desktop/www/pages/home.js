@@ -276,6 +276,7 @@ window.registerHubHome = (api) => {
     );
 
   pages.home = (root, alive) => {
+    let repaintQuota = null;
     const promo = h("section", { class: "m promo span-6" });
     followPointer(promo);
     const people = h("section", { class: "m panel span-6 accounts-panel" });
@@ -480,30 +481,60 @@ window.registerHubHome = (api) => {
         ),
         h("div", { class: "acct-grid" }, current, others),
       );
-      if (!account) return;
-      put(quota, h("span", { class: "sub" }, "额度读取中…"));
-      call("accounts.usageCurrent")
-        .catch(() => null)
-        .then((usage) => {
-          if (!alive()) return;
-          const ok = usage && usage.available;
-          const windows = ok ? usage.usage.windows : [];
-          put(
-            quota,
-            windows.length || (ok && usage.usage.resetCredits !== undefined)
-              ? quotaTiles(
+      if (!account) {
+        repaintQuota = null;
+        return;
+      }
+      // Same store as 账号 (pages/quota-live.js): a reply's newer numbers win and repaint here
+      // without a request; the freshness line says how old the numbers are and where from.
+      const liveId = savedCurrent ? savedCurrent.id : null;
+      let read = null;
+      const paint = () => {
+        if (!alive()) return;
+        const fresh =
+          api.quotaLive && liveId
+            ? api.quotaLive.pick("codex", liveId, read)
+            : { usage: read, at: read && read.fetchedAt ? read.fetchedAt * 1000 : 0 };
+        const shown = fresh && fresh.usage;
+        const windows = shown ? shown.windows : [];
+        put(
+          quota,
+          windows.length || (shown && shown.resetCredits !== undefined)
+            ? [
+                quotaTiles(
                   windows,
-                  ok ? usage.usage.resetCredits : undefined,
-                  savedCurrent && ok
+                  shown.resetCredits,
+                  savedCurrent
                     ? {
                         vendor: savedCurrent.plan === "api-key" ? "api-key" : "openai",
-                        account: { ...savedCurrent, lastUsage: usage.usage },
+                        account: { ...savedCurrent, lastUsage: shown },
                         refreshed: () => load(),
                       }
                     : null,
-                )
-              : h("span", { class: "sub" }, "暂时读不到额度"),
-          );
+                ),
+                api.quotaLive ? api.quotaLive.freshLine(fresh) : null,
+              ]
+            : h("span", { class: "sub" }, "暂时读不到额度"),
+        );
+      };
+      repaintQuota = (id) => {
+        if (!id || id === liveId) paint();
+      };
+      const pushedRecently =
+        api.quotaLive &&
+        liveId &&
+        Date.now() - api.quotaLive.pushedAt("codex", liveId) < api.quotaLive.CURRENT_MS;
+      if (pushedRecently) {
+        read = savedCurrent.lastUsage || null;
+        paint();
+        return;
+      }
+      if (!quota.childNodes.length) put(quota, h("span", { class: "sub" }, "额度读取中…"));
+      call("accounts.usageCurrent")
+        .catch(() => null)
+        .then((usage) => {
+          read = usage && usage.available ? usage.usage : null;
+          paint();
         });
     }
 
@@ -772,12 +803,22 @@ window.registerHubHome = (api) => {
     loadPromo();
     load();
     loadOverview();
+    // Every minute while the window is visible (paused when hidden or minimized).
+    const visible = () => (api.quotaLive ? api.quotaLive.visible() : !document.hidden);
     const timer = setInterval(() => {
-      if (!document.hidden) {
+      if (visible()) {
         load();
         loadPromo();
       }
     }, 60000);
     pollers.add(timer);
+    if (api.quotaLive) {
+      const stop = api.quotaLive.subscribe((event) => {
+        if (!alive()) return stop();
+        if (event.type === "quota" && event.provider === "codex" && repaintQuota)
+          repaintQuota(event.id);
+        if (event.type === "balance") loadPromo();
+      });
+    }
   };
 };

@@ -12,8 +12,9 @@ window.registerHubAccountCards = ({
   countdown,
   resetText,
   resetCardTile,
+  quotaLive,
 }) => {
-  const resets = window.registerHubResetCredits({ h, call, toast, resetCardTile });
+  const resets = window.registerHubResetCredits({ h, call, toast, resetCardTile, quotaLive });
   const put = (element, ...items) =>
     element.replaceChildren(
       ...items
@@ -73,10 +74,22 @@ window.registerHubAccountCards = ({
   // refresh and says so. `updated` adds when the numbers were read (usage.fetchedAt, seconds) for
   // a card whose quota is refreshed on its own rather than with the page's accounts.
   // `kinds`: the placeholder tiles when nothing is known (the 5-hour and weekly ones by default).
+  // `live`: { provider, id } — the numbers come from the shared quota store (pages/quota-live.js):
+  // a reply's newer numbers replace the read ones, and a freshness line says how old they are.
   function quotaCards(
-    usage,
-    { value = "未知", reason, stale, updated, kinds = ["5 小时额度", "每周额度"], reset } = {},
+    given,
+    {
+      value = "未知",
+      reason,
+      stale,
+      updated,
+      kinds = ["5 小时额度", "每周额度"],
+      reset,
+      live,
+    } = {},
   ) {
+    const fresh = live && quotaLive ? quotaLive.pick(live.provider, live.id, given) : null;
+    const usage = fresh && fresh.usage ? fresh.usage : given;
     const known = Boolean(usage && usage.windows && usage.windows.length);
     const staleNote = stale
       ? h(
@@ -117,9 +130,11 @@ window.registerHubAccountCards = ({
           resets.tile(usage.resetCredits, reset),
         ),
         staleNote ||
-          (updated && usage.fetchedAt
-            ? h("p", { class: "sub quota-note" }, `更新于 ${clock(usage.fetchedAt * 1000)}`)
-            : null),
+          (fresh && fresh.at
+            ? quotaLive.freshLine(fresh)
+            : updated && usage.fetchedAt
+              ? h("p", { class: "sub quota-note" }, `更新于 ${clock(usage.fetchedAt * 1000)}`)
+              : null),
       );
     return h(
       "div",
@@ -501,7 +516,7 @@ window.registerHubAccountCards = ({
       busy = true;
       paint();
       try {
-        const result = await run();
+        const result = await run({ manual: Boolean(manual) });
         const failedCount = typeof result === "object" && result ? result.failed : result;
         at = (typeof result === "object" && result && result.at) || Date.now();
         note = failedCount ? `${failedCount} 个账号刷新失败` : "";
@@ -770,9 +785,20 @@ window.registerHubAccountCards = ({
                 : "正在读取官方信息，账号卡片已可使用",
             })
           : subscription
-            ? info.usage
-              ? quotaCards(info.usage, { updated: true, reset: { vendor: "anthropic" } })
-              : quotaCards(null, { reason: keyQuota(info).reason, reset: { vendor: "anthropic" } })
+            ? quotaCards(info.usage || null, {
+                updated: true,
+                live: { provider: "claude", id: info.id || id },
+                reason: keyQuota(info).reason,
+                reset: {
+                  vendor: "anthropic",
+                  account: {
+                    id: info.id || id,
+                    email: info.email,
+                    alias: info.name,
+                  },
+                  refreshed: () => load(),
+                },
+              })
             : quotaCards(null, {
                 value: "不支持",
                 reset: { vendor: "api-key" },
@@ -861,7 +887,9 @@ window.registerHubAccountCards = ({
       put(element, ...card.childNodes);
     }
 
-    async function load() {
+    // `auto`: a timed or page-open read; the service may answer "skipped" for a Claude token read
+    // within 5 minutes of the last one (or of a reply that carried its numbers).
+    async function load({ auto = false } = {}) {
       const generation = ++loadGeneration;
       if (!info && !id) {
         const listed = await call("agents.officialKeys.list").catch(() => null);
@@ -869,8 +897,16 @@ window.registerHubAccountCards = ({
         const saved = listed && listed.keys.find((entry) => entry.vendor === vendor);
         if (saved) seed(saved);
       }
-      const result = await call("agents.officialKeys.info", params()).catch(() => undefined);
+      const result = await call("agents.officialKeys.info", {
+        ...params(),
+        ...(auto && vendor === "anthropic" ? { auto: true } : {}),
+      }).catch(() => undefined);
       if (!alive() || generation !== loadGeneration) return info;
+      if (result && result.skipped) {
+        render();
+        if (onLoaded) onLoaded(info);
+        return info;
+      }
       loadError = result === undefined;
       if (result !== undefined) info = (result && result.info) || null;
       render();
@@ -896,7 +932,7 @@ window.registerHubAccountCards = ({
       if (onLoaded) onLoaded(info);
     }
 
-    if (!draft && !deferLoad) load().catch(() => undefined);
+    if (!draft && !deferLoad) load({ auto: true }).catch(() => undefined);
     return {
       element,
       openForm,
@@ -931,7 +967,7 @@ window.registerHubAccountCards = ({
       entries.get(selectedId)?.info ||
       [...entries.values()][0]?.info ||
       null;
-    async function reload() {
+    async function reload({ auto = false } = {}) {
       if (loading) return loading;
       loading = (async () => {
         const [listed, selection] = await Promise.all([
@@ -962,7 +998,7 @@ window.registerHubAccountCards = ({
         }
         put(element, ...keys.map((key) => entries.get(key.id).element), draft.element);
         const reads = await Promise.allSettled(
-          [...entries.values()].map((entry) => entry.reload()),
+          [...entries.values()].map((entry) => entry.reload({ auto })),
         );
         if (onLoaded) onLoaded(collectionInfo());
         if (reads.some((result) => result.status === "rejected"))
@@ -974,7 +1010,7 @@ window.registerHubAccountCards = ({
       return loading;
     }
     const loadWithFeedback = () =>
-      reload().catch(() => {
+      reload({ auto: true }).catch(() => {
         toast("令牌列表读取失败，请重试；已显示的卡片和额度会保留");
         if (alive() && !entries.size)
           put(

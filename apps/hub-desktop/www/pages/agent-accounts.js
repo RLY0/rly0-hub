@@ -14,6 +14,8 @@ window.registerHubAgentAccounts = ({
   go,
   LOGIN_ICONS,
   accountCards: cards,
+  quotaLive,
+  pollers,
 }) => {
   const LOGIN_ERRORS = {
     API_KEY_INVALID: "Key 格式不对，请检查是不是这家的官方 Key",
@@ -88,11 +90,12 @@ window.registerHubAgentAccounts = ({
     });
     const refresh = cards.refresher({
       alive,
-      run: async () => {
+      run: async ({ manual } = {}) => {
         const withKey = keyRefreshable(key.info);
+        quotaLive.mark("claude", null, manual ? "manual" : "scheduled");
         const [usage, info] = await Promise.all([
           accountCount ? call("agents.claudeAccounts.usageAll") : null,
-          withKey ? key.reload() : null,
+          withKey ? key.reload(manual ? {} : { auto: true }) : null,
         ]);
         if (usage !== null) failures = cards.usageFailures(usage);
         await load();
@@ -174,6 +177,45 @@ window.registerHubAgentAccounts = ({
 
     // Claude Code runs on its login unless the AI 助手 page bound it to the key or a relay.
     let using = "login";
+    let currentLoginId = null;
+    // While the window is visible: the login in use every minute (claude.ai's usage endpoint, no
+    // model request), all saved accounts every 5 minutes, a subscription token every 5 minutes
+    // at most (the service skips it while replies keep its numbers current).
+    quotaLive.every(
+      [
+        {
+          id: "current",
+          current: true,
+          skip: () => !currentLoginId || refresh.busy,
+          run: async () => {
+            quotaLive.mark("claude", currentLoginId, "scheduled");
+            await call("agents.claudeAccounts.usage", { id: currentLoginId });
+            await load();
+          },
+        },
+        {
+          id: "others",
+          skip: () => accountCount < 2 || refresh.busy,
+          run: async () => {
+            quotaLive.mark("claude", null, "scheduled");
+            failures = cards.usageFailures(await call("agents.claudeAccounts.usageAll"));
+            await load();
+          },
+        },
+        {
+          id: "token",
+          skip: () => !keyRefreshable(key.info) || refresh.busy,
+          run: () => key.reload({ auto: true }),
+        },
+      ],
+      { alive, pollers },
+    );
+    const stopLive = quotaLive.subscribe((event) => {
+      if (!alive()) return stopLive();
+      // A reply's numbers for a token: repaint the token cards (the service answers from cache).
+      if (event.type === "quota" && event.provider === "claude")
+        key.reload({ auto: true }).catch(() => undefined);
+    });
     async function load() {
       const [listed, inUse] = await Promise.all([
         call("agents.claudeAccounts.list").catch(() => null),
@@ -184,6 +226,8 @@ window.registerHubAgentAccounts = ({
       key.setInUse(using === "key");
       const accounts = (listed && listed.accounts) || [];
       accountCount = accounts.length;
+      currentLoginId =
+        using === "login" ? (accounts.find((a) => a.current) || {}).id || null : null;
       syncRefresh();
       const unsaved =
         listed && listed.liveUnsaved
@@ -240,6 +284,7 @@ window.registerHubAgentAccounts = ({
             const button = event.currentTarget;
             button.disabled = true;
             try {
+              quotaLive.mark("claude", account.id, "manual");
               await call("agents.claudeAccounts.usage", { id: account.id });
               failures.delete(account.id);
             } catch (error) {
@@ -268,7 +313,16 @@ window.registerHubAgentAccounts = ({
         current: account.current && using === "login",
         signedIn: account.current && using !== "login",
         quota: cards.quotaCards(account.lastUsage, {
-          reset: { vendor: "anthropic" },
+          live: { provider: "claude", id: account.id },
+          reset: {
+            vendor: "anthropic",
+            account,
+            refreshed: async () => {
+              quotaLive.mark("claude", account.id, "manual");
+              await call("agents.claudeAccounts.usage", { id: account.id }).catch(() => undefined);
+              if (alive()) await load();
+            },
+          },
           updated: true,
           reason: "额度未知：点右上角刷新读取",
           stale: claudeUsageError(failures.get(account.id), account.current),

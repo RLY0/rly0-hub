@@ -21,6 +21,7 @@
 
   /* ---------- Bridge ---------- */
   const pending = new Map();
+  let quotaLive = null;
   let sequence = 0;
   let serviceReady = false;
   const queue = [];
@@ -77,6 +78,8 @@
       }
       return;
     }
+    // Pushed quota / balance numbers and window visibility (pages/quota-live.js).
+    if (data.event && quotaLive && quotaLive.onShellEvent(data)) return;
     if (data.event === "ready") {
       if (!serviceReady) {
         serviceReady = true;
@@ -705,6 +708,14 @@
     moneyBadge,
     rateBadge,
   };
+  quotaLive = window.registerHubQuotaLive({ h });
+  pageApi.quotaLive = quotaLive;
+  // What replies already brought before this window opened.
+  call("quota.live").then(
+    (result) =>
+      (result && Array.isArray(result.updates) ? result.updates : []).forEach(quotaLive.ingest),
+    () => undefined,
+  );
   pageApi.applyToCodex = window.registerHubCodexApply(pageApi).apply;
   pageApi.noAccount = window.registerHubNoAccount(pageApi);
   pageApi.unifiedChannel = window.registerHubUnifiedChannel(pageApi);
@@ -818,13 +829,48 @@
     const key = cards.keyCard("openai", { alive, saveFailed: loginFailed });
     let failures = new Map();
     let accountCount = 0;
+    let currentId = null;
     const refresh = cards.refresher({
       alive,
-      run: async () => {
+      run: async ({ manual } = {}) => {
+        quotaLive.mark("codex", null, manual ? "manual" : "scheduled");
         failures = cards.usageFailures(await call("accounts.usageAll"));
         await load();
         return failures.size;
       },
+    });
+    // While the window is visible: the current account every minute (unless a reply just brought
+    // its numbers), all accounts every 5 minutes; a reply's numbers repaint at once.
+    quotaLive.every(
+      [
+        {
+          id: "current",
+          current: true,
+          skip: () =>
+            !currentId ||
+            refresh.busy ||
+            Date.now() - quotaLive.pushedAt("codex", currentId) < quotaLive.CURRENT_MS,
+          run: async () => {
+            quotaLive.mark("codex", currentId, "scheduled");
+            await call("accounts.usage", { id: currentId });
+            await load();
+          },
+        },
+        {
+          id: "others",
+          skip: () => accountCount < 2 || refresh.busy,
+          run: async () => {
+            quotaLive.mark("codex", null, "scheduled");
+            failures = cards.usageFailures(await call("accounts.usageAll"));
+            await load();
+          },
+        },
+      ],
+      { alive, pollers },
+    );
+    const stopLive = quotaLive.subscribe((event) => {
+      if (!alive()) return stopLive();
+      if (event.type === "quota" && event.provider === "codex") load();
     });
     const head = cards.pageHead({
       intro: "保存多个 Codex 登录，一键切换。",
@@ -1021,6 +1067,7 @@
       if (!alive()) return;
       const accounts = (result && result.available && result.accounts) || [];
       accountCount = accounts.length;
+      currentId = (accounts.find((a) => a.current) || {}).id || null;
       refresh.setReason(accountCount ? null : "还没有保存的 Codex 账号，没有额度可刷新");
       const unsaved =
         live && live.loggedIn && !live.saved
@@ -1079,6 +1126,7 @@
         ],
         current: account.current,
         quota: cards.quotaCards(account.lastUsage, {
+          live: { provider: "codex", id: account.id },
           reset: {
             vendor: account.plan === "api-key" ? "api-key" : "openai",
             account,

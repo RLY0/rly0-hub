@@ -4593,6 +4593,33 @@ select.input,
 .warn-text.quota-note {
   font-size: 12.5px;
 }
+/* How old the quota numbers are ("刚刚 · 随对话更新 ⓘ"), one quiet line under the tiles. */
+.quota-fresh {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted-dark);
+}
+.quota-fresh .fresh-at {
+  font-variant-numeric: tabular-nums;
+  color: var(--paper-100);
+}
+.quota-fresh[data-source="conversation"] .fresh-at::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: var(--r-pill);
+  background: var(--ok);
+  vertical-align: 1px;
+}
+.work-quota .quota-fresh {
+  margin-top: 8px;
+}
 /* Claude isolation shares the existing agent card and form controls. */
 .isolation-panel {
   margin: 12px 0;
