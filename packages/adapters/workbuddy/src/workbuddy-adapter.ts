@@ -43,7 +43,18 @@ export class WorkBuddyAdapter extends CodeBuddyAdapter {
       invocationFactory: workBuddyInvocation,
       clientFactory:
         codeBuddyOptions.clientFactory ??
-        ((clientOptions) => new CodeBuddyAcpClient(clientOptions, undefined, workBuddyInvocation)),
+        ((clientOptions) =>
+          new CodeBuddyAcpClient(
+            {
+              ...clientOptions,
+              ...(codeBuddyOptions.sharedResources
+                ? { sharedResources: codeBuddyOptions.sharedResources }
+                : {}),
+              harnessId: "workbuddy",
+            },
+            undefined,
+            workBuddyInvocation,
+          )),
     });
     this.#productModels =
       platform === "win32"

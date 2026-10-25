@@ -33,5 +33,6 @@ export function createHarnessAdapter(context: HarnessPluginContext) {
       ...context.environment,
       ...(context.launchCommand ? { CODEXHOST_WORKBUDDY_COMMAND: context.launchCommand } : {}),
     },
+    ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
   });
 }
