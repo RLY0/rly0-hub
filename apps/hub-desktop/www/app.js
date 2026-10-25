@@ -1056,7 +1056,7 @@
               h(
                 "p",
                 { class: "empty span-6" },
-                "还没有保存的 Codex 账号。先在 Codex 里登录，再点“保存当前登录”。",
+                "还没有保存的 Codex 账号。先在 Codex 里登录，再点“保存登录”。",
               ),
             ]),
         key.element,

@@ -571,7 +571,7 @@ test("maintenance: chat repair lists every problem with its reason", async ({ pa
         await expect(detail).toContainText("旧服务商未在当前配置中");
         await expect(detail).not.toContainText("无法修复");
         await expect(detail.locator('button:has-text("修复 2 条")')).toBeVisible();
-        await expect(detail).toContainText("同时找回在 Hub 里删掉的 1 条");
+        await expect(detail).toContainText("含已删除的 1 条");
       }
       await detail.scrollIntoViewIfNeeded();
       await page.waitForFunction(
@@ -941,7 +941,7 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
   await expect(accountsSwitch).toContainText("已开启 · 默认模型 gpt-6-astra");
   await page.click('.rail button[data-page="home"]');
   await dismiss();
-  const home = page.locator(".home-no-account");
+  const home = page.locator(".home-switch.no-account");
   await expect(home).toContainText("已开启 · 默认模型 gpt-6-astra");
   await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "true");
   await settled();
@@ -968,7 +968,7 @@ test("unified channel switch: on by default, note and tooltip, auto-applied both
   await page.click('.rail button[data-page="relays"]');
   const card = page.locator(".unified-channel");
   await expect(card).toContainText("统一渠道");
-  await expect(card).toContainText("官方账号的请求也会经过本机零号枢纽再发给官方");
+  await expect(card).toContainText("同一对话切换账号和中转");
   await expect(card.locator(".unified-note")).toHaveAttribute("data-tip", /同一个账号和凭据/);
   const toggle = card.locator('button[role="switch"]');
   await expect(toggle).toHaveAttribute("aria-checked", "true");
@@ -977,9 +977,9 @@ test("unified channel switch: on by default, note and tooltip, auto-applied both
   await toggle.click();
   await expect(page.locator("#toast")).toContainText("已关闭统一渠道");
   await expect(toggle).toHaveAttribute("aria-checked", "false");
-  await expect(card).toContainText("每个对话固定用开始时的账号或中转");
+  await expect(card).toContainText("已关闭：对话固定用开始时的方式");
   await page.click('.rail button[data-page="home"]');
-  const home = page.locator(".home-unified");
+  const home = page.locator(".home-switch.unified-channel");
   await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "false");
   await home.locator('button[role="switch"]').click();
   await expect(page.locator("#toast")).toContainText("已开启统一渠道");
@@ -1099,7 +1099,8 @@ for (const width of WIDTHS) {
     // 首页 → Codex 概况 (the old 仪表盘).
     const overview = page.locator(".codex-overview");
     await expect(overview.locator(".overview-stat")).toHaveCount(4);
-    await expect(overview.locator(".heat-cell")).toHaveCount(84);
+    await expect(overview.locator(".activity-day")).toHaveCount(84);
+    await expect(overview.locator(".activity-head")).toContainText("最近 12 周");
     await overview.screenshot({ path: path.join(dir, "home-overview.png") });
 
     // Codex asks for pages by name; every former settings page has one.
@@ -1259,7 +1260,7 @@ for (const width of WIDTHS) {
     await expect(page.locator("h2.section-title", { hasText: "修改" })).toBeVisible();
     await page.locator("button", { hasText: "取消修改" }).click();
     await page.locator(".bridge-tabs button", { hasText: "技能" }).click();
-    await expect(page.locator("button", { hasText: "打开技能文件夹" })).toBeVisible();
+    await expect(page.locator("button", { hasText: "打开文件夹" })).toBeVisible();
     await page.locator(".bridge-tabs button", { hasText: "线程" }).click();
     await expect(page.locator(".bridge-tabs button.on")).toHaveText("线程");
     await noOverflow();
