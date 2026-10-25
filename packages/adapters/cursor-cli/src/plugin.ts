@@ -28,11 +28,17 @@ export function createHarnessAdapter(context: HarnessPluginContext): HarnessAdap
     });
   }
   const environment = { ...context.environment };
-  return Object.assign(new CursorAdapter({ environment }), {
-    installation: createCursorInstallation(environment),
-    install: createHarnessInstaller(environment, {
-      posix: "https://cursor.com/install",
-      windows: "https://cursor.com/install?win32=true",
+  return Object.assign(
+    new CursorAdapter({
+      environment,
+      ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
     }),
-  });
+    {
+      installation: createCursorInstallation(environment),
+      install: createHarnessInstaller(environment, {
+        posix: "https://cursor.com/install",
+        windows: "https://cursor.com/install?win32=true",
+      }),
+    },
+  );
 }

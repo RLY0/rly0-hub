@@ -15,9 +15,31 @@ import { createCursorDelegationBridge } from "./delegation-bridge.js";
 import { cursorInvocation } from "./command.js";
 import { parseCursorNativeModels } from "./models.js";
 import type { HarnessExecutionPolicy } from "@codexhost/harness-adapter";
+import {
+  promptWithSharedContext,
+  sharedAcpMcpServers,
+  type SharedResourceRequest,
+  type SharedResourcesProvider,
+} from "@codexhost/harness-adapter/plugin";
+
+/** Codex MCP servers and the shared memory server, attached to real (delegation) Sessions. */
+export const CURSOR_SHARED_MCP_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "cursor-cli",
+  mcp: true,
+  memoryMcp: true,
+});
+/** Skill index and the memory instruction, in front of each prompt. */
+export const CURSOR_SHARED_CONTEXT_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "cursor-cli",
+  skills: true,
+  memory: true,
+  memoryMcp: true,
+});
 
 export interface CursorTransportOptions {
   cwd: string;
+  /** Used only by real Sessions (`delegation`), never by inspection or history replay. */
+  sharedResources?: SharedResourcesProvider;
   environment: NodeJS.ProcessEnv;
   command?: string;
   timeoutMs?: number;
@@ -181,7 +203,16 @@ export class CursorTransport {
       if (!this.#connection || this.#closed) throw new Error("Cursor session closed");
       if (sessionId && !this.#canLoad)
         throw new Error("Cursor does not support the required ACP session protocol");
-      const mcpServers = this.#delegation ? [this.#delegation.descriptor] : [];
+      const shared =
+        this.options.delegation && this.options.sharedResources
+          ? await this.options
+              .sharedResources(this.options.cwd, CURSOR_SHARED_MCP_REQUEST)
+              .catch(() => undefined)
+          : undefined;
+      const mcpServers = [
+        ...(this.#delegation ? [this.#delegation.descriptor] : []),
+        ...sharedAcpMcpServers(shared),
+      ];
       this.sessionId = sessionId ?? "";
       const info = sessionId
         ? await this.#bounded(
@@ -238,6 +269,14 @@ export class CursorTransport {
     );
   }
 
+  async #withContext(text: string): Promise<string> {
+    if (!this.options.delegation || !this.options.sharedResources) return text;
+    const shared = await this.options
+      .sharedResources(this.options.cwd, CURSOR_SHARED_CONTEXT_REQUEST)
+      .catch(() => undefined);
+    return promptWithSharedContext(shared?.context, text);
+  }
+
   async prompt(text: string, callbacks: CursorCallbacks) {
     if (!this.#connection || this.#closed || this.#callbacks)
       throw new Error("Cursor session is closed or busy");
@@ -245,7 +284,13 @@ export class CursorTransport {
     try {
       // Native turns have no arbitrary wall-clock deadline; cancellation/close/process exit settle them.
       return await Promise.race([
-        this.#connection.prompt({ sessionId: this.sessionId, prompt: [{ type: "text", text }] }),
+        this.#withContext(text).then((prompted) => {
+          if (!this.#connection) throw new Error("Cursor session is closed or busy");
+          return this.#connection.prompt({
+            sessionId: this.sessionId,
+            prompt: [{ type: "text", text: prompted }],
+          });
+        }),
         this.#failed,
       ]);
     } finally {

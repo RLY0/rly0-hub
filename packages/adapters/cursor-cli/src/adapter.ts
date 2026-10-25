@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import path from "node:path";
 import { fetchCursorAccount } from "./account-usage.js";
 import { CursorSessionImport } from "./session-import.js";
@@ -69,6 +70,7 @@ import type { HarnessExecutionPolicy, HarnessSubagentCapability } from "@codexho
 
 export interface CursorAdapterOptions {
   environment?: NodeJS.ProcessEnv;
+  sharedResources?: SharedResourcesProvider;
   command?: string;
   timeoutMs?: number;
 }
@@ -157,6 +159,7 @@ export class CursorAdapter implements HarnessAdapter {
       environment: { ...(this.options.environment ?? process.env), ...environment },
       ...(this.options.command ? { command: this.options.command } : {}),
       ...(this.options.timeoutMs ? { timeoutMs: this.options.timeoutMs } : {}),
+      ...(this.options.sharedResources ? { sharedResources: this.options.sharedResources } : {}),
     };
   }
   async inspect(input: InspectHarnessInput = {}): Promise<HarnessInspection> {

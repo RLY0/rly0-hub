@@ -23,6 +23,7 @@ lines.on("line", (line) => {
       id: message.id,
       result: {
         sessionId,
+        ...(scenario === "echo" ? { _meta: { mcpServers: message.params.mcpServers } } : {}),
         configOptions:
           scenario === "cached-models" || scenario === "changed-models"
             ? [
@@ -48,6 +49,10 @@ lines.on("line", (line) => {
       process.exit(7);
     }
     promptId = message.id;
+    if (scenario === "echo") {
+      send({ id: message.id, result: { stopReason: "end_turn", _meta: { prompt: message.params.prompt } } });
+      return;
+    }
     send({
       id: "permission",
       method: "session/request_permission",
