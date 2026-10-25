@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   RLY0_DASHBOARD_ACTIVITY_DAYS,
+  RLY0_DASHBOARD_HISTORY_DAYS,
   rly0DashboardHealthParamsSchema,
   rly0DashboardHealthResultSchema,
   rly0DashboardThreadStatsParamsSchema,
@@ -93,6 +94,9 @@ describe("Rly0DashboardManager", () => {
       averagePerActiveDay: 0,
     });
     expect(result.activity).toHaveLength(RLY0_DASHBOARD_ACTIVITY_DAYS);
+    // The Hub's 首页 grid gets 105 weeks ending on the same day.
+    expect(result.history).toHaveLength(RLY0_DASHBOARD_HISTORY_DAYS);
+    expect(result.history?.at(-1)?.date).toBe(result.activity.at(-1)?.date);
     expect(result.activity.at(-1)?.date).toBe("2026-09-30");
   });
 
