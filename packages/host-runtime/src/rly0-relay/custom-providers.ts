@@ -142,5 +142,15 @@ export async function readCustomProviders(
 export function coreCustomProviders(
   providers: readonly Rly0CustomProvider[],
 ): Rly0CoreCustomProvider[] {
-  return providers.map(({ models: _models, defaultModel: _default, ...provider }) => provider);
+  return providers.map((provider) => ({
+    id: provider.id,
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    ...(provider.envKey ? { envKey: provider.envKey } : {}),
+    ...(provider.bearerToken ? { bearerToken: provider.bearerToken } : {}),
+    requiresOpenaiAuth: provider.requiresOpenaiAuth,
+    ...(provider.headers ? { headers: provider.headers } : {}),
+    ...(provider.envHeaders ? { envHeaders: provider.envHeaders } : {}),
+    ...(provider.queryParams ? { queryParams: provider.queryParams } : {}),
+  }));
 }

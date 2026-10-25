@@ -532,8 +532,10 @@ export class Rly0RelayModelRouter {
       !parseCustomSelector(model) &&
       (await this.#requiresAuth())
     ) {
-      const config = isRecord(params.config) ? { ...params.config } : undefined;
-      if (config) delete config[`model_providers.${RLY0_CODEX_PROVIDER_ID}`];
+      const providerKey = `model_providers.${RLY0_CODEX_PROVIDER_ID}`;
+      const config = isRecord(params.config)
+        ? Object.fromEntries(Object.entries(params.config).filter(([key]) => key !== providerKey))
+        : undefined;
       return {
         ...params,
         ...(config ? { config } : {}),

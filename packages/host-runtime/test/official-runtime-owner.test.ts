@@ -130,11 +130,15 @@ function fixture() {
     diagnosticOutput: new PassThrough(),
     gate,
   });
-  const attach = () => {
+  const attach = (restoreParams?: (params: JsonObject) => Promise<JsonObject>) => {
     const output: JsonObject[] = [];
-    const client = owner.attach(async ({ value }) => {
-      output.push(value as JsonObject);
-    });
+    const client = owner.attach(
+      async ({ value }) => {
+        output.push(value as JsonObject);
+      },
+      undefined,
+      restoreParams,
+    );
     return { client, output };
   };
   const native = (generation = 0) => {
@@ -615,6 +619,32 @@ describe("single official runtime owner", () => {
           params: { threadId: "original", turn: { id: "turn-one", status: "completed" } },
         }),
       );
+    } finally {
+      await f.owner.stop();
+    }
+  });
+
+  it("lets the client decide the provider again when a Thread is restored on a new backend", async () => {
+    const f = fixture();
+    const seen: JsonObject[] = [];
+    const a = f.attach(async (params) => {
+      seen.push(params);
+      return { ...params, modelProvider: "rly0" };
+    });
+    try {
+      await f.owner.start();
+      await a.client.initialize(initialization);
+      f.gate.initialized();
+      await a.client.request("thread/resume", { threadId: "moved", model: "gpt-5.5" });
+      await f.owner.stop();
+      await f.owner.start();
+      f.gate.initialized();
+      await a.client.request("turn/start", { threadId: "moved", input: [] });
+      expect(seen).toEqual([{ threadId: "moved", model: "gpt-5.5", excludeTurns: true }]);
+      expect(f.connection(1).requests[2]).toMatchObject({
+        method: "thread/resume",
+        params: { threadId: "moved", model: "gpt-5.5", modelProvider: "rly0", excludeTurns: true },
+      });
     } finally {
       await f.owner.stop();
     }
