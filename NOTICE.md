@@ -33,3 +33,18 @@ Hub 窗口「账号」页的服务商标识（`apps/hub-desktop/www/pages/provid
 商标归各自所有者：OpenAI、Anthropic、Google Gemini 图形取自 [Simple Icons](https://simpleicons.org) 13.21.0（CC0-1.0）；
 xAI 图形取自 [LobeHub Icons](https://github.com/lobehub/lobe-icons)（`@lobehub/icons-static-svg` 1.70.0，MIT License，
 Copyright (c) 2023 LobeHub）。
+
+### 改编自 Apache-2.0 项目的代码
+
+以下代码改编自以 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 发布的项目，已按其条款保留
+出处并标明修改；原项目未参与本仓库，也不对改编后的代码负责。
+
+- **amtiYo/agents**（Agents CLI，Copyright 2026 amtiYo，<https://github.com/amtiYo/agents>，v0.9.2，
+  提交 `9d2f3e9235abf3820d5c831db7935f884e60e194`）：`packages/host-runtime/src/rly0-bridge/renderers.ts` 中
+  各助手 MCP 配置的渲染函数（Codex/Grok TOML、Gemini、Antigravity、OpenCode、Cursor 等）改编自其
+  `src/core/renderers.ts`。修改：去掉生成文件的写入与同步流程，只生成内存中的配置；增加 Pi、Hermes、Kiro
+  的格式；密钥不写入全局文件。原 NOTICE：“Agents CLI / Copyright 2026 amtiYo / This product includes
+  software developed by amtiYo.”
+- **rohitg00/agentmemory**（v0.9.30，提交 `8bf0c827aaaada297896b2b6efe2a64651ae9389`）：
+  `packages/host-runtime/src/rly0-memory/redaction.ts` 的令牌格式、私钥块与 URL 凭据正则改编自其
+  `src/functions/privacy.ts`。修改：增加凭据赋值与连接字符串密码的处理、中文替换标记。未打包该项目的其他部分。
