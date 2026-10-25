@@ -212,12 +212,19 @@ window.registerHubSystem = ({
   };
 
   pages.maintenance = (root, alive) => {
-    const tool = ({ name, title, text, action, detail }) =>
+    // `brief` is the one visible line; the full `text` is behind its ⓘ (HubUI brief text).
+    const tool = ({ name, title, text, brief, meta, action, detail }) =>
       h(
         "div",
         { class: "tool" },
         icon(name),
-        h("div", { class: "tool-text" }, h("h3", null, title), h("p", null, text)),
+        h(
+          "div",
+          { class: "tool-text" },
+          h("h3", null, title),
+          h("p", { "data-brief": brief || null }, text),
+          meta || null,
+        ),
         h("div", { class: "tool-action" }, action),
         detail || null,
       );
@@ -849,6 +856,7 @@ window.registerHubSystem = ({
         tool({
           name: "diagnose",
           title: "系统诊断",
+          brief: "检查连接、模型、配置、登录和代理，给出修复",
           text: "一次检查 Codex 能否连上模型服务、模型是否被拒、配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。",
           action: runDiag,
           detail: diagDetail,
@@ -856,12 +864,9 @@ window.registerHubSystem = ({
         tool({
           name: "chats",
           title: "修复聊天记录",
-          text: h(
-            "span",
-            null,
-            "检查聊天打不开、历史不见或无法续聊的原因。“找回可查看历史”从仍在本机的 Codex 文件生成只读副本，不改原生列表、不换线路、不重启 Codex；缺失记录仍需原文件或备份。修复 Hub 自身记录时会先备份并关闭 Codex，之后重新打开；不删除记录。",
-            chatMeta,
-          ),
+          brief: "聊天打不开、历史不见或无法续聊时用",
+          text: "检查聊天打不开、历史不见或无法续聊的原因。“找回可查看历史”从仍在本机的 Codex 文件生成只读副本，不改原生列表、不换线路、不重启 Codex；缺失记录仍需原文件或备份。修复 Hub 自身记录时会先备份并关闭 Codex，之后重新打开；不删除记录。",
+          meta: chatMeta,
           action: [chatRepair, recoverReadable],
           detail: [chatDetail, recoveryDetail],
         }),
@@ -874,6 +879,7 @@ window.registerHubSystem = ({
         tool({
           name: "log",
           title: "调试日志",
+          brief: "导出脱敏诊断包或反馈材料，只存本机",
           text: "导出脱敏诊断包（运行状态、配置检查、缓存占用），只保存在本机，不会上传。“反馈问题”另外保存当前窗口截图和最近的出错记录，同样只在本机，提交反馈时自己附上。",
           action: [exportLog, feedback],
           detail: logDetail,
@@ -881,29 +887,29 @@ window.registerHubSystem = ({
         tool({
           name: "clean",
           title: "清理数据",
-          text: h(
-            "span",
-            null,
-            "删除 Hub 的缓存、临时文件和已下载的旧安装包，不动账号、中转站和会话。",
-            cleanSize,
-          ),
+          brief: "删除缓存和旧安装包，不动账号和会话",
+          text: "删除 Hub 的缓存、临时文件和已下载的旧安装包，不动账号、中转站和会话。",
+          meta: cleanSize,
           action: clean,
         }),
         tool({
           name: "quit",
           title: "强制关闭 Codex",
+          brief: "结束全部 Codex 进程，进行中的任务会中断",
           text: "结束所有 Codex 相关进程（窗口、后台服务、插件进程），解决进程残留导致打不开或中转连不上。正在进行的任务会中断。",
           action: quit,
         }),
         tool({
           name: "image",
           title: "Image 声明过滤",
+          brief: "去掉发往中转的生图工具，避免 403",
           text: "开启：发往中转站的请求去掉生图工具，避免不支持生图的中转返回 403。关闭：原样发送。官方账号不受影响，开启也不会新增生图能力。",
           action: imageSwitch,
         }),
         tool({
           name: "search",
           title: "Claude 联网搜索过滤",
+          brief: "Claude Code 走中转时去掉内置联网搜索",
           text: "开启：Claude Code 走中转时去掉内置联网搜索工具，避免不支持的中转报错。不影响 MCP 或插件里的搜索工具，Claude 官方登录不受影响。",
           action: searchSwitch,
           detail: filterNote,

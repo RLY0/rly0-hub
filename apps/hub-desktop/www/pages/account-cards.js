@@ -436,7 +436,11 @@ window.registerHubAccountCards = ({
         agent
           ? h(
               "p",
-              { class: "sub quota-note" },
+              {
+                class: "sub quota-note",
+                // The terms risk stays visible; the rest is in the ⓘ.
+                "data-brief": `自动轮换订阅账号可能违反 ${vendor} 使用条款`,
+              },
               `不会切到额度读不到的账号；正在回复时等它结束再切换。自动轮换订阅账号可能违反 ${vendor} 的使用条款。`,
             )
           : null,

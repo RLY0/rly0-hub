@@ -232,9 +232,33 @@ window.HubUI = (() => {
   /* ---------- Hint bubbles ---------- */
   const bubble = make("div", { class: "tip-bubble", role: "tooltip" });
   let tipFor = null;
+  // Shown on hover, on keyboard focus of an ⓘ, and on tap (touch) of an ⓘ; Esc hides it.
   document.addEventListener("pointerover", (event) => {
     const target = event.target instanceof Element ? event.target.closest("[data-tip]") : null;
     if (target === tipFor) return;
+    showTip(target);
+  });
+  document.addEventListener("focusin", (event) => {
+    const target = event.target instanceof Element ? event.target.closest(".info-tip") : null;
+    if (target) showTip(target);
+  });
+  document.addEventListener("focusout", (event) => {
+    if (event.target === tipFor) showTip(null);
+  });
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target.closest(".info-tip") : null;
+    if (!target) return;
+    // A tap has no hover: it shows the tip; tapping anywhere else hides it.
+    event.stopPropagation();
+    showTip(target);
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!(event.target instanceof Element && event.target.closest(".info-tip"))) showTip(null);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && tipFor && bubble.classList.contains("show")) showTip(null);
+  });
+  function showTip(target) {
     tipFor = target;
     if (!target) {
       bubble.classList.remove("show");
@@ -252,7 +276,89 @@ window.HubUI = (() => {
     bubble.style.left = `${Math.round(left)}px`;
     bubble.style.top = `${Math.round(above > 8 ? above : box.bottom + 8)}px`;
     bubble.classList.add("show");
+  }
+
+  /* ---------- Short text, the rest behind an ⓘ ---------- */
+  // Explanations show one short line; the full text sits in a tooltip on an ⓘ (hover, keyboard
+  // focus, tap) and stays in the page for screen readers (aria-describedby). Nothing is lost: the
+  // tooltip always holds the whole original sentence. Pages either pass a hand-written short line
+  // (`info(short, full)` or `data-brief` on the element), or long plain explanations matching
+  // BRIEF_SELECTOR are shortened to their first clause. Warnings and results stay as they are.
+  let tipSeq = 0;
+  function infoButton(full) {
+    const id = `info-tip-${++tipSeq}`;
+    return [
+      make(
+        "button",
+        {
+          type: "button",
+          class: "info-tip",
+          "aria-label": "详细说明",
+          "aria-describedby": id,
+          "data-tip": full,
+        },
+        "i",
+      ),
+      make("span", { id, class: "sr-only" }, full),
+    ];
+  }
+  /** A short line plus its ⓘ: `info("短句", "完整说明")`. */
+  function info(short, full) {
+    return make(
+      "span",
+      { class: "brief" },
+      make("span", { class: "brief-text" }, short),
+      " ",
+      infoButton(full),
+    );
+  }
+  const BRIEF_SELECTOR =
+    "p.sub, .tool-text p, .page-note, .reset-when, .who > span, .mod-title > span, .access-detail p, .quota-note";
+  const BRIEF_SKIP =
+    ".warn-text, .warn, .err, .error, [role=alert], [role=status], [data-keep], .tool-detail, .dialog-body .result";
+  const MIN_BRIEF = 34;
+  /** First clause of a long explanation (the full text goes in the tooltip). */
+  function briefOf(text) {
+    const first = text.split(/[。；！？]/u)[0].trim();
+    if (first && first.length <= 34 && first.length < text.length) return first;
+    const comma = first.indexOf("，");
+    if (comma >= 8 && comma <= 34) return first.slice(0, comma);
+    const head = first.slice(0, 32);
+    const pause = head.lastIndexOf("、");
+    return pause >= 10 ? head.slice(0, pause) : `${head.slice(0, 28)}…`;
+  }
+  function applyBrief(element) {
+    if (element.closest(BRIEF_SKIP) || element.querySelector(".brief-text")) return;
+    if (element.children.length > 0) return;
+    const full = element.textContent.trim();
+    const long = full.replace(/[。.]$/u, "").length > MIN_BRIEF && /[，。；：]/u.test(full);
+    const short = element.getAttribute("data-brief") || (long ? briefOf(full) : null);
+    if (!short || short === full) return;
+    element.replaceChildren(make("span", { class: "brief-text" }, short), " ", ...infoButton(full));
+    element.classList.add("brief");
+  }
+  function briefAll(root) {
+    if (!(root instanceof Element)) return;
+    if (root.matches(BRIEF_SELECTOR)) applyBrief(root);
+    root.querySelectorAll(BRIEF_SELECTOR).forEach(applyBrief);
+  }
+  const briefObserver = new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === "characterData") {
+        const parent = record.target.parentElement;
+        if (parent) briefAll(parent.closest(BRIEF_SELECTOR) || parent);
+        continue;
+      }
+      briefAll(record.target instanceof Element ? record.target.closest(BRIEF_SELECTOR) : null);
+      record.addedNodes.forEach((node) => briefAll(node));
+    }
   });
+  const startBrief = () => {
+    briefAll(document.body);
+    briefObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+  };
+  if (document.body) startBrief();
+  else document.addEventListener("DOMContentLoaded", startBrief);
 
   /* ---------- Dialog ---------- */
   // A centred panel over a dimmed page. `onClose` runs however it closes (button, Esc, backdrop).
@@ -347,5 +453,5 @@ window.HubUI = (() => {
     };
   }
 
-  return { menuButton, enhanceSelect, closeLayer, dialog, armable };
+  return { menuButton, enhanceSelect, closeLayer, dialog, armable, info };
 })();

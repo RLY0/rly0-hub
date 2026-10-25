@@ -212,7 +212,9 @@ for (const width of WIDTHS) {
             [];
           for (const root of document.querySelectorAll(scopeSelector)) {
             for (const el of root.querySelectorAll<HTMLElement>("*")) {
-              if (el.matches("input, textarea, select, svg, svg *, option, .pick-native")) continue;
+              // .sr-only: text kept for screen readers, clipped on purpose.
+              if (el.matches("input, textarea, select, svg, svg *, option, .pick-native, .sr-only"))
+                continue;
               // A text box: own text, or only inline children carrying it (a <b> in a <p>).
               const hasText = [...el.childNodes].some(
                 (n) => n.nodeType === Node.TEXT_NODE && (n.textContent || "").trim(),
@@ -981,4 +983,43 @@ test("web console functions inside the Hub: remote hosts, usage, session import"
   await dialog.locator('.session-row button:has-text("导入")').click();
   await expect(page.locator("#toast")).toContainText("已导入");
   expect(popups).toEqual([]);
+});
+
+// Explanations show one short line; the whole sentence is behind an ⓘ that hover, keyboard focus
+// and tap all open, and that screen readers get through aria-describedby. Warnings stay visible.
+test("short explanations keep their full text in an accessible ⓘ tooltip", async ({ page }) => {
+  const dir = path.join(runDir, "tooltips");
+  mkdirSync(dir, { recursive: true });
+  await page.setViewportSize({ width: WIDTHS[0] ?? 1240, height: HEIGHT });
+  await page.goto("/index.html");
+  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+  if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+  await page.click('.rail button[data-page="maintenance"]');
+  const diagnose = page.locator(".tool", { hasText: "系统诊断" });
+  await expect(diagnose.locator(".brief-text")).toHaveText(
+    "检查连接、模型、配置、登录和代理，给出修复",
+  );
+  const info = diagnose.locator(".info-tip");
+  const full =
+    "一次检查 Codex 能否连上模型服务、模型是否被拒、配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。";
+  const describedBy = await info.getAttribute("aria-describedby");
+  await expect(page.locator(`#${describedBy}`)).toHaveText(full);
+  const bubble = page.locator(".tip-bubble");
+  await info.focus();
+  await expect(bubble).toHaveClass(/show/u);
+  await expect(bubble).toHaveText(full);
+  await page.screenshot({ path: path.join(dir, "focus.png") });
+  await page.keyboard.press("Escape");
+  await expect(bubble).not.toHaveClass(/show/u);
+  await info.click();
+  await expect(bubble).toHaveClass(/show/u);
+  await page.mouse.click(5, 5);
+  await expect(bubble).not.toHaveClass(/show/u);
+  // The terms risk stays readable without opening anything.
+  await page.click('.rail button[data-page="accounts"]');
+  await page.click('.account-tabs button:has-text("Anthropic")');
+  await expect(page.locator(".auto-switch .quota-note .brief-text").first()).toContainText(
+    "使用条款",
+  );
 });
