@@ -260,7 +260,7 @@ describe("Hub live quota ingestion", () => {
   }
 
   it("pushes only observations newer than what it already saw, and skips unchanged files", async () => {
-    const document = {
+    const document: { mtime: number; value: LiveQuotaDocument } = {
       mtime: 1,
       value: {
         version: 1 as const,
@@ -290,7 +290,10 @@ describe("Hub live quota ingestion", () => {
 
   it("re-reads the balance after a relay turn, at most once per debounce window", async () => {
     vi.useFakeTimers();
-    const document = { mtime: 1, value: { version: 1 as const, entries: [] } };
+    const document: { mtime: number; value: LiveQuotaDocument } = {
+      mtime: 1,
+      value: { version: 1, entries: [] },
+    };
     const { live, events, balance, advance } = hub(document);
     await live.check();
     document.mtime = 2;
