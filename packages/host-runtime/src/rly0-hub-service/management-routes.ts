@@ -27,6 +27,7 @@ import { Rly0InstructionsManager, rly0InstructionsRpcError } from "../rly0-instr
 import { Rly0McpManager, rly0McpRpcError } from "../rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "../rly0-skills/index.js";
 import { Rly0ThreadsManager, rly0ThreadsRpcError } from "../rly0-threads/index.js";
+import { Rly0DashboardManager, rly0DashboardRpcError } from "../rly0-dashboard/index.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { checkHubUpdate } from "./update-check.js";
 import type { Rly0CodexControl } from "./codex-control.js";
@@ -65,6 +66,7 @@ export function createHubManagementRoutes(options: {
   const mcp = new Rly0McpManager({ environment });
   const skills = new Rly0SkillsManager({ environment });
   const threads = new Rly0ThreadsManager({ environment });
+  const dashboard = new Rly0DashboardManager({ environment, threads });
   const instructions = new Rly0InstructionsManager({ environment });
   const content = z.string().max(64 * 1024);
   const chatRepair = new ChatRepair({ environment, codex });
@@ -141,6 +143,8 @@ export function createHubManagementRoutes(options: {
       (p) => threads.list(p.limit),
       rly0ThreadsRpcError,
     ),
+    // 首页 → Codex 概况 (the former in-Codex 仪表盘): session totals and the 12-week activity.
+    "dashboard.threadStats": route(empty, () => dashboard.threadStats(), rly0DashboardRpcError),
     "threads.listTrash": route(empty, () => threads.listTrash(), rly0ThreadsRpcError),
     "threads.trash": route(
       rly0ThreadsMoveParamsSchema,

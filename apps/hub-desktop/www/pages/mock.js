@@ -348,6 +348,27 @@ window.hubManagementMock = (() => {
       case "mcp.setEnabled":
         servers.find((s) => s.name === p.name).enabled = p.enabled;
         return { ok: true };
+      case "dashboard.threadStats": {
+        // 84 days, busier on weekdays, so the heat map shows every level.
+        const activity = Array.from({ length: 84 }, (_, index) => {
+          const date = new Date(Date.now() - (83 - index) * 86400000);
+          const count = index % 7 >= 5 ? index % 3 : (index * 7) % 11;
+          return { date: date.toISOString().slice(0, 10), count };
+        });
+        const total = activity.reduce((sum, day) => sum + day.count, 0);
+        const active = activity.filter((day) => day.count > 0).length;
+        return {
+          sessionsRoot: "C:\\Users\\me\\.codex\\sessions",
+          rootExists: true,
+          stats: {
+            totalThreads: total + 212,
+            totalBytes: 486539264,
+            activeDays: active,
+            averagePerActiveDay: total / active,
+          },
+          activity,
+        };
+      }
       case "skills.list":
         return { installed, backups };
       case "skills.import":

@@ -211,6 +211,7 @@ window.registerHubHome = (api) => {
       '<rect x="3" y="3" width="8" height="8" rx="2.5"/><rect x="13" y="3" width="8" height="8" rx="2.5"/><rect x="3" y="13" width="8" height="8" rx="2.5"/><path d="M17 14v6M14 17h6"/>',
     route:
       '<circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7.5 6H15a3.5 3.5 0 0 1 0 7H9a3.5 3.5 0 0 0 0 7h7.5"/>',
+    chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   };
   const icon24 = (markup) => {
     const element = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -282,8 +283,19 @@ window.registerHubHome = (api) => {
     const lines = h("section", { class: "m panel span-3" });
     // Same switch as 中转站 and 账号 (pages/no-account.js).
     const noAccount = h("section", { class: "m span-6 no-account home-no-account" });
+    // Codex 概况: what the in-Codex 仪表盘 showed (sessions, MCP, Skills, 12-week activity).
+    const overview = h("section", { class: "m panel span-6 codex-overview" });
     root.append(
-      h("div", { class: "grid home-grid" }, promo, people, noAccount, agentsModule, lines),
+      h(
+        "div",
+        { class: "grid home-grid" },
+        promo,
+        people,
+        noAccount,
+        agentsModule,
+        lines,
+        overview,
+      ),
     );
     api.noAccount.mount(noAccount, alive, { compact: true });
 
@@ -660,8 +672,68 @@ window.registerHubHome = (api) => {
         });
     }
 
+    const size = (bytes) =>
+      bytes >= 1024 ** 3
+        ? `${(bytes / 1024 ** 3).toFixed(1)} GB`
+        : bytes >= 1024 ** 2
+          ? `${(bytes / 1024 ** 2).toFixed(1)} MB`
+          : `${Math.max(0, Math.round(bytes / 1024))} KB`;
+    async function loadOverview() {
+      const [threads, mcp, skills] = await Promise.all([
+        call("dashboard.threadStats").catch(() => null),
+        call("mcp.list").catch(() => null),
+        call("skills.list").catch(() => null),
+      ]);
+      if (!alive()) return;
+      const stat = (label, value, page) =>
+        h(
+          "button",
+          { class: "overview-stat", type: "button", onclick: () => go(page) },
+          h("b", { class: "tabular" }, value),
+          h("span", null, label),
+        );
+      const days = (threads && threads.activity) || [];
+      const peak = Math.max(1, ...days.map((day) => day.count));
+      const heat = h(
+        "div",
+        { class: "heat", role: "img", "aria-label": "最近 12 周每天的会话数" },
+        days.map((day) =>
+          h("span", {
+            class: `heat-cell l${day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count / peak) * 4))}`,
+            title: `${day.date}：${day.count} 个会话`,
+          }),
+        ),
+      );
+      put(
+        overview,
+        modHead("chart", "Codex 概况", "会话、MCP、Skills 和最近 12 周的活跃"),
+        h(
+          "div",
+          { class: "overview-stats" },
+          stat(
+            threads ? `会话 · ${size(threads.stats.totalBytes)}` : "会话",
+            threads ? String(threads.stats.totalThreads) : "—",
+            "threads",
+          ),
+          stat(
+            "MCP 启用 / 总数",
+            mcp ? `${mcp.enabledCount} / ${mcp.totalCount ?? mcp.servers.length}` : "—",
+            "mcp",
+          ),
+          stat(
+            "Skills",
+            skills ? String(skills.installedCount ?? skills.installed.length) : "—",
+            "skills",
+          ),
+          stat("活跃天数", threads ? String(threads.stats.activeDays) : "—", "threads"),
+        ),
+        days.length ? heat : null,
+      );
+    }
+
     loadPromo();
     load();
+    loadOverview();
     const timer = setInterval(() => {
       if (!document.hidden) {
         load();

@@ -157,6 +157,14 @@ describe("independent Hub management", () => {
       stats: { totalThreads: 1 },
       truncated: false,
     });
+    // 首页 → Codex 概况: totals and the 12-week activity, as the former in-Codex 仪表盘 had.
+    const overview = (await service.handle("dashboard.threadStats", {})) as {
+      stats: { totalThreads: number };
+      activity: { count: number }[];
+    };
+    expect(overview.stats.totalThreads).toBe(1);
+    expect(overview.activity).toHaveLength(84);
+    expect(overview.activity.reduce((sum, day) => sum + day.count, 0)).toBe(1);
     expect(
       await service.handle("threads.trash", {
         relPaths: ["rollout-demo.jsonl", "rollout-missing.jsonl"],
