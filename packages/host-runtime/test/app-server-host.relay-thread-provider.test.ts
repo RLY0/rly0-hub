@@ -1,8 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JsonObject } from "@codexhost/protocol-core";
-import { RLY0_THREAD_PROVIDER_LOCKED_CODE } from "@codexhost/shared-contracts";
+import {
+  RLY0_THREAD_CONTINUED_CODE,
+  RLY0_THREAD_PROVIDER_LOCKED_CODE,
+} from "@codexhost/shared-contracts";
 import { Rly0CoreBridge } from "../src/rly0-core/index.js";
 import { Rly0RelayCodexConfigManager } from "../src/rly0-relay/codex-config.js";
+import { Rly0RelayModelRouter } from "../src/rly0-relay/model-routing.js";
 import {
   createFixture,
   readJsonLine,
@@ -17,6 +21,8 @@ let noAccount = false;
 
 beforeEach(() => {
   noAccount = false;
+  // These cover the behavior with 统一渠道 off (app-server-host.unified-channel.test.ts has it on).
+  vi.spyOn(Rly0RelayModelRouter.prototype, "unifiedOn").mockResolvedValue(false);
   vi.spyOn(Rly0CoreBridge.prototype, "listRelays").mockResolvedValue({
     available: true,
     relays: [
@@ -147,7 +153,7 @@ describe("SYNTHETIC relay model on an older official-provider Thread", () => {
     }
   });
 
-  it("refuses a relay turn on a Thread loaded on openai with a Chinese, actionable error", async () => {
+  it("continues a relay turn on a Thread loaded on openai in a fork on rly0, sending the message there", async () => {
     const fixture = createFixture();
     try {
       await fixture.ready;
@@ -162,13 +168,42 @@ describe("SYNTHETIC relay model on an older official-provider Thread", () => {
       answer(fixture, resume.id, resumed("loaded-official", "gpt-5.5", "openai"));
       await fixture.collector.waitFor((message) => requestId(message, 21));
 
-      // Manual relay pick while no-account mode is off; Codex cannot switch a loaded Thread.
-      const refused = await desktop(fixture, 22, "turn/start", relayTurn("loaded-official"));
-      const error = refused.error as JsonObject;
-      expect(error.message).toContain("在新对话里继续（带上之前的内容）");
-      expect(error.message).toContain(RLY0_THREAD_PROVIDER_LOCKED_CODE);
+      // Manual relay pick while no-account mode is off; Codex cannot switch a loaded Thread, so
+      // the Host forks it onto rly0 with its history and sends the message there.
+      writeRequest(fixture.desktopInput, {
+        id: 22,
+        method: "turn/start",
+        params: relayTurn("loaded-official"),
+      });
+      const fork = await readJsonLine(fixture.official.stdin);
+      expect(fork).toMatchObject({
+        method: "thread/fork",
+        params: {
+          threadId: "loaded-official",
+          model: RELAY_MODEL,
+          modelProvider: "rly0",
+          excludeTurns: true,
+          config: { "model_providers.rly0": { base_url: "http://127.0.0.1:25917/v1" } },
+        },
+      });
+      answer(fixture, fork.id, resumed("loaded-official-fork", RELAY_MODEL, "rly0"));
+      const forkedTurn = await readJsonLine(fixture.official.stdin);
+      expect(forkedTurn).toMatchObject({
+        method: "turn/start",
+        params: {
+          threadId: "loaded-official-fork",
+          input: [{ type: "text", text: "继续" }],
+          collaborationMode: { settings: { model: RELAY_MODEL } },
+        },
+      });
+      answer(fixture, forkedTurn.id, {
+        result: { turn: { id: "fork-turn", status: "inProgress" } },
+      });
+      const continued = await fixture.collector.waitFor((message) => requestId(message, 22));
+      const error = continued.error as JsonObject;
+      expect(error.message).toContain("已在新对话里继续（原对话保留）");
+      expect(error.message).toContain(`${RLY0_THREAD_CONTINUED_CODE}:loaded-official-fork`);
       expect(error.message).not.toContain(RELAY_MODEL);
-      expect(fixture.official.stdin.read()).toBeNull();
 
       // The same Thread keeps working with its official model.
       writeRequest(fixture.desktopInput, {
@@ -199,8 +234,17 @@ describe("SYNTHETIC relay model on an older official-provider Thread", () => {
       const resume = await readJsonLine(fixture.official.stdin);
       answer(fixture, resume.id, resumed("pay-old", "gpt-5.5", "openai"));
       await fixture.collector.waitFor((message) => requestId(message, 61));
-      const refused = await desktop(fixture, 62, "turn/start", relayTurn("pay-old"));
-      expect(refused).toHaveProperty("error");
+      // The automatic fork fails here, so the turn is refused and the Handoff stays available.
+      writeRequest(fixture.desktopInput, {
+        id: 62,
+        method: "turn/start",
+        params: relayTurn("pay-old"),
+      });
+      const fork = await readJsonLine(fixture.official.stdin);
+      expect(fork).toMatchObject({ method: "thread/fork" });
+      answer(fixture, fork.id, { error: { code: -32603, message: "fork failed" } });
+      const refused = await fixture.collector.waitFor((message) => requestId(message, 62));
+      expect((refused.error as JsonObject).message).toContain(RLY0_THREAD_PROVIDER_LOCKED_CODE);
 
       const responder = (async () => {
         while (!done) {
@@ -295,12 +339,19 @@ describe("SYNTHETIC relay model on an older official-provider Thread", () => {
       const update = await readJsonLine(fixture.official.stdin);
       answer(fixture, update.id, { result: {} });
       await fixture.collector.waitFor((message) => requestId(message, 32));
-      const refused = await desktop(fixture, 33, "turn/start", {
-        threadId: "settings-thread",
-        input: [],
+      writeRequest(fixture.desktopInput, {
+        id: 33,
+        method: "turn/start",
+        params: { threadId: "settings-thread", input: [] },
       });
+      const fork = await readJsonLine(fixture.official.stdin);
+      expect(fork).toMatchObject({
+        method: "thread/fork",
+        params: { threadId: "settings-thread", model: RELAY_MODEL, modelProvider: "rly0" },
+      });
+      answer(fixture, fork.id, { error: { code: -32603, message: "fork failed" } });
+      const refused = await fixture.collector.waitFor((message) => requestId(message, 33));
       expect((refused.error as JsonObject).message).toContain(RLY0_THREAD_PROVIDER_LOCKED_CODE);
-      expect(fixture.official.stdin.read()).toBeNull();
     } finally {
       await stopFixture(fixture);
     }

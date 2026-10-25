@@ -50,6 +50,13 @@ export const RLY0_RELAY_MODEL_ID_PREFIX = "rly0/";
  * when the Thread is loaded, so the Renderer offers to continue in a new conversation instead.
  */
 export const RLY0_THREAD_PROVIDER_LOCKED_CODE = "RLY0_THREAD_PROVIDER_LOCKED";
+/**
+ * Marker of the Host's `turn/start` reply when such a Thread was continued automatically in a
+ * forked Thread on the right provider (`RLY0_THREAD_CONTINUED:<new thread id>`); the message was
+ * already sent there and the Renderer opens it.
+ */
+export const RLY0_THREAD_CONTINUED_CODE = "RLY0_THREAD_CONTINUED";
+export const RLY0_THREAD_CONTINUED_NOTE = "已在新对话里继续（原对话保留）";
 
 /** Whether `model` is a relay model id appended by the Host (not an official Codex model). */
 export function isRly0RelayModelId(model: unknown): model is string {

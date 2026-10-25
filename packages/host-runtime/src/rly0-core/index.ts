@@ -244,6 +244,19 @@ function sanitizeProxyStatus(raw: unknown): Rly0ProxyStatusResult {
   });
 }
 
+/** One `[model_providers.<id>]` of Codex's config.toml, as the local proxy routes it. */
+export interface Rly0CoreCustomProvider {
+  readonly id: string;
+  readonly name: string;
+  readonly baseUrl: string;
+  readonly envKey?: string;
+  readonly bearerToken?: string;
+  readonly requiresOpenaiAuth: boolean;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly envHeaders?: Readonly<Record<string, string>>;
+  readonly queryParams?: Readonly<Record<string, string>>;
+}
+
 /**
  * Typed facade over `Rly0CoreClient`, shaping raw JSON-RPC results into the shared-contracts
  * result unions (always including the `available` discriminant) so `app-server-host.ts` only
@@ -657,6 +670,22 @@ export class Rly0CoreBridge {
     });
     if (!response.available) return { available: false };
     return sanitizeProxyStatus(response.result);
+  }
+
+  /**
+   * Hands the providers of Codex's config.toml to the local proxy for `cfg/<id>/<model>` choices.
+   * The list (it may hold a provider's own `experimental_bearer_token`) stays in the core's memory;
+   * nothing is written to disk and only the count comes back.
+   */
+  async proxyCustomProviders(
+    providers: readonly Rly0CoreCustomProvider[],
+  ): Promise<{ available: boolean; count?: number }> {
+    const response = await this.#client.request<{ count?: unknown }>("proxy/customProviders", {
+      providers,
+    });
+    if (!response.available) return { available: false };
+    const count = response.result?.count;
+    return { available: true, ...(typeof count === "number" ? { count } : {}) };
   }
 
   async proxyStop(): Promise<Rly0ProxyStopResult> {

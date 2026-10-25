@@ -456,6 +456,8 @@ export {
   rly0RelayCodexConfigMutationResultSchema,
   RLY0_RELAY_MODEL_ID_PREFIX,
   RLY0_THREAD_PROVIDER_LOCKED_CODE,
+  RLY0_THREAD_CONTINUED_CODE,
+  RLY0_THREAD_CONTINUED_NOTE,
   isRly0RelayModelId,
 } from "./rly0-relay.js";
 export type {

@@ -193,9 +193,12 @@ import {
 } from "./rly0-relay/model-routing.js";
 import {
   storedThreadRoute,
+  threadContinuedMessage,
   threadProviderLockedMessage,
   turnRequestModel,
 } from "./rly0-relay/thread-provider.js";
+import { readCustomProviders } from "./rly0-relay/custom-providers.js";
+import { codexSignedInWithApiKey, readUnifiedChannel } from "./rly0-relay/unified-channel.js";
 import { createLauncherProcessControl } from "./rly0-maintenance/launcher-process-control.js";
 import { Rly0FirstRunBackup } from "./rly0-maintenance/first-run-backup.js";
 import { ClaudeCodeAuth } from "./rly0-agents/claude-code-auth.js";
@@ -1097,6 +1100,19 @@ export class AppServerHost {
         if (!status.noAccount) return null;
         return status.model ? { model: status.model } : {};
       },
+      // 统一渠道 (Hub setting, on by default): every Thread on the rly0 provider.
+      unifiedChannel: () => readUnifiedChannel(environment),
+      customProviders: () => readCustomProviders(environment),
+      // The current identity the Host already tracks (no extra app-server request).
+      officialAccount: async () => {
+        const snapshot = this.#accountControl.snapshot();
+        const current = snapshot.accounts.find(
+          (account) => account.accountId === snapshot.currentAccountId,
+        );
+        if (current)
+          return current.email ? { kind: "chatgpt", email: current.email } : { kind: "chatgpt" };
+        return (await codexSignedInWithApiKey(environment)) ? { kind: "apiKey" } : null;
+      },
     });
     this.#rly0AddAccount = new Rly0AddAccountLogins({
       coreAvailable: async () => (await this.#rly0Core.status()).available,
@@ -1151,6 +1167,9 @@ export class AppServerHost {
     );
     this.#officialRuntime = new OfficialRuntimeClient({
       scope: this.#officialRuntimeScope,
+      // Threads restored after a backend reload (an account switch, for example) are loaded again,
+      // so they land on the provider the unified channel needs.
+      restoreParams: (params) => this.#rly0RelayModels.restoreParams(params) as Promise<JsonObject>,
       onBackendStopped: () => {
         this.#pendingOfficialTurnStarts.clear();
         this.#activeOfficialTurns.clear();
@@ -3112,22 +3131,33 @@ export class AppServerHost {
       // when the Thread's earlier choice applies; Codex never changes the provider on a turn.
       const turnModel = router.turnModel(params.threadId, turnParams);
       const relayModel = await router.isRelayModel(turnModel);
+      const customModel = await router.isCustomModel(turnModel);
+      // Unified channel: a `rly0` Thread takes any model. Relay and config.toml choices still
+      // need `rly0`; a Thread loaded on another provider continues in a fork that runs on it.
+      const unified = await router.unifiedOn();
       const locked =
-        (provider === RLY0_CODEX_PROVIDER_ID &&
+        (!unified &&
+          provider === RLY0_CODEX_PROVIDER_ID &&
           !relayModel &&
+          !customModel &&
           typeof turnModel === "string" &&
           (await router.requiresOfficialAuth())) ||
-        (relayModel && provider !== RLY0_CODEX_PROVIDER_ID);
+        ((relayModel || customModel) && provider !== RLY0_CODEX_PROVIDER_ID);
       if (locked && typeof turnModel === "string") {
         this.#pendingOfficialTurnStarts.delete(request.id);
         this.#signalActiveWorkChanged();
-        this.#providerLockedThreads.set(params.threadId, turnModel);
-        await this.#writer.json(rpcError(request, -32602, threadProviderLockedMessage(relayModel)));
+        await this.#continueInForkedThread(
+          request,
+          params.threadId,
+          turnParams,
+          turnModel,
+          relayModel || customModel,
+        );
         return "handled";
       }
       this.#providerLockedThreads.delete(params.threadId);
       router.noteThreadModel(params.threadId, turnRequestModel(turnParams));
-      if (!relayModel && provider !== RLY0_CODEX_PROVIDER_ID) return null;
+      if (!relayModel && !customModel && provider !== RLY0_CODEX_PROVIDER_ID) return null;
       try {
         await router.ensureProxy();
       } catch {
@@ -3143,6 +3173,44 @@ export class AppServerHost {
       router.noteThreadModel(params.threadId, turnRequestModel(params));
     }
     return null;
+  }
+
+  /**
+   * A Thread loaded on another provider than its next turn's model needs: Codex cannot change a
+   * loaded Thread's provider (and keeps an unsubscribed one loaded for a while), so the Thread is
+   * forked onto the right provider with its whole history, the message is sent there, and the
+   * reply tells the Renderer to open the fork. The original Thread is kept as it was.
+   */
+  async #continueInForkedThread(
+    request: JsonRpcRequest,
+    threadId: string,
+    turnParams: Record<string, unknown>,
+    model: string,
+    toRelay: boolean,
+  ): Promise<void> {
+    const router = this.#rly0RelayModels;
+    try {
+      const forked = await this.#requestOfficial(
+        "thread/fork",
+        (await router.forkParams(threadId, model)) as JsonObject,
+      );
+      router.observeResponse(forked);
+      const thread =
+        isRecord(forked.result) && isRecord(forked.result.thread) ? forked.result.thread : null;
+      const forkId = thread && typeof thread.id === "string" && thread.id ? thread.id : null;
+      if (forked.error || !forkId) throw new Error("THREAD_FORK_FAILED");
+      router.noteThreadModel(forkId, model);
+      const started = await this.#requestOfficial("turn/start", {
+        ...(turnParams as JsonObject),
+        threadId: forkId,
+      });
+      if (started.error) throw new Error("TURN_START_FAILED");
+      this.#providerLockedThreads.delete(threadId);
+      await this.#writer.json(rpcError(request, -32602, threadContinuedMessage(forkId)));
+    } catch {
+      this.#providerLockedThreads.set(threadId, model);
+      await this.#writer.json(rpcError(request, -32602, threadProviderLockedMessage(toRelay)));
+    }
   }
 
   async #handleOfficialOutput(input: {

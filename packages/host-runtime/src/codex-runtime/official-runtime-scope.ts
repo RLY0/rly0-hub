@@ -9,6 +9,7 @@ import {
   type OfficialClientSession,
   type OwnedOfficialBackend,
   type OfficialRuntimeOwnerOptions,
+  type RestoreParams,
 } from "./official-runtime-owner.js";
 import { OfficialAdmissionError, OfficialWorkGate } from "./official-work-gate.js";
 
@@ -187,8 +188,12 @@ export class OfficialRuntimeScope {
     return outcome;
   }
 
-  attach(output: CodexRuntimeOutput, onBackendStopped?: () => void): OfficialClientSession {
-    return this.owner.attach(output, onBackendStopped);
+  attach(
+    output: CodexRuntimeOutput,
+    onBackendStopped?: () => void,
+    restoreParams?: RestoreParams,
+  ): OfficialClientSession {
+    return this.owner.attach(output, onBackendStopped, restoreParams);
   }
 
   /**
@@ -290,9 +295,10 @@ export class OfficialRuntimeClient {
     scope: OfficialRuntimeScope;
     output: CodexRuntimeOutput;
     onBackendStopped?: () => void;
+    restoreParams?: RestoreParams;
   }) {
     this.#scope = input.scope;
-    this.#session = input.scope.attach(input.output, input.onBackendStopped);
+    this.#session = input.scope.attach(input.output, input.onBackendStopped, input.restoreParams);
   }
 
   initialize(): Promise<void> {

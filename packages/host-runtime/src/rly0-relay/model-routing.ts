@@ -8,6 +8,13 @@ import {
   type Rly0RelayModelCatalogStatusResult,
 } from "@codexhost/shared-contracts";
 
+import type { Rly0CoreCustomProvider } from "../rly0-core/index.js";
+import {
+  coreCustomProviders,
+  customModelId,
+  parseCustomSelector,
+  type Rly0CustomProvider,
+} from "./custom-providers.js";
 import {
   isRelaySelector,
   OFFICIAL_CODEX_PROVIDER_ID,
@@ -15,12 +22,21 @@ import {
   turnRequestModel,
   withTurnRequestModel,
 } from "./thread-provider.js";
+import { unifiedBaseUrl } from "./unified-channel.js";
+import {
+  type Rly0OfficialAccount,
+  unifiedCustomRows,
+  unifiedOfficialRow,
+  unifiedRelayRow,
+} from "./unified-menu.js";
 
 /** The slice of the rly0-core bridge that relay model routing needs. */
 export interface Rly0RelayRoutingCore {
   listRelays(): Promise<Rly0RelayListResult>;
   proxyStatus(): Promise<Rly0ProxyStatusResult>;
   proxyStart(params: { port?: number }): Promise<Rly0ProxyStatusResult>;
+  /** Older cores lack it; `cfg/` choices then fail closed at the proxy. */
+  proxyCustomProviders?(providers: readonly Rly0CoreCustomProvider[]): Promise<unknown>;
 }
 
 export interface Rly0RelayModelRouterOptions {
@@ -41,6 +57,15 @@ export interface Rly0RelayModelRouterOptions {
    * shows only relay models and official names are moved onto the matching relay model.
    */
   readonly noAccountMode?: () => Promise<Rly0NoAccountMode | null>;
+  /**
+   * The unified channel (unified-channel.ts): every Thread runs on `rly0` through the proxy's
+   * `/u/v1` path and the chosen model alone picks the upstream. Absent means off.
+   */
+  readonly unifiedChannel?: () => Promise<boolean>;
+  /** Providers of Codex's config.toml (custom-providers.ts), offered as `cfg/<id>/<model>`. */
+  readonly customProviders?: () => Promise<readonly Rly0CustomProvider[]>;
+  /** How Codex is signed in (`account/read`), named in the unified menu. */
+  readonly officialAccount?: () => Promise<Rly0OfficialAccount | null>;
   readonly now?: () => number;
 }
 
@@ -148,12 +173,20 @@ export class Rly0RelayModelRouter {
   readonly #providerRequiresOpenaiAuth: (() => Promise<boolean>) | undefined;
   readonly #noAccountMode: (() => Promise<Rly0NoAccountMode | null>) | undefined;
   #noAccount: { at: number; mode: Rly0NoAccountMode | null } | null = null;
+  readonly #unifiedChannel: (() => Promise<boolean>) | undefined;
+  #unified: { at: number; on: boolean } | null = null;
+  readonly #customProviders: (() => Promise<readonly Rly0CustomProvider[]>) | undefined;
+  #custom: { at: number; list: readonly Rly0CustomProvider[]; pushed: string } | null = null;
+  readonly #officialAccount: (() => Promise<Rly0OfficialAccount | null>) | undefined;
+  #account: Rly0OfficialAccount | null = null;
   readonly #now: () => number;
   /** Entries on earlier pages of the `model/list` currently being paged through. */
   #pagedCount = 0;
   #officialSnapshot: OfficialSnapshot | null = null;
   #lastOfficialError: { at: number; message: string } | undefined;
   #officialModels = new Set<string>();
+  /** Visible official names of the `model/list` being paged through (custom rows reuse them). */
+  readonly #officialVisible = new Set<string>();
   /** Whether the official catalog has been seen at least once (response or direct read). */
   #officialKnown = false;
   #officialLoad: Promise<void> | null = null;
@@ -169,7 +202,76 @@ export class Rly0RelayModelRouter {
     this.#loadOfficialModels = options.loadOfficialModels;
     this.#providerRequiresOpenaiAuth = options.providerRequiresOpenaiAuth;
     this.#noAccountMode = options.noAccountMode;
+    this.#unifiedChannel = options.unifiedChannel;
+    this.#customProviders = options.customProviders;
+    this.#officialAccount = options.officialAccount;
     this.#now = options.now ?? Date.now;
+  }
+
+  /** Whether the unified channel is on (cached briefly); unreadable counts as off. */
+  async unifiedOn(fresh = false): Promise<boolean> {
+    if (!this.#unifiedChannel) return false;
+    const now = Date.now();
+    if (!fresh && this.#unified && now - this.#unified.at < CACHE_TTL_MS) return this.#unified.on;
+    let on = false;
+    try {
+      on = await this.#unifiedChannel();
+    } catch {
+      on = false;
+    }
+    this.#unified = { at: now, on };
+    return on;
+  }
+
+  /**
+   * Providers of config.toml, read again after a short cache and handed to the proxy whenever
+   * the list changed or `push` asks (a restarted core forgets it).
+   */
+  async #readCustom(fresh = false, push = false): Promise<readonly Rly0CustomProvider[]> {
+    if (!this.#customProviders) return [];
+    const now = Date.now();
+    let current = this.#custom;
+    if (fresh || !current || now - current.at >= CACHE_TTL_MS) {
+      let list: readonly Rly0CustomProvider[] = current?.list ?? [];
+      try {
+        list = (await withTimeout(this.#customProviders(), LIST_TIMEOUT_MS)) ?? list;
+      } catch {
+        // keep the last list
+      }
+      current = { at: now, list, pushed: current?.pushed ?? "" };
+      this.#custom = current;
+    }
+    const payload = coreCustomProviders(current.list);
+    const fingerprint = JSON.stringify(payload);
+    if ((push || fingerprint !== current.pushed) && this.#core.proxyCustomProviders) {
+      try {
+        await withTimeout(this.#core.proxyCustomProviders(payload), LIST_TIMEOUT_MS, true);
+        current.pushed = fingerprint;
+      } catch {
+        current.pushed = "";
+      }
+    }
+    return current.list;
+  }
+
+  async #readAccount(): Promise<void> {
+    if (!this.#officialAccount) return;
+    try {
+      this.#account =
+        (await withTimeout(this.#officialAccount(), LIST_TIMEOUT_MS)) ?? this.#account;
+    } catch {
+      // keep the last known account
+    }
+  }
+
+  /** A `cfg/<id>/<model>` choice names a provider config.toml still defines. */
+  async isCustomModel(model: unknown): Promise<boolean> {
+    const selected = parseCustomSelector(model);
+    if (!selected) return false;
+    const list = await this.#readCustom(false, true);
+    if (!list.some((provider) => provider.id === selected.providerId))
+      throw new Error("CUSTOM_PROVIDER_NOT_AVAILABLE");
+    return true;
   }
 
   /**
@@ -269,7 +371,12 @@ export class Rly0RelayModelRouter {
 
   /** Warms the relay list and the mode before a `model/list` response is rewritten synchronously. */
   async prepareModelList(): Promise<void> {
-    await Promise.all([this.#relayModels(true), this.#readNoAccount(true)]);
+    const unified = await this.unifiedOn(true);
+    await Promise.all([
+      this.#relayModels(true),
+      this.#readNoAccount(true),
+      ...(unified ? [this.#readCustom(true), this.#readAccount()] : []),
+    ]);
   }
 
   /** No-account mode as last read (cached briefly); an unreadable mode counts as off. */
@@ -332,6 +439,7 @@ export class Rly0RelayModelRouter {
     const named = typeof input.model === "string" && input.model ? input.model : undefined;
     if (!threadId || typeof input.modelProvider === "string")
       return this.rewriteThreadParams(input);
+    if (await this.unifiedOn()) return this.#unifiedResume(threadId, input, named, readStored);
     const noAccount = await this.#readNoAccount();
     if (noAccount && !named) {
       const stored = await this.#storedRoute(threadId, readStored);
@@ -351,6 +459,106 @@ export class Rly0RelayModelRouter {
       }
     }
     return this.rewriteThreadParams(input);
+  }
+
+  /**
+   * Unified channel: a Thread stored on another provider (an older one started with the ChatGPT
+   * login: `openai`, or a provider of config.toml) is loaded on `rly0` with the model it had, so
+   * any channel can answer its next turn. One stored on `rly0` keeps its stored pair and only gets
+   * the provider definition (naming a provider without a model would reset the model).
+   */
+  async #unifiedResume(
+    threadId: string,
+    input: JsonRecord,
+    named: string | undefined,
+    readStored: (threadId: string) => Promise<StoredThreadRoute | undefined>,
+  ): Promise<JsonRecord | null> {
+    if (named) return this.rewriteThreadParams(input);
+    const known = this.#threadProviders.get(threadId);
+    const stored =
+      known === RLY0_CODEX_PROVIDER_ID
+        ? { provider: known }
+        : await withTimeout(readStored(threadId), LIST_TIMEOUT_MS);
+    if (stored?.provider === RLY0_CODEX_PROVIDER_ID) return this.#unifiedDefinitionOnly(input);
+    const model = stored?.model ?? this.#threadModels.get(threadId);
+    if (!model) return this.#unifiedDefinitionOnly(input);
+    // A stored provider of config.toml keeps answering through it: its model as `cfg/<id>/...`.
+    const custom =
+      stored?.provider && stored.provider !== OFFICIAL_CODEX_PROVIDER_ID
+        ? (await this.#readCustom()).find((provider) => provider.id === stored.provider)
+        : undefined;
+    return this.rewriteThreadParams({
+      ...input,
+      model: custom && !isRelaySelector(model) ? customModelId(custom.id, model) : model,
+    });
+  }
+
+  async #unifiedDefinitionOnly(input: JsonRecord): Promise<JsonRecord | null> {
+    let baseUrl: string;
+    try {
+      baseUrl = unifiedBaseUrl(await this.ensureProxy());
+    } catch {
+      return null;
+    }
+    return this.#withProviderDefinition(input, baseUrl, await this.#requiresAuth());
+  }
+
+  /**
+   * The `thread/resume` a Thread is restored with on a new backend (after a backend reload, for
+   * example an account switch). The Thread is loaded again there, so with the unified channel on
+   * it moves onto `rly0` (keeping its model); with it off a `rly0` Thread on an official model
+   * goes back to the provider it had before. Anything else is returned unchanged.
+   */
+  async restoreParams(params: JsonRecord): Promise<JsonRecord> {
+    const threadId = typeof params.threadId === "string" ? params.threadId : "";
+    if (!threadId) return params;
+    const model =
+      (typeof params.model === "string" && params.model ? params.model : undefined) ??
+      this.#threadModels.get(threadId);
+    const provider =
+      typeof params.modelProvider === "string"
+        ? params.modelProvider
+        : this.#threadProviders.get(threadId);
+    if (await this.unifiedOn()) {
+      if (provider === RLY0_CODEX_PROVIDER_ID)
+        return (await this.#unifiedDefinitionOnly(params)) ?? params;
+      if (!model) return params;
+      return (await this.rewriteThreadParams({ ...params, model })) ?? params;
+    }
+    if (
+      provider === RLY0_CODEX_PROVIDER_ID &&
+      model &&
+      !isRelaySelector(model) &&
+      !parseCustomSelector(model) &&
+      (await this.#requiresAuth())
+    ) {
+      const config = isRecord(params.config) ? { ...params.config } : undefined;
+      if (config) delete config[`model_providers.${RLY0_CODEX_PROVIDER_ID}`];
+      return {
+        ...params,
+        ...(config ? { config } : {}),
+        model,
+        modelProvider: this.#originalProviders.get(threadId) ?? OFFICIAL_CODEX_PROVIDER_ID,
+      };
+    }
+    return params;
+  }
+
+  /**
+   * `thread/fork` params that continue a Thread in a new one on the provider `model` needs, for a
+   * Thread already loaded on another provider (Codex cannot change a loaded Thread's provider).
+   */
+  async forkParams(threadId: string, model: string): Promise<JsonRecord> {
+    const base: JsonRecord = { threadId, model, excludeTurns: true };
+    if ((await this.unifiedOn()) || isRelaySelector(model) || parseCustomSelector(model)) {
+      const next = await this.rewriteThreadParams(base);
+      if (!next) throw new Error("RLY0_PROXY_UNAVAILABLE");
+      return next;
+    }
+    return {
+      ...base,
+      modelProvider: this.#originalProviders.get(threadId) ?? OFFICIAL_CODEX_PROVIDER_ID,
+    };
   }
 
   async #storedRoute(
@@ -387,12 +595,18 @@ export class Rly0RelayModelRouter {
       if (typeof entry.id === "string") this.#officialModels.add(entry.id);
     }
     this.#officialKnown = true;
+    const unified = this.#unified?.on === true;
+    for (const entry of official)
+      if (entry.hidden !== true && typeof entry.model === "string")
+        this.#officialVisible.add(entry.model);
     // Only the last page carries the extra entries.
     if (typeof result.nextCursor === "string" && result.nextCursor) {
       this.#pagedCount += official.length;
       // No-account mode: no official model can answer, so its rows are left out of every page.
       if (this.#noAccount?.mode && (this.#cache?.models.length ?? 0) > 0)
         return { ...response, result: { ...result, data: [] } };
+      if (unified)
+        return { ...response, result: { ...result, data: this.#unifiedOfficial(result.data) } };
       return null;
     }
     this.#officialSnapshot = {
@@ -403,54 +617,81 @@ export class Rly0RelayModelRouter {
     this.#pagedCount = 0;
     const relayModels = this.#cache?.models ?? [];
     const noAccount = this.#noAccount?.mode ?? null;
+    const visibleNames = [...this.#officialVisible];
+    this.#officialVisible.clear();
+    const customTemplate =
+      official.find((entry) => entry.isDefault !== true && entry.hidden !== true) ?? official[0];
+    const custom = unified
+      ? unifiedCustomRows(this.#custom?.list ?? [], visibleNames, this.#account, customTemplate)
+      : [];
     if (noAccount && relayModels.length === 0) {
       // Nothing to replace them with: keep the official rows, but say where they really go.
       return {
         ...response,
         result: {
           ...result,
-          data: result.data.map((entry: unknown) =>
-            isRecord(entry)
-              ? {
-                  ...entry,
-                  displayName: `${typeof entry.displayName === "string" ? entry.displayName : String(entry.model ?? "")} · ${RLY0_NO_ACCOUNT_OFFICIAL_LABEL}`,
-                }
-              : entry,
-          ),
+          data: result.data
+            .map((entry: unknown) =>
+              isRecord(entry)
+                ? {
+                    ...entry,
+                    displayName: `${typeof entry.displayName === "string" ? entry.displayName : String(entry.model ?? "")} · ${RLY0_NO_ACCOUNT_OFFICIAL_LABEL}`,
+                  }
+                : entry,
+            )
+            .concat(custom),
         },
       };
     }
-    if (relayModels.length === 0) return null;
+    if (relayModels.length === 0 && !unified) return null;
     const template =
       official.find((entry) => entry.isDefault !== true && entry.hidden !== true) ?? official[0];
-    const additions = relayModels.map(({ model, relayName, relayId }) => {
-      const entry: JsonRecord = { ...(template ?? {}) };
-      delete entry.upgrade;
-      delete entry.upgradeInfo;
-      delete entry.availabilityNux;
-      return {
-        ...entry,
-        id: relayModelId(relayId, model),
-        model: relayModelId(relayId, model),
-        // Relay first, behind a relay mark, so relay models stand out from official ones and two
-        // relays offering the same model are easy to tell apart. Plain text: it survives Codex
-        // updates, unlike decorating Codex's own menu.
-        displayName: `${relayName} · ${model}`,
-        description: `${relayName} · RLY/0`,
-        hidden: false,
-        isDefault: false,
-        ...(template ? {} : { supportedReasoningEfforts: [] }),
-      };
-    });
+    const additions = relayModels
+      .map(({ model, relayName, relayId }) => {
+        const entry: JsonRecord = { ...(template ?? {}) };
+        delete entry.upgrade;
+        delete entry.upgradeInfo;
+        delete entry.availabilityNux;
+        return {
+          ...entry,
+          id: relayModelId(relayId, model),
+          model: relayModelId(relayId, model),
+          // Relay first, behind a relay mark, so relay models stand out from official ones and two
+          // relays offering the same model are easy to tell apart. Plain text: it survives Codex
+          // updates, unlike decorating Codex's own menu.
+          displayName: `${relayName} · ${model}`,
+          description: `${relayName} · RLY/0`,
+          hidden: false,
+          isDefault: false,
+          ...(template ? {} : { supportedReasoningEfforts: [] }),
+        };
+      })
+      .map((entry, index) =>
+        unified ? unifiedRelayRow(entry, relayModels[index]?.relayName ?? "") : entry,
+      );
     if (noAccount) {
       // Only relay models, grouped by relay; the configured default stays the default.
       const preferred =
         relayModels.find((entry) => entry.model === noAccount.model) ?? relayModels[0];
       const defaultId = preferred ? relayModelId(preferred.relayId, preferred.model) : undefined;
       const only = additions.map((entry) => ({ ...entry, isDefault: entry.id === defaultId }));
-      return { ...response, result: { ...result, data: only } };
+      return { ...response, result: { ...result, data: [...only, ...custom] } };
     }
+    if (unified)
+      return {
+        ...response,
+        result: {
+          ...result,
+          data: [...this.#unifiedOfficial(result.data), ...additions, ...custom],
+        },
+      };
     return { ...response, result: { ...result, data: [...result.data, ...additions] } };
+  }
+
+  #unifiedOfficial(data: unknown[]): unknown[] {
+    return data.map((entry) =>
+      isRecord(entry) ? unifiedOfficialRow(entry, this.#account) : entry,
+    );
   }
 
   async isRelayModel(model: unknown): Promise<boolean> {
@@ -510,6 +751,7 @@ export class Rly0RelayModelRouter {
     // the matching relay model, so it keeps working and shows as the relay model it really is.
     const selector = await this.#noAccountSelector(input.model);
     const params = selector ? { ...input, model: selector } : input;
+    if (await this.unifiedOn()) return this.#unifiedThreadParams(params);
     if (!(await this.isRelayModel(params.model))) {
       // A conversation started on a relay model is recorded with the `rly0` provider; resuming it
       // later needs the provider defined again even when the request names no model.
@@ -527,6 +769,32 @@ export class Rly0RelayModelRouter {
       return this.#withProviderDefinition(params, baseUrl, await this.#requiresAuth());
     }
     const baseUrl = await this.ensureProxy();
+    return {
+      ...this.#withProviderDefinition(params, baseUrl, await this.#requiresAuth()),
+      modelProvider: RLY0_CODEX_PROVIDER_ID,
+    };
+  }
+
+  /** Unified channel: every Thread on `rly0`; the proxy picks the upstream per request. */
+  async #unifiedThreadParams(input: JsonRecord): Promise<JsonRecord | null> {
+    const selected = typeof input.model === "string" && input.model ? input.model : undefined;
+    await this.isRelayModel(selected);
+    await this.isCustomModel(selected);
+    let baseUrl: string;
+    try {
+      baseUrl = unifiedBaseUrl(await this.ensureProxy());
+    } catch (error) {
+      // Without RLY/0 Hub's own proxy the Thread stays on its native provider.
+      if (isRelaySelector(selected) || parseCustomSelector(selected)) throw error;
+      return null;
+    }
+    let params = input;
+    // A new Thread without a model whose config.toml default is one of its providers keeps it.
+    if (!selected && typeof input.threadId !== "string") {
+      const preferred = (await this.#readCustom(false, true)).find((p) => p.defaultModel);
+      if (preferred?.defaultModel)
+        params = { ...input, model: customModelId(preferred.id, preferred.defaultModel) };
+    }
     return {
       ...this.#withProviderDefinition(params, baseUrl, await this.#requiresAuth()),
       modelProvider: RLY0_CODEX_PROVIDER_ID,

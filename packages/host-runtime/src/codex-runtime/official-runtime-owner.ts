@@ -36,6 +36,8 @@ interface Client {
   role: "task" | "management";
   output: CodexRuntimeOutput;
   onBackendStopped?: () => void;
+  /** Adjusts the remembered `thread/resume` before a Thread is restored on a new backend. */
+  restoreParams?: RestoreParams;
   runtime?: CodexRuntime;
   connecting?: Promise<CodexRuntime>;
   initializing?: Promise<JsonObject>;
@@ -45,6 +47,11 @@ interface Client {
   serverRequests: Map<string, string | number>;
   threads: Map<string, { params: JsonObject; generation: number; restoring?: Promise<void> }>;
 }
+/**
+ * A Thread restored on a new backend is loaded again, so the provider it runs on can be decided
+ * anew (for example the unified relay channel); failures keep the remembered parameters.
+ */
+export type RestoreParams = (params: JsonObject) => Promise<JsonObject>;
 export interface OfficialRuntimeOwnerOptions {
   createBackend(): OwnedOfficialBackend;
   diagnosticOutput: Writable;
@@ -205,8 +212,12 @@ export class OfficialRuntimeOwner {
     return stopping;
   }
 
-  attach(output: CodexRuntimeOutput, onBackendStopped?: () => void): OfficialClientSession {
-    return this.#attach("task", output, onBackendStopped);
+  attach(
+    output: CodexRuntimeOutput,
+    onBackendStopped?: () => void,
+    restoreParams?: RestoreParams,
+  ): OfficialClientSession {
+    return this.#attach("task", output, onBackendStopped, restoreParams);
   }
 
   attachManagement(output: CodexRuntimeOutput): OfficialClientSession {
@@ -217,12 +228,14 @@ export class OfficialRuntimeOwner {
     role: Client["role"],
     output: CodexRuntimeOutput,
     onBackendStopped?: () => void,
+    restoreParams?: RestoreParams,
   ): OfficialClientSession {
     const client: Client = {
       id: randomUUID(),
       role,
       output,
       ...(onBackendStopped ? { onBackendStopped } : {}),
+      ...(restoreParams ? { restoreParams } : {}),
       pending: new Map(),
       serverRequests: new Map(),
       threads: new Map(),
@@ -488,7 +501,14 @@ export class OfficialRuntimeOwner {
     if (!subscription || subscription.generation === runtime.generation) return;
     if (subscription.restoring) return subscription.restoring;
     const restoring = (async () => {
-      const resume = subscription.params;
+      let resume = subscription.params;
+      if (client.restoreParams) {
+        try {
+          resume = await client.restoreParams(structuredClone(resume));
+        } catch {
+          resume = subscription.params;
+        }
+      }
       const response = await runtime.request("thread/resume", resume);
       if (
         response.error ||
@@ -499,6 +519,7 @@ export class OfficialRuntimeOwner {
         throw new Error("Official Thread restoration failed");
       if (client.runtime !== runtime || runtime.generation !== this.#generation)
         throw new OfficialAdmissionError("unavailable");
+      subscription.params = resume;
       subscription.generation = runtime.generation;
     })();
     subscription.restoring = restoring;

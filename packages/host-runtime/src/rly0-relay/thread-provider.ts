@@ -1,5 +1,7 @@
 import {
   RLY0_RELAY_MODEL_ID_PREFIX,
+  RLY0_THREAD_CONTINUED_CODE,
+  RLY0_THREAD_CONTINUED_NOTE,
   RLY0_THREAD_PROVIDER_LOCKED_CODE,
 } from "@codexhost/shared-contracts";
 
@@ -77,12 +79,17 @@ export function storedThreadRoute(response: unknown): StoredThreadRoute | undefi
   };
 }
 
+/** Reply to a `turn/start` that was continued in the forked Thread `threadId`. */
+export function threadContinuedMessage(threadId: string): string {
+  return `${RLY0_THREAD_CONTINUED_NOTE} (${RLY0_THREAD_CONTINUED_CODE}:${threadId})`;
+}
+
 /**
  * Error for a `turn/start` whose model needs another provider than the one the Thread is loaded
- * on. The trailing code lets the Renderer offer "在新对话里继续（带上之前的内容）".
+ * on and that could not be continued in a forked Thread either.
  */
 export function threadProviderLockedMessage(toRelay: boolean): string {
   return toRelay
-    ? `这个对话是用官方账号开始的，Codex 不能在同一个对话里改用中转模型（否则会报 “model is not supported when using Codex with a ChatGPT account”）。点“在新对话里继续（带上之前的内容）”就能用中转模型接着聊。 (${RLY0_THREAD_PROVIDER_LOCKED_CODE})`
-    : `这个对话正在走零号中转，Codex 不能在同一个对话里改回官方模型。点“在新对话里继续（带上之前的内容）”就能用官方模型接着聊，或重新选择带站点名的中转模型。 (${RLY0_THREAD_PROVIDER_LOCKED_CODE})`;
+    ? `这个对话是用官方账号开始的，没能自动换到中转模型继续。请稍后再发一次，或新开一个对话。 (${RLY0_THREAD_PROVIDER_LOCKED_CODE})`
+    : `这个对话正在走零号中转，没能自动换回官方模型继续。请稍后再发一次，或重新选择带站点名的中转模型。 (${RLY0_THREAD_PROVIDER_LOCKED_CODE})`;
 }
