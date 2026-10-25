@@ -689,7 +689,7 @@ window.registerHubHome = (api) => {
             `${total} 个会话 · 活跃 ${active} 天 · 单日最多 ${peak === 1 && total === 0 ? 0 : peak}`,
           ),
         ),
-        // Pixel squares, oldest first: six weeks per row, two rows, each square sized to
+        // Pixel squares, oldest first, as many per row as keep them small (app.css), sized to
         // fill the card's width. Brand red by level, as before.
         h(
           "div",
