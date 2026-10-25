@@ -10,7 +10,12 @@ import { rly0McpNameSchema } from "@codexhost/shared-contracts";
 
 import { backupAndWriteAtomic, resolveCodexHome } from "./file-io.js";
 import { parseMcpServersForDisplay } from "./reader.js";
-import { appendMcpServer, removeMcpServer, setMcpServerEnabled } from "./toml-editor.js";
+import {
+  appendMcpServer,
+  removeMcpServer,
+  setMcpServerEnabled,
+  updateMcpServerConnection,
+} from "./toml-editor.js";
 
 export interface Rly0McpManagerOptions {
   readonly environment?: NodeJS.ProcessEnv;
@@ -93,6 +98,27 @@ export class Rly0McpManager {
     const content = await readConfig(configPath);
     if (content === null) throw new Error("MCP_CONFIG_NOT_FOUND");
     const next = removeMcpServer(content, name);
+    await backupAndWriteAtomic(configPath, next);
+    return { ok: true };
+  }
+
+  /** Changes how a server connects; its other settings stay. */
+  async update(params: Rly0McpAddParams): Promise<Rly0McpMutationResult> {
+    assertSafeName(params.name);
+    const configPath = this.configPath();
+    const content = await readConfig(configPath);
+    if (content === null) throw new Error("MCP_CONFIG_NOT_FOUND");
+    const next = updateMcpServerConnection(
+      content,
+      params.type === "stdio"
+        ? {
+            type: "stdio",
+            name: params.name,
+            command: params.command,
+            ...(params.args ? { args: params.args } : {}),
+          }
+        : { type: "http", name: params.name, url: params.url },
+    );
     await backupAndWriteAtomic(configPath, next);
     return { ok: true };
   }

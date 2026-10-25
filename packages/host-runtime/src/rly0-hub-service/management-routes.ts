@@ -123,6 +123,7 @@ export function createHubManagementRoutes(options: {
       rly0McpRpcError,
     ),
     "mcp.add": route(rly0McpAddParamsSchema, (p) => mcp.add(p), rly0McpRpcError),
+    "mcp.update": route(rly0McpAddParamsSchema, (p) => mcp.update(p), rly0McpRpcError),
     "mcp.setEnabled": route(
       rly0McpSetEnabledParamsSchema,
       (p) => mcp.setEnabled(p.name, p.enabled),
@@ -130,6 +131,18 @@ export function createHubManagementRoutes(options: {
     ),
     "mcp.remove": route(rly0McpRemoveParamsSchema, (p) => mcp.remove(p.name), rly0McpRpcError),
     "skills.list": route(empty, () => skills.list(), rly0SkillsRpcError),
+    "skills.openFolder": route(
+      z.object({ name: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/u).optional() }).strict(),
+      async (p) => {
+        const root = skills.skillsRoot();
+        const target = p.name ? path.join(root, p.name) : root;
+        if (!(await fs.stat(target).then((stat) => stat.isDirectory(), () => false)))
+          throw new Error("SKILL_NOT_FOUND");
+        openFolder(target);
+        return { ok: true };
+      },
+      () => ({ code: -32000, message: "SKILL_NOT_FOUND" }),
+    ),
     "skills.import": route(
       rly0SkillsImportParamsSchema,
       (p) => skills.importSkill(p),

@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { createBridgeRoutes } from "./bridge-routes.js";
+import type { MemoryServerLaunch } from "../rly0-memory/launch.js";
 import path from "node:path";
 
 import {
@@ -158,9 +160,19 @@ const linkParams = z
 
 type Handler = (params: unknown) => Promise<unknown>;
 
+function openInExplorer(directory: string): void {
+  const child = spawn("explorer.exe", [directory], { detached: true, stdio: "ignore" });
+  child.on("error", () => undefined);
+  child.unref();
+}
+
 export interface Rly0HubServiceOptions {
   readonly environment: NodeJS.ProcessEnv;
   readonly installRoot: string;
+  /** Shows a folder in Explorer (打通设置 → 记忆 / 技能); the default runs `explorer.exe`. */
+  readonly openFolder?: (directory: string) => void;
+  /** Pins the memory server Codex is given (tests); `null` gives none. */
+  readonly memoryLaunch?: MemoryServerLaunch | null;
   /** How long an account switch waits for Codex to reload its backend in place. */
   readonly backendReloadTimeoutMs?: number;
   /** What "开机自启" registers; omitted when this build has no Hub executable. */
@@ -275,6 +287,7 @@ export class Rly0HubService {
     return pending;
   }
   readonly #routes: Readonly<Record<string, Handler>>;
+  #bridge!: ReturnType<typeof createBridgeRoutes>;
 
   constructor(options: Rly0HubServiceOptions) {
     this.#options = options;
@@ -375,6 +388,12 @@ export class Rly0HubService {
         core: this.#core,
         openUrl: (url) => (options.openUrl ?? openInBrowser)(url),
       });
+    this.#bridge = createBridgeRoutes({
+      environment,
+      installRoot: options.installRoot,
+      openFolder: options.openFolder ?? openInExplorer,
+      ...(options.memoryLaunch !== undefined ? { memoryLaunch: options.memoryLaunch } : {}),
+    });
     this.#routes = this.#buildRoutes();
   }
 
@@ -400,6 +419,8 @@ export class Rly0HubService {
     await this.#ensureProxyForRelays().catch(() => undefined);
     // Local metadata only: no model request and no change to the running client.
     await this.#compatibility.check().catch(() => undefined);
+    // Shared memory: import Codex memories once; Codex's rly0_memory entry follows the switch.
+    await this.#bridge.start().catch(() => undefined);
   }
 
   /** Tray notices to show now; each is remembered so it is not repeated. */
@@ -826,9 +847,11 @@ export class Rly0HubService {
         return run(parsed.data);
       };
     return {
+      ...this.#bridge.routes,
       ...createHubManagementRoutes({
         environment: this.#options.environment,
         installRoot: this.#options.installRoot,
+        openFolder: this.#options.openFolder ?? openInExplorer,
         core,
         codex: this.#codex,
         compatibility: this.#compatibility,
@@ -1063,7 +1086,8 @@ export class Rly0HubService {
             ...(p.skills === undefined ? {} : { skills: p.skills }),
             ...(p.memory === undefined ? {} : { memory: p.memory }),
           });
-          return this.#sharingState();
+          const codex = await this.#bridge.afterSharingChange().catch(() => "unchanged" as const);
+          return { ...(await this.#sharingState()), codexMemory: codex };
         },
       ),
       "accounts.usage": route(rly0AccountsUsageParamsSchema, (p) => core.usage(p)),

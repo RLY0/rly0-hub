@@ -406,3 +406,43 @@ export function removeTopLevelKey(content: string, key: string): string {
   lines.splice(existing, 1);
   return joinLines(lines, usesCrLf);
 }
+
+const CONNECTION_KEY = /^\s*(?:command|args|url|"command"|"args"|"url")\s*=/u;
+
+/**
+ * Edits how an existing `[mcp_servers.<name>]` connects (command + args, or url) and keeps
+ * everything else in the block: env tables, tool policies, timeouts, comments.
+ */
+export function updateMcpServerConnection(
+  content: string,
+  server: NewStdioMcpServer | NewHttpMcpServer,
+): string {
+  const usesCrLf = content.includes("\r\n");
+  const lines = splitLines(content);
+  const range = findMcpServerRange(lines, server.name);
+  if (!range) throw new Error("MCP_SERVER_NOT_FOUND");
+  const kept: string[] = [];
+  for (let index = range.start + 1; index < range.directEnd; index += 1) {
+    const line = lines[index] ?? "";
+    if (!CONNECTION_KEY.test(line)) {
+      kept.push(line);
+      continue;
+    }
+    // A multi-line `args = [` runs until its closing bracket.
+    if (/=\s*\[/u.test(line) && !line.includes("]")) {
+      while (index + 1 < range.directEnd && !(lines[index + 1] ?? "").includes("]")) index += 1;
+      index += 1;
+    }
+  }
+  const connection =
+    server.type === "stdio"
+      ? [
+          `command = ${tomlQuotedString(server.command)}`,
+          ...(server.args && server.args.length > 0
+            ? [`args = [${server.args.map(tomlQuotedString).join(", ")}]`]
+            : []),
+        ]
+      : [`url = ${tomlQuotedString(server.url)}`];
+  lines.splice(range.start + 1, range.directEnd - range.start - 1, ...connection, ...kept);
+  return joinLines(lines, usesCrLf);
+}
