@@ -379,14 +379,15 @@ export function sharedResourcesProvider(
           notices.push("Potential credentials removed from reference memory");
       }
     }
+    const nativeSkills = request?.skillFiles === true && wants.skills;
     const payload = {
-      skills,
+      skills: nativeSkills ? [] : skills,
       memory,
       ...(wants.mcp ? { mcpConfigured: Object.keys(servers) } : {}),
       notices,
       truncated,
     };
-    while (JSON.stringify(payload).length > 26000 && skills.length > 8) {
+    while (!nativeSkills && JSON.stringify(payload).length > 26000 && skills.length > 8) {
       skills.pop();
       payload.truncated = true;
     }
@@ -408,9 +409,17 @@ export function sharedResourcesProvider(
       memory.length,
     );
     // An MCP-only request needs no model context: the servers are native configuration.
-    const contextWanted = wants.skills || wants.memory;
+    const contextWanted = (wants.skills && !nativeSkills) || wants.memory;
     return {
       mcpServers: servers,
+      ...(nativeSkills
+        ? {
+            skills: skills.map((skill) => ({
+              name: skill.name,
+              directory: path.dirname(skill.path),
+            })),
+          }
+        : {}),
       context: contextWanted
         ? redact(
             [

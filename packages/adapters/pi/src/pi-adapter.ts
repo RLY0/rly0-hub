@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import { createPiUsageStatistics } from "./pi-usage-statistics.js";
 import { fetchPiAccounts } from "./account-balance.js";
 import { createPiCredentialImports } from "./pi-credential-imports.js";
@@ -124,6 +125,7 @@ import {
 
 export interface PiAdapterOptions {
   command?: string;
+  sharedResources?: SharedResourcesProvider;
   environment?: NodeJS.ProcessEnv;
   commandTimeoutMs?: number;
   cancelTimeoutMs?: number;

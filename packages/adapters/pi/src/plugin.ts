@@ -12,6 +12,7 @@ export function createHarnessAdapter(context: HarnessPluginContext): PiAdapter {
     new PiAdapter({
       ...(environment[PI_COMMAND_ENV] ? { command: environment[PI_COMMAND_ENV] } : {}),
       environment,
+      ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
     }),
     {
       installation: createPiInstallation(environment, environment[PI_COMMAND_ENV]),

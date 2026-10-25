@@ -116,6 +116,15 @@ codex-group-line
     );
   });
 
+  it("returns skill folders instead of an index to agents that register skills natively", async () => {
+    const f = await fixture();
+    const shared = await f.provider(f.project, { harnessId: "pi", skills: true, skillFiles: true });
+    expect(shared.skills).toEqual([
+      { name: "review", directory: path.join(f.codex, "skills", "review") },
+    ]);
+    expect(shared.context).toBe("");
+  });
+
   it("respects an explicit off from the former single switch", async () => {
     const f = await fixture();
     await fs.mkdir(f.env.CODEXHOST_DATA_DIR, { recursive: true });

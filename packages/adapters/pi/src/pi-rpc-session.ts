@@ -1,3 +1,9 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
+import {
+  piSharedArguments,
+  preparePiSharedResources,
+  type PiSharedLaunch,
+} from "./pi-shared-resources.js";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -144,6 +150,8 @@ export class PiRpcUnsupportedCommandError extends Error {
 
 export interface PiRpcSessionOptions {
   cwd: string;
+  /** Codex MCP, rly0-memory and skills, attached through per-process files. */
+  sharedResources?: SharedResourcesProvider;
   command?: string;
   environment?: NodeJS.ProcessEnv;
   sessionFile?: string;
@@ -158,6 +166,8 @@ export interface PiRpcSessionOptions {
 
 export interface PiRpcProcessOptions {
   cwd: string;
+  /** `--extension` / `--skill` / `--append-system-prompt` for the shared resources. */
+  sharedArguments?: string[];
   fastExtension?: string;
   command?: string;
   environment: NodeJS.ProcessEnv;
@@ -472,6 +482,7 @@ export function piRpcProcessCommand(
     "--mode",
     "rpc",
     ...relayArguments,
+    ...(options.sharedArguments ?? []),
     ...modelArguments,
     ...thinkingArguments,
     ...sessionArguments,
@@ -504,6 +515,7 @@ const nodeProcessAdapter: PiRpcProcessAdapter = {
 };
 
 export class PiRpcSession {
+  #shared: PiSharedLaunch | undefined;
   readonly #options: Required<
     Pick<PiRpcSessionOptions, "commandTimeoutMs" | "cancelTimeoutMs" | "closeTimeoutMs">
   > &
@@ -623,8 +635,16 @@ export class PiRpcSession {
       this.#processAdapter === nodeProcessAdapter
         ? await ensurePiFastExtension({ ...process.env, ...this.#options.environment })
         : undefined;
+    // Only awaited when the Host shares resources: the start stays synchronous otherwise.
+    this.#shared = this.#options.sharedResources
+      ? await preparePiSharedResources(this.#options.sharedResources, this.#options.cwd).catch(
+          () => undefined,
+        )
+      : undefined;
+    const sharedArguments = piSharedArguments(this.#shared);
     const child = this.#processAdapter.spawn({
       cwd: this.#options.cwd,
+      ...(sharedArguments.length ? { sharedArguments } : {}),
       ...(fastExtension ? { fastExtension } : {}),
       ...(this.#options.command ? { command: this.#options.command } : {}),
       environment: withNodeRuntimeOnPath({
@@ -651,12 +671,14 @@ export class PiRpcSession {
       this.#stderrTail = sanitizeDiagnosticTail(`${this.#stderrTail}${chunk.toString()}`);
     });
     child.once("error", (error) => {
+      void this.#shared?.dispose().catch(() => undefined);
       const kind = isRecord(error) && error.code === "ENOENT" ? "notInstalled" : "unavailable";
       this.#fail(
         new PiRpcFaultError(kind, `Pi RPC failed to start: ${error.message}`, this.stderrTail),
       );
     });
     child.once("exit", (code, signal) => {
+      void this.#shared?.dispose().catch(() => undefined);
       if (!this.#closed) {
         this.#fail(
           new PiRpcFaultError(

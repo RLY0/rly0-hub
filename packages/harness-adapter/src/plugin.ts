@@ -33,6 +33,13 @@ export type SharedMcpServer =
 export interface SharedHarnessResources {
   readonly mcpServers: Record<string, SharedMcpServer>;
   readonly context: string;
+  /** Skill folders (each holds SKILL.md), only for requests with `skillFiles`. */
+  readonly skills?: readonly SharedSkill[];
+}
+export interface SharedSkill {
+  readonly name: string;
+  /** The folder containing SKILL.md. */
+  readonly directory: string;
 }
 /** Codex resources a Harness can actually consume through its native interface. */
 export interface SharedResourceRequest {
@@ -54,6 +61,11 @@ export interface SharedResourceRequest {
    * on; on a context request it switches memory context to the short instruction.
    */
   readonly memoryMcp?: boolean;
+  /**
+   * The Harness registers skills natively from their folders: with `skills`, they are returned in
+   * `skills` instead of as an index in the context.
+   */
+  readonly skillFiles?: boolean;
 }
 /**
  * Without a request the Host materializes every enabled kind (older plugins). The Host still
