@@ -115,7 +115,7 @@
 | [`../apps/hub-desktop/macos/validation/README.md`](../apps/hub-desktop/macos/validation/README.md) | Hub与私有Core的Mac组合验证包、环境检查、源码校验及结果边界；仅本地开发交接。 |
 | [`architecture/claude-isolation.md`](architecture/claude-isolation.md) | Claude 的 Docker 隔离设置、项目授权、CodexHost 执行、登录与网络保护边界。 |
 | [`architecture/renderer-settings-styling.md`](architecture/renderer-settings-styling.md) | 设置页 Tailwind CSS 使用边界、构建方式与编写规则；新增或改版设置页界面时阅读。 |
-| [`operations/codex-desktop-upgrade-diagnosis-playbook.md`](operations/codex-desktop-upgrade-diagnosis-playbook.md) | Desktop 更新后 Renderer、Bridge、Agent 和 Model 异常，以及输入性能的诊断流程；兼容性与交互性能回归时阅读。 |
+| [`operations/codex-desktop-upgrade-diagnosis-playbook.md`](operations/codex-desktop-upgrade-diagnosis-playbook.md) | Hub 自动兼容检查与本地反馈、Desktop 更新后 Renderer、Bridge、Agent 和 Model 异常及输入性能的诊断流程。 |
 
 ## 平台、进程与远程运行
 

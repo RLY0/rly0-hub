@@ -799,3 +799,5 @@ export {
   type CodexSshConnection,
   type CodexSshDraft,
 } from "./remote-connections.js";
+export { desktopCompatibilitySchema } from "./desktop-compatibility.js";
+export type { DesktopCompatibility } from "./desktop-compatibility.js";

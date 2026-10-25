@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { rly0CoreStatusResultSchema } from "./rly0-core.js";
+import { desktopCompatibilitySchema } from "./desktop-compatibility.js";
 
 /**
  * Contracts for the "维护工具" (maintenance) settings page: read-only diagnostics, a sanitized
@@ -75,6 +76,7 @@ export const rly0MaintenanceDiagnosticsResultSchema = z
     core: rly0CoreStatusResultSchema,
     /** `null` when the check could not run at all. */
     codexEndpoint: rly0MaintenanceCodexEndpointSchema.nullable().optional(),
+    desktopCompatibility: desktopCompatibilitySchema.optional(),
     advice: z.array(rly0MaintenanceAdviceCodeSchema).max(16),
   })
   .strict();

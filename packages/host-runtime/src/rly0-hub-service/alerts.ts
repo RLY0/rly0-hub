@@ -6,7 +6,14 @@ export const RLY0_LOW_BALANCE = { USD: 1, CNY: 7 } as const;
 export const RLY0_LOW_QUOTA_USED_PERCENT = 90;
 
 export interface Rly0HubAlert {
-  readonly id: "balance-low" | "quota-low" | "switch-suggest" | "switched" | "all-low" | "update";
+  readonly id:
+    | "balance-low"
+    | "quota-low"
+    | "switch-suggest"
+    | "switched"
+    | "all-low"
+    | "update"
+    | "compatibility";
   readonly title: string;
   readonly body: string;
   /** What clicking the notice does: recharge, open the Hub, or switch to `accountId`. */

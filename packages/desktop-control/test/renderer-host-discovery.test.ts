@@ -53,6 +53,27 @@ it("reads the observed replacement registry without the removed wait method", ()
   expect(requestManagerFromHookState(f.registry, "remote-synthetic")).toBe(f.remote);
 });
 
+it("retains legacy registry discovery and host ownership checks", () => {
+  const f = fixture();
+  const legacy = {
+    addManager: f.registry.addManager,
+    getForHostId: f.registry.getForHostId,
+    waitForManagerForHostId: vi.fn(),
+  };
+  const editor = f.root.querySelectorAll()[0];
+  if (!editor) throw new Error("Synthetic editor is missing");
+  const fiber = editor.__reactFiber$synthetic;
+  // Synthetic legacy API: neither of the replacement methods exists.
+  Object.assign(fiber.memoizedState, { memoizedState: legacy });
+  expect(requestManagerFromHookState(legacy, "local")).toBe(f.local);
+  const discovery = discoverRendererHosts(f.root);
+  expect(discovery.registries).toEqual([legacy]);
+  expect(resolveRendererHostManager(discovery, "local")).toBe(f.local);
+  expect(resolveRendererHostManager(discovery, "remote-synthetic")).toBe(f.remote);
+  f.managers.delete("local");
+  expect(resolveRendererHostManager(discovery, "local")).toBeNull();
+});
+
 it("keeps the replacement registry authoritative when a direct stale hook remains", () => {
   const f = fixture();
   const discovery = discoverRendererHosts(f.root);

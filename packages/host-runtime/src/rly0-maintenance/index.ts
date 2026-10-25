@@ -30,6 +30,10 @@ import {
   resolveRly0DiagnosticsDir,
 } from "./paths.js";
 import { sanitizeDiagnosticsValue } from "./sanitize.js";
+import {
+  Rly0DesktopCompatibility,
+  type DesktopCompatibilitySource,
+} from "./desktop-compatibility.js";
 import type { Rly0CodexProcessControl } from "./process-control.js";
 
 export type { Rly0CodexProcessControl } from "./process-control.js";
@@ -51,6 +55,7 @@ export interface Rly0MaintenanceManagerOptions {
   readonly launchApp?: typeof launchEndpointApp;
   /** Cache entries in use right now (e.g. `updates` while an update downloads); not cleared. */
   readonly busyEntries?: () => readonly string[];
+  readonly compatibility?: DesktopCompatibilitySource;
 }
 
 interface DirStats {
@@ -111,6 +116,7 @@ export class Rly0MaintenanceManager {
   readonly #busyEntries: () => readonly string[];
   readonly #checkEndpoint: typeof checkCodexEndpoint;
   readonly #launchApp: typeof launchEndpointApp;
+  readonly #compatibility: DesktopCompatibilitySource;
 
   constructor(options: Rly0MaintenanceManagerOptions = {}) {
     this.#environment = options.environment ?? process.env;
@@ -122,17 +128,20 @@ export class Rly0MaintenanceManager {
     this.#busyEntries = options.busyEntries ?? (() => []);
     this.#checkEndpoint = options.checkEndpoint ?? checkCodexEndpoint;
     this.#launchApp = options.launchApp ?? launchEndpointApp;
+    this.#compatibility =
+      options.compatibility ?? new Rly0DesktopCompatibility({ environment: this.#environment });
   }
 
   async diagnostics(): Promise<Rly0MaintenanceDiagnosticsResult> {
     const health = await this.#dashboard.health();
-    const [core, codexEndpoint] = await Promise.all([
+    const [core, codexEndpoint, desktopCompatibility] = await Promise.all([
       this.#core
         ? this.#core.status()
         : Promise.resolve<Rly0CoreStatusResult>({ available: false }),
       this.#checkEndpoint(path.join(health.codexHome, "config.toml"), this.#environment).catch(
         () => null,
       ),
+      this.#compatibility.check(),
     ]);
     const advice: Rly0MaintenanceAdviceCode[] = [];
     if (!health.codexHomeExists) advice.push("CODEX_HOME_MISSING");
@@ -147,6 +156,7 @@ export class Rly0MaintenanceManager {
       ...health,
       core,
       codexEndpoint,
+      desktopCompatibility,
       advice,
     };
   }

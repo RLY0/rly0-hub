@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { resolveRly0HubAutostartCommand } from "../src/rly0-appearance/hub-autostart.js";
 import { Rly0AppearanceManager } from "../src/rly0-appearance/index.js";
@@ -72,6 +72,40 @@ function memoryAutostart() {
 }
 
 describe("RLY/0 Hub service", () => {
+  it("runs the local compatibility check at startup and includes it in one-click feedback", async () => {
+    const root = await tempDir();
+    const observation = {
+      checkedAt: "2026-10-25T00:00:00.000Z",
+      state: "unverified" as const,
+      desktopVersion: "26.1021.3705.0",
+      previousCompatibleVersion: null,
+      versionChanged: false,
+      issue: "UNMANAGED_RUNTIME" as const,
+      message: "Synthetic native-only Desktop",
+      checks: { managedRuntime: false, controllerAlive: null, interfaceConnected: null },
+    };
+    const check = vi.fn(async () => observation);
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root, CODEX_HOME: path.join(root, "codex") },
+      installRoot: root,
+      core: Object.assign(fakeCore([]).core, {
+        status: async () => ({ available: false as const }),
+      }),
+      compatibility: { check, takeNotice: async () => null },
+    });
+    await service.start();
+    expect(check).toHaveBeenCalledTimes(1);
+    const exported = (await service.handle("maintenance.exportFeedback", {
+      folder: "feedback-20261025-010000",
+      errors: [],
+    })) as { folderPath: string };
+    const report = JSON.parse(
+      await fs.readFile(path.join(exported.folderPath, "diagnostics.json"), "utf8"),
+    );
+    expect(report.diagnostics.desktopCompatibility).toEqual(observation);
+    expect(check).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects unknown methods and malformed params with codes only", async () => {
     const root = await tempDir();
     const service = new Rly0HubService({

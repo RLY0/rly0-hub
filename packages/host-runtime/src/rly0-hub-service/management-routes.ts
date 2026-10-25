@@ -17,6 +17,10 @@ import { z } from "zod";
 
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "../rly0-maintenance/index.js";
 import { ChatRepair } from "../rly0-maintenance/chat-repair.js";
+import {
+  Rly0DesktopCompatibility,
+  type DesktopCompatibilitySource,
+} from "../rly0-maintenance/desktop-compatibility.js";
 import { ChatReadableRecovery } from "../rly0-maintenance/chat-recovery.js";
 import { resolveRly0DiagnosticsDir } from "../rly0-maintenance/paths.js";
 import { Rly0InstructionsManager, rly0InstructionsRpcError } from "../rly0-instructions/index.js";
@@ -51,6 +55,7 @@ export function createHubManagementRoutes(options: {
   core: Rly0CoreBridge;
   codex: Rly0CodexControl;
   updates?: Pick<HostUpdateCoordinator, "check">;
+  compatibility?: DesktopCompatibilitySource;
   /** An update is downloading or installing: its installer folder is not cleared. */
   updateBusy?: () => boolean;
   /** Shows a folder in Explorer; the default runs `explorer.exe`. */
@@ -67,6 +72,9 @@ export function createHubManagementRoutes(options: {
   const maintenance = new Rly0MaintenanceManager({
     environment,
     core,
+    compatibility:
+      options.compatibility ??
+      new Rly0DesktopCompatibility({ environment, installRoot: options.installRoot }),
     busyEntries: () => (options.updateBusy?.() ? ["updates"] : []),
   });
   const openFolder =

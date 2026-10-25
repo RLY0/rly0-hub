@@ -48,6 +48,7 @@ import {
   requestBackendReload,
 } from "../rly0-maintenance/backend-reload-channel.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
+import { Rly0DesktopCompatibility } from "../rly0-maintenance/desktop-compatibility.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { RLY0_RELAY_AGENTS, Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import {
@@ -157,6 +158,7 @@ export interface Rly0HubServiceOptions {
   readonly core?: Rly0CoreBridge;
   readonly updates?: Pick<HostUpdateCoordinator, "check">;
   readonly codex?: Rly0CodexControl;
+  readonly compatibility?: Pick<Rly0DesktopCompatibility, "check" | "takeNotice">;
   /** Ends Codex directly when the Launcher cannot (see `codex-processes.ts`); production only. */
   readonly killCodexProcesses?: () => Promise<number>;
   readonly appearance?: Rly0AppearanceManager;
@@ -228,6 +230,7 @@ export class Rly0HubService {
   readonly #options: Rly0HubServiceOptions;
   readonly #core: Rly0CoreBridge;
   readonly #codex: Rly0CodexControl;
+  readonly #compatibility: Pick<Rly0DesktopCompatibility, "check" | "takeNotice">;
   readonly #appearance: Rly0AppearanceManager;
   readonly #router: Rly0RelayModelRouter;
   readonly #backup: Rly0FirstRunBackup;
@@ -265,6 +268,9 @@ export class Rly0HubService {
     const { environment } = options;
     const windows = (options.platform ?? process.platform) === "win32";
     this.#core = options.core ?? new Rly0CoreBridge({ environment });
+    this.#compatibility =
+      options.compatibility ??
+      new Rly0DesktopCompatibility({ environment, installRoot: options.installRoot });
     this.#codex =
       options.codex ??
       new Rly0CodexControl({
@@ -379,6 +385,8 @@ export class Rly0HubService {
     }
     await this.#backup.ensure().catch(() => false);
     await this.#ensureProxyForRelays().catch(() => undefined);
+    // Local metadata only: no model request and no change to the running client.
+    await this.#compatibility.check().catch(() => undefined);
   }
 
   /** Tray notices to show now; each is remembered so it is not repeated. */
@@ -414,6 +422,9 @@ export class Rly0HubService {
     const update = await this.#updateStatus(false).catch(() => null);
     let next = state;
     const extra: Rly0HubAlert[] = [];
+    const compatibilityNotice = await this.#compatibility.takeNotice().catch(() => null);
+    if (compatibilityNotice)
+      extra.push({ id: "compatibility", ...compatibilityNotice, action: "open" });
     if (
       update?.updateAvailable &&
       update.latestVersion &&
@@ -807,6 +818,7 @@ export class Rly0HubService {
         installRoot: this.#options.installRoot,
         core,
         codex: this.#codex,
+        compatibility: this.#compatibility,
         updateBusy: () =>
           ["downloading", "verifying", "installing"].includes(
             this.#updater?.progress().phase ?? "idle",

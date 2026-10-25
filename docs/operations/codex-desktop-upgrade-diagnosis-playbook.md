@@ -12,6 +12,34 @@
 - `docs/archive/codex-desktop-incidents/26.814-compatibility-debt.md`
 - `docs/archive/codex-desktop-incidents/26.908-request-manager-wrapper.md`（Fiber hook 把 Request Manager 包进 `{ hostId, manager, status }` 后，连接检查全部失败）
 
+## Hub 的自动检查与一键反馈
+
+Hub 启动时读取本机 Launcher 的 `inspect --json` 以及当前启动和 Controller 状态；
+后续复用托盘检查（首次约一分钟，之后每五分钟）和“维护工具”的诊断刷新。
+检查不发送模型请求，不登录、不重启、不改 Codex 配置或聊天。它复用 Controller 已有的真实界面接入检查，
+不是只比较版本号，也不会因为版本不同就阻止使用。
+
+“设置 → 维护工具 → 诊断”显示 Codex 版本和界面连接结果。“反馈问题”把相同结果放进
+本地 `diagnostics.json` 的 `diagnostics.desktopCompatibility`，无需另跑排错脚本。
+报告只包含版本、固定问题代码及连接布尔值；Controller 原始错误不写入新字段，账号凭据和聊天正文不参与检查。
+既有反馈中的截图由用户自行检查后再分享；截图不等于已自动脱敏。
+
+状态区分未运行、正在连接、连接正常、接口未接通、未验证及状态不可用。
+仅当前受管启动记录与版本匹配、Controller 进程仍在且状态来自本次启动时，才接受“连接正常”。
+初始连接有一分钟宽限；历史状态不能充当当前成功证据。请求管理器缺失给出明确的接口问题代码，
+其他连接失败不会一概归因于版本不兼容。异常时使用现有托盘提醒，同一版本的故障未变化时不重复提醒，恢复后重置。
+本地仅保存最近成功连接的版本和提醒标记，路径为 Hub 自身诊断目录下的 `desktop-compatibility-state-v1.json`。
+目录只读时检查仍可用，但跨重启的提醒去重可能无法保存。
+
+新旧 Request Manager 注册表同时保留：旧版使用 `waitForManagerForHostId`，
+新版使用 `getImplForHostId` 与 `addRegistryCallback` 的组合。两条路径仍要求
+`addManager`、`getForHostId` 和请求桥能力，并核对 Host 归属；注册表断连时不会复用陈旧 hook。
+这覆盖了已知两类接口，不表示所有历史版本或未来版本均已真机验证。
+
+“界面连接正常”只证明这层接入，不证明账号、额度、模型调用、旧聊天续接或多窗口全部可用。
+发布前仍须按下文复现实际操作并记录真实结果。普通故障先保留诊断，再判断是否需要兼容更新或回到已验证组合；
+不会自动降级 Desktop、自动重装或停用正常可用的原生功能。
+
 ## 一、先建立分层模型
 
 ### 历史原生会话不能拖入引用或通过 `@` 搜索会话

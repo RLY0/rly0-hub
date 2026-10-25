@@ -188,6 +188,29 @@ describe("Rly0MaintenanceManager", () => {
     });
   });
 
+  it("includes the local Desktop compatibility observation in one-click feedback", async () => {
+    const observation = {
+      checkedAt: "2026-10-25T00:00:00.000Z",
+      state: "incompatible" as const,
+      desktopVersion: "26.1021",
+      previousCompatibleVersion: "26.1016",
+      versionChanged: true,
+      issue: "REQUEST_MANAGER_UNAVAILABLE" as const,
+      message: "Codex 界面接口不兼容；请使用反馈问题保存诊断。",
+      checks: { managedRuntime: true, controllerAlive: true, interfaceConnected: false },
+    };
+    const manager = new Rly0MaintenanceManager({
+      environment,
+      checkEndpoint: reachable,
+      compatibility: { check: async () => observation },
+    });
+    const result = await manager.exportFeedback({ folder: "feedback-20261025-000000", errors: [] });
+    const report = JSON.parse(
+      await fs.readFile(path.join(result.folderPath, "diagnostics.json"), "utf8"),
+    );
+    expect(report.diagnostics.desktopCompatibility).toEqual(observation);
+  });
+
   describe("exportFeedback", () => {
     const folder = "feedback-20261019-080910";
 

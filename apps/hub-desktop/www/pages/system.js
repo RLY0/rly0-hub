@@ -269,6 +269,15 @@ window.registerHubSystem = ({
         ["Codex", true, codex && codex.running ? "运行中" : "未运行", true],
       ];
       const endpoint = d.codexEndpoint || null;
+      if (d.desktopCompatibility) {
+        const connection = d.desktopCompatibility;
+        rows.push([
+          "Codex 界面连接",
+          connection.state === "ready",
+          `${connection.desktopVersion ? `v${connection.desktopVersion} · ` : ""}${connection.message}`,
+          ["not-running", "checking", "unverified"].includes(connection.state),
+        ]);
+      }
       if (endpoint)
         rows.splice(1, 0, [
           "Codex 模型服务",
