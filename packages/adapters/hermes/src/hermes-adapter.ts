@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import { HERMES_COMMAND_CATALOG } from "./hermes-commands.js";
 import { createHash } from "node:crypto";
 import type {
@@ -40,6 +41,7 @@ import {
 const hermesHarnessId: HarnessId = harnessIdSchema.parse("hermes");
 export interface HermesAdapterOptions {
   command?: string;
+  sharedResources?: SharedResourcesProvider;
   environment?: NodeJS.ProcessEnv;
   commandTimeoutMs?: number;
 }
@@ -224,6 +226,7 @@ export class HermesAdapter implements HarnessAdapter {
       input.cwd,
       environment,
       this.#options.commandTimeoutMs,
+      this.#options.sharedResources,
     );
     this.#gatewayTransports.add(transport);
     try {

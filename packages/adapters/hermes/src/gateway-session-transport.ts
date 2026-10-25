@@ -1,3 +1,4 @@
+import { promptWithSharedContext } from "@codexhost/harness-adapter/plugin";
 import {
   HERMES_GATEWAY_COMMANDS,
   hermesGatewayCommandName,
@@ -380,7 +381,7 @@ export class HermesGatewaySessionTransport implements HermesSessionTransport {
       } else {
         const submitted = await this.transport.request("prompt.submit", {
           session_id: this.sessionId,
-          text,
+          text: promptWithSharedContext(await this.transport.sharedContext(), text),
         });
         if (submitted.status !== "streaming")
           this.#fault(

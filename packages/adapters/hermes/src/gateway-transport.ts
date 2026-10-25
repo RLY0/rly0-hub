@@ -4,6 +4,12 @@ import { createInterface } from "node:readline";
 import { sanitizeDiagnosticTail } from "@codexhost/harness-adapter";
 import { inventoryPythonCandidates, venvPythonFromShim } from "./hermes-inventory.js";
 import { prepareGatewayDelegation } from "./gateway-delegation.js";
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
+import {
+  HERMES_SHARED_CONTEXT_REQUEST,
+  HERMES_SHARED_SKILL_REQUEST,
+  hermesSharedSkillBootstrap,
+} from "./gateway-shared-resources.js";
 import { withTimeout, HermesTransportError } from "./hermes-transport.js";
 import {
   hermesPythonCommand,
@@ -45,12 +51,21 @@ export class HermesGatewayTransport {
   >();
   #stderr = "";
   #delegation: Awaited<ReturnType<typeof prepareGatewayDelegation>> | undefined;
+  #sharedBootstrap = "";
   constructor(
     readonly runtime: HermesPythonRuntime,
     readonly cwd: string,
     readonly environment: NodeJS.ProcessEnv,
     readonly timeoutMs = 30_000,
+    readonly sharedResources?: SharedResourcesProvider,
   ) {}
+
+  /** Read-only memory digest for the prompt; MCP-attached memory needs Hermes's own config. */
+  async sharedContext(): Promise<string | undefined> {
+    return (
+      await this.sharedResources?.(this.cwd, HERMES_SHARED_CONTEXT_REQUEST).catch(() => undefined)
+    )?.context;
+  }
 
   static async probe(
     executable: string,
@@ -117,13 +132,17 @@ export class HermesGatewayTransport {
       throw new Error("Hermes gateway closed during Session preparation");
     }
     this.#delegation = prepared;
+    const shared = await this.sharedResources?.(this.cwd, HERMES_SHARED_SKILL_REQUEST).catch(
+      () => undefined,
+    );
+    this.#sharedBootstrap = hermesSharedSkillBootstrap(shared?.skills ?? []);
   }
   async start(): Promise<void> {
     if (this.#startRequested || this.#closed)
       throw new Error("Hermes gateway cannot be started twice");
     this.#startRequested = true;
     const environment = this.#delegation?.environment ?? this.environment;
-    const script = (this.#delegation?.bootstrap ?? "") + GATEWAY_LAUNCH;
+    const script = (this.#delegation?.bootstrap ?? "") + this.#sharedBootstrap + GATEWAY_LAUNCH;
     const command =
       typeof this.runtime === "string"
         ? legacyHermesPythonCommand(this.runtime, script)

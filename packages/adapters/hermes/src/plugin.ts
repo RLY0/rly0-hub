@@ -12,6 +12,7 @@ export function createHarnessAdapter(context: HarnessPluginContext): HermesAdapt
     new HermesAdapter({
       ...(environment[HERMES_COMMAND_ENV] ? { command: environment[HERMES_COMMAND_ENV] } : {}),
       environment,
+      ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
     }),
     {
       installation: createHermesInstallation(environment, environment[HERMES_COMMAND_ENV]),
