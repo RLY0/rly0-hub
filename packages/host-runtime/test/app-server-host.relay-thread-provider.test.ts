@@ -185,6 +185,96 @@ describe("SYNTHETIC relay model on an older official-provider Thread", () => {
     }
   });
 
+  it("continues a refused Thread in a new Codex Thread on the relay model", async () => {
+    const fixture = createFixture();
+    let done = false;
+    const seen: JsonObject[] = [];
+    try {
+      await fixture.ready;
+      writeRequest(fixture.desktopInput, {
+        id: 61,
+        method: "thread/resume",
+        params: { threadId: "pay-old" },
+      });
+      const resume = await readJsonLine(fixture.official.stdin);
+      answer(fixture, resume.id, resumed("pay-old", "gpt-5.5", "openai"));
+      await fixture.collector.waitFor((message) => requestId(message, 61));
+      const refused = await desktop(fixture, 62, "turn/start", relayTurn("pay-old"));
+      expect(refused).toHaveProperty("error");
+
+      const responder = (async () => {
+        while (!done) {
+          let request: JsonObject;
+          try {
+            request = await readJsonLine(fixture.official.stdin, 200);
+          } catch {
+            continue;
+          }
+          seen.push(request);
+          const params = (request.params ?? {}) as JsonObject;
+          if (request.method === "thread/read") {
+            answer(fixture, request.id, {
+              result: {
+                thread: {
+                  id: String(params.threadId),
+                  cwd: "/synthetic",
+                  modelProvider: "openai",
+                  status: { type: "idle" },
+                  turns: [
+                    {
+                      id: "t1",
+                      status: "completed",
+                      items: [
+                        {
+                          type: "userMessage",
+                          id: "u1",
+                          content: [{ type: "text", text: "做支付" }],
+                        },
+                        { type: "agentMessage", id: "a1", text: "好的，先建订单表" },
+                      ],
+                    },
+                  ],
+                },
+              },
+            });
+          } else if (request.method === "thread/start") {
+            answer(fixture, request.id, resumed("pay-continued", RELAY_MODEL, "rly0"));
+          } else if (request.method === "turn/start") {
+            answer(fixture, request.id, { result: { turn: { id: "ct1", status: "inProgress" } } });
+          } else {
+            answer(fixture, request.id, { result: {} });
+          }
+        }
+      })();
+      const handoff = await desktop(fixture, 63, "codexhost/thread/handoff", {
+        threadId: "pay-old",
+        targetHarnessId: "codex",
+        requestId: "click-relay-0001",
+        followUp: "继续",
+      });
+      done = true;
+      await responder;
+      expect(handoff).toMatchObject({ result: { threadId: "pay-continued", mode: "created" } });
+      expect(seen.find((request) => request.method === "thread/start")).toMatchObject({
+        params: {
+          model: RELAY_MODEL,
+          modelProvider: "rly0",
+          config: { "model_providers.rly0": { base_url: "http://127.0.0.1:25917/v1" } },
+        },
+      });
+      expect(seen.find((request) => request.method === "turn/start")).toMatchObject({
+        params: {
+          threadId: "pay-continued",
+          model: RELAY_MODEL,
+          input: [{ type: "text", text: expect.stringContaining("继续") }],
+        },
+      });
+    } finally {
+      done = true;
+      await stopFixture(fixture);
+    }
+  });
+
   it("a later turn without a model still counts the relay choice from thread/settings/update", async () => {
     const fixture = createFixture();
     try {

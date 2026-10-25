@@ -9,6 +9,11 @@ import {
 } from "./renderer-model-client.js";
 import { installRendererExternalQueue } from "./renderer-external-queue.js";
 import { installRendererExternalSteering } from "./renderer-external-steering.js";
+import { openRendererThread } from "./renderer-fork-control.js";
+import {
+  showRelayThreadContinueNotice,
+  withRelayThreadContinue,
+} from "./renderer-relay-thread-continue.js";
 import { createRemoteAttachmentSender } from "./renderer-remote-attachments.js";
 import { restoreThreadReferenceCapability } from "./renderer-thread-reference-capability.js";
 import { createThreadReferenceContext } from "./renderer-thread-reference-context.js";
@@ -125,10 +130,21 @@ export function createRendererHostClients(
         () =>
           installRendererExternalSteering(
             target,
-            createRemoteAttachmentSender(
-              target,
-              route.hostId,
-              () => !disposed && readRouting()?.forHost(route.hostId) === route,
+            withRelayThreadContinue(
+              createRemoteAttachmentSender(
+                target,
+                route.hostId,
+                () => !disposed && readRouting()?.forHost(route.hostId) === route,
+              ),
+              {
+                handoff: (input) => {
+                  if (!client.handoffThread) throw new Error("这个版本的 Host 不支持接力对话");
+                  return client.handoffThread(input);
+                },
+                open: (threadId) =>
+                  openRendererThread(threadId, { hostId: route.hostId, timeoutMs: 15_000 }),
+                show: showRelayThreadContinueNotice,
+              },
             ),
             createThreadReferenceContext(
               target,
