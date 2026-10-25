@@ -370,6 +370,7 @@ export {
   RLY0_HUB_STATUS_METHOD,
   rly0HubStatusResultSchema,
   rly0HubOpenParamsSchema,
+  RLY0_HUB_PAGES,
   rly0HubOpenResultSchema,
 } from "./rly0-appearance.js";
 export type {
@@ -377,6 +378,7 @@ export type {
   Rly0AppearanceAutostartResult,
   Rly0AppearanceAutostartSetParams,
   Rly0HubOpenParams,
+  Rly0HubPage,
   Rly0HubOpenResult,
 } from "./rly0-appearance.js";
 export {

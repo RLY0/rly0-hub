@@ -139,6 +139,8 @@ import {
   rly0HubStatusResultSchema,
   rly0HubOpenResultSchema,
   type Rly0HubOpenResult,
+  type Rly0HubOpenParams,
+  rly0HubOpenParamsSchema,
   RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
   rly0MaintenanceDiagnosticsResultSchema,
   rly0MaintenanceExportDiagnosticsResultSchema,
@@ -508,7 +510,7 @@ export interface RendererModelClient extends Partial<RendererSessionImportClient
   rly0MaintenanceRestartCodex?(): Promise<Rly0MaintenanceProcessActionResult>;
   rly0MaintenanceBackupStatus?(): Promise<Rly0MaintenanceBackupStatusResult>;
   rly0MaintenanceRestoreBackup?(): Promise<Rly0MaintenanceRestoreBackupResult>;
-  rly0OpenHub?(): Promise<Rly0HubOpenResult>;
+  rly0OpenHub?(params?: Rly0HubOpenParams): Promise<Rly0HubOpenResult>;
   rly0HubStatus?(): Promise<{ available: boolean }>;
   rly0AppearanceAutostartStatus?(): Promise<Rly0AppearanceAutostartResult>;
   rly0AppearanceAutostartSet?(
@@ -1141,8 +1143,10 @@ export function createRendererModelClient(
       return rly0HubStatusResultSchema.parse(await manager.sendRequest(RLY0_HUB_STATUS_METHOD, {}));
     },
 
-    async rly0OpenHub(): Promise<Rly0HubOpenResult> {
-      return rly0HubOpenResultSchema.parse(await manager.sendRequest(RLY0_HUB_OPEN_METHOD, {}));
+    async rly0OpenHub(params: Rly0HubOpenParams = {}): Promise<Rly0HubOpenResult> {
+      return rly0HubOpenResultSchema.parse(
+        await manager.sendRequest(RLY0_HUB_OPEN_METHOD, rly0HubOpenParamsSchema.parse(params)),
+      );
     },
     async rly0AppearanceAutostartStatus(): Promise<Rly0AppearanceAutostartResult> {
       return rly0AppearanceAutostartResultSchema.parse(

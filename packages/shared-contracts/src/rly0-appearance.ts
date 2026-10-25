@@ -31,7 +31,30 @@ export type Rly0AppearanceAutostartSetParams = z.infer<
 
 /** Opens the standalone RLY/0 Hub window (bin/rly0-hub.exe) from inside Codex. */
 export const RLY0_HUB_OPEN_METHOD = "codexhost/rly0/hub/open";
-export const rly0HubOpenParamsSchema = z.object({}).strict();
+/**
+ * Hub window pages Codex may open (`rly0-hub.exe --page <name>`, `Program.Pages` in Rly0Hub.cs).
+ * Every former in-Codex settings page maps to one of these.
+ */
+export const RLY0_HUB_PAGES = [
+  "home",
+  "maintenance",
+  "remote",
+  "usage",
+  "updates",
+  "agents",
+  "accounts",
+  "relays",
+  "threads",
+  "mcp",
+  "skills",
+  "general",
+  "support",
+  "sessions",
+] as const;
+export type Rly0HubPage = (typeof RLY0_HUB_PAGES)[number];
+export const rly0HubOpenParamsSchema = z
+  .object({ page: z.enum(RLY0_HUB_PAGES).optional() })
+  .strict();
 export type Rly0HubOpenParams = z.infer<typeof rly0HubOpenParamsSchema>;
 /** `available` is false when this build has no Hub window (source checkout, other platforms). */
 export const rly0HubOpenResultSchema = z

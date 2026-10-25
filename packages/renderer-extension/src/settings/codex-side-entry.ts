@@ -1,7 +1,7 @@
 /**
- * Upstream settings pages that only exist on the Codex side: the standalone RLY/0 Hub does not
- * offer remote Host routes or local usage statistics. The lifecycle opens these page IDs in the
- * Codex settings shell even when the Hub is present (see `CODEX_DIRECT_SETTINGS_PAGES`).
+ * Entries for the remote Host and usage pages from Codex UI (the agent picker). With the RLY/0 Hub
+ * installed the handle routes them to the Hub's 设置 → 远程连接 / 用量统计; without it they open in
+ * the in-Codex settings (renderer-settings-lifecycle.ts).
  */
 export type CodexSideSettingsPageId = "remote-connections" | "usage-statistics";
 

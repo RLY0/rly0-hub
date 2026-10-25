@@ -3751,13 +3751,17 @@ export class AppServerHost {
   async #handleRly0AppearanceRequest(request: JsonRpcRequest): Promise<void> {
     try {
       if (request.method === RLY0_HUB_OPEN_METHOD || request.method === RLY0_HUB_STATUS_METHOD) {
-        if (!rly0HubOpenParamsSchema.safeParse(request.params ?? {}).success) {
+        const params = rly0HubOpenParamsSchema.safeParse(request.params ?? {});
+        if (!params.success) {
           await this.#writer.json(rpcError(request, -32602, "Invalid Hub open params"));
           return;
         }
         await this.#writer.json(
           rpcEnvelope(request, {
-            result: request.method === RLY0_HUB_STATUS_METHOD ? rly0HubStatus() : openRly0Hub(),
+            result:
+              request.method === RLY0_HUB_STATUS_METHOD
+                ? rly0HubStatus()
+                : openRly0Hub(undefined, undefined, undefined, params.data.page),
           }),
         );
         return;

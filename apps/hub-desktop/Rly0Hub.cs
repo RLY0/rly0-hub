@@ -23,7 +23,11 @@ internal static class Program {
     internal const string PageUrl = "https://hub.rly0.local/index.html";
     // Hub pages other programs may ask for (`--page <name>`): the Launcher and Codex open these
     // instead of a browser page. The index (1-based) travels as the show message's wParam.
-    internal static readonly string[] Pages = { "home", "maintenance", "remote", "usage", "updates" };
+    // Same list and order as RLY0_HUB_PAGES (shared-contracts rly0-appearance.ts).
+    internal static readonly string[] Pages = {
+        "home", "maintenance", "remote", "usage", "updates", "agents", "accounts", "relays",
+        "threads", "mcp", "skills", "general", "support", "sessions",
+    };
     internal static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 1 << 20 };
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern IntPtr FindWindow(string klass, string title);
     [DllImport("user32.dll")] internal static extern bool PostMessage(IntPtr hwnd, int message, IntPtr w, IntPtr l);

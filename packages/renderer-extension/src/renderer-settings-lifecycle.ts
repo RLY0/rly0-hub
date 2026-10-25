@@ -32,6 +32,12 @@ import type {
 } from "./settings/session-import-page.js";
 import { installRendererSettingsShell, type RendererSettingsShell } from "./settings/shell.js";
 import {
+  hubPageForSettingsPage,
+  showHubUnavailableNotice,
+  type HubUnavailableNotice,
+} from "./settings/hub-routing.js";
+import type { Rly0HubPage } from "@codexhost/shared-contracts";
+import {
   installRendererSettingsRailTrigger,
   type RendererSettingsRailTriggerControl,
 } from "./settings/trigger.js";
@@ -42,23 +48,27 @@ export const RLY0_WELCOME_STORAGE_KEY = "rly0-hub:welcome-shown";
 
 export interface RendererHubClient {
   rly0HubStatus?(): Promise<{ available: boolean }>;
-  rly0OpenHub?(): Promise<{ available: boolean; ok: boolean }>;
+  rly0OpenHub?(params?: { page?: Rly0HubPage }): Promise<{ available: boolean; ok: boolean }>;
 }
 
-export const CODEX_ONLY_SETTINGS_PAGES = [
-  "connections",
-  "remote-connections",
-  "accounts",
-  "session-import",
-  "usage-statistics",
-  "appearance",
-] as const;
-
 /**
- * Upstream pages the standalone Hub does not offer: remote Host routes and local usage statistics
- * stay in the Codex settings shell even when the Hub is present, so they remain reachable.
+ * What the agent picker and other in-Codex entries call (`window.__codexhostSettingsShellV1`)
+ * while the Hub is installed: there is no settings surface in Codex then, so every page ID opens
+ * the matching Hub page (settings/hub-routing.ts).
  */
-export const CODEX_DIRECT_SETTINGS_PAGES = ["remote-connections", "usage-statistics"] as const;
+interface HubRouteHandle {
+  readonly supported: true;
+  readonly open: false;
+  readonly activePageId: string;
+  readonly registry: {
+    readonly pages: readonly never[];
+    readonly defaultPageId: string;
+    getPage(pageId: string): { readonly id: string; readonly label: string } | undefined;
+  };
+  openSettings(opener?: HTMLElement, pageId?: string): boolean;
+  close(): void;
+  dispose(): void;
+}
 
 export interface RendererSettingsLifecycleOptions {
   getHubClient?(): RendererHubClient | null;
@@ -107,22 +117,70 @@ export function installRendererSettingsLifecycle(
   let checkedHubClient: RendererHubClient | null = null;
   let hubRequest: Promise<void> | null = null;
 
-  const openHub = async (): Promise<void> => {
+  let hubHandle: HubRouteHandle | null = null;
+  let notice: HubUnavailableNotice | null = null;
+
+  const openHub = async (page: Rly0HubPage = "home"): Promise<void> => {
     const client = options.getHubClient?.();
     if (!client?.rly0OpenHub) throw new Error("HUB_UNAVAILABLE");
-    const result = await client.rly0OpenHub();
+    const result = await client.rly0OpenHub({ page });
     if (!result.ok) throw new Error("HUB_OPEN_FAILED");
   };
 
-  // Everything that used to open inside Codex (connections, sign-in, session import,
-  // preferences) now lives in the standalone RLY/0 Hub, so there is no right-click menu here.
-  const bindCodexTools = (): void => undefined;
+  /**
+   * Opens the Hub on the page matching `pageId`. When it cannot be reached, Codex shows one short
+   * notice with a retry, never the former settings surface; the next attempt checks again.
+   */
+  const routeToHub = (opener: HTMLElement | undefined, pageId: string | undefined): void => {
+    const page = hubPageForSettingsPage(pageId);
+    notice?.dispose();
+    notice = null;
+    void openHub(page).catch(() => {
+      if (disposed) return;
+      checkedHubClient = null;
+      notice = showHubUnavailableNotice(ownerWindow.document, locale, opener, () =>
+        openHub(page).then(
+          () => true,
+          () => false,
+        ),
+      );
+    });
+  };
 
-  const mount = (): {
-    shell: RendererSettingsShell | null;
-    trigger: RendererSettingsRailTriggerControl;
-  } => {
-    const messages = rendererSettingsMessages(locale);
+  const installHubHandle = (messages: ReturnType<typeof rendererSettingsMessages>): void => {
+    const labels = messages.pageLabels as Readonly<Record<string, string>>;
+    const handle: HubRouteHandle = {
+      supported: true,
+      open: false,
+      activePageId: "dashboard",
+      registry: {
+        pages: [],
+        defaultPageId: "dashboard",
+        getPage: (pageId) => (labels[pageId] ? { id: pageId, label: labels[pageId] } : undefined),
+      },
+      openSettings(opener, pageId) {
+        if (disposed || hubHandle !== handle) return false;
+        routeToHub(opener, pageId);
+        return true;
+      },
+      close: () => undefined,
+      dispose() {
+        if (hubHandle === handle) hubHandle = null;
+        const owner = ownerWindow as unknown as { __codexhostSettingsShellV1?: unknown };
+        if (owner.__codexhostSettingsShellV1 === handle) delete owner.__codexhostSettingsShellV1;
+      },
+    };
+    hubHandle?.dispose();
+    hubHandle = handle;
+    (
+      ownerWindow as unknown as { __codexhostSettingsShellV1?: unknown }
+    ).__codexhostSettingsShellV1 = handle;
+  };
+
+  /** The in-Codex settings, for builds without the Hub window only. */
+  const mountCodexSettings = (
+    messages: ReturnType<typeof rendererSettingsMessages>,
+  ): RendererSettingsShell | null => {
     const definitions = createDefaultRendererSettingsPages(
       messages,
       options.getUpdateClient ?? (() => null),
@@ -146,34 +204,31 @@ export function installRendererSettingsLifecycle(
       options.getMaintenanceClient ?? (() => null),
       options.getAppearanceClient ?? (() => null),
       options.getRelayClient ?? (() => null),
-      hubAvailable === true,
+      false,
     );
-    const selectedPages = hubAvailable
-      ? definitions.filter((page) =>
-          (CODEX_ONLY_SETTINGS_PAGES as readonly string[]).includes(page.id),
-        )
-      : definitions;
-    // While the Hub check is pending the full settings stay mounted as the fallback.
-    const nextShell = installRendererSettingsShell(selectedPages, messages, ownerWindow.document, {
+    return installRendererSettingsShell(definitions, messages, ownerWindow.document, {
       onOpenChange(open) {
         trigger?.setSelected(open);
       },
     });
-    if (nextShell && hubAvailable) {
-      const openTools = nextShell.openSettings.bind(nextShell);
-      nextShell.openSettings = (opener, pageId) => {
-        // Pages that only exist on the Codex side (remote Hosts, local statistics) open here.
-        if (pageId && (CODEX_DIRECT_SETTINGS_PAGES as readonly string[]).includes(pageId)) {
-          return openTools(opener, pageId);
-        }
-        // Every other entry (the rail icon, the agent picker's "管理" and "!") opens the Hub; the
-        // Codex-side pages appear only when the Hub cannot be opened at all.
-        void openHub().catch(() => openTools(opener, pageId));
-        return true;
-      };
-    }
+  };
+
+  // Everything that used to open inside Codex (connections, sign-in, session import,
+  // preferences) now lives in the standalone RLY/0 Hub, so there is no right-click menu here.
+  const bindCodexTools = (): void => undefined;
+
+  const mount = (): {
+    shell: RendererSettingsShell | null;
+    trigger: RendererSettingsRailTriggerControl;
+  } => {
+    const messages = rendererSettingsMessages(locale);
+    hubHandle?.dispose();
+    // The Hub window holds every page that used to open here. Only a build without the Hub
+    // (a source checkout, other platforms), as the Host confirms, keeps the in-Codex settings.
+    const nextShell = hubAvailable === false ? mountCodexSettings(messages) : null;
+    if (!nextShell) installHubHandle(messages);
     const nextTrigger = installRendererSettingsRailTrigger({
-      available: nextShell?.supported ?? true,
+      available: true,
       messages,
       ownerDocument: ownerWindow.document,
       onOpen(opener, pageId) {
@@ -187,28 +242,11 @@ export function installRendererSettingsLifecycle(
             : (trigger?.root?.querySelector<HTMLButtonElement>("button") ?? undefined);
           await refreshHubAvailability();
           if (disposed || generation !== openGeneration) return;
-          if (hubAvailable === false) {
-            shell?.openSettings(currentOpener, pageId);
+          if (hubAvailable === false && shell) {
+            shell.openSettings(currentOpener, pageId);
             return;
           }
-          // Hub present or not known yet: try it first. Whatever fails, the person still gets
-          // the full settings instead of a dead-end message.
-          try {
-            await openHub();
-            return;
-          } catch {
-            if (disposed || generation !== openGeneration) return;
-          }
-          hubAvailable = false;
-          trigger?.dispose();
-          shell?.dispose();
-          trigger = null;
-          shell = null;
-          const mounted = mount();
-          mounted.shell?.openSettings(
-            mounted.trigger.root?.querySelector<HTMLButtonElement>("button") ?? undefined,
-            pageId,
-          );
+          routeToHub(currentOpener, pageId);
         });
       },
     });
@@ -389,7 +427,7 @@ export function installRendererSettingsLifecycle(
       return;
     }
     // The welcome experience belongs to the independent Hub. Source builds only open settings on demand.
-    if (hubAvailable) void openHub().catch(() => undefined);
+    if (hubAvailable) void openHub("home").catch(() => undefined);
   };
   void refreshHubAvailability().then(maybeShowWelcome);
   maybeShowWelcome();
@@ -416,8 +454,11 @@ export function installRendererSettingsLifecycle(
       clearUpdateRetry();
       trigger?.dispose();
       shell?.dispose();
+      hubHandle?.dispose();
+      notice?.dispose();
       trigger = null;
       shell = null;
+      notice = null;
     },
   };
 }

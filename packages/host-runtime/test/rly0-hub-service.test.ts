@@ -366,6 +366,16 @@ describe("Hub tray notices", () => {
 });
 
 describe("Opening the Hub from Codex", () => {
+  it("drops the extended-length prefix Node is started with", async () => {
+    const { resolveRly0InstallRoot } = await import("../src/rly0-appearance/hub-autostart.js");
+    expect(resolveRly0InstallRoot("\\\\?\\C:\\Apps\\rly0-hub\\runtime\\node.exe")).toBe(
+      "C:\\Apps\\rly0-hub",
+    );
+    expect(resolveRly0InstallRoot("C:\\Apps\\rly0-hub\\runtime\\node.exe")).toBe(
+      "C:\\Apps\\rly0-hub",
+    );
+  });
+
   it("starts the Hub executable when this build has one", async () => {
     const { openRly0Hub } = await import("../src/rly0-appearance/hub-autostart.js");
     const started: string[] = [];
@@ -382,6 +392,15 @@ describe("Opening the Hub from Codex", () => {
       });
       expect(started).toEqual([path.win32.join("C:/Hub", "bin", "rly0-hub.exe")]);
     }
+    // A former in-Codex settings page opens the matching Hub page.
+    const withPage: (readonly string[])[] = [];
+    openRly0Hub(
+      "C:\Hub",
+      () => true,
+      (_file, args) => withPage.push(args),
+      "mcp",
+    );
+    if (process.platform === "win32") expect(withPage).toEqual([["--page", "mcp"]]);
     expect(
       openRly0Hub(
         "C:\Hub",

@@ -2,6 +2,7 @@ import { harnessIdSchema } from "@codexhost/shared-contracts";
 import { RLY0_WELCOME_DISMISSED_STORAGE_KEY } from "../src/settings/rly0-welcome.js";
 import { hostThreadIdSchema, type UpdateCheckResult } from "@codexhost/shared-contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type * as HubRouting from "../src/settings/hub-routing.js";
 
 const triggerRefresh = vi.fn(() => true);
 const triggerSetUpdateAvailable = vi.fn();
@@ -42,7 +43,13 @@ vi.mock("../src/settings/trigger.js", () => ({
   })),
 }));
 
+vi.mock("../src/settings/hub-routing.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof HubRouting>()),
+  showHubUnavailableNotice: vi.fn(() => ({ dispose: vi.fn() })),
+}));
+
 import { installRendererSettingsLifecycle } from "../src/renderer-settings-lifecycle.js";
+import { showHubUnavailableNotice } from "../src/settings/hub-routing.js";
 import { createDefaultRendererSettingsPages } from "../src/settings/pages.js";
 import { installRendererSettingsShell } from "../src/settings/shell.js";
 import { installRendererSettingsRailTrigger } from "../src/settings/trigger.js";
@@ -301,52 +308,65 @@ describe("Renderer Settings lifecycle", () => {
     return { ownerWindow, client, openSettings, shell, button, listeners, store };
   }
 
-  it("opens the Hub on rail activation and has no Codex-side menu", async () => {
-    const f = hubFixture(true);
-    const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
-      getHubClient: () => f.client,
-    });
-    await vi.waitFor(() => expect(installRendererSettingsShell).toHaveBeenCalled());
-    const definitions = vi.mocked(installRendererSettingsShell).mock.calls.at(-1)?.[0];
-    expect(definitions?.map((p) => p.id)).toEqual([
-      "connections",
-      "accounts",
-      "session-import",
-      "appearance",
-    ]);
-    const onOpen = vi.mocked(installRendererSettingsRailTrigger).mock.calls.at(-1)?.[0].onOpen;
-    onOpen?.(f.button as unknown as HTMLButtonElement);
-    await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(1));
-    expect(f.openSettings).not.toHaveBeenCalled();
-    // No Codex-side menu any more: right-click does nothing, everything lives in the Hub.
-    expect(f.listeners.get("contextmenu")).toBeUndefined();
-    lifecycle.dispose();
-  });
+  type ShellHandle = {
+    registry: { getPage(id: string): { label: string } | undefined };
+    openSettings(opener?: HTMLElement, pageId?: string): boolean;
+  };
+  const handleOf = (ownerWindow: Window) =>
+    (ownerWindow as unknown as { __codexhostSettingsShellV1?: ShellHandle })
+      .__codexhostSettingsShellV1;
 
-  it("keeps Codex-only upstream pages in Codex while the Hub is present", async () => {
+  it("mounts no settings surface in Codex while the Hub is installed; the icon opens the Hub", async () => {
     const f = hubFixture(true);
     const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
       getHubClient: () => f.client,
     });
     await vi.waitFor(() => expect(f.client.rly0HubStatus).toHaveBeenCalled());
-    await vi.waitFor(() =>
-      expect(
-        vi
-          .mocked(installRendererSettingsShell)
-          .mock.calls.at(-1)?.[0]
-          ?.some((p) => p.id === "mcp"),
-      ).toBe(false),
-    );
-    const shell = vi.mocked(installRendererSettingsShell).mock.results.at(-1)?.value as {
-      openSettings(opener?: HTMLElement, pageId?: string): boolean;
-    };
-    shell.openSettings(undefined, "remote-connections");
-    shell.openSettings(undefined, "usage-statistics");
-    expect(f.openSettings).toHaveBeenCalledTimes(2);
-    expect(f.client.rly0OpenHub).not.toHaveBeenCalled();
-    shell.openSettings(undefined, "accounts");
+    await Promise.resolve();
+    expect(installRendererSettingsShell).not.toHaveBeenCalled();
+    expect(createDefaultRendererSettingsPages).not.toHaveBeenCalled();
+    const onOpen = vi.mocked(installRendererSettingsRailTrigger).mock.calls.at(-1)?.[0].onOpen;
+    onOpen?.(f.button as unknown as HTMLButtonElement);
     await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(1));
-    expect(f.openSettings).toHaveBeenCalledTimes(2);
+    expect(f.client.rly0OpenHub).toHaveBeenCalledWith({ page: "home" });
+    // The update dot opens the Hub's 更新 page.
+    onOpen?.(f.button as unknown as HTMLButtonElement, "updates");
+    await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(2));
+    expect(f.client.rly0OpenHub).toHaveBeenLastCalledWith({ page: "updates" });
+    expect(f.openSettings).not.toHaveBeenCalled();
+    expect(showHubUnavailableNotice).not.toHaveBeenCalled();
+    // No Codex-side menu any more: right-click does nothing, everything lives in the Hub.
+    expect(f.listeners.get("contextmenu")).toBeUndefined();
+    lifecycle.dispose();
+    expect(handleOf(f.ownerWindow)).toBeUndefined();
+  });
+
+  it("routes every former settings page ID from other Codex entries to the matching Hub page", async () => {
+    const f = hubFixture(true);
+    const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
+      getHubClient: () => f.client,
+    });
+    await vi.waitFor(() => expect(f.client.rly0HubStatus).toHaveBeenCalled());
+    const handle = handleOf(f.ownerWindow);
+    expect(handle).toBeDefined();
+    const expected: [string, string][] = [
+      ["connections", "agents"],
+      ["remote-connections", "remote"],
+      ["usage-statistics", "usage"],
+      ["mcp", "mcp"],
+      ["skills", "skills"],
+      ["threads", "threads"],
+      ["session-import", "sessions"],
+      ["appearance", "general"],
+      ["dashboard", "home"],
+    ];
+    for (const [pageId] of expected) expect(handle?.openSettings(undefined, pageId)).toBe(true);
+    await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalledTimes(expected.length));
+    expect(f.client.rly0OpenHub.mock.calls.map((call) => (call as unknown[])[0])).toEqual(
+      expected.map(([, page]) => ({ page })),
+    );
+    expect(f.openSettings).not.toHaveBeenCalled();
+    expect(installRendererSettingsShell).not.toHaveBeenCalled();
     lifecycle.dispose();
   });
 
@@ -370,36 +390,42 @@ describe("Renderer Settings lifecycle", () => {
     lifecycle.dispose();
   });
 
-  it("falls back to the full settings when the Hub cannot be opened, never to a dead end", async () => {
+  it("shows only a short notice when the Hub cannot be reached, never the settings surface", async () => {
     const f = hubFixture(true);
     f.client.rly0OpenHub.mockRejectedValue(new Error("unavailable"));
     const lifecycle = installRendererSettingsLifecycle(f.ownerWindow, {
       getHubClient: () => f.client,
     });
-    await vi.waitFor(() => expect(installRendererSettingsShell).toHaveBeenCalled());
-    vi.mocked(installRendererSettingsRailTrigger)
-      .mock.calls.at(-1)?.[0]
-      .onOpen(f.button as unknown as HTMLButtonElement);
-    await vi.waitFor(() => expect(f.openSettings).toHaveBeenCalled());
+    await vi.waitFor(() => expect(f.client.rly0HubStatus).toHaveBeenCalled());
+    const onOpen = vi.mocked(installRendererSettingsRailTrigger).mock.calls.at(-1)?.[0].onOpen;
+    onOpen?.(f.button as unknown as HTMLButtonElement);
+    await vi.waitFor(() => expect(showHubUnavailableNotice).toHaveBeenCalledTimes(1));
+    expect(f.openSettings).not.toHaveBeenCalled();
+    expect(installRendererSettingsShell).not.toHaveBeenCalled();
     expect(f.ownerWindow.alert).not.toHaveBeenCalled();
+    // The notice's button tries the Hub again on the same page.
+    f.client.rly0OpenHub.mockResolvedValue({ available: true, ok: true });
+    const retry = vi.mocked(showHubUnavailableNotice).mock.calls.at(-1)?.[3];
+    await expect(retry?.()).resolves.toBe(true);
+    expect(f.client.rly0OpenHub).toHaveBeenLastCalledWith({ page: "home" });
     lifecycle.dispose();
 
-    // The availability check itself fails: settings stay mounted and the Hub is still tried.
+    // The availability check itself fails: still no settings surface, and the Hub is tried.
     vi.mocked(installRendererSettingsShell).mockClear();
-    f.openSettings.mockClear();
+    vi.mocked(showHubUnavailableNotice).mockClear();
     f.client.rly0OpenHub.mockReset();
     f.client.rly0OpenHub.mockResolvedValue({ available: true, ok: true });
     f.client.rly0HubStatus.mockRejectedValue(new Error("offline"));
     const second = installRendererSettingsLifecycle(f.ownerWindow, {
       getHubClient: () => f.client,
     });
-    await vi.waitFor(() => expect(installRendererSettingsShell).toHaveBeenCalled());
     vi.mocked(installRendererSettingsRailTrigger)
       .mock.calls.at(-1)?.[0]
       .onOpen(f.button as unknown as HTMLButtonElement);
     await vi.waitFor(() => expect(f.client.rly0OpenHub).toHaveBeenCalled());
+    expect(installRendererSettingsShell).not.toHaveBeenCalled();
     expect(f.openSettings).not.toHaveBeenCalled();
-    expect(f.ownerWindow.alert).not.toHaveBeenCalled();
+    expect(showHubUnavailableNotice).not.toHaveBeenCalled();
     second.dispose();
   });
 

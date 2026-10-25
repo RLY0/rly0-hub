@@ -49,12 +49,32 @@
     });
   }
 
-  const NAVIGABLE = ["home", "maintenance", "remote", "usage", "updates"];
+  // Pages the shell may ask for: `rly0-hub.exe --page` from the Launcher and from every entry in
+  // Codex that used to open the in-Codex settings (Program.Pages in Rly0Hub.cs).
+  const NAVIGABLE = [
+    "home",
+    "maintenance",
+    "remote",
+    "usage",
+    "updates",
+    "agents",
+    "accounts",
+    "relays",
+    "threads",
+    "mcp",
+    "skills",
+    "general",
+    "support",
+  ];
   function onMessage(data) {
     if (!data || typeof data !== "object") return;
-    // The shell asks for a page (Launcher / Codex entries that used to open the web console).
     if (data.event === "navigate") {
       if (NAVIGABLE.includes(data.page)) go(data.page);
+      else if (data.page === "sessions") {
+        // 会话导入 is a 维护 tool that opens as a dialog.
+        go("maintenance");
+        pageApi.consoleFeatures.openSessionImport();
+      }
       return;
     }
     if (data.event === "ready") {
