@@ -4,6 +4,7 @@ import { runRemoteControlAppServerBridge } from "./remote-control-app-server.js"
 import { runRemoteHostCli } from "./remote-host-cli.js";
 import { runClaudeAquaHarnessBroker } from "./aqua-harness-broker.js";
 import { installRuntimeLog, runtimeLogPath } from "./runtime-log.js";
+import { RLY0_MEMORY_MCP_ARGUMENT, runRly0MemoryServer } from "./rly0-memory/launch.js";
 
 const arguments_ = process.argv.slice(2);
 
@@ -30,4 +31,6 @@ process.exitCode =
         ? await runRemoteHostCli({ arguments: arguments_.slice(1), environment: process.env })
         : arguments_[0] === "--codexhost-remote-control-bridge"
           ? await runRemoteControlAppServerBridge()
-          : await runLoggedHostRuntime();
+          : arguments_[0] === RLY0_MEMORY_MCP_ARGUMENT
+            ? await runRly0MemoryServer(process.env)
+            : await runLoggedHostRuntime();
