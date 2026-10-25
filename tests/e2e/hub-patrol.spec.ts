@@ -986,8 +986,8 @@ test("web console functions inside the Hub: remote hosts, usage, session import"
   await expect(page.locator(".usage-tiles")).toContainText("$38.42");
   await page.screenshot({ path: path.join(dir, "usage.png"), fullPage: true });
 
-  // Unknown pages are ignored.
-  await navigate("accounts");
+  // Unknown pages are ignored (accounts became a page Codex may ask for).
+  await navigate("no-such-page");
   await expect(page.locator(".settings-menu button.on")).toHaveText("用量统计");
 
   await navigate("maintenance");

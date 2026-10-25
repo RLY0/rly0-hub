@@ -72,8 +72,11 @@ function antigravityApply(content: string, previous: readonly string[], next: Re
     }
   }
   if (!record(parsed)) throw new Error("GLOBAL_CONFIG_UNPARSEABLE");
-  const servers = record(parsed.mcpServers) ? { ...parsed.mcpServers } : {};
-  for (const name of previous) delete servers[name];
+  const servers = Object.fromEntries(
+    Object.entries(record(parsed.mcpServers) ? parsed.mcpServers : {}).filter(
+      ([name]) => !previous.includes(name),
+    ),
+  );
   for (const name of Object.keys(next))
     if (name in servers) throw new Error("GLOBAL_CONFIG_NAME_TAKEN");
   return `${JSON.stringify({ ...parsed, mcpServers: { ...servers, ...next } }, null, 2)}\n`;
