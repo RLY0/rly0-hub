@@ -251,16 +251,18 @@ internal sealed class HubContext : ApplicationContext {
     }
 
     private void RefreshBalance() {
-        SendInternal("balance.get", null, delegate (Dictionary<string, object> result) {
-            string text = "RLY/0 Hub";
-            object balance, unit;
-            if (result != null && result.TryGetValue("balance", out balance) && balance != null && !(balance is string)) {
-                double value = Convert.ToDouble(balance);
-                string symbol = result.TryGetValue("unit", out unit) && Convert.ToString(unit) == "CNY" ? "¥" : "$";
-                text = "RLY/0 Hub · 零号余额 " + symbol + value.ToString("0.00");
-            }
-            tray.Text = text.Length > 63 ? text.Substring(0, 63) : text;
-        });
+        SendInternal("balance.get", null, ApplyBalance);
+    }
+
+    private void ApplyBalance(Dictionary<string, object> result) {
+        string text = "RLY/0 Hub";
+        object balance, unit;
+        if (result != null && result.TryGetValue("balance", out balance) && balance != null && !(balance is string)) {
+            double value = Convert.ToDouble(balance);
+            string symbol = result.TryGetValue("unit", out unit) && Convert.ToString(unit) == "CNY" ? "¥" : "$";
+            text = "RLY/0 Hub · 零号余额 " + symbol + value.ToString("0.00");
+        }
+        tray.Text = text.Length > 63 ? text.Substring(0, 63) : text;
     }
 
     private void CheckAlerts() {
@@ -341,6 +343,16 @@ internal sealed class HubContext : ApplicationContext {
                 ready = true;
                 RefreshBalance();
                 if (panel != null) panel.Post("{\"event\":\"ready\"}");
+                return;
+            }
+            // Pushed updates (a reply's quota numbers, a relay balance after a relay turn).
+            string pushed = eventName == null ? null : Convert.ToString(eventName);
+            if (pushed == "quota" || pushed == "balance") {
+                if (pushed == "balance") {
+                    object parameters;
+                    ApplyBalance(value.TryGetValue("params", out parameters) ? parameters as Dictionary<string, object> : null);
+                }
+                if (panel != null && !panel.IsDisposed && panel.Loaded) panel.Post(line);
                 return;
             }
             if (!value.TryGetValue("id", out id)) return;
@@ -937,9 +949,20 @@ internal sealed class PanelWindow : Form {
         try { message = Program.Json.Deserialize<Dictionary<string, object>>(json); } catch { return false; }
         if (message == null || !message.ContainsKey("method") || !message.ContainsKey("id")) return false;
         string method = message["method"] as string, id = message["id"] as string;
-        if (id == null || (method != "window.zoomGet" && method != "window.zoomSet" && method != "window.capture")) return false;
+        if (id == null || (method != "window.zoomGet" && method != "window.zoomSet" && method != "window.capture" && method != "window.claudeUsage")) return false;
         if (method == "window.capture") {
             CaptureScreen(id);
+            return true;
+        }
+        if (method == "window.claudeUsage") {
+            var parameters = message.ContainsKey("params") ? message["params"] as Dictionary<string, object> : null;
+            string account = parameters != null && parameters.ContainsKey("accountId") ? parameters["accountId"] as string : null;
+            string label = parameters != null && parameters.ContainsKey("label") ? parameters["label"] as string : null;
+            bool opened = account != null && ClaudeUsageWindow.Open(this, account, label, delegate {
+                Post("{\"event\":\"claudeUsageClosed\",\"accountId\":\"" + account + "\"}");
+            });
+            if (opened) Post(Program.Json.Serialize(new { id = id, result = new { opened = true } }));
+            else Post(Program.Json.Serialize(new { id = id, error = new { code = -32602, message = "BAD_ACCOUNT" } }));
             return true;
         }
         if (method == "window.zoomSet") {
@@ -975,6 +998,16 @@ internal sealed class PanelWindow : Form {
 
     protected override void OnShown(EventArgs e) {
         base.OnShown(e);
+    }
+
+    // The page pauses its timed quota refreshes while the window is minimized.
+    private bool lastVisible = true;
+    protected override void OnResize(EventArgs e) {
+        base.OnResize(e);
+        bool visible = WindowState != FormWindowState.Minimized;
+        if (visible == lastVisible) return;
+        lastVisible = visible;
+        if (Loaded) Post(visible ? "{\"event\":\"visibility\",\"visible\":true}" : "{\"event\":\"visibility\",\"visible\":false}");
     }
 
     protected override void OnHandleCreated(EventArgs e) {
@@ -1040,6 +1073,133 @@ internal sealed class PanelWindow : Form {
             core.Navigate(Program.PageUrl);
         } catch {
             MessageBox.Show("界面组件 WebView2 不可用。请安装 Microsoft Edge WebView2 运行时后再打开。", "RLY/0 Hub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Close();
+        }
+    }
+}
+
+/// <summary>
+/// Claude's own usage page (claude.ai/settings/usage), where Anthropic lets a subscriber redeem a
+/// rate-limit reset; there is no API for it. Each saved Claude account gets its own WebView2
+/// profile (%LOCALAPPDATA%\rly0-hub\claude-web\&lt;accountId&gt;), so every account stays signed
+/// in on its own. The Hub only navigates: no script, no click and no cookie or credential is read
+/// or written. Top-level pages stay on claude.ai / anthropic.com; any other link opens in the
+/// default browser. Closing the window tells the page to re-read that account's quota.
+/// </summary>
+internal sealed class ClaudeUsageWindow : Form {
+    internal const string UsageUrl = "https://claude.ai/settings/usage";
+    private static readonly Regex AccountId = new Regex("^[a-f0-9]{12}$");
+    private static readonly Dictionary<string, ClaudeUsageWindow> open = new Dictionary<string, ClaudeUsageWindow>();
+    private readonly WebView2 browser = new WebView2();
+    private readonly string dataFolder;
+    [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    /// <summary>Shows the window for one account (the open one when there is). False: bad id.</summary>
+    internal static bool Open(Form owner, string accountId, string label, Action closed) {
+        if (accountId == null || !AccountId.IsMatch(accountId)) return false;
+        ClaudeUsageWindow window;
+        if (open.TryGetValue(accountId, out window) && !window.IsDisposed) {
+            if (window.WindowState == FormWindowState.Minimized) window.WindowState = FormWindowState.Normal;
+            window.Activate();
+            return true;
+        }
+        window = new ClaudeUsageWindow(owner, accountId, CleanLabel(label));
+        open[accountId] = window;
+        window.FormClosed += delegate {
+            open.Remove(accountId);
+            if (closed != null) closed();
+        };
+        window.Show();
+        return true;
+    }
+
+    private static string CleanLabel(string label) {
+        if (string.IsNullOrEmpty(label)) return "所选 Claude 账号";
+        var builder = new StringBuilder();
+        foreach (char c in label) if (!char.IsControl(c)) builder.Append(c);
+        string text = builder.ToString().Trim();
+        if (text.Length == 0) return "所选 Claude 账号";
+        return text.Length > 60 ? text.Substring(0, 60) + "…" : text;
+    }
+
+    /// <summary>claude.ai, anthropic.com and their subdomains, over https.</summary>
+    internal static bool Allowed(string address) {
+        Uri uri;
+        if (!Uri.TryCreate(address, UriKind.Absolute, out uri) || uri.Scheme != "https") return false;
+        string host = uri.Host.ToLowerInvariant();
+        return host == "claude.ai" || host.EndsWith(".claude.ai", StringComparison.Ordinal) ||
+            host == "anthropic.com" || host.EndsWith(".anthropic.com", StringComparison.Ordinal);
+    }
+
+    private static void OpenExternally(string address) {
+        Uri uri;
+        if (!Uri.TryCreate(address, UriKind.Absolute, out uri) || (uri.Scheme != "https" && uri.Scheme != "http")) return;
+        try { Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); } catch { }
+    }
+
+    private ClaudeUsageWindow(Form owner, string accountId, string label) {
+        string local = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        if (string.IsNullOrEmpty(local) || !Path.IsPathRooted(local)) local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        dataFolder = Path.Combine(local, "rly0-hub", "claude-web", accountId);
+        Directory.CreateDirectory(dataFolder);
+        Text = "Claude 用量 · " + label;
+        if (owner != null) Icon = owner.Icon;
+        float scale;
+        using (var g = Graphics.FromHwnd(IntPtr.Zero)) scale = Math.Max(1f, g.DpiX / 96f);
+        var work = owner != null ? Screen.FromControl(owner).WorkingArea : Screen.PrimaryScreen.WorkingArea;
+        var size = new Size(Math.Min((int)(1000 * scale), work.Width * 9 / 10), Math.Min((int)(760 * scale), work.Height * 9 / 10));
+        StartPosition = FormStartPosition.Manual;
+        Bounds = new Rectangle(work.Left + (work.Width - size.Width) / 2, work.Top + (work.Height - size.Height) / 2, size.Width, size.Height);
+        MinimumSize = new Size(Math.Min((int)(560 * scale), work.Width), Math.Min((int)(420 * scale), work.Height));
+        BackColor = BrandDialog.Back;
+        var hint = new Label {
+            Dock = DockStyle.Top, AutoSize = false, Height = (int)(34 * scale),
+            Padding = new Padding((int)(14 * scale), 0, (int)(14 * scale), 0),
+            TextAlign = ContentAlignment.MiddleLeft, BackColor = BrandDialog.Well, ForeColor = BrandDialog.Paper,
+            Font = new Font("Microsoft YaHei UI", 9.5f), AutoEllipsis = true,
+            Text = "请确认右上角登录的是 " + label + " 再点 Reset",
+        };
+        browser.Dock = DockStyle.Fill;
+        browser.DefaultBackgroundColor = Color.FromArgb(13, 13, 11);
+        Controls.Add(browser);
+        Controls.Add(hint);
+        Load += Initialize;
+        FormClosed += delegate { browser.Dispose(); };
+    }
+
+    protected override void OnHandleCreated(EventArgs e) {
+        base.OnHandleCreated(e);
+        int on = 1, ink = 0x000B0D0D;
+        DwmSetWindowAttribute(Handle, 20, ref on, 4);
+        DwmSetWindowAttribute(Handle, 35, ref ink, 4);
+    }
+
+    private async void Initialize(object sender, EventArgs args) {
+        try {
+            var environment = await CoreWebView2Environment.CreateAsync(null, dataFolder);
+            if (IsDisposed) return;
+            await browser.EnsureCoreWebView2Async(environment);
+            if (IsDisposed) return;
+            var core = browser.CoreWebView2;
+            core.Settings.AreDevToolsEnabled = false;
+            core.Settings.AreHostObjectsAllowed = false;
+            core.Settings.IsWebMessageEnabled = false;
+            core.Settings.IsPasswordAutosaveEnabled = false;
+            core.PermissionRequested += delegate (object s, CoreWebView2PermissionRequestedEventArgs e) { e.State = CoreWebView2PermissionState.Deny; };
+            core.DownloadStarting += delegate (object s, CoreWebView2DownloadStartingEventArgs e) { e.Cancel = true; };
+            core.NewWindowRequested += delegate (object s, CoreWebView2NewWindowRequestedEventArgs e) {
+                e.Handled = true;
+                if (Allowed(e.Uri)) core.Navigate(e.Uri);
+                else OpenExternally(e.Uri);
+            };
+            core.NavigationStarting += delegate (object s, CoreWebView2NavigationStartingEventArgs e) {
+                if (Allowed(e.Uri)) return;
+                e.Cancel = true;
+                OpenExternally(e.Uri);
+            };
+            core.Navigate(UsageUrl);
+        } catch {
+            MessageBox.Show("界面组件 WebView2 不可用，无法打开 Claude 用量页。", "RLY/0 Hub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             Close();
         }
     }
