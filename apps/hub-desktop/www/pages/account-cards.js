@@ -50,7 +50,7 @@ window.registerHubAccountCards = ({
     // Grok accounts (the Grok CLI renews tokens; the Hub never does).
     GROK_LIVE_EXPIRED: "登录需要续期：用一次 Grok 后再刷新",
     GROK_SAVED_EXPIRED: "登录已过期，切换一次即可更新额度",
-    ACCOUNT_REFRESH_REJECTED: "这个账号的登录已失效（可能在别处退出了），请重新添加",
+    ACCOUNT_REFRESH_REJECTED: "登录已失效（可能在别处退出了），请重新添加",
     ACCOUNT_REFRESH_MISMATCH: "官方返回的不是这个账号，已停止续期",
     ACCOUNT_BUSY: "这个账号正在续期，稍后再刷新",
     RLY0_CORE_UNAVAILABLE: "后台服务还没准备好",

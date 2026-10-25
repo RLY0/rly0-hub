@@ -313,10 +313,10 @@ window.HubUI = (() => {
     );
   }
   const BRIEF_SELECTOR =
-    "p.sub, .tool-text p, .page-note, .reset-when, .who > span, .mod-title > span, .access-detail p, .quota-note";
+    "p.sub, .tool-text p, .page-note, .reset-when, .who > span, .mod-title > span, .access-detail p, .quota-note, .page-head > .sub, [data-brief]";
   const BRIEF_SKIP =
     ".warn-text, .warn, .err, .error, [role=alert], [role=status], [data-keep], .tool-detail, .dialog-body .result";
-  const MIN_BRIEF = 34;
+  const MIN_BRIEF = 28;
   /** First clause of a long explanation (the full text goes in the tooltip). */
   function briefOf(text) {
     const first = text.split(/[。；！？]/u)[0].trim();
@@ -328,7 +328,9 @@ window.HubUI = (() => {
     return pause >= 10 ? head.slice(0, pause) : `${head.slice(0, 28)}…`;
   }
   function applyBrief(element) {
-    if (element.closest(BRIEF_SKIP) || element.querySelector(".brief-text")) return;
+    if (element.querySelector(".brief-text")) return;
+    // A hand-written short line (data-brief) applies everywhere, warnings included.
+    if (!element.hasAttribute("data-brief") && element.closest(BRIEF_SKIP)) return;
     if (element.children.length > 0) return;
     const full = element.textContent.trim();
     const long = full.replace(/[。.]$/u, "").length > MIN_BRIEF && /[，。；：]/u.test(full);

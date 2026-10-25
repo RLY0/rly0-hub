@@ -658,7 +658,7 @@ window.registerHubAgents = ({
         agent.desktopOnly
           ? h(
               "p",
-              { class: "warn-text" },
+              { class: "warn-text", "data-brief": "还缺命令行版 agy：滑动下面的按钮安装" },
               "桌面版 Antigravity 已装，但命令行版 agy 没装：Codex 需要 agy，滑动下面的按钮装上它。",
             )
           : null,
