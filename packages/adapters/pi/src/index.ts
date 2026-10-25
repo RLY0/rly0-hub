@@ -9,3 +9,5 @@ export const packageMetadata = {
   contractVersion: WORKSPACE_CONTRACT_VERSION,
   adapterContract: harnessAdapter.name,
 } as const;
+
+export { PI_SHARED_RESOURCE_REQUEST } from "./pi-shared-resources.js";

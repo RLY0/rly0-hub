@@ -6,6 +6,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ANTIGRAVITY_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-antigravity";
 import { CLAUDE_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-claude-code";
 import { GROK_SHARED_CONTEXT_REQUEST, GROK_SHARED_MCP_REQUEST } from "@codexhost/adapter-grok";
+import { CURSOR_SHARED_CONTEXT_REQUEST, CURSOR_SHARED_MCP_REQUEST } from "@codexhost/adapter-cursor-cli";
+import { HERMES_SHARED_CONTEXT_REQUEST, HERMES_SHARED_SKILL_REQUEST } from "@codexhost/adapter-hermes";
+import { KIMI_SHARED_CONTEXT_REQUEST, KIMI_SHARED_MCP_REQUEST } from "@codexhost/adapter-kimi-code";
+import { KIRO_SHARED_CONTEXT_REQUEST, KIRO_SHARED_MCP_REQUEST } from "@codexhost/adapter-kiro-cli";
+import { OPENCODE_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-opencode";
+import { PI_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-pi";
 
 import { RLY0_HUB_AGENTS } from "../src/rly0-hub-service/agents.js";
 import {
@@ -196,7 +202,7 @@ codex-group-line
       delivered: { mcpServers: ["docs", "local"], skills: 1, memory: 1 },
     });
     expect(
-      await sharedResourceStatus({ environment: f.env, harnessId: "pi", cwd: f.project }),
+      await sharedResourceStatus({ environment: f.env, harnessId: "zcode", cwd: f.project }),
     ).toMatchObject({ applicable: true, support: { mcp: false, skills: false, memory: false } });
     expect(
       await sharedResourceStatus({ environment: f.env, harnessId: "codex", cwd: f.project }),
@@ -210,16 +216,31 @@ codex-group-line
         { mcp: sharing.mcp, skills: sharing.skills, memory: sharing.memory },
       ]),
     );
-    const asked = (...requests: { mcp?: boolean; skills?: boolean; memory?: boolean }[]) => ({
+    type Request = { mcp?: boolean; skills?: boolean; memory?: boolean; memoryMcp?: boolean };
+    const asked = (...requests: Request[]) => ({
       mcp: requests.some((request) => request.mcp === true),
       skills: requests.some((request) => request.skills === true),
-      memory: requests.some((request) => request.memory === true),
+      memory: requests.some((request) => request.memory === true || request.memoryMcp === true),
     });
+    const acp = { harnessId: "x", mcp: true, skills: true, memory: true, memoryMcp: true };
     expect(support["claude-code"]).toEqual(asked(CLAUDE_SHARED_RESOURCE_REQUEST));
     expect(support.grok).toEqual(asked(GROK_SHARED_MCP_REQUEST, GROK_SHARED_CONTEXT_REQUEST));
     expect(support.antigravity).toEqual(asked(ANTIGRAVITY_SHARED_RESOURCE_REQUEST));
-    for (const id of ["opencode", "pi", "hermes", "cursor-cli", "kiro-cli"]) {
+    expect(support.opencode).toEqual(asked(OPENCODE_SHARED_RESOURCE_REQUEST));
+    expect(support.pi).toEqual(asked(PI_SHARED_RESOURCE_REQUEST));
+    expect(support.hermes).toEqual(asked(HERMES_SHARED_SKILL_REQUEST, HERMES_SHARED_CONTEXT_REQUEST));
+    expect(support["cursor-cli"]).toEqual(asked(CURSOR_SHARED_MCP_REQUEST, CURSOR_SHARED_CONTEXT_REQUEST));
+    expect(support["kiro-cli"]).toEqual(asked(KIRO_SHARED_MCP_REQUEST, KIRO_SHARED_CONTEXT_REQUEST));
+    expect(support["kimi-code"]).toEqual(asked(KIMI_SHARED_MCP_REQUEST, KIMI_SHARED_CONTEXT_REQUEST));
+    // CodeBuddy / WorkBuddy ask inline (acp-client.ts) with the same ACP shape.
+    expect(support.codebuddy).toEqual(asked(acp));
+    expect(support.workbuddy).toEqual(asked(acp));
+    for (const id of ["deepseek-harness", "zcode", "omp", "qoder", "qoder-cn"]) {
       expect(support[id]).toEqual({ mcp: false, skills: false, memory: false });
+      expect(RLY0_HUB_AGENTS.find((entry) => entry.id === id)?.sharing.note).toBeTruthy();
     }
+    for (const entry of RLY0_HUB_AGENTS)
+      if (Object.values(entry.sharing.modes).includes("global"))
+        expect(entry.sharing.note).toContain("单独开启");
   });
 });

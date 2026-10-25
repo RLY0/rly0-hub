@@ -1551,6 +1551,7 @@ export class Rly0HubService {
             installed: agent.installed,
             support: status.support,
             blocked: status.blocked,
+            modes: rly0HubAgentSharing(agent.id).modes,
             note: rly0HubAgentSharing(agent.id).note ?? null,
           };
         }),

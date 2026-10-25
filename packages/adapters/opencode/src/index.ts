@@ -15,3 +15,5 @@ export const packageMetadata = {
   contractVersion: WORKSPACE_CONTRACT_VERSION,
   adapterContract: harnessAdapter.name,
 } as const;
+
+export { OPENCODE_SHARED_RESOURCE_REQUEST, renderOpenCodeMcp } from "./shared-resources.js";

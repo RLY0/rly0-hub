@@ -65,7 +65,7 @@ describe("independent Hub management", () => {
     );
   });
 
-  it("shares MCP and skills by default and toggles each kind for every agent", async () => {
+  it("shares MCP, skills and memory by default and toggles each kind for every agent", async () => {
     const { service } = await fixture();
     const initial = (await service.handle("resources.sharingGet", {})) as {
       mcp: boolean;
@@ -73,18 +73,19 @@ describe("independent Hub management", () => {
       memory: boolean;
       agents: { id: string; support: Record<string, boolean>; note: string | null }[];
     };
-    expect(initial).toMatchObject({ mcp: true, skills: true, memory: false, enabled: true });
+    expect(initial).toMatchObject({ mcp: true, skills: true, memory: true, enabled: true });
     expect(initial.agents.find((agent) => agent.id === "antigravity")).toMatchObject({
       support: { mcp: false, skills: true, memory: true },
-      note: "Antigravity 命令行接入无法挂载 MCP",
+      modes: { mcp: "global", skills: "context", memory: "context" },
     });
     expect(initial.agents.find((agent) => agent.id === "pi")).toMatchObject({
-      support: { mcp: false, skills: false, memory: false },
+      support: { mcp: true, skills: true, memory: true },
+      modes: { mcp: "native", skills: "native", memory: "native" },
     });
-    expect(await service.handle("resources.sharingSet", { memory: true })).toMatchObject({
+    expect(await service.handle("resources.sharingSet", { memory: false })).toMatchObject({
       mcp: true,
       skills: true,
-      memory: true,
+      memory: false,
     });
     expect(await service.handle("resources.sharingSet", { enabled: false })).toMatchObject({
       mcp: false,

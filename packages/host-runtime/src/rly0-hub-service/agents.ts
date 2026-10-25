@@ -16,23 +16,37 @@ export type Rly0HubAgentCategory = "official" | "community";
 /** How an agent can use a relay: automatically per session, by hand-copied config, or not at all. */
 export type Rly0HubAgentRelaySupport = "auto" | "manual" | "none";
 /**
- * Which Codex resources the agent's adapter can consume (shared-harness-resources.ts):
- * `mcp` attaches Codex MCP servers natively; `skills` / `memory` reach the model as reference
- * context. Must match what each adapter requests from the shared resources provider.
+ * How an agent receives each shared kind (shared-harness-resources.ts and its adapter):
+ * - `native`: through its own interface for this process (MCP config, skill registration);
+ * - `context`: as reference text in front of the prompt (skills index, read-only memory digest);
+ * - `global`: only through the agent's global config file, which the Hub changes only when the
+ *   person turns on its managed block for that agent (off by default);
+ * - `none`: not reachable; `note` says why.
+ * The booleans say whether the adapter asks the Host for that kind; they must match its requests.
  */
+export type Rly0ShareMode = "native" | "context" | "global" | "none";
 export interface Rly0HubAgentSharing {
   readonly mcp: boolean;
   readonly skills: boolean;
   readonly memory: boolean;
-  /** Why something is not shared, in the Hub's words. */
+  readonly modes: { readonly mcp: Rly0ShareMode; readonly skills: Rly0ShareMode; readonly memory: Rly0ShareMode };
+  /** Why something is not shared or needs the opt-in global block, in the Hub's words. */
   readonly note?: string;
 }
-const NO_SHARING: Rly0HubAgentSharing = {
-  mcp: false,
-  skills: false,
-  memory: false,
-  note: "接入方式暂不支持接收 Codex 的资源",
-};
+const sharing = (
+  mcp: Rly0ShareMode,
+  skills: Rly0ShareMode,
+  memory: Rly0ShareMode,
+  note?: string,
+): Rly0HubAgentSharing => ({
+  mcp: mcp === "native",
+  skills: skills === "native" || skills === "context",
+  memory: memory !== "none",
+  modes: { mcp, skills, memory },
+  ...(note ? { note } : {}),
+});
+const ACP_SHARING = sharing("native", "context", "native");
+const NO_SHARING = sharing("none", "none", "none", "接入方式没有可挂载 MCP 或附加上下文的入口");
 
 interface CatalogEntry {
   readonly id: string;
@@ -61,7 +75,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "auto",
-    sharing: { mcp: true, skills: true, memory: true, note: "开启 Claude 隔离模式时不共享" },
+    sharing: sharing("native", "context", "native", "开启 Claude 隔离模式时不共享"),
     docsUrl: "https://docs.anthropic.com/en/docs/claude-code/overview",
   },
   {
@@ -71,7 +85,12 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "none",
-    sharing: { mcp: false, skills: true, memory: true, note: "Antigravity 命令行接入无法挂载 MCP" },
+    sharing: sharing(
+      "global",
+      "context",
+      "context",
+      "agy 只读取全局 ~/.gemini/config/mcp_config.json，需在打通设置里单独开启",
+    ),
     docsUrl: "https://antigravity.google",
   },
   {
@@ -81,7 +100,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "manual",
-    sharing: { mcp: true, skills: true, memory: true },
+    sharing: ACP_SHARING,
     docsUrl: "https://x.ai",
   },
   {
@@ -91,7 +110,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "auto",
-    sharing: NO_SHARING,
+    sharing: ACP_SHARING,
     docsUrl: "https://opencode.ai/docs",
   },
   {
@@ -101,7 +120,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "auto",
-    sharing: NO_SHARING,
+    sharing: sharing("native", "native", "native"),
     docsUrl: "https://pi.dev",
   },
   {
@@ -111,7 +130,12 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "auto",
-    sharing: NO_SHARING,
+    sharing: sharing(
+      "global",
+      "native",
+      "context",
+      "Hermes 只从全局 ~/.hermes/config.yaml 读取 MCP，需在打通设置里单独开启",
+    ),
     docsUrl: "https://hermes-agent.nousresearch.com",
   },
   {
@@ -121,7 +145,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: ACP_SHARING,
     docsUrl: "https://cursor.com/cli",
   },
   {
@@ -131,7 +155,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: ACP_SHARING,
     docsUrl: "https://kiro.dev",
   },
   {
@@ -141,7 +165,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: ACP_SHARING,
     docsUrl: "https://code.kimi.com/kimi-code",
     more: true,
   },
@@ -152,7 +176,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: sharing("none", "none", "none", "DeepSeek 接入没有 MCP 或附加上下文的入口"),
     docsUrl: "https://www.npmjs.com/package/@deepseek-ai/dsh",
     more: true,
   },
@@ -163,7 +187,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: sharing("none", "none", "none", "ZCode 桌面接入没有 MCP 或附加上下文的入口"),
     docsUrl: "https://zcode.z.ai",
     more: true,
     launchPath: true,
@@ -175,7 +199,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: sharing("none", "none", "none", "OMP 的 MCP / 技能参数未核实，暂不接入"),
     docsUrl: "https://omp.sh",
     more: true,
   },
@@ -186,7 +210,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: sharing("none", "none", "none", "Qoder SDK 接入的 MCP 参数未核实，暂不接入"),
     docsUrl: "https://qoder.com",
     more: true,
   },
@@ -197,7 +221,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: sharing("none", "none", "none", "Qoder SDK 接入的 MCP 参数未核实，暂不接入"),
     docsUrl: "https://qoder.com.cn",
     more: true,
   },
@@ -208,7 +232,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: ACP_SHARING,
     docsUrl: "https://www.npmjs.com/package/@tencent-ai/codebuddy-code",
     more: true,
   },
@@ -219,7 +243,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: false,
     relay: "none",
-    sharing: NO_SHARING,
+    sharing: ACP_SHARING,
     docsUrl:
       "https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
     more: true,
