@@ -426,11 +426,18 @@ window.hubManagementMock = (() => {
           const count = index % 7 >= 5 ? index % 3 : (index * 7) % 11;
           return { date: date.toISOString().slice(0, 10), count };
         });
+        // 105 weeks for the Hub 首页 grid, quieter further back.
+        const history = Array.from({ length: 735 }, (_, index) => {
+          const date = new Date(Date.now() - (734 - index) * 86400000);
+          const count = index < 560 ? ((index * 5) % 9 === 0 ? 2 : 0) : (index * 7) % 11;
+          return { date: date.toISOString().slice(0, 10), count };
+        });
         const total = activity.reduce((sum, day) => sum + day.count, 0);
         const active = activity.filter((day) => day.count > 0).length;
         return {
           sessionsRoot: "C:\\Users\\me\\.codex\\sessions",
           rootExists: true,
+          history,
           stats: {
             totalThreads: total + 212,
             totalBytes: 486539264,
