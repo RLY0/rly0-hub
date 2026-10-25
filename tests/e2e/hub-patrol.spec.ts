@@ -523,7 +523,7 @@ test("claude setup-token quota: tiles, network failure, invalid token", async ({
   await expect(card).toContainText("剩 61%");
   await expect(card).toContainText("每周额度");
   await expect(card).toContainText("剩 82%");
-  await expect(card).toContainText("更新于");
+  await expect(card.locator(".quota-fresh")).toContainText("刚刚");
   await expect(card).not.toContainText("官方不允许");
   await shot(card, "usage");
 
@@ -719,6 +719,75 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
 
 // Grok (测试版, pages/mock.js): a weekly and a monthly account and one whose saved login expired;
 // adding one by `grok login` (finishes on its own, no code) and by an auth.json file.
+// Live quota (pages/quota-live.js): every quota says how fresh it is and where it came from; a
+// reply's numbers pushed by the service repaint 账号 and 首页 without a request; the Claude reset
+// card opens claude.ai's usage page in a Hub window for that account and re-reads it on close.
+test("live quota: freshness labels, pushed numbers, Claude reset window", async ({ page }) => {
+  const dir = path.join(runDir, "live-quota");
+  mkdirSync(dir, { recursive: true });
+  const settled = async () => {
+    await page.waitForFunction(() => !document.getElementById("boot")?.classList.contains("show"));
+    await page.waitForTimeout(500);
+  };
+  const dismiss = await openAccountsTab(page, "OpenAI");
+  const me = page.locator(".account-card", { hasText: "me@example.com" }).first();
+  // quota.live (mock): a reply on the current account just brought its numbers.
+  await expect(me.locator(".quota-fresh")).toContainText("刚刚");
+  await expect(me.locator(".quota-fresh")).toContainText("随对话更新");
+  const team = page.locator(".account-card", { hasText: "团队号" });
+  await expect(team.locator(".quota-fresh")).toContainText("定时刷新");
+  await expect(team.locator(".quota-fresh .info-tip")).toHaveAttribute("data-tip", /每 5 分钟/u);
+  // A pushed reply for 团队号 replaces its numbers at once.
+  await page.evaluate(() =>
+    (window as unknown as { __hubShellMessage: (m: unknown) => void }).__hubShellMessage({
+      event: "quota",
+      params: {
+        provider: "codex",
+        id: "1123456789ab",
+        usage: {
+          windows: [{ kind: "primary", usedPercent: 70 }],
+          fetchedAt: Math.floor(Date.now() / 1000),
+          source: "live",
+        },
+        observedAt: Date.now() + 1000,
+        source: "conversation",
+      },
+    }),
+  );
+  await expect(team).toContainText("剩 30%");
+  await expect(team.locator(".quota-fresh")).toContainText("随对话更新");
+  await dismiss();
+  await settled();
+  await page.screenshot({ path: path.join(dir, "accounts-codex.png"), fullPage: true });
+
+  await page.click('.account-tabs button[aria-label^="Anthropic"]');
+  const claude = page.locator(".account-card", { hasText: "工作号" });
+  await expect(claude.locator(".quota-fresh")).toContainText("刚刚");
+  const open = claude.locator('.reset-card.cards button:has-text("打开兑换页")');
+  await expect(open).toBeVisible();
+  await open.click();
+  const opened = await page.evaluate(
+    () => (window as unknown as { __hubClaudeUsageOpened?: unknown[] }).__hubClaudeUsageOpened,
+  );
+  expect(opened).toEqual([{ accountId: "abcdefabcdef", label: "work@example.com" }]);
+  await settled();
+  await page.screenshot({ path: path.join(dir, "accounts-claude.png"), fullPage: true });
+  // Closing the window re-reads that account.
+  await page.evaluate(() =>
+    (window as unknown as { __hubShellMessage: (m: unknown) => void }).__hubShellMessage({
+      event: "claudeUsageClosed",
+      accountId: "abcdefabcdef",
+    }),
+  );
+  await expect(claude.locator(".quota-fresh")).toContainText("手动");
+
+  await page.click('.rail button[data-page="home"]');
+  const work = page.locator(".work-quota");
+  await expect(work.locator(".quota-fresh")).toContainText("刚刚");
+  await settled();
+  await page.screenshot({ path: path.join(dir, "home.png"), fullPage: true });
+});
+
 async function openAccountsTab(page: Page, tab: string) {
   await page.setViewportSize({ width: 1240, height: HEIGHT });
   await page.goto("/index.html");

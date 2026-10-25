@@ -801,6 +801,9 @@ window.hubManagementMock = (() => {
             };
       case "agents.claudeAccounts.usage": {
         const account = claudeAccounts.find((a) => a.id === p.id);
+        // A fresh read (rly0-core keeps it as the account's last usage).
+        if (account && account.lastUsage)
+          account.lastUsage = { ...account.lastUsage, fetchedAt: Math.floor(Date.now() / 1000) };
         const result = account ? claudeUsage(account) : { error: "ACCOUNT_NOT_FOUND" };
         return result.error
           ? { __error: result.error, __delay: 400 }
