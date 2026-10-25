@@ -4913,3 +4913,26 @@ select.input,
     transition: none;
   }
 }
+
+/* 更多 Agent: rarely used agents, folded until opened. */
+.agent-section.more > .agent-more-summary {
+  list-style: none;
+  cursor: pointer;
+}
+.agent-section.more > .agent-more-summary::-webkit-details-marker {
+  display: none;
+}
+.agent-section-head.more {
+  outline: 1px dashed rgba(233, 233, 227, 0.14);
+  outline-offset: -1px;
+}
+.agent-section.more > .agent-more-summary .count-pill::after {
+  content: " ▾";
+}
+.agent-section.more[open] > .agent-more-summary .count-pill::after {
+  content: " ▴";
+}
+.more .section-badge {
+  color: var(--muted-dark);
+  box-shadow: inset 0 0 0 1px rgba(233, 233, 227, 0.2);
+}

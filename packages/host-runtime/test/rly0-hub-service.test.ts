@@ -439,11 +439,11 @@ describe("零号中转 first", () => {
 });
 
 describe("AI 助手 catalog and relay logos", () => {
-  it("lists official agents first and hides agents for domestic models", async () => {
-    const { listRly0HubAgents, RLY0_HUB_HIDDEN_AGENTS } =
-      await import("../src/rly0-hub-service/agents.js");
+  it("lists official agents first and every other installed adapter in the 更多 group", async () => {
+    const { listRly0HubAgents } = await import("../src/rly0-hub-service/agents.js");
     const agents = listRly0HubAgents({ PATH: "" }, "win32", () => false);
-    expect(agents.map((a) => a.id)).toEqual([
+    const main = agents.filter((a) => !a.more);
+    expect(main.map((a) => a.id)).toEqual([
       "claude-code",
       "antigravity",
       "grok",
@@ -453,13 +453,39 @@ describe("AI 助手 catalog and relay logos", () => {
       "cursor-cli",
       "kiro-cli",
     ]);
-    expect(agents.filter((a) => a.category === "official").map((a) => a.vendor)).toEqual([
+    expect(main.filter((a) => a.category === "official").map((a) => a.vendor)).toEqual([
       "Anthropic",
       "Google",
       "xAI",
     ]);
-    for (const hidden of RLY0_HUB_HIDDEN_AGENTS)
-      expect(agents.map((a) => a.id)).not.toContain(hidden);
+    // Every Harness the release ships (scripts/release/harness-plugins.json) is listed once.
+    const shipped = (
+      JSON.parse(
+        await fs.readFile(
+          path.join(import.meta.dirname, "../../../scripts/release/harness-plugins.json"),
+          "utf8",
+        ),
+      ) as { plugins: string[] }
+    ).plugins
+      .map((plugin) => path.basename(plugin))
+      .filter((id) => id !== "codex-usage");
+    expect([...agents.map((a) => a.id)].sort()).toEqual([...shipped].sort());
+    expect(agents.filter((a) => a.more).map((a) => a.id)).toEqual([
+      "kimi-code",
+      "deepseek-harness",
+      "zcode",
+      "omp",
+      "qoder",
+      "qoder-cn",
+      "codebuddy",
+      "workbuddy",
+    ]);
+    // A desktop-only agent without an installer recipe still shows up, for its status.
+    expect(agents.find((a) => a.id === "zcode")).toMatchObject({
+      automatic: false,
+      installed: null,
+      more: true,
+    });
     expect(agents.find((a) => a.id === "opencode")?.manualCommand).toBe(
       "npm install -g opencode-ai",
     );

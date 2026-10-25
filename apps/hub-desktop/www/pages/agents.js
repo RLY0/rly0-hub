@@ -282,7 +282,11 @@ window.registerHubAgents = ({
     h(
       "div",
       { class: `agent-section-head ${kind}` },
-      h("span", { class: "section-badge" }, kind === "official" ? "OFFICIAL" : "THIRD-PARTY"),
+      h(
+        "span",
+        { class: "section-badge" },
+        kind === "official" ? "OFFICIAL" : kind === "more" ? "MORE" : "THIRD-PARTY",
+      ),
       h("div", { class: "mod-title" }, h("b", null, title), h("span", null, hint)),
       h("span", { class: "spacer" }),
       h("span", { class: "count-pill tabular" }, count),
@@ -307,11 +311,15 @@ window.registerHubAgents = ({
     const community = h("div", { class: "grid compact agent-grid" });
     const officialHead = h("div");
     const communityHead = h("div");
+    // Rarely used agents: the same cards, folded away until opened.
+    const more = h("div", { class: "grid compact agent-grid" });
+    const moreHead = h("summary", { class: "agent-more-summary" });
     const sharingCard = h("section", { class: "m span-6 share-card" });
     resourceSharing.mount(sharingCard, alive);
     root.append(
       h("section", { class: "agent-section official" }, officialHead, official),
       h("section", { class: "agent-section community" }, communityHead, community),
+      h("details", { class: "agent-section more", "data-agent-more": "" }, moreHead, more),
       h(
         "section",
         { class: "agent-section sharing" },
@@ -411,7 +419,12 @@ window.registerHubAgents = ({
       claudeRelay = selection.claudeCode;
       agentRelays = selection.agents || {};
       claudeAccounts = auth || {};
-      const agents = (list && list.agents) || [];
+      // A desktop-app agent the Hub cannot detect (ZCode) counts as installed once Codex reached it.
+      const agents = ((list && list.agents) || []).map((agent) =>
+        agent.installed === null && connections && connections.agents[agent.id]?.status === "ready"
+          ? { ...agent, installed: true }
+          : agent,
+      );
       // Installed first; within each, the catalogue order (open source before closed).
       const order = (items) =>
         items
@@ -423,8 +436,9 @@ window.registerHubAgents = ({
               a.index - b.index,
           )
           .map(({ agent }) => agent);
-      const officials = order(agents.filter((a) => a.category === "official"));
-      const others = order(agents.filter((a) => a.category === "community"));
+      const officials = order(agents.filter((a) => !a.more && a.category === "official"));
+      const others = order(agents.filter((a) => !a.more && a.category === "community"));
+      const rare = order(agents.filter((a) => a.more));
       const ready = (items) =>
         `${items.filter((a) => a.installed).length} / ${items.length} 已安装`;
       put(
@@ -436,8 +450,13 @@ window.registerHubAgents = ({
         communityHead,
         sectionHead("community", "第三方 Agent", "社区和独立团队做的，开源在前", ready(others)),
       );
+      put(
+        moreHead,
+        sectionHead("more", `更多 Agent（${rare.length}）`, "不常用的也能装、能检测", ready(rare)),
+      );
       put(official, ...officials.map(card));
       put(community, ...others.map(card));
+      put(more, ...rare.map(card));
     }
 
     async function balanceOf(relay) {
@@ -452,7 +471,7 @@ window.registerHubAgents = ({
     function card(agent) {
       const isolated = agent.id === "claude-code" && isolation?.settings?.enabled;
       const element = h("section", {
-        class: `m agent-card ${agent.category === "official" ? "span-6 wide" : "span-2"} ${agent.category} ${agent.installed ? "installed" : "dormant"}`,
+        class: `m agent-card ${agent.category === "official" && !agent.more ? "span-6 wide" : "span-2"} ${agent.more ? "community" : agent.category} ${agent.installed ? "installed" : "dormant"}`,
       });
       const body = h("div", { class: "agent-body" });
       element.append(

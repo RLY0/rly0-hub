@@ -9,7 +9,8 @@ import { withAgentInstallPaths } from "../rly0-agents/install-paths.js";
  * The Hub's "AI 助手" catalog. Two kinds, shown separately:
  * - official: the coding agent a model vendor ships for its own models;
  * - community: third-party agents (open source first, then closed source).
- * Agents built around domestic models and duplicates are kept in the code but not listed.
+ * Rarely used agents (built around domestic models, desktop-only, forks) are listed too, in the
+ * page's collapsed "更多" group (`more`), with the same install and connection status.
  */
 export type Rly0HubAgentCategory = "official" | "community";
 /** How an agent can use a relay: automatically per session, by hand-copied config, or not at all. */
@@ -43,6 +44,8 @@ interface CatalogEntry {
   readonly sharing: Rly0HubAgentSharing;
   /** Official page with install and sign-in instructions; opened only through `links.open`. */
   readonly docsUrl: string;
+  /** Shown in the collapsed "更多" group. */
+  readonly more?: true;
 }
 
 export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
@@ -126,18 +129,96 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     sharing: NO_SHARING,
     docsUrl: "https://kiro.dev",
   },
+  {
+    id: "kimi-code",
+    name: "Kimi Code",
+    vendor: "Moonshot AI",
+    category: "official",
+    openSource: false,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl: "https://code.kimi.com/kimi-code",
+    more: true,
+  },
+  {
+    id: "deepseek-harness",
+    name: "DeepSeek Harness",
+    vendor: "DeepSeek",
+    category: "official",
+    openSource: false,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl: "https://www.npmjs.com/package/@deepseek-ai/dsh",
+    more: true,
+  },
+  {
+    id: "zcode",
+    name: "ZCode",
+    vendor: "Z.ai",
+    category: "official",
+    openSource: false,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl: "https://zcode.z.ai",
+    more: true,
+  },
+  {
+    id: "omp",
+    name: "Oh My Pi",
+    vendor: "Oh My Pi",
+    category: "community",
+    openSource: true,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl: "https://omp.sh",
+    more: true,
+  },
+  {
+    id: "qoder",
+    name: "Qoder",
+    vendor: "Qoder",
+    category: "community",
+    openSource: false,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl: "https://qoder.com",
+    more: true,
+  },
+  {
+    id: "qoder-cn",
+    name: "Qoder CN",
+    vendor: "Qoder",
+    category: "community",
+    openSource: false,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl: "https://qoder.com.cn",
+    more: true,
+  },
+  {
+    id: "codebuddy",
+    name: "CodeBuddy",
+    vendor: "Tencent",
+    category: "community",
+    openSource: false,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl: "https://www.npmjs.com/package/@tencent-ai/codebuddy-code",
+    more: true,
+  },
+  {
+    id: "workbuddy",
+    name: "WorkBuddy",
+    vendor: "Tencent",
+    category: "community",
+    openSource: false,
+    relay: "none",
+    sharing: NO_SHARING,
+    docsUrl:
+      "https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
+    more: true,
+  },
 ];
-
-/** Not listed in the Hub or in Codex's agent picker; their adapters stay for compatibility. */
-export const RLY0_HUB_HIDDEN_AGENTS = [
-  "kimi-code",
-  "qoder",
-  "qoder-cn",
-  "codebuddy",
-  "workbuddy",
-  "deepseek-harness",
-  "omp",
-] as const;
 
 export interface Rly0HubAgent {
   readonly id: string;
@@ -157,6 +238,8 @@ export interface Rly0HubAgent {
    * the IDE in `%LOCALAPPDATA%\Programs\Antigravity`, without `agy`).
    */
   readonly desktopOnly?: true;
+  /** Listed in the collapsed "更多" group. */
+  readonly more?: true;
 }
 
 /** Antigravity's desktop app (IDE) on Windows: its own `bin` holds `antigravity.cmd`, not `agy`. */
@@ -194,8 +277,8 @@ export function listRly0HubAgents(
 ): Rly0HubAgent[] {
   const searchEnvironment = withAgentInstallPaths(environment, platform);
   return RLY0_HUB_AGENTS.flatMap((entry) => {
-    const recipe = RLY0_AGENT_RECIPES[entry.id];
-    if (!recipe) return [];
+    // Desktop-app agents without a recipe (ZCode) are listed for their connection status only.
+    const recipe = RLY0_AGENT_RECIPES[entry.id] ?? { attempts: [] };
     const command = recipe.detectionCommand;
     const manual = manualCommand(entry.id);
     const installed = command
@@ -219,6 +302,7 @@ export function listRly0HubAgents(
         canOpenLogin: Boolean(recipe.loginCommand),
         ...(manual ? { manualCommand: manual } : {}),
         ...(desktopOnly ? { desktopOnly: true as const } : {}),
+        ...(entry.more ? { more: true as const } : {}),
       },
     ];
   });
