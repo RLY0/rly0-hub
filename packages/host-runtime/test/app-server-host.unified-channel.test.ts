@@ -194,6 +194,40 @@ describe("SYNTHETIC 统一渠道 on the Codex wire", () => {
     }
   });
 
+  it.each([RELAY_MODEL, "gpt-5.5", null])(
+    "forwards an empty continue turn/start on a rly0 Thread unchanged (model %s)",
+    async (model) => {
+      const fixture = unifiedFixture();
+      try {
+        await fixture.ready;
+        writeRequest(fixture.desktopInput, {
+          id: 31,
+          method: "thread/start",
+          params: { model: "gpt-5.5" },
+        });
+        const start = await readJsonLine(fixture.official.stdin);
+        answer(fixture, start.id, loaded("stopped", "gpt-5.5", "rly0"));
+        await fixture.collector.waitFor((message) => requestId(message, 31));
+
+        const params = {
+          threadId: "stopped",
+          input: [],
+          model: null,
+          ...(model ? { collaborationMode: { mode: "default", settings: { model } } } : {}),
+        };
+        writeRequest(fixture.desktopInput, { id: 32, method: "turn/start", params });
+        const sent = await readJsonLine(fixture.official.stdin);
+        expect(sent).toMatchObject({ method: "turn/start", params });
+        answer(fixture, sent.id, { result: { turn: { id: "c1", status: "inProgress" } } });
+        expect(await fixture.collector.waitFor((message) => requestId(message, 32))).toHaveProperty(
+          "result",
+        );
+      } finally {
+        await stopFixture(fixture);
+      }
+    },
+  );
+
   it("starts new Threads on rly0", async () => {
     const fixture = unifiedFixture();
     try {

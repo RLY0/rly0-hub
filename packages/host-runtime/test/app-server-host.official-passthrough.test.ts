@@ -64,6 +64,7 @@ describe("official Codex passthrough", () => {
     },
     { method: "thread/section/move", params: { threadId: "official-thread", sectionId: 7 } },
     { method: "turn/start" },
+    { method: "turn/start", params: { threadId: "official-thread", input: [] } },
     { method: "turn/interrupt", params: "future-params-shape" },
     { method: "thread/read" },
     { method: "future/method", params: { anything: [1, "two"] } },

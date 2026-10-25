@@ -385,6 +385,7 @@ import {
   type ExternalThreadLocation,
   type ExternalThreadResolution,
 } from "./external-thread-runtime.js";
+import { externalTurnInput, type ExternalTurnInput } from "./external-turn-input.js";
 import { ExternalSteerError, ExternalTurnSteering } from "./external-turn-steering.js";
 import {
   ExternalCommandError,
@@ -826,17 +827,6 @@ function routingParams(request: JsonRpcRequest): JsonObject {
 function requestObject(request: JsonRpcRequest): JsonObject {
   if (!isRecord(request.params)) throw new Error(`${request.method} params must be an object`);
   return request.params as JsonObject;
-}
-
-function requestText(params: JsonObject): string {
-  if (!Array.isArray(params.input)) throw new Error("turn/start input must be an array");
-  const text = params.input
-    .filter((item): item is JsonObject => isRecord(item) && item.type === "text")
-    .map((item) => item.text)
-    .filter((value): value is string => typeof value === "string")
-    .join("\n");
-  if (!text) throw new Error("turn/start must contain text input");
-  return text;
 }
 
 function sandboxResult(params: JsonObject): JsonObject {
@@ -6343,9 +6333,9 @@ export class AppServerHost {
         return;
       }
     }
-    let text: string;
+    let input: ExternalTurnInput;
     try {
-      text = requestText(params);
+      input = await externalTurnInput(params);
     } catch (error) {
       await this.#writer.json(rpcError(request, -32602, errorMessage(error)));
       return;
@@ -6353,10 +6343,11 @@ export class AppServerHost {
     try {
       const started = await this.#beginExternalInputTurn(
         thread,
-        text,
+        input.text,
         undefined,
         typeof params.clientUserMessageId === "string" ? params.clientUserMessageId : undefined,
         params[THREAD_REFERENCE_SOURCE_HOST_PARAM],
+        input.visible,
       );
       try {
         await this.#writer.json(rpcEnvelope(request, { result: { turn: started.turn } }));
@@ -6419,7 +6410,13 @@ export class AppServerHost {
     assertActive?: () => void,
     clientUserMessageId?: string,
     sourceHostId?: unknown,
+    visible = true,
   ): Promise<{ turnId: HostTurnId; turn: JsonObject; gate: TurnProjectionGate }> {
+    if (!visible) {
+      // The continue prompt is neither typed by the person nor a command.
+      assertActive?.();
+      return this.#beginExternalTurn(thread, inputText, clientUserMessageId, sourceHostId, false);
+    }
     const text = restoreHarnessCommandMentions(inputText);
     const commands = thread.session.commands;
     if (!commands || !isExternalCommandCandidate(text)) {
@@ -6482,6 +6479,7 @@ export class AppServerHost {
     text: string,
     clientUserMessageId?: string,
     sourceHostId?: unknown,
+    visible = true,
   ): Promise<{
     turnId: HostTurnId;
     turn: JsonObject;
@@ -6507,7 +6505,7 @@ export class AppServerHost {
         startedAtMs,
         ...(this.#options.externalOnly
           ? {
-              initialInput: [{ type: "text" as const, text }],
+              initialInput: visible ? [{ type: "text" as const, text }] : [],
               ...(clientUserMessageId ? { clientUserMessageId } : {}),
             }
           : {}),
