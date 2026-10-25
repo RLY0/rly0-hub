@@ -18,6 +18,7 @@ import { OpenCodeExecutableError } from "./command.js";
 import { detectOpenCode } from "./version.js";
 import { V2Adapter } from "./v2/adapter.js";
 import { harnessId, failure } from "./v2/state.js";
+import { openCodeSharedEnvironment } from "./shared-resources.js";
 
 /** Version routing belongs to the plugin. Native session data never crosses protocols. */
 export class OpenCodeAdapter implements HarnessAdapter {
@@ -120,23 +121,33 @@ export class OpenCodeAdapter implements HarnessAdapter {
 
   async open(input: OpenSessionInput): Promise<HarnessResult<HarnessSession>> {
     let adapter: HarnessAdapter | undefined;
+    let shared: Awaited<ReturnType<typeof openCodeSharedEnvironment>> | undefined;
     try {
       adapter = await this.#select(input.environment, input);
-      const result = await adapter.open(input);
+      // The full Session environment, as the v1 Adapter would choose it, plus the shared config.
+      const base = input.environment ?? this.options.environment ?? process.env;
+      shared = await openCodeSharedEnvironment(this.options.sharedResources, input.cwd, base);
+      const result = await adapter.open(
+        shared.environment === base ? input : { ...input, environment: shared.environment },
+      );
       if (!result.ok) {
         await adapter.close();
         this.#adapters.delete(adapter);
+        await shared.dispose();
       }
       if (result.ok) {
         const owner = adapter;
+        const dispose = shared.dispose;
         const close = result.value.close.bind(result.value);
         result.value.close = async () => {
           await close();
           this.#adapters.delete(owner);
+          await dispose();
         };
       }
       return result;
     } catch (error) {
+      await shared?.dispose();
       if (adapter) {
         await adapter.close();
         this.#adapters.delete(adapter);

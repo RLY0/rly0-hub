@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -119,6 +120,8 @@ import { deriveOpenCodeHistory } from "./history-derivation.js";
 
 export interface OpenCodeAdapterOptions extends OpenCodeServerOptions {
   toolOutputLimit?: number;
+  /** Codex MCP, rly0-memory and the skill index, applied per Session by the version router. */
+  sharedResources?: SharedResourcesProvider;
 }
 
 export interface OpenCodeAdapterDependencies {

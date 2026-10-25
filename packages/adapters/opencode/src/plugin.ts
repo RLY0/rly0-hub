@@ -12,6 +12,7 @@ export function createHarnessAdapter(context: HarnessPluginContext): OpenCodeAda
     new OpenCodeAdapter({
       ...(environment[OPENCODE_COMMAND_ENV] ? { command: environment[OPENCODE_COMMAND_ENV] } : {}),
       environment,
+      ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
     }),
     {
       installation: createOpenCodeInstallation(environment, environment[OPENCODE_COMMAND_ENV]),
