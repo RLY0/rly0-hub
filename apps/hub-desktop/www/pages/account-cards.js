@@ -259,7 +259,7 @@ window.registerHubAccountCards = ({
   // saveCurrent: { onClick } or { reason } when the provider's live login cannot be read.
   // `beta`: a small 测试版 tag after the intro, with why.
   function pageHead({ intro, saveCurrent, addItems, refresh, beta }) {
-    const save = h("button", { class: "btn quiet", type: "button" }, "保存当前登录");
+    const save = h("button", { class: "btn quiet", type: "button" }, "保存登录");
     if (saveCurrent.reason) unavailable(save, saveCurrent.reason);
     else save.addEventListener("click", saveCurrent.onClick);
     return h(
@@ -293,7 +293,7 @@ window.registerHubAccountCards = ({
   ];
   function riskDialog(vendor, onConfirm) {
     const ui = window.HubUI.dialog({
-      title: "开启自动切换账号？",
+      title: "开启自动切换？",
       sub: `${vendor} 的使用条款风险`,
     });
     const confirm = h("button", { class: "btn red", type: "button" }, "确定开启");
@@ -324,7 +324,7 @@ window.registerHubAccountCards = ({
     reason,
     agent,
     vendor,
-    sub = "低于阈值时切到额度最多的已保存账号，自动生效，不用手动重启",
+    sub = "额度低时换到余量最多的账号，自动生效",
     windows = CODEX_WINDOWS,
     beta,
   }) {
@@ -342,7 +342,7 @@ window.registerHubAccountCards = ({
           h(
             "b",
             null,
-            "额度快用完时自动切换账号",
+            "自动切换账号",
             beta ? h("span", { class: "tag beta-tag", "data-tip": beta }, "测试版") : null,
           ),
           h("span", null, text),
@@ -546,25 +546,25 @@ window.registerHubAccountCards = ({
   /* ---------- Official API key card ---------- */
   const VENDORS = {
     openai: {
-      title: "OpenAI 官方 API Key",
+      title: "OpenAI 官方 Key",
       placeholder: "sk-…",
       hint: "OpenAI 平台（platform.openai.com）的 Key，按用量计费。",
       use: "Pi、Hermes、OpenCode 等助手可以直接用它",
     },
     anthropic: {
-      title: "Anthropic 官方 API Key / 订阅令牌",
+      title: "Anthropic Key / 令牌",
       placeholder: "sk-ant-api… 或 sk-ant-oat…",
       hint: "console.anthropic.com 的 Key，或 claude setup-token 生成的订阅令牌。",
       use: "Claude Code、Pi、Hermes 等助手可以直接用它",
     },
     google: {
-      title: "Google Gemini 官方 API Key",
+      title: "Gemini 官方 Key",
       placeholder: "AIza…",
       hint: "Google AI Studio（aistudio.google.com）的 Key。",
       use: "Pi、Hermes、OpenCode 等助手可以直接用它",
     },
     xai: {
-      title: "xAI 官方 API Key",
+      title: "xAI 官方 Key",
       placeholder: "xai-…",
       hint: "xAI 控制台（console.x.ai）的 Key，按用量计费。",
       use: "Pi、Hermes、OpenCode 等助手可以直接用它",
@@ -717,7 +717,7 @@ window.registerHubAccountCards = ({
                 h(
                   "button",
                   { class: "btn sm", type: "button", onclick: () => load().catch(report) },
-                  "重试读取令牌",
+                  "重试",
                 ),
               ]
             : []),
@@ -980,11 +980,7 @@ window.registerHubAccountCards = ({
           put(
             element,
             h("p", { class: "sub span-6" }, "令牌列表读取失败，无法确认已保存的令牌。"),
-            h(
-              "button",
-              { class: "btn sm", type: "button", onclick: loadWithFeedback },
-              "重试读取令牌",
-            ),
+            h("button", { class: "btn sm", type: "button", onclick: loadWithFeedback }, "重试"),
             draft.element,
           );
       });

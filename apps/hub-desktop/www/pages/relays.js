@@ -15,6 +15,7 @@ window.registerHubRelays = ({
   moneyBadge,
   rateBadge,
   noAccount: { mount: noAccountMount },
+  unifiedChannel: { mount: unifiedMount },
 }) => {
   const RLY0_BASE = "https://api.rly0.com/v1";
   const put = (element, ...items) =>
@@ -336,17 +337,20 @@ window.registerHubRelays = ({
     );
     const noAccount = h("section", { class: "m span-3 no-account" });
     const rly0Module = h("section", { class: "m bal span-6 rly0-connect" });
+    // 统一渠道: the shared card (unified-channel.js), also on 首页 and 账号.
+    const unified = h("section", { class: "m span-6 unified-channel" });
     const list = h("div", { class: "grid compact" });
     const proxyLine = h("div", { class: "row proxy-line" });
     root.append(
       h("div", { class: "grid compact relay-top" }, addTile, noAccount),
-      h("div", { class: "grid compact" }, rly0Module),
+      h("div", { class: "grid compact" }, rly0Module, unified),
       h("h2", { class: "section-title" }, "我的中转站", proxyLine),
       list,
     );
 
     // No-account switch: the shared card (no-account.js), also on 首页 and 账号.
     const noAccountCard = noAccountMount(noAccount, alive);
+    unifiedMount(unified, alive);
     const loadNoAccount = noAccountCard.reload;
 
     const rly0Key = h("input", {
@@ -393,7 +397,7 @@ window.registerHubRelays = ({
           relayLogo({ id: "rly0", name: "零号中转", baseUrl: RLY0_BASE }, 40),
           h("span", { class: "label" }, "RLY/0 零号中转 · 推荐"),
         ),
-        h("h3", null, "一个密钥，Claude、GPT、Gemini、Grok 都能用"),
+        h("h3", null, "一个密钥，所有模型"),
         h(
           "div",
           { class: "row wide" },

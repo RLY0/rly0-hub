@@ -33,7 +33,7 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed, go }) => {
     root.append(h("div", { class: "grid compact" }, sharing, status, editorCard, historyCard));
     // The sharing switches live on the AI 助手 page now, next to the agents they affect.
     sharing.append(
-      h("b", null, "向其他助手共享 Codex 资源"),
+      h("b", null, "共享给其他助手"),
       h(
         "p",
         { class: "sub" },

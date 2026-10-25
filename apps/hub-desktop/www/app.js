@@ -915,7 +915,7 @@
           h(
             "div",
             { class: "row" },
-            h("b", null, "用 OpenAI API Key 登录"),
+            h("b", null, "用 API Key 登录"),
             h("span", { class: "spacer" }),
             h(
               "button",
@@ -996,6 +996,9 @@
     // Same switch as 中转站 and 首页 (pages/no-account.js).
     const noAccountSection = h("section", { class: "m span-6 no-account" });
     pageApi.noAccount.mount(noAccountSection, alive);
+    // Same switch as 中转站 and 首页 (pages/unified-channel.js).
+    const unifiedSection = h("section", { class: "m span-6 unified-channel" });
+    pageApi.unifiedChannel.mount(unifiedSection, alive);
     root.append(
       head,
       filePicker,
@@ -1005,6 +1008,7 @@
         { class: "grid compact account-auto" },
         cards.autoSwitchCard({ alive }),
         noAccountSection,
+        unifiedSection,
       ),
       list,
     );
@@ -1554,7 +1558,7 @@
         return;
       }
       const status = h("p", { class: "sub" });
-      const install = h("button", { class: "btn paper", type: "button" }, "一键安装 Claude Code");
+      const install = h("button", { class: "btn paper", type: "button" }, "安装 Claude Code");
       install.addEventListener("click", async () => {
         install.disabled = true;
         install.textContent = "安装中…";

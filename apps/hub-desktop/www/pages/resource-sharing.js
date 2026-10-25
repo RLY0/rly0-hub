@@ -29,14 +29,19 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
   const MODE_TEXT = { native: "已接通", context: "已接通 · 提示注入", global: "需单独开启" };
   /** One table cell: 已接通 / 需要安装 / 不支持（原因）, following the switch and the agent. */
   function cell(agent, kind, state, globals) {
-    const mode = (agent.modes && agent.modes[kind.key]) || (agent.support[kind.key] ? "native" : "none");
+    const mode =
+      (agent.modes && agent.modes[kind.key]) || (agent.support[kind.key] ? "native" : "none");
     if (mode === "none") return h("span", { class: "share-cell no" }, "不支持");
     if (!state[kind.key]) return h("span", { class: "share-cell off" }, "已关闭");
     if (agent.blocked) return h("span", { class: "share-cell off", title: agent.blocked }, "暂停");
     if (agent.installed === false) return h("span", { class: "share-cell off" }, "需要安装");
     if (mode === "global") {
       const on = globals.some((g) => g.agent === agent.id && g.enabled);
-      return h("span", { class: `share-cell ${on ? "yes" : "off"}` }, on ? "已接通 · 全局" : MODE_TEXT.global);
+      return h(
+        "span",
+        { class: `share-cell ${on ? "yes" : "off"}` },
+        on ? "已接通 · 全局" : MODE_TEXT.global,
+      );
     }
     return h("span", { class: "share-cell yes" }, `✓ ${MODE_TEXT[mode]}`);
   }
@@ -55,7 +60,7 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
           h(
             "div",
             { class: "who" },
-            h("b", null, "MCP / 技能 / 记忆 打通给所有助手"),
+            h("b", null, "共享 MCP / 技能 / 记忆"),
             info(
               "改了自动生效，不用重启",
               "新对话和下一条消息起生效；Codex 自己的记忆服务器由 Hub 写进配置后自动应用。已打开的对话里已挂上的 MCP 在重新打开后更新。",
@@ -65,7 +70,9 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
       );
       if (state === undefined) return void card.append(h("p", { class: "sub" }, "读取中…"));
       if (!state)
-        return void card.append(h("p", { class: "sub" }, "打通设置读取失败，请更新完整安装包后重试。"));
+        return void card.append(
+          h("p", { class: "sub" }, "打通设置读取失败，请更新完整安装包后重试。"),
+        );
       const toggles = h("div", { class: "share-toggles" });
       for (const kind of KINDS) {
         const on = Boolean(state[kind.key]);
@@ -90,12 +97,17 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
         ? h("span", { class: "share-cell off" }, "已关闭")
         : bridge.memoryServer.available
           ? h("span", { class: "share-cell yes" }, "✓ 已接通")
-          : h("span", { class: "share-cell no", title: "这个版本没有带记忆服务器" }, "需要安装");
+          : h("span", { class: "share-cell no", title: "此版本无记忆服务" }, "需要安装");
       const rows = [
         h(
           "tr",
           { "data-agent": "codex" },
-          h("th", { scope: "row" }, h("b", null, "Codex"), h("span", { class: "share-note" }, "MCP 和技能的来源")),
+          h(
+            "th",
+            { scope: "row" },
+            h("b", null, "Codex"),
+            h("span", { class: "share-note" }, "MCP 和技能的来源"),
+          ),
           h("td", null, h("span", { class: "share-cell yes" }, "本身")),
           h("td", null, h("span", { class: "share-cell yes" }, "本身")),
           h("td", null, codexMemory),
@@ -149,7 +161,7 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
         h(
           "div",
           { class: "who" },
-          h("b", null, "只能改全局配置的助手"),
+          h("b", null, "仅全局配置的助手"),
           info(
             "默认不改，开了才写",
             "这两个助手只从自己的全局配置文件读取 MCP。开启后 Hub 先备份那个文件，只添加 rly0-* 条目（含共享记忆），带密钥的服务器不写进去；关闭时只删掉这些条目。",

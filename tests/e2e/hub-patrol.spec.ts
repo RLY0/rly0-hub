@@ -808,7 +808,7 @@ test("auto-switch: Claude and Grok need a one-time confirmation, Gemini stays of
     const toggle = card.locator('button[role="switch"]');
     await expect(toggle).toHaveAttribute("aria-checked", "false");
     await expect(toggle).not.toHaveAttribute("aria-disabled", "true");
-    await expect(card).toContainText("额度快用完时自动切换账号");
+    await expect(card).toContainText("自动切换账号");
     for (const field of fields)
       await expect(card.locator(".field", { hasText: field })).toBeVisible();
     await expect(card.locator('select[aria-label="切换方式"]')).toHaveValue("ask");
@@ -880,7 +880,7 @@ test("gemini: current Antigravity login quota on request, multi-account unsuppor
     "aria-disabled",
     "true",
   );
-  await expect(page.locator('button:has-text("保存当前登录")')).toHaveAttribute(
+  await expect(page.locator('button:has-text("保存登录")')).toHaveAttribute(
     "aria-disabled",
     "true",
   );
@@ -912,7 +912,7 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
   };
   const dismiss = await openAccountsTab(page, "OpenAI");
   const accountsSwitch = page.locator(".no-account").first();
-  await expect(accountsSwitch).toContainText("不登录 OpenAI 也能用");
+  await expect(accountsSwitch).toContainText("免登录用中转");
   await settled();
   await page.screenshot({ path: path.join(dir, "accounts-codex.png"), fullPage: true });
 
@@ -934,7 +934,7 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
 
   // Turning it on from 账号 applies by itself; 首页 and 中转站 show the same state.
   await accountsSwitch.locator('button[role="switch"]').click();
-  const enable = page.locator('.dialog-backdrop.show .dialog[aria-label="不登录 OpenAI 也能用"]');
+  const enable = page.locator('.dialog-backdrop.show .dialog[aria-label="免登录用中转"]');
   await expect(enable).toContainText("自动让 Codex 重新打开一次");
   await enable.locator('button:has-text("开启并应用")').click();
   await expect(page.locator("#toast")).toContainText("Codex 正在自动重新打开");
@@ -967,7 +967,7 @@ test("unified channel switch: on by default, note and tooltip, auto-applied both
   if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
   await page.click('.rail button[data-page="relays"]');
   const card = page.locator(".unified-channel");
-  await expect(card).toContainText("统一渠道（一个对话里随便切换账号和中转）");
+  await expect(card).toContainText("统一渠道");
   await expect(card).toContainText("官方账号的请求也会经过本机零号枢纽再发给官方");
   await expect(card.locator(".unified-note")).toHaveAttribute("data-tip", /同一个账号和凭据/);
   const toggle = card.locator('button[role="switch"]');

@@ -151,7 +151,7 @@
             : []),
         );
         foot.push(
-          button("重新打开登录页", "quiet", () =>
+          button("重开登录页", "quiet", () =>
             call(method("addLoginOpen"), { id: status.id }).then(
               (next) =>
                 toast(next && next.browserOpened === false ? "没能打开浏览器" : "已打开登录页"),

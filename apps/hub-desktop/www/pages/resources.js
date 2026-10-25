@@ -189,7 +189,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
         h(
           "div",
           { class: "row" },
-          button("打开技能文件夹", () => call("skills.openFolder", {})),
+          button("打开文件夹", () => call("skills.openFolder", {})),
           button("刷新", load),
         ),
       ),

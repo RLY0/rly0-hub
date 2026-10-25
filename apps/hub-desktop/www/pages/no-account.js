@@ -1,5 +1,5 @@
 "use strict";
-// "不登录 OpenAI 也能用": one switch shown on 首页, 账号 → OpenAI · Codex and 中转站. The service
+// "免登录用中转": one switch shown on 首页, 账号 → OpenAI · Codex and 中转站. The service
 // (`relay.noAccountStatus`, read from ~/.codex/config.toml) is the only state; every mounted card
 // re-reads it after any of them changes it. Turning it on shows the exact changes first; on and
 // off both reach Codex by themselves (codex-apply.js).
@@ -15,7 +15,7 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
 
   function enableDialog(models) {
     const ui = window.HubUI.dialog({
-      title: "不登录 OpenAI 也能用",
+      title: "免登录用中转",
       sub: "会修改 Codex 的设置文件，改之前先备份，随时可以关掉恢复",
     });
     const model = h(
@@ -71,7 +71,7 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
         return;
       }
       changed();
-      await applyToCodex("window", "已开启不登录 OpenAI 模式");
+      await applyToCodex("window", "已开启免登录用中转");
     });
     put(ui.body, h("label", { class: "field" }, h("span", null, "默认模型"), model), plan);
     put(
@@ -98,7 +98,7 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
       if (!status) {
         put(
           section,
-          h("b", null, "不登录 OpenAI 也能用"),
+          h("b", null, "免登录用中转"),
           h("p", { class: "sub" }, "暂时读不到 Codex 设置，稍后再试"),
         );
         return;
@@ -115,7 +115,7 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
         "aria-checked": String(Boolean(status.enabled)),
         "aria-disabled": blocked || busy ? "true" : null,
         "data-tip": blocked,
-        "aria-label": "不登录 OpenAI 也能用",
+        "aria-label": "免登录用中转",
         onclick: async () => {
           if (busy) return;
           if (blocked) return toast(blocked);
@@ -141,13 +141,11 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
           h(
             "div",
             { class: "who" },
-            h("b", null, "不登录 OpenAI 也能用"),
+            h("b", null, "免登录用中转"),
             h(
               "span",
-              { "data-brief": status.enabled ? null : "Codex 直接用中转站的 GPT 模型" },
-              status.enabled
-                ? `已开启 · 默认模型 ${status.model || ""}`
-                : "没有 OpenAI 账号时，Codex 直接用中转站的 GPT 模型",
+              { "data-brief": status.enabled ? null : "Codex 直接用中转的 GPT" },
+              status.enabled ? `已开启 · 默认模型 ${status.model || ""}` : "Codex 直接用中转的 GPT",
             ),
           ),
           compact ? null : h("span", { class: "spacer" }),
@@ -161,11 +159,7 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
                 { class: "sub" },
                 "请保持 Hub 在托盘里运行。关掉开关会恢复原来的设置，并自动应用到 Codex。",
               )
-            : h(
-                "p",
-                { class: "sub" },
-                blocked || "打开前会先列出要改的设置，改之前自动备份；开关后自动应用到 Codex。",
-              ),
+            : h("p", { class: "sub" }, blocked || "打开前先列出改动并自动备份"),
       );
     }
     window.addEventListener(CHANGED, load);

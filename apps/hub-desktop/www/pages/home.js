@@ -282,7 +282,9 @@ window.registerHubHome = (api) => {
     const agentsModule = h("section", { class: "m panel span-3" });
     const lines = h("section", { class: "m panel span-3" });
     // Same switch as 中转站 and 账号 (pages/no-account.js).
-    const noAccount = h("section", { class: "m span-6 no-account home-no-account" });
+    // 首页: the two Codex switches side by side as slim strips, each switch beside its label.
+    const noAccount = h("section", { class: "m span-3 no-account home-switch" });
+    const unified = h("section", { class: "m span-3 unified-channel home-switch" });
     // Codex 概况: what the in-Codex 仪表盘 showed (sessions, MCP, Skills, 12-week activity).
     const overview = h("section", { class: "m panel span-6 codex-overview" });
     root.append(
@@ -292,12 +294,14 @@ window.registerHubHome = (api) => {
         promo,
         people,
         noAccount,
+        unified,
         agentsModule,
         lines,
         overview,
       ),
     );
     api.noAccount.mount(noAccount, alive, { compact: true });
+    api.unifiedChannel.mount(unified, alive, { compact: true });
 
     async function loadPromo() {
       const result = await call("balance.get").catch((error) => ({

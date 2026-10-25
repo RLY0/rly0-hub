@@ -23,7 +23,7 @@ window.registerHubCodexApply = ({ h, call, toast }) => {
         resolve(outcome);
       };
       const ui = window.HubUI.dialog({
-        title: "立即应用到 Codex",
+        title: "立即应用",
         sub: what,
         onClose: () => {
           if (settled) return;

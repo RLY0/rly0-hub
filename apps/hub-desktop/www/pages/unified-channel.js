@@ -6,8 +6,8 @@
 // config.toml is never touched. Switching reaches open conversations by itself (codex-apply.js).
 window.registerHubUnifiedChannel = ({ h, call, toast, failed, applyToCodex }) => {
   const CHANGED = "hub:unified-channel-changed";
-  const TITLE = "统一渠道（一个对话里随便切换账号和中转）";
-  const NOTE = "官方账号的请求也会经过本机零号枢纽再发给官方";
+  const TITLE = "统一渠道";
+  const NOTE = "同一对话切换账号和中转";
   const TIP =
     "只在这台电脑上转一下：用的还是 Codex 自己登录的同一个账号和凭据，不经过任何第三方服务器；关掉后完全恢复原来的方式。";
   const put = (element, ...items) =>
@@ -55,6 +55,7 @@ window.registerHubUnifiedChannel = ({ h, call, toast, failed, applyToCodex }) =>
         h(
           "div",
           { class: "row" },
+          compact ? toggle : null,
           h(
             "div",
             { class: "who" },
@@ -62,11 +63,11 @@ window.registerHubUnifiedChannel = ({ h, call, toast, failed, applyToCodex }) =>
             h(
               "span",
               { class: "unified-note", "data-tip": TIP, title: TIP },
-              enabled ? NOTE : "已关闭：每个对话固定用开始时的账号或中转",
+              enabled ? NOTE : "已关闭：对话固定用开始时的方式",
             ),
           ),
-          h("span", { class: "spacer" }),
-          toggle,
+          compact ? null : h("span", { class: "spacer" }),
+          compact ? null : toggle,
         ),
         compact
           ? null
@@ -74,8 +75,8 @@ window.registerHubUnifiedChannel = ({ h, call, toast, failed, applyToCodex }) =>
               "p",
               { class: "sub" },
               enabled
-                ? "Codex 的模型菜单里能直接选官方账号、零号中转、自定义中转和 API Key；旧对话也能接着聊。"
-                : "打开后，同一个对话里也能换账号、换中转，不用新开对话。",
+                ? "模型菜单可直接选官方账号、中转和 API Key"
+                : "打开后，同一对话可换账号、换中转",
             ),
       );
     }

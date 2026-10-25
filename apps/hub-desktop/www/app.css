@@ -1378,12 +1378,12 @@ textarea.models {
 .no-account {
   gap: 12px;
 }
-/* 首页: a slim strip, switch first and right beside its label. */
-.home-no-account {
+/* 首页: slim strips, switch first and right beside its label. */
+.home-switch {
   padding-top: 14px;
   padding-bottom: 14px;
 }
-.home-no-account .row {
+.home-switch .row {
   justify-content: flex-start;
   gap: 14px;
 }

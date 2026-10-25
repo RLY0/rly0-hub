@@ -323,7 +323,7 @@ window.registerHubAgents = ({
         h(
           "div",
           { class: "who" },
-          h("b", null, "MCP / 技能 / 记忆 打通"),
+          h("b", null, "共享 MCP / 技能 / 记忆"),
           h("span", null, "所有助手共用 Codex 的 MCP、技能和一份共享记忆"),
         ),
         h("button", { class: "btn sm", type: "button", onclick: () => go("bridge") }, "打通设置"),

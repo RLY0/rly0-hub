@@ -117,7 +117,7 @@ window.registerHubGrokGeminiAccounts = (
           alive,
           agent: "grok",
           vendor: "xAI",
-          sub: "低于阈值时切到额度最多的已保存 Grok 账号；新的对话就用它，不用重启",
+          sub: "额度低时换到余量最多的 Grok 账号",
           windows: [["remainWeekly", "每周 / 每月额度", "额度阈值"]],
           beta: "还没用真实 Grok 账号验证过自动切换；切换方式和「切换到这个」一样，替换 Grok 的登录文件。",
         }),

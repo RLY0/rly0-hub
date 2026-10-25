@@ -68,7 +68,7 @@ window.registerHubDiscovery = ({ h, call, toast, failed }) => {
           h(
             "div",
             { class: "who" },
-            h("b", null, `在这台电脑上找到 ${items.length} 项已有的 Key / 中转`),
+            h("b", null, `本机找到 ${items.length} 项 Key / 中转`),
             h(
               "span",
               null,

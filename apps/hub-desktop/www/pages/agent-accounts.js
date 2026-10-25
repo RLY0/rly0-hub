@@ -166,7 +166,7 @@ window.registerHubAgentAccounts = ({
           alive,
           agent: "claude",
           vendor: "Anthropic",
-          sub: "低于阈值时切到额度最多的已保存账号或订阅令牌；新的请求就用它，不用重启",
+          sub: "额度低时换到余量最多的账号或令牌",
         }),
       ),
       list,

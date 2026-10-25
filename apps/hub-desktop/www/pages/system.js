@@ -331,17 +331,17 @@ window.registerHubSystem = ({
         );
       if (d.advice.includes("CONFIG_TOML_INVALID") && backup && backup.available)
         fixes.push(
-          confirmButton("还原安装前的 Codex 设置", async () => {
+          confirmButton("还原设置", async () => {
             const result = await call("backup.restore").catch(() => null);
             toast(result && result.ok ? "已还原 Codex 设置" : "还原没有成功");
             await diagnose();
           }),
         );
       if (d.advice.includes("AUTH_JSON_MISSING"))
-        fixes.push(button("去账号页登录", () => go("accounts")));
+        fixes.push(button("去登录", () => go("accounts")));
       if (proxyDown)
         fixes.push(
-          button("启动本地代理", async () => {
+          button("启动代理", async () => {
             await call("proxy.start");
             toast("本地代理已启动");
             await diagnose();
@@ -371,7 +371,7 @@ window.registerHubSystem = ({
             "div",
             { class: "row" },
             select,
-            confirmButton("换成这个模型", async () => {
+            confirmButton("换用", async () => {
               const result = await call("maintenance.setModel", { model: select.value }).catch(
                 () => null,
               );
@@ -386,9 +386,7 @@ window.registerHubSystem = ({
           );
         }
         if (endpoint && endpoint.local)
-          fixes.push(
-            button("Codex Web GPT 下载页", () => call("links.open", { target: "codexWebGpt" })),
-          );
+          fixes.push(button("下载页", () => call("links.open", { target: "codexWebGpt" })));
       }
       if (codex && codex.running && (problems.length || proxyDown || rejection))
         fixes.push(confirmButton("重启 Codex", () => restart()));
@@ -449,7 +447,7 @@ window.registerHubSystem = ({
         h(
           "div",
           { class: "row" },
-          button("打开所在文件夹", () => call("maintenance.openDiagnosticsFolder")),
+          button("打开文件夹", () => call("maintenance.openDiagnosticsFolder")),
         ),
       );
     });
@@ -694,7 +692,7 @@ window.registerHubSystem = ({
           { class: "row" },
           scan.broken ? confirmButton(`修复 ${scan.broken} 条`, () => repairChats(false)) : null,
           scan.deleted
-            ? confirmButton(`同时找回在 Hub 里删掉的 ${scan.deleted} 条`, () => repairChats(true))
+            ? confirmButton(`含已删除的 ${scan.deleted} 条`, () => repairChats(true))
             : null,
         ),
       );
@@ -768,7 +766,7 @@ window.registerHubSystem = ({
           status.scanIncomplete
             ? h("p", { class: "sub" }, "本次扫描达到范围上限，尚未检查全部目录；未扫描不代表丢失。")
             : null,
-          button("打开找回的历史", () => call("maintenance.openRecoveredHistory")),
+          button("查看历史", () => call("maintenance.openRecoveredHistory")),
         );
       } else {
         put(
@@ -902,14 +900,14 @@ window.registerHubSystem = ({
         }),
         tool({
           name: "image",
-          title: "Image 声明过滤",
+          title: "生图工具过滤",
           brief: "去掉发往中转的生图工具，避免 403",
           text: "开启：发往中转站的请求去掉生图工具，避免不支持生图的中转返回 403。关闭：原样发送。官方账号不受影响，开启也不会新增生图能力。",
           action: imageSwitch,
         }),
         tool({
           name: "search",
-          title: "Claude 联网搜索过滤",
+          title: "联网搜索过滤",
           brief: "Claude Code 走中转时去掉内置联网搜索",
           text: "开启：Claude Code 走中转时去掉内置联网搜索工具，避免不支持的中转报错。不影响 MCP 或插件里的搜索工具，Claude 官方登录不受影响。",
           action: searchSwitch,
