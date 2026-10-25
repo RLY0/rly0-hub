@@ -825,7 +825,7 @@ test("auto-switch: Claude and Grok need a one-time confirmation, Gemini stays of
     // First turn-on: the risk in plain words; 取消 leaves it off.
     await dismiss();
     await toggle.click();
-    const dialog = page.locator('.dialog-backdrop.show .dialog[aria-label="开启自动切换账号？"]');
+    const dialog = page.locator('.dialog-backdrop.show .dialog[aria-label="开启自动切换？"]');
     await expect(dialog).toContainText(
       `自动在多个订阅账号之间轮换来绕开额度限制，可能违反 ${vendor} 的使用条款，存在账号被限制或封禁的风险。确定开启吗？`,
     );
