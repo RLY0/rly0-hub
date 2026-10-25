@@ -474,6 +474,12 @@ export class Rly0RelayModelRouter {
     readStored: (threadId: string) => Promise<StoredThreadRoute | undefined>,
   ): Promise<JsonRecord | null> {
     if (named) return this.rewriteThreadParams(input);
+    // Without RLY/0 Hub's own proxy nothing changes, so the stored Thread is not even read.
+    try {
+      await this.ensureProxy();
+    } catch {
+      return null;
+    }
     const known = this.#threadProviders.get(threadId);
     const stored =
       known === RLY0_CODEX_PROVIDER_ID
