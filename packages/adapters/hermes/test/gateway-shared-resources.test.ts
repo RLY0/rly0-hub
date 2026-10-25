@@ -10,11 +10,13 @@ import {
 describe("Hermes shared resources", () => {
   it("registers each skill folder in the gateway process and skips unsafe names", () => {
     const script = hermesSharedSkillBootstrap([
-      { name: "review", directory: "C:\Users\me\.codex\skills\review\\" },
-      { name: "bad name\"); import os", directory: "C:/x" },
+      { name: "review", directory: String.raw`C:\Users\me\.codex\skills\review\\` },
+      { name: 'bad name"); import os', directory: "C:/x" },
     ]);
     expect(script).toContain('PluginManifest(name="rly0-shared")');
-    expect(script).toContain('[["review","C:\\Users\\me\\.codex\\skills\\review/SKILL.md"]]');
+    expect(script).toContain(
+      JSON.stringify([["review", String.raw`C:\Users\me\.codex\skills\review/SKILL.md`]]),
+    );
     expect(script).not.toContain("import os");
     expect(script.startsWith("import hermes_bootstrap\n")).toBe(true);
     expect(hermesSharedSkillBootstrap([])).toBe("");
