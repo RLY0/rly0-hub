@@ -66,6 +66,8 @@ PR 维护只做两件事：**明确标题自动标签、CI 结束后更新一条
 | Rust Clippy、编译和测试 | 执行 | 执行 | 执行 |
 | Linux npm 安装包 smoke | 执行 | 不适用 | 执行 |
 
+预装插件（`harness-adapter/scripts/build-plugin.mjs`）和发布 Host Bundle（`host-runtime/scripts/build-release.mjs`）通过 `tools/esbuild-workspace-packages.mjs` 把 `@codexhost/*` 直接解析到 Workspace 包目录，而不是 `node_modules/@codexhost/` 下的条目。npm 正常创建链接时结果不变；在禁止符号链接、无法跟随 junction 的环境里，`node_modules/@codexhost/*` 只能是复制品，此前会被审计误判为“unreviewed runtime package: @codexhost/…”（与 Node 22/24 版本无关），且复制品会在每次构建后过期。这类环境中 `tsc -b` 与 vitest 仍经复制品解析，需要在构建后同步复制品再验证。
+
 以下测试仅在 Linux x64 执行，不在其他三个平台重复运行：
 
 - `packages/repository-automation/test/**`：实际运行在 Linux GitHub Actions 中的仓库治理逻辑。

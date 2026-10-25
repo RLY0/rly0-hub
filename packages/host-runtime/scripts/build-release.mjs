@@ -4,6 +4,11 @@ import { pathToFileURL } from "node:url";
 
 import { build as esbuildBuild } from "esbuild";
 
+import {
+  workspacePackageDirectories,
+  workspacePackagesPlugin,
+} from "../../../tools/esbuild-workspace-packages.mjs";
+
 const forbiddenInputFragments = [
   "/packages/adapters/",
   "/node_modules/@codexhost/adapter-",
@@ -108,6 +113,7 @@ export async function buildReleaseHostBundle({ repositoryRoot, outputPath }) {
       js: 'import { createRequire as __codexhostCreateRequire } from "node:module"; const require = __codexhostCreateRequire(import.meta.url);',
     },
     logLevel: "silent",
+    plugins: [workspacePackagesPlugin(await workspacePackageDirectories(repositoryRoot))],
   });
   if (!result.metafile) throw new Error("release Host Bundle build did not return a metafile");
   const audit = auditHostBundleMetafile(result.metafile);

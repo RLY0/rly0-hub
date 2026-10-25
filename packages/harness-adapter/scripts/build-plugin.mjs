@@ -4,6 +4,14 @@ import path from "node:path";
 import { build } from "esbuild";
 import { harnessPluginManifestSchema } from "@codexhost/shared-contracts";
 
+import {
+  workspacePackageDirectories,
+  workspacePackagesPlugin,
+} from "../../../tools/esbuild-workspace-packages.mjs";
+
+const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
+let workspacePackages;
+
 async function resource(root, relative) {
   const resolved = await realpath(path.join(root, relative));
   const fromRoot = path.relative(root, resolved);
@@ -47,6 +55,11 @@ export async function buildHarnessPlugin({ pluginRoot, outputRoot, allowedRuntim
       js: 'import { createRequire as __codexhostCreateRequire } from "node:module"; const require = __codexhostCreateRequire(import.meta.url);',
     },
     logLevel: "silent",
+    plugins: [
+      workspacePackagesPlugin(
+        await (workspacePackages ??= workspacePackageDirectories(repositoryRoot)),
+      ),
+    ],
   });
   const inputs = Object.keys(result.metafile.inputs);
   const runtimePackages = new Set();
