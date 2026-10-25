@@ -4,6 +4,11 @@ import { pathToFileURL } from "node:url";
 
 import { build as esbuildBuild } from "esbuild";
 
+import {
+  workspacePackageDirectories,
+  workspacePackagesPlugin,
+} from "../../../tools/esbuild-workspace-packages.mjs";
+
 const forbiddenInputFragments = [
   "/packages/adapters/",
   "/packages/host-runtime/",
@@ -58,6 +63,7 @@ export async function buildConsoleServerBundle({ repositoryRoot, outputPath }) {
     charset: "utf8",
     legalComments: "none",
     logLevel: "silent",
+    plugins: [workspacePackagesPlugin(await workspacePackageDirectories(repositoryRoot))],
   });
   if (!result.metafile) throw new Error("Console Server build did not return a metafile");
   const audit = auditConsoleServerMetafile(result.metafile);
