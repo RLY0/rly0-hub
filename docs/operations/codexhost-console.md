@@ -36,11 +36,15 @@ type: warning
 
 ## 打开方式
 
+**RLY/0 Hub（Windows，`bin/rly0-hub.exe` 与 Launcher 同目录）不打开任何网页。** 安装包启动成功时什么都不弹；启动失败或注入持续失败时打开 Hub 窗口的“维护”页（`rly0-hub.exe --page maintenance`，已运行的 Hub 直接切到该页）；`codexhost console` 与开始菜单的控制台入口同样打开该页，也不启动 Web 控制台进程。原控制台的功能在 Hub 窗口内：远程连接、用量统计在“设置”，会话导入在“维护”，更新在“设置 → 更新”，账号在“账号”。Hub 通过本机 Host 的控制台通道（`console/hosts` 描述文件 + token，见 `host-console-routes.ts`）读取这些数据，Codex 未运行时页面直接说明。Hub 页面可用的 `--page` 值：`home`、`maintenance`、`remote`、`usage`、`updates`。
+
+以下为没有 Hub 窗口时（非 Windows 或源码运行）的行为。安装包启动成功时同样不再自动打开网页。
+
 控制台随 codexhost 启动：
 
 | 启动方式 | 行为 |
 |---|---|
-| 安装包（macOS 打开应用、Windows 开始菜单） | 先启动控制台并在默认浏览器打开总览，再启动 Codex Desktop；启动失败或注入持续失败时另外打开总览查看原因 |
+| 安装包（macOS 打开应用、Windows 开始菜单） | 后台启动控制台，再启动 Codex Desktop；只有启动失败或注入持续失败时才在默认浏览器打开总览查看原因 |
 | 终端（npm 的 `codexhost`、`codexhost launch`、`npm start`） | 控制台在后台与 Codex Desktop 一同启动，启动结束时在终端输出 `codexhost console: http://127.0.0.1:4399/` |
 
 控制台在校验 Shim、Host Runtime、Desktop Controller 和 Renderer 等 Codex 启动资源之前启动；这些文件缺失时，仍能提供故障恢复入口。npm 包装脚本将这部分校验交给 Launcher，不提前拦截。Launcher、Node 和控制台自身文件仍须可用，端口占用等控制台自身故障不保证能打开网页；命令参数解析失败也不进入启动流程。

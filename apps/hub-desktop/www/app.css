@@ -4765,3 +4765,82 @@ select.input,
 .share-cell.no {
   color: var(--muted-dark);
 }
+
+/* Former web console functions inside the Hub (pages/console-features.js). */
+.remote-list,
+.session-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.remote-row,
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--ink-750);
+}
+.remote-name,
+.session-name {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.remote-name .sub,
+.session-name .sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-list {
+  max-height: 46vh;
+  overflow: auto;
+}
+.empty-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.empty-note .sub {
+  margin: 0;
+}
+.usage-body {
+  margin-top: 12px;
+}
+.usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+.usage-tile {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--ink-750);
+}
+.usage-tile b {
+  font-size: 20px;
+}
+.usage-table {
+  width: 100%;
+  margin-top: 12px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.usage-table th,
+.usage-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid rgba(233, 233, 227, 0.12);
+  text-align: left;
+}
+.usage-table th {
+  color: var(--muted-dark);
+  font-weight: 650;
+}
+.sub.warn {
+  color: var(--warn);
+}

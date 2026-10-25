@@ -98,6 +98,11 @@ import { createAgentAutoSwitchSources } from "./agent-auto-switch-sources.js";
 import { codexApplyParams, Rly0CodexApplier } from "./codex-apply.js";
 import { Rly0CodexControl } from "./codex-control.js";
 import { noAccountStatus, relayCodexModels } from "./no-account.js";
+import {
+  createHostConsoleRoutes,
+  createHubHostRequest,
+  type HubHostRequest,
+} from "./host-console-routes.js";
 import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
 import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
 import { Rly0HubAddLogin } from "./add-login.js";
@@ -166,6 +171,8 @@ export interface Rly0HubServiceOptions {
   /** "Add account" sign-ins; built from `core` when omitted. */
   readonly addLogin?: Rly0HubAddLogin;
   /** Claude / Grok auto-switch timing and busy signal (tests); the Codex heartbeat otherwise. */
+  /** The local Host console channel (remote Hosts, usage statistics, session import); tests. */
+  readonly hostRequest?: HubHostRequest;
   readonly agentAutoSwitch?: Partial<
     Pick<Rly0AgentAutoSwitchDeps, "busy" | "now" | "sleep" | "pollMs" | "maxWaitMs">
   >;
@@ -830,6 +837,10 @@ export class Rly0HubService {
             ),
         },
       }),
+      ...createHostConsoleRoutes(
+        this.#options.hostRequest ??
+          createHubHostRequest({ environment: this.#options.environment }),
+      ),
       ...createAgentAccountRoutes({
         core,
         grokAdd: this.#grokAdd,

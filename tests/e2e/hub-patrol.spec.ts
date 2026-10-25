@@ -39,6 +39,8 @@ const TARGETS: Target[] = [
       ["mcp", "MCP"],
       ["skills", "Skills"],
       ["threads", "线程"],
+      ["remote", "远程连接"],
+      ["usage", "用量统计"],
       ["updates", "更新"],
     ] as const
   ).map(([id, label]): Target => ({ id: `settings-${id}`, kind: "settings", label })),
@@ -928,4 +930,55 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
   await settled();
   await page.screenshot({ path: path.join(dir, "relays.png"), fullPage: true });
   await expect(page.locator("body")).not.toContainText("重启 Codex 生效");
+});
+
+// The former web console lives in the Hub: the shell's navigate event (Launcher / Codex entries)
+// opens these pages, and nothing opens a browser page.
+test("web console functions inside the Hub: remote hosts, usage, session import", async ({
+  page,
+  context,
+}) => {
+  const dir = path.join(runDir, "console-features");
+  mkdirSync(dir, { recursive: true });
+  const popups: string[] = [];
+  context.on("page", (popup) => popups.push(popup.url()));
+  await page.setViewportSize({ width: WIDTHS[0] ?? 1240, height: HEIGHT });
+  await page.goto("/index.html");
+  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+  if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+  const navigate = (target: string) =>
+    page.evaluate((name) => {
+      const w = window as unknown as { __hubShellMessage: (data: unknown) => void };
+      w.__hubShellMessage({ event: "navigate", page: name });
+    }, target);
+
+  await navigate("remote");
+  await expect(page.locator("#title")).toHaveText("设置");
+  await expect(page.locator(".settings-menu button.on")).toHaveText("远程连接");
+  const row = page.locator(".remote-row", { hasText: "开发机" });
+  await expect(row).toContainText("未连接");
+  await expect(row.locator('button:has-text("连接")')).toBeVisible();
+  await page.screenshot({ path: path.join(dir, "remote.png"), fullPage: true });
+
+  await navigate("usage");
+  await expect(page.locator(".usage-tiles")).toContainText("1.8K");
+  await expect(page.locator(".usage-table")).toContainText("claude-code");
+  await page.locator('.segment button:has-text("30 天")').click();
+  await expect(page.locator(".usage-tiles")).toContainText("$38.42");
+  await page.screenshot({ path: path.join(dir, "usage.png"), fullPage: true });
+
+  // Unknown pages are ignored.
+  await navigate("accounts");
+  await expect(page.locator(".settings-menu button.on")).toHaveText("用量统计");
+
+  await navigate("maintenance");
+  await page.locator('.tool:has-text("会话导入") button:has-text("导入会话")').click();
+  const dialog = page.locator('.dialog-backdrop.show .dialog[aria-label="会话导入"]');
+  await expect(dialog).toContainText("重构登录流程");
+  await page.waitForTimeout(300);
+  await dialog.screenshot({ path: path.join(dir, "session-import.png") });
+  await dialog.locator('.session-row button:has-text("导入")').click();
+  await expect(page.locator("#toast")).toContainText("已导入");
+  expect(popups).toEqual([]);
 });

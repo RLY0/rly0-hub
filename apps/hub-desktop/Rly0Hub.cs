@@ -21,6 +21,9 @@ internal static class Program {
     internal const string ControlTitle = "RLY0_HUB_CONTROL_V1";
     internal const string PageHost = "hub.rly0.local";
     internal const string PageUrl = "https://hub.rly0.local/index.html";
+    // Hub pages other programs may ask for (`--page <name>`): the Launcher and Codex open these
+    // instead of a browser page. The index (1-based) travels as the show message's wParam.
+    internal static readonly string[] Pages = { "home", "maintenance", "remote", "usage", "updates" };
     internal static readonly JavaScriptSerializer Json = new JavaScriptSerializer { MaxJsonLength = 1 << 20 };
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern IntPtr FindWindow(string klass, string title);
     [DllImport("user32.dll")] internal static extern bool PostMessage(IntPtr hwnd, int message, IntPtr w, IntPtr l);
@@ -49,9 +52,11 @@ internal static class Program {
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         bool background = false, exit = false;
-        foreach (string arg in args) {
-            if (arg == "--background") background = true;
-            else if (arg == "--exit") exit = true;
+        int page = 0;
+        for (int i = 0; i < args.Length; i++) {
+            if (args[i] == "--background") background = true;
+            else if (args[i] == "--exit") exit = true;
+            else if (args[i] == "--page" && i + 1 < args.Length) page = Array.IndexOf(Pages, args[++i]) + 1;
         }
         // Design check of the tray menu without starting the Hub (shown for a few seconds).
         if (args.Length >= 1 && args[0] == "--preview-menu") {
@@ -100,12 +105,12 @@ internal static class Program {
             if (!created) {
                 // Already running (often in the tray): bring its window up instead of a second copy.
                 IntPtr target = FindWindow(null, ControlTitle);
-                if (target != IntPtr.Zero) PostMessage(target, ShowMessage, IntPtr.Zero, IntPtr.Zero);
+                if (target != IntPtr.Zero) PostMessage(target, ShowMessage, new IntPtr(page), IntPtr.Zero);
                 return 0;
             }
             try {
                 string bin = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-                using (var context = new HubContext(Path.GetDirectoryName(bin), background)) Application.Run(context);
+                using (var context = new HubContext(Path.GetDirectoryName(bin), background, page)) Application.Run(context);
             } catch (Exception) {
                 MessageBox.Show("RLY/0 Hub 未能启动。请确认安装目录完整，或重新解压后再试。", "RLY/0 Hub", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
@@ -116,13 +121,14 @@ internal static class Program {
 }
 
 internal sealed class ControlWindow : NativeWindow, IDisposable {
-    private readonly Action show, quit;
-    internal ControlWindow(Action show, Action quit) {
+    private readonly Action<int> show;
+    private readonly Action quit;
+    internal ControlWindow(Action<int> show, Action quit) {
         this.show = show; this.quit = quit;
         CreateHandle(new CreateParams { Caption = Program.ControlTitle });
     }
     protected override void WndProc(ref Message m) {
-        if (m.Msg == Program.ShowMessage) show();
+        if (m.Msg == Program.ShowMessage) show(m.WParam.ToInt32());
         else if (m.Msg == Program.ExitMessage) quit();
         base.WndProc(ref m);
     }
@@ -149,7 +155,9 @@ internal sealed class HubContext : ApplicationContext {
     private int restarts, internalSequence;
     private readonly Dictionary<string, Action<Dictionary<string, object>>> internalReplies = new Dictionary<string, Action<Dictionary<string, object>>>();
 
-    internal HubContext(string root, bool background) {
+    private string pendingPage;
+
+    internal HubContext(string root, bool background, int page) {
         this.root = root;
         // Same per-user folder the Launcher and service use; never a path relative to the install.
         string local = Environment.GetEnvironmentVariable("LOCALAPPDATA");
@@ -159,7 +167,7 @@ internal sealed class HubContext : ApplicationContext {
         Directory.CreateDirectory(webviewData);
         dispatch.CreateControl();
         icon = new Icon(Path.Combine(root, "bin", "rly0-hub.ico"));
-        control = new ControlWindow(ShowPanel, Quit);
+        control = new ControlWindow(ShowPage, Quit);
         tray = new NotifyIcon { Icon = icon, Text = "RLY/0 Hub", Visible = true };
         var menu = HubMenu.Create();
         HubMenu.Add(menu, "\uE80F", "打开 RLY/0 Hub", delegate { ShowPanel(); });
@@ -210,7 +218,25 @@ internal sealed class HubContext : ApplicationContext {
             balloonAccount = null;
             balloonAgent = null;
         };
-        if (!background) ShowPanel();
+        if (page > 0) ShowPage(page);
+        else if (!background) ShowPanel();
+    }
+
+    /// <summary>Shows the window on one of <see cref="Program.Pages"/> (0: as it is).</summary>
+    private void ShowPage(int page) {
+        if (page > 0 && page <= Program.Pages.Length) {
+            pendingPage = Program.Pages[page - 1];
+            if (panel != null && !panel.IsDisposed && panel.Loaded) panel.Post(TakePendingPage());
+        }
+        ShowPanel();
+    }
+
+    /// <summary>The navigate event for a requested page, once; null when none is waiting.</summary>
+    internal string TakePendingPage() {
+        if (pendingPage == null) return null;
+        string message = "{\"event\":\"navigate\",\"page\":\"" + pendingPage + "\"}";
+        pendingPage = null;
+        return message;
     }
 
     private void ApplyAutostart(Dictionary<string, object> result) {
@@ -955,6 +981,9 @@ internal sealed class PanelWindow : Form {
         DwmSetWindowAttribute(Handle, 35, ref ink, 4);
     }
 
+    /// <summary>The page finished loading, so it can receive events.</summary>
+    internal bool Loaded { get; private set; }
+
     internal void Post(string json) {
         if (IsDisposed || browser.CoreWebView2 == null) return;
         try { browser.CoreWebView2.PostWebMessageAsJson(json); } catch { }
@@ -998,7 +1027,11 @@ internal sealed class PanelWindow : Form {
                 owner.FromPage(e.WebMessageAsJson);
             };
             core.NavigationCompleted += delegate (object s, CoreWebView2NavigationCompletedEventArgs e) {
-                if (e.IsSuccess && owner.Ready) Post("{\"event\":\"ready\"}");
+                if (!e.IsSuccess) return;
+                Loaded = true;
+                string navigate = owner.TakePendingPage();
+                if (navigate != null) Post(navigate);
+                if (owner.Ready) Post("{\"event\":\"ready\"}");
             };
             core.Navigate(Program.PageUrl);
         } catch {

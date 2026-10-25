@@ -1308,6 +1308,17 @@ fn start_launch_console(options: &LaunchOptions) {
 }
 
 fn run_console_command(action: &str) -> Result<(), Box<dyn Error>> {
+    // `codexhost console` (and the Start Menu's console entry) shows the Hub window's own page
+    // instead of a browser page wherever the Hub is installed.
+    if action == "open"
+        && let Some(hub) = console::hub_window()
+    {
+        return if console::open_hub_page(&hub, console::HUB_PROBLEM_PAGE) {
+            Ok(())
+        } else {
+            Err("RLY/0 Hub could not be opened".into())
+        };
+    }
     let installed = InstalledResources::from_current_executable()?;
     if !installed.console_server.is_file() {
         return Err(format!(

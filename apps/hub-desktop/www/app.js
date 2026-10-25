@@ -49,8 +49,14 @@
     });
   }
 
+  const NAVIGABLE = ["home", "maintenance", "remote", "usage", "updates"];
   function onMessage(data) {
     if (!data || typeof data !== "object") return;
+    // The shell asks for a page (Launcher / Codex entries that used to open the web console).
+    if (data.event === "navigate") {
+      if (NAVIGABLE.includes(data.page)) go(data.page);
+      return;
+    }
     if (data.event === "ready") {
       if (!serviceReady) {
         serviceReady = true;
@@ -70,6 +76,8 @@
   }
 
   if (webview) webview.addEventListener("message", (event) => onMessage(event.data));
+  // Mock mode (patrol): stands in for the shell's events, e.g. { event: "navigate", page }.
+  else window.__hubShellMessage = onMessage;
 
   /* ---------- DOM helpers ---------- */
   function h(tag, props, ...children) {
@@ -244,6 +252,8 @@
     threads: "线程管理",
     maintenance: "维护工具",
     updates: "更新",
+    remote: "远程连接",
+    usage: "用量统计",
   };
   const pageEl = document.getElementById("page");
   const titleEl = document.getElementById("title");
@@ -580,6 +590,8 @@
     ["mcp", "MCP"],
     ["skills", "Skills"],
     ["threads", "线程"],
+    ["remote", "远程连接"],
+    ["usage", "用量统计"],
     ["updates", "更新"],
   ];
   function settingsFrame(name, alive, options) {
@@ -671,6 +683,7 @@
   pageApi.applyToCodex = window.registerHubCodexApply(pageApi).apply;
   pageApi.noAccount = window.registerHubNoAccount(pageApi);
   Object.assign(pageApi, window.registerHubResources(pageApi));
+  pageApi.consoleFeatures = window.registerHubConsoleFeatures(pageApi);
   window.registerHubSystem(pageApi);
   Object.assign(pageApi, window.registerHubDiscovery(pageApi));
   pageApi.resourceSharing = window.registerHubResourceSharing(pageApi);
@@ -1867,6 +1880,65 @@
       "discovery.import": {
         results: [{ id: "0123456789abcdef", ok: true }],
         imported: 3,
+      },
+      "remote.list": {
+        available: true,
+        connections: [
+          {
+            hostId: "ssh:dev-box",
+            displayName: "开发机",
+            source: "codex-managed",
+            sshAlias: "dev-box",
+            sshHost: "10.0.0.8",
+            sshPort: 22,
+            identity: null,
+            autoConnect: false,
+          },
+        ],
+      },
+      "remote.state": { available: true, state: { state: "disconnected", error: null } },
+      "usage.statistics": {
+        available: true,
+        statistics: {
+          totals: { requests: 1820, inputTokens: 5400000, outputTokens: 610000, costUsd: 38.42 },
+          byHarness: [
+            {
+              harness: "codex",
+              requests: 1200,
+              inputTokens: 4000000,
+              outputTokens: 400000,
+              costUsd: 25.1,
+            },
+            {
+              harness: "claude-code",
+              requests: 620,
+              inputTokens: 1400000,
+              outputTokens: 210000,
+              costUsd: 13.32,
+            },
+          ],
+          reading: { complete: true, sources: 2, read: 2 },
+          failures: [],
+        },
+      },
+      "sessions.sources": {
+        available: true,
+        harnesses: [{ harnessId: "claude-code", name: "Claude Code" }],
+      },
+      "sessions.list": {
+        available: true,
+        list: {
+          total: 1,
+          candidates: [
+            {
+              nativeSessionId: "s1",
+              title: "重构登录流程",
+              updatedAt: 1792150000000,
+              cwd: "D:/work/app",
+              running: false,
+            },
+          ],
+        },
       },
     };
     // The mock answers { __error: CODE } to exercise a failed call.

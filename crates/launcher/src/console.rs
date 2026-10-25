@@ -49,6 +49,38 @@ struct LaunchConsole {
     presentation: Presentation,
     ensure: Option<JoinHandle<()>>,
     shown: bool,
+    /// The RLY/0 Hub window, when installed: it replaces the browser page entirely.
+    hub: Option<PathBuf>,
+}
+
+/// Hub page for launch problems and the `console` command (`Rly0Hub.cs` `Program.Pages`).
+pub const HUB_PROBLEM_PAGE: &str = "maintenance";
+
+/// The RLY/0 Hub window installed beside the Launcher (Windows). Where it exists, nothing opens a
+/// browser page: launch problems and the `console` command open the Hub's own page instead.
+pub fn hub_window() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        let launcher = env::current_exe().ok()?;
+        let hub = launcher.parent()?.join("rly0-hub.exe");
+        hub.is_file().then_some(hub)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        None
+    }
+}
+
+/// Shows the Hub window on `page`; a Hub already running brings its window up instead.
+pub fn open_hub_page(hub: &Path, page: &str) -> bool {
+    let mut process = Command::new(hub);
+    process
+        .arg("--page")
+        .arg(page)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    process.spawn().is_ok()
 }
 
 static PRESENTATION: Mutex<Option<Presentation>> = Mutex::new(None);
@@ -90,13 +122,22 @@ pub fn start_for_launch(command: ConsoleCommand) {
     let Some(presentation) = PRESENTATION.lock().ok().and_then(|slot| *slot) else {
         return;
     };
+    let hub = (presentation == Presentation::Browser)
+        .then(hub_window)
+        .flatten();
+    let with_hub = hub.is_some();
     if let Ok(mut slot) = LAUNCH_CONSOLE.lock() {
         *slot = Some(LaunchConsole {
             command: command.clone(),
             presentation,
             ensure: None,
             shown: false,
+            hub,
         });
+    }
+    // With the Hub window there is no web console to start or show.
+    if with_hub {
+        return;
     }
     let ensure = thread::spawn(move || {
         let Ok(mut process) = node_command(&command) else {
@@ -119,10 +160,7 @@ pub fn start_for_launch(command: ConsoleCommand) {
     {
         console.ensure = Some(ensure);
     }
-    // An installer launch shows the console first, then starts Codex Desktop.
-    if presentation == Presentation::Browser {
-        show(None);
-    }
+    // Nothing opens a browser page on a normal start; only a launch problem shows the console.
 }
 
 fn parse_console_url(stdout: &[u8]) -> Option<String> {
@@ -163,10 +201,10 @@ fn console_url(command: &ConsoleCommand) -> Result<String, Box<dyn Error>> {
 }
 
 /// Shows the console for this launch's outcome. A terminal launch prints the
-/// address. An installer launch already opened the console before starting
-/// Codex Desktop; it opens the overview again only for a problem (`reason`),
-/// and after a successful start watches for a persistent Codex UI integration
-/// failure.
+/// address. An installer launch opens nothing on success; it shows the Hub's
+/// maintenance page (or, without the Hub window, the console overview) only for
+/// a problem (`reason`), and after a successful start watches for a persistent
+/// Codex UI integration failure.
 pub fn show_for_launch(reason: Option<&str>) -> bool {
     if reason.is_none() && launch_presentation() == Some(Presentation::Browser) {
         watch_integration();
@@ -241,7 +279,14 @@ fn show(reason: Option<&str>) -> bool {
         if console.shown && reason.is_none() {
             return true;
         }
+        if console.presentation == Presentation::Browser && reason.is_none() {
+            return true;
+        }
         console.shown = true;
+        if let Some(hub) = console.hub.clone() {
+            drop(slot);
+            return open_hub_page(&hub, HUB_PROBLEM_PAGE);
+        }
         (
             console.command.clone(),
             console.presentation,

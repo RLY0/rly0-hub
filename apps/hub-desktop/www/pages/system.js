@@ -10,6 +10,7 @@ window.registerHubSystem = ({
   go,
   recentErrors,
   applyToCodex,
+  consoleFeatures,
 }) => {
   const bytes = (n) => `${((n || 0) / 1024 / 1024).toFixed(1)} MB`;
   pages.network = (root, alive) => {
@@ -176,6 +177,7 @@ window.registerHubSystem = ({
     search: '<circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/>',
     restart: '<path d="M5 12a7 7 0 1 0 2.1-5"/><path d="M5 4v4h4"/>',
     chats: '<path d="M4 5h12v9H8l-4 3z"/><path d="M9 9.5l2 2 3.5-3.5"/><path d="M19 9v9l-3-2h-5"/>',
+    import: '<path d="M12 4v10M8 10l4 4 4-4"/><path d="M5 15v4h14v-4"/>',
   };
   const icon = (name) => {
     const el = h("span", { class: "tool-icon", "aria-hidden": "true" });
@@ -862,6 +864,12 @@ window.registerHubSystem = ({
           ),
           action: [chatRepair, recoverReadable],
           detail: [chatDetail, recoveryDetail],
+        }),
+        tool({
+          name: "import",
+          title: "会话导入",
+          text: "把 Claude Code 等助手的原生会话导入 Codex 继续用。",
+          action: button("导入会话", () => consoleFeatures.openSessionImport()),
         }),
         tool({
           name: "log",
