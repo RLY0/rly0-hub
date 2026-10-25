@@ -99,9 +99,21 @@ Codex 模型目录保留官方原条目，每个已启用中转模型另用 `rly
 
 后端测试使用隔离的临时 HOME、CODEX_HOME 和 Hub 数据目录；安装分支使用虚拟 runner。浏览器 mock 预览可验证页面交互和滚动，但不代表 C#/WebView2、真实安装、登录或启动器进程控制验收。
 
+## 额度实时更新
+
+真实对话本来就带着额度数字，Hub 直接复用，不另发请求（`rly0-relay/live-quota-feed.ts` → `rly0-hub-service/live-quota.ts`）：
+
+- Codex 官方：Codex 侧 Host 收到 app-server 的 `account/rateLimits/updated`（Codex 读取 ChatGPT 响应头 `x-codex-primary/secondary-*` 得到；统一渠道下 core 代理原样转发这些响应头，所以不需要改 core）。
+- Claude 订阅令牌：本机转发器（`claude-relay-forwarder.ts` 的 `observeResponse`）读取每个上游响应的 `anthropic-ratelimit-unified-{5h,7d}-{utilization,reset}`，同时更新对话里的额度胶囊（`ClaudeOfficialKeyQuota.observe`，并重新计时 5 分钟自动探测间隔）。网页登录的 Claude 账号不经过转发器，仍按定时读取。
+- 中转余额：中转模型的回合结束后记一次时间，Hub 至少隔 30 秒再读一次零号余额，推给窗口和托盘。
+
+Host 把数字（不含凭据、请求体或其他响应头）合并写入 `quota-cache/live-quota.json`（受保护目录，原子替换，最多每 2 秒一次）；Hub 服务每 2 秒只比对修改时间，有变化才读取，按官方账号 id、邮箱或当前登录匹配 Codex 账号，按 relay id 匹配 Claude 令牌（令牌数字同时写入 official-key-usage.json），然后通过 stdout 事件 `{event:"quota"|"balance"}` 推给窗口；C# 壳只转发这两类事件。窗口启动时用 `quota.live` 取已有的推送。
+
+窗口内（`pages/quota-live.js`）首页和账号页共用一个额度存储：推送的数字比页面读到的新时直接替换并重绘；每个额度下一行显示新鲜度（刚刚 / N 分钟前 / 12:30，跨天加日期），ⓘ 写来源（随对话更新 / 定时刷新 / 手动）。窗口可见时定时刷新：当前账号每分钟一次（刚有推送则跳过），其他账号每 5 分钟一次，失败后间隔翻倍（最长 15 分钟）；窗口隐藏或最小化（壳发 `visibility` 事件）时暂停。Claude 订阅令牌的定时和打开页面时的读取带 `auto`，服务端在距上次读取或上次推送不足 5 分钟时直接返回 `skipped`，不触发 core 的探测请求；用户点刷新不受此限（仍有 10 秒冷却）。
+
 ## 额度重置卡
 
-重置权益属于账号所属平台，不属于助手程序。账号与令牌卡使用同一个额度组件，始终显示重置卡状态：Codex 显示接口返回的张数，未知不当作零；Claude 显示“官方查看”；Gemini/Grok 未核实到使用接口时显示“未接通”；普通 API Key 显示“不适用”。Pi、Hermes 等复用哪个平台账号，就受该账号权益范围约束，不能跨平台套用卡片。
+重置权益属于账号所属平台，不属于助手程序。账号与令牌卡使用同一个额度组件，始终显示重置卡状态：Codex 显示接口返回的张数，未知不当作零；Claude 显示“官方兑换”；Gemini/Grok 未核实到使用接口时显示“未接通”；普通 API Key 显示“不适用”。Pi、Hermes 等复用哪个平台账号，就受该账号权益范围约束，不能跨平台套用卡片。
 
 Codex 已保存账号的 `accounts.resetPrepare` 读取官方卡库存，用户确认后 `accounts.resetConsume` 提交明确的卡 ID 和 UUID 请求；不切账号、不刷新令牌、不改写额度为 100%。仅调用固定 ChatGPT 官方地址，不接受页面或环境覆盖消费目标，不跟随重定向、不自动重试 POST。契约依据 [官方 App Server 文档](https://learn.chatgpt.com/docs/app-server#8-earned-rate-limit-resets-chatgpt) 和 openai/codex `a6839a48` 的 backend-client 实现。只有 `reset/alreadyRedeemed/nothingToReset/noCredit` 为已知结果，未知响应保留待核实。
 
@@ -109,7 +121,7 @@ core 在账号存储目录用 DPAPI 加密保存使用账本，POST 前必须落
 
 卡片上的“使用”只在张数大于 0 时可点；0 张时按钮禁用并写明原因，张数未知时显示“核实”。点“使用”只打开确认框（不消耗），框内写明账号、消耗 1 张（现有/用后张数）、要重置的额度窗口及当前剩余，焦点默认在“取消”；确认后显示进度和结果，成功后刷新额度。首页当前账号已保存时同样提供这个入口。
 
-使用后查询真实额度；刷新失败保留提示，不能以消费接口成功替代额度到账证明。Claude 的 Code OAuth/Setup Token 不等于浏览器登录，Hub 仅通过固定 `https://claude.ai/settings/usage` 打开官方重置入口，提示核对网页账号；这不称为 Hub 内直接消费，也不显示未经验证的张数。[Claude 官方说明](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset) 当前将重置使用限定在网页/Claude Desktop。Gemini/Grok 全部可在 Hub 直接重置仍未完成。
+使用后查询真实额度；刷新失败保留提示，不能以消费接口成功替代额度到账证明。Claude 的 Code OAuth/Setup Token 不等于浏览器登录，也没有兑换接口：卡片上的“打开兑换页”由 Hub 壳（`Rly0Hub.cs` 的 `ClaudeUsageWindow`，页面经 `window.claudeUsage` 请求）打开一个小窗口，固定加载 `https://claude.ai/settings/usage`。每个已保存的 Claude 账号/令牌有自己的持久 WebView2 用户数据目录 `%LOCALAPPDATA%\rly0-hub\claude-web\<accountId>`，各自独立登录；标题写明账号，顶部一行提示“请确认右上角登录的是 … 再点 Reset”。窗口只做导航：不注入脚本、不代点、不读写 Cookie 或凭据；顶层页面只允许 claude.ai / anthropic.com（含子域、https），其他链接用系统浏览器打开。关窗后页面重新读取该账号额度。这不称为 Hub 内直接消费，也不显示未经验证的张数；账号 id 无效时退回系统浏览器打开同一地址。[Claude 官方说明](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset) 当前将重置使用限定在网页/Claude Desktop。Gemini/Grok 全部可在 Hub 直接重置仍未完成。
 
 ## 额度快用完时自动切换账号
 
