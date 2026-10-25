@@ -7,6 +7,12 @@ import { commandInvocation } from "@codexhost/harness-discovery";
 
 import { sanitizeDiagnosticTail } from "@codexhost/harness-adapter";
 import {
+  promptWithSharedContext,
+  sharedAcpMcpServers,
+  type SharedResourceRequest,
+  type SharedResourcesProvider,
+} from "@codexhost/harness-adapter/plugin";
+import {
   ClientSideConnection,
   PROTOCOL_VERSION,
   RequestError,
@@ -112,8 +118,23 @@ export type KiroTransportEvent =
       metadata?: Record<string, unknown> | undefined;
     };
 
+/** Codex MCP servers and the shared memory server: native ACP Session configuration. */
+export const KIRO_SHARED_MCP_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "kiro-cli",
+  mcp: true,
+  memoryMcp: true,
+});
+/** Skill index and the memory instruction: reference context sent with each prompt. */
+export const KIRO_SHARED_CONTEXT_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "kiro-cli",
+  skills: true,
+  memory: true,
+  memoryMcp: true,
+});
+
 export interface KiroAcpTransportOptions {
   cwd: string;
+  sharedResources?: SharedResourcesProvider | undefined;
   command?: string | undefined;
   environment?: NodeJS.ProcessEnv | undefined;
   commandTimeoutMs?: number | undefined;
@@ -359,6 +380,11 @@ export class KiroAcpTransport {
       if (!connection) throw new KiroTransportError("unavailable", "Kiro ACP is unavailable");
 
       this.#replay = [];
+      const mcpServers = sharedAcpMcpServers(
+        await this.#options.sharedResources?.(this.#options.cwd, KIRO_SHARED_MCP_REQUEST).catch(
+          () => undefined,
+        ),
+      );
 
       let session: NewSessionResponse | LoadSessionResponse;
       let sessionId: string;
@@ -368,7 +394,7 @@ export class KiroAcpTransport {
         const created = await withTimeout(
           connection.newSession({
             cwd: this.#options.cwd,
-            mcpServers: [],
+            mcpServers,
           }),
           this.#commandTimeoutMs,
           "Kiro Session creation",
@@ -412,7 +438,7 @@ export class KiroAcpTransport {
         session = await withTimeout(
           connection.loadSession({
             cwd: this.#options.cwd,
-            mcpServers: [],
+            mcpServers,
             sessionId,
           }),
           this.#commandTimeoutMs,
@@ -441,7 +467,7 @@ export class KiroAcpTransport {
         session = await withTimeout(
           connection.loadSession({
             cwd: this.#options.cwd,
-            mcpServers: [],
+            mcpServers,
             sessionId: input.sessionId,
           }),
           this.#commandTimeoutMs,
@@ -653,9 +679,14 @@ export class KiroAcpTransport {
     const active: ActivePrompt = { onEvent, onPermission, onQuestion };
     this.#activePrompt = active;
     try {
+      const context = (
+        await this.#options
+          .sharedResources?.(this.#options.cwd, KIRO_SHARED_CONTEXT_REQUEST)
+          .catch(() => undefined)
+      )?.context;
       return await connection.prompt({
         sessionId: this.#sessionId,
-        prompt: [{ type: "text", text }],
+        prompt: [{ type: "text", text: promptWithSharedContext(context, text) }],
       });
     } finally {
       if (this.#activePrompt === active) this.#activePrompt = null;

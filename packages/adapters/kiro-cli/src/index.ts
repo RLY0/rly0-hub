@@ -7,7 +7,12 @@ export type {
   KiroAcpTransportLike,
 } from "./kiro-adapter.js";
 
-export { KiroAcpTransport, KiroTransportError } from "./acp-transport.js";
+export {
+  KiroAcpTransport,
+  KiroTransportError,
+  KIRO_SHARED_CONTEXT_REQUEST,
+  KIRO_SHARED_MCP_REQUEST,
+} from "./acp-transport.js";
 export type {
   KiroAcpTransportOptions,
   KiroForkOpenInput,

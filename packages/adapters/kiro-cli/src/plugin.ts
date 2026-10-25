@@ -14,6 +14,7 @@ export function createHarnessAdapter(context: HarnessPluginContext): KiroAdapter
         ? { command: environment[CODEXHOST_KIRO_COMMAND] }
         : {}),
       environment,
+      ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
     }),
     {
       installation: createKiroInstallation(environment, environment[CODEXHOST_KIRO_COMMAND]),

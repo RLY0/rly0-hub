@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
@@ -155,6 +156,7 @@ export interface KiroAcpTransportLike {
 
 export interface KiroAdapterOptions {
   command?: string | undefined;
+  sharedResources?: SharedResourcesProvider | undefined;
   environment?: NodeJS.ProcessEnv | undefined;
   commandTimeoutMs?: number | undefined;
   closeTimeoutMs?: number | undefined;
@@ -580,6 +582,7 @@ export class KiroAdapter implements HarnessAdapter {
     const opts: KiroAcpTransportOptions = {
       cwd,
       ...(this.#options.command ? { command: this.#options.command } : {}),
+      ...(this.#options.sharedResources ? { sharedResources: this.#options.sharedResources } : {}),
       ...(environment ? { environment } : {}),
       ...(onFault ? { onFault } : {}),
       ...(onUsage ? { onUsage } : {}),
