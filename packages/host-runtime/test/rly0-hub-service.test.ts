@@ -359,9 +359,46 @@ describe("Hub tray notices", () => {
       backendReloadTimeoutMs: 50,
       core: fakeCore([]).core,
     });
-    expect(await service.handle("hub.state", {})).toEqual({ onboarded: false });
+    expect(await service.handle("hub.state", {})).toEqual({
+      onboarded: false,
+      channelConsented: false,
+    });
     await service.handle("hub.finishOnboarding", {});
-    expect(await service.handle("hub.state", {})).toEqual({ onboarded: true });
+    expect(await service.handle("hub.state", {})).toEqual({
+      onboarded: true,
+      channelConsented: false,
+    });
+  });
+
+  it("turns routing through the Hub on once, and 恢复纯净状态 turns it all off", async () => {
+    const root = await tempDir();
+    const codexHome = await tempDir();
+    const stopped: string[] = [];
+    const { core } = fakeCore([]);
+    Object.assign(core, {
+      proxyStop: async () => {
+        stopped.push("proxy");
+        return { stopped: true };
+      },
+    });
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root, CODEX_HOME: codexHome },
+      installRoot: root,
+      backendReloadTimeoutMs: 50,
+      core,
+    });
+    await service.handle("relay.unifiedSet", { enabled: false });
+    expect(await service.handle("hub.enableChannel", {})).toMatchObject({ ok: true });
+    expect(await service.handle("relay.unifiedStatus", {})).toEqual({ enabled: true });
+    expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: true });
+
+    const restored = (await service.handle("hub.restorePure", {})) as {
+      steps: Record<string, boolean>;
+    };
+    expect(restored.steps).toMatchObject({ unified: true, proxy: true });
+    expect(stopped).toEqual(["proxy"]);
+    expect(await service.handle("relay.unifiedStatus", {})).toEqual({ enabled: false });
+    expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: false });
   });
 });
 

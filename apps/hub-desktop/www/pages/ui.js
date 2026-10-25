@@ -369,7 +369,8 @@ window.HubUI = (() => {
 
   /* ---------- Dialog ---------- */
   // A centred panel over a dimmed page. `onClose` runs however it closes (button, Esc, backdrop).
-  function dialog({ title, sub, onClose, wide } = {}) {
+  // `locked`: no ×, no Esc, no click-outside; only the dialog's own buttons close it.
+  function dialog({ title, sub, onClose, wide, locked } = {}) {
     closeLayer();
     const body = make("div", { class: "dialog-body" });
     const foot = make("div", { class: "dialog-foot" });
@@ -395,7 +396,7 @@ window.HubUI = (() => {
           make("b", null, title),
           sub ? make("span", null, sub) : null,
         ),
-        closeButton,
+        locked ? null : closeButton,
       ),
       body,
       foot,
@@ -411,14 +412,14 @@ window.HubUI = (() => {
       if (onClose) onClose();
     };
     const onKey = (event) => {
-      if (event.key === "Escape" && !openLayer) {
+      if (event.key === "Escape" && !openLayer && !locked) {
         event.stopPropagation();
         close();
       }
     };
     closeButton.addEventListener("click", close);
     backdrop.addEventListener("pointerdown", (event) => {
-      if (event.target === backdrop) close();
+      if (event.target === backdrop && !locked) close();
     });
     document.addEventListener("keydown", onKey, true);
     document.body.append(backdrop);

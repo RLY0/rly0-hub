@@ -5142,3 +5142,67 @@ select.input,
 .tag.soft {
   opacity: 0.75;
 }
+
+/* ---------- Required first-run dialog: 开启 Hub 转发 ---------- */
+.gate {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+.gate p {
+  margin: 0;
+}
+.gate-list {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  color: var(--paper-100);
+}
+.gate-status:empty {
+  display: none;
+}
+
+/* ---------- Problem banner: only when the local hub is down ---------- */
+.hub-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: rgba(184, 50, 32, 0.18);
+  box-shadow: inset 3px 0 0 var(--brand);
+  font-size: 13px;
+}
+.hub-alert[hidden] {
+  display: none;
+}
+.hub-alert > span:not(.pulse):not(.spacer) {
+  color: var(--muted-dark);
+}
+
+/* ---------- 设置 → 恢复纯净 ---------- */
+.pure {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+.pure > p {
+  margin: 0;
+}
+.pure-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.pure-result {
+  display: grid;
+  gap: 4px;
+  padding-top: 6px;
+}
+.pure-result p {
+  margin: 0;
+}

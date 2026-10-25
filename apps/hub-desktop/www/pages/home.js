@@ -282,9 +282,9 @@ window.registerHubHome = (api) => {
     const agentsModule = h("section", { class: "m panel span-3" });
     const lines = h("section", { class: "m panel span-3" });
     // Same switch as 中转站 and 账号 (pages/no-account.js).
-    // 首页: the two Codex switches side by side as slim strips, each switch beside its label.
-    const noAccount = h("section", { class: "m span-3 no-account home-switch" });
-    const unified = h("section", { class: "m span-3 unified-channel home-switch" });
+    // 首页: a slim strip, the switch right beside its label. (统一渠道 is not a switch any more:
+    // it is turned on once in the required first-run dialog, see app.js channelGate.)
+    const noAccount = h("section", { class: "m span-6 no-account home-switch" });
     // Codex 概况: what the in-Codex 仪表盘 showed (sessions, MCP, Skills, 12-week activity).
     const overview = h("section", { class: "m panel span-6 codex-overview" });
     root.append(
@@ -294,14 +294,12 @@ window.registerHubHome = (api) => {
         promo,
         people,
         noAccount,
-        unified,
         agentsModule,
         lines,
         overview,
       ),
     );
     api.noAccount.mount(noAccount, alive, { compact: true });
-    api.unifiedChannel.mount(unified, alive, { compact: true });
 
     async function loadPromo() {
       const result = await call("balance.get").catch((error) => ({
@@ -571,25 +569,10 @@ window.registerHubHome = (api) => {
 
     /* 线路与余额: where requests go and whether the balance holds. */
     function renderLines(summary) {
-      const proxy = summary && summary.proxy;
-      const running = Boolean(proxy && proxy.running);
       const list = h("div", { class: "line-list" }, h("span", { class: "sub" }, "读取中…"));
       put(
         lines,
-        modHead(
-          "route",
-          "中转站",
-          "接入的中转站和余额",
-          h(
-            "span",
-            {
-              class: `state-pill ${running ? "ok" : ""}`,
-              "data-tip": running ? `本地代理 127.0.0.1:${proxy.port}` : "有启用的中转站时自动开启",
-            },
-            h("span", { class: `pulse ${running ? "" : "off"}` }),
-            running ? "代理在线" : "代理未开",
-          ),
-        ),
+        modHead("route", "中转站", "接入的中转站和余额"),
         list,
         h(
           "div",

@@ -953,39 +953,40 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
   await expect(page.locator("body")).not.toContainText("重启 Codex 生效");
 });
 
-// 统一渠道 (pages/unified-channel.js): on by default on 中转站, 账号 → OpenAI and 首页, with the
-// one-line note about official traffic; switching it reaches Codex by itself.
-test("unified channel switch: on by default, note and tooltip, auto-applied both ways", async ({
+// 开启 Hub 转发: a required first-run dialog with a single 开启 button (no ×, Esc or outside
+// click) that names 设置 → 恢复纯净 as the way back. 统一渠道 is no longer a switch on any page.
+test("hub routing: required one-button dialog, no switch on pages, 恢复纯净 in settings", async ({
   page,
 }) => {
-  const dir = path.join(runDir, "unified-channel");
+  const dir = path.join(runDir, "hub-routing");
   mkdirSync(dir, { recursive: true });
   await page.setViewportSize({ width: WIDTHS[0] ?? 1240, height: HEIGHT });
-  await page.goto("/index.html");
-  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
-  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
-  if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
-  await page.click('.rail button[data-page="relays"]');
-  const card = page.locator(".unified-channel");
-  await expect(card).toContainText("统一渠道");
-  await expect(card).toContainText("同一对话切换账号和中转");
-  await expect(card.locator(".unified-note")).toHaveAttribute("data-tip", /同一个账号和凭据/);
-  const toggle = card.locator('button[role="switch"]');
-  await expect(toggle).toHaveAttribute("aria-checked", "true");
-  await card.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: path.join(dir, "relays-on.png"), fullPage: true });
-  await toggle.click();
-  await expect(page.locator("#toast")).toContainText("已关闭统一渠道");
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
-  await expect(card).toContainText("已关闭：对话固定用开始时的方式");
-  await page.click('.rail button[data-page="home"]');
-  const home = page.locator(".home-switch.unified-channel");
-  await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "false");
-  await home.locator('button[role="switch"]').click();
-  await expect(page.locator("#toast")).toContainText("已开启统一渠道");
-  await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "true");
-  await page.screenshot({ path: path.join(dir, "home-on.png"), fullPage: true });
-  await expect(page.locator("body")).not.toContainText("重启 Codex 生效");
+  await page.goto("/index.html?gate");
+  const gate = page.locator('.dialog-backdrop.show .dialog[aria-label="开启 Hub 转发"]');
+  await gate.waitFor();
+  await expect(gate.locator(".dialog-x")).toHaveCount(0);
+  await expect(gate.locator(".dialog-foot button")).toHaveCount(1);
+  await expect(gate).toContainText("设置 → 恢复纯净");
+  await page.screenshot({ path: path.join(dir, "gate.png") });
+  await page.keyboard.press("Escape");
+  await expect(gate).toBeVisible();
+  await gate.getByRole("button", { name: "开启" }).click();
+  await expect(gate).toBeHidden();
+  for (const target of ["home", "relays", "accounts"]) {
+    await page.click(`.rail button[data-page="${target}"]`);
+    await expect(page.locator(".unified-channel")).toHaveCount(0);
+  }
+  await expect(page.locator("body")).not.toContainText("代理在线");
+  await page.click('.rail button[data-page="settings"]');
+  await page.click('.settings-menu button:has-text("恢复纯净")');
+  const pure = page.locator(".pure");
+  await expect(pure).toContainText("已保存的账号、中转站和 Key 会保留");
+  const restore = pure.getByRole("button", { name: "恢复纯净状态" });
+  await restore.click();
+  await expect(restore).toHaveClass(/armed/);
+  await pure.getByRole("button", { name: "确认恢复" }).click();
+  await expect(pure).toContainText("已恢复纯净状态");
+  await page.screenshot({ path: path.join(dir, "pure.png"), fullPage: true });
 });
 
 // The former web console lives in the Hub: the shell's navigate event (Launcher / Codex entries)
