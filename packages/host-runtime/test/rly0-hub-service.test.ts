@@ -508,6 +508,36 @@ describe("AI 助手 catalog and relay logos", () => {
     expect(opened).toEqual(["https://opencode.ai/docs"]);
   });
 
+  it("sets the 应用路径 of desktop-app agents only, in the Host's per-plugin file", async () => {
+    const root = await tempDir();
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      backendReloadTimeoutMs: 50,
+      core: fakeCore([]).core,
+    });
+    const app = path.join(root, "ZCode");
+    await fs.mkdir(app);
+    expect(await service.handle("agents.launchPathGet", { agent: "zcode" })).toMatchObject({
+      path: null,
+    });
+    expect(
+      await service.handle("agents.launchPathSet", { agent: "zcode", path: app }),
+    ).toMatchObject({ path: app, restartRequired: true });
+    expect(await service.handle("agents.launchPathGet", { agent: "zcode" })).toMatchObject({
+      path: app,
+    });
+    await expect(
+      service.handle("agents.launchPathSet", { agent: "claude-code", path: "C:/x" }),
+    ).rejects.toThrow("LAUNCH_PATH_UNSUPPORTED");
+    await expect(
+      service.handle("agents.launchPathSet", { agent: "zcode", path: path.join(root, "missing") }),
+    ).rejects.toThrow("LAUNCH_PATH_INVALID");
+    await expect(
+      service.handle("agents.launchPathSet", { agent: "zcode", path: "a\nb" }),
+    ).rejects.toThrow("INVALID_PARAMS");
+  });
+
   it("reads a Sub2API site's logo as a data URI and nothing else", async () => {
     const { fetchRelayLogo } = await import("../src/rly0-hub-service/relay-logo.js");
     const png = Buffer.from([137, 80, 78, 71]);

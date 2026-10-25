@@ -71,7 +71,8 @@ import {
   readWindowsSystemProxy,
   resolveUpdateProxy,
 } from "./hub-update-net.js";
-import type { UpdateCheckResult } from "@codexhost/shared-contracts";
+import { harnessLaunchPathSchema, type UpdateCheckResult } from "@codexhost/shared-contracts";
+import { HarnessLaunchSettingsStore } from "@codexhost/harness-plugin-files";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { apiKeyLogin, importLogin, parseLoginFile } from "./account-import.js";
 import {
@@ -79,7 +80,12 @@ import {
   parseClaudeImport,
   saveAnthropicApiKey,
 } from "./claude-official.js";
-import { listRly0HubAgents, rly0HubAgentDocsUrl, rly0HubAgentSharing } from "./agents.js";
+import {
+  listRly0HubAgents,
+  rly0HubAgentDocsUrl,
+  rly0HubAgentSharing,
+  rly0HubAgentTakesLaunchPath,
+} from "./agents.js";
 import { fetchRelayLogo } from "./relay-logo.js";
 import {
   cleanAlertSettings,
@@ -1111,6 +1117,29 @@ export class Rly0HubService {
       "agents.installStart": route(rly0AgentIdParamsSchema, (p) => this.#installer.start(p.agent)),
       "agents.installStatus": route(rly0AgentIdParamsSchema, (p) =>
         this.#installer.status(p.agent),
+      ),
+      // 应用路径 for desktop-app agents (ZCode, WorkBuddy): the same per-plugin file the Host reads
+      // at start, so a change applies after Codex restarts.
+      "agents.launchPathGet": route(rly0AgentIdParamsSchema, async (p) => {
+        if (!rly0HubAgentTakesLaunchPath(p.agent)) throw codedHubError("LAUNCH_PATH_UNSUPPORTED");
+        return await new HarnessLaunchSettingsStore(this.#options.environment).get(p.agent);
+      }),
+      "agents.launchPathSet": route(
+        z
+          .object({
+            agent: z.string().max(40),
+            path: harnessLaunchPathSchema.nullable(),
+          })
+          .strict(),
+        async (p) => {
+          if (!rly0HubAgentTakesLaunchPath(p.agent)) throw codedHubError("LAUNCH_PATH_UNSUPPORTED");
+          // A relative path or one that does not exist is refused by the store.
+          return await new HarnessLaunchSettingsStore(this.#options.environment)
+            .set(p.agent, p.path)
+            .catch(() => {
+              throw codedHubError("LAUNCH_PATH_INVALID");
+            });
+        },
       ),
       "agents.openLogin": route(rly0AgentIdParamsSchema, async (p) => ({
         ok: await this.#installer.openLogin(p.agent),

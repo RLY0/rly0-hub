@@ -48,6 +48,7 @@ window.hubManagementMock = (() => {
     })),
   });
   let trash = [];
+  const launchPaths = {};
   // 设置 → 通用 → Codex 里: soft wrap on, the rest as Codex's defaults.
   let codexPrefs = { updatedAt: 1, reasoningSoftWrap: true };
   let recoveredHistory = false;
@@ -350,6 +351,11 @@ window.hubManagementMock = (() => {
       case "mcp.setEnabled":
         servers.find((s) => s.name === p.name).enabled = p.enabled;
         return { ok: true };
+      case "agents.launchPathGet":
+        return { path: launchPaths[p.agent] || null, restartRequired: false };
+      case "agents.launchPathSet":
+        launchPaths[p.agent] = p.path;
+        return { path: p.path, restartRequired: true };
       case "prefs.codexGet":
         return { preferences: codexPrefs };
       case "prefs.codexSet":

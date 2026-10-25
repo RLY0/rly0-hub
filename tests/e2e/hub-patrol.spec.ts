@@ -1023,3 +1023,88 @@ test("short explanations keep their full text in an accessible ⓘ tooltip", asy
     "使用条款",
   );
 });
+
+// Everything the in-Codex settings panel had now lives here: Codex opens these Hub pages by name
+// (`rly0-hub.exe --page`), the 更多 agents unfold with the same cards, 首页 has the Codex overview
+// and 设置 → 通用 has the options for Codex itself.
+for (const width of WIDTHS) {
+  test(`former in-Codex settings pages @${width}`, async ({ page }) => {
+    const dir = path.join(runDir, "merged", String(width));
+    mkdirSync(dir, { recursive: true });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error.message)));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.setViewportSize({ width, height: HEIGHT });
+    await page.goto("/index.html");
+    const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+    await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+    if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+
+    // 首页 → Codex 概况 (the old 仪表盘).
+    const overview = page.locator(".codex-overview");
+    await expect(overview.locator(".overview-stat")).toHaveCount(4);
+    await expect(overview.locator(".heat-cell")).toHaveCount(84);
+    await overview.screenshot({ path: path.join(dir, "home-overview.png") });
+
+    // Codex asks for pages by name; every former settings page has one.
+    const send = (pageName: string) =>
+      page.evaluate((name) => {
+        (window as unknown as { __hubShellMessage(data: unknown): void }).__hubShellMessage({
+          event: "navigate",
+          page: name,
+        });
+      }, pageName);
+    for (const [name, title] of [
+      ["agents", "AI 助手"],
+      ["threads", "设置"],
+      ["mcp", "设置"],
+      ["skills", "设置"],
+      ["general", "设置"],
+      ["remote", "设置"],
+      ["usage", "设置"],
+      ["accounts", "账号"],
+      ["relays", "中转站"],
+      ["support", "支持"],
+      ["maintenance", "维护工具"],
+    ] as const) {
+      await send(name);
+      await expect(page.locator("#title")).toHaveText(title);
+    }
+    await send("sessions");
+    await expect(
+      page.locator('.dialog-backdrop.show .dialog[aria-label="会话导入"]'),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
+    // AI 助手 → 更多 Agent: folded, then the same cards with install and 应用路径.
+    await send("agents");
+    const more = page.locator("details[data-agent-more]");
+    await expect(more).not.toHaveAttribute("open", "");
+    await expect(more.locator(":scope > summary")).toContainText("更多 Agent（8）");
+    await more.locator(":scope > summary").click();
+    await expect(more.locator(".agent-card")).toHaveCount(8);
+    const zcode = more.locator(".agent-card", { hasText: "ZCode" });
+    await zcode.locator("details.launch-path summary").click();
+    await zcode.locator("details.launch-path input").fill("D:\\Apps\\ZCode");
+    await zcode.locator("details.launch-path button", { hasText: "保存" }).click();
+    await expect(page.locator(".toast").last()).toContainText("重启 Codex 后生效");
+    await zcode.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: path.join(dir, "agents-more.png") });
+
+    // 设置 → 通用 → Codex 里.
+    await send("general");
+    const prefs = page.locator(".codex-prefs");
+    await expect(prefs.locator(".pref-row")).toHaveCount(5);
+    await prefs.locator('select[aria-label="强调色"]').selectOption("blue");
+    await expect(page.locator(".toast").last()).toContainText("回到 Codex 窗口就生效");
+    await prefs.screenshot({ path: path.join(dir, "general-codex.png") });
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+}

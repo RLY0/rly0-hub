@@ -46,6 +46,11 @@ interface CatalogEntry {
   readonly docsUrl: string;
   /** Shown in the collapsed "更多" group. */
   readonly more?: true;
+  /**
+   * Its plugin takes an installation folder (`launchCommand` in the manifest): desktop apps the
+   * Host may not find on its own. Set in the Hub with `agents.launchPathSet`.
+   */
+  readonly launchPath?: true;
 }
 
 export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
@@ -161,6 +166,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     sharing: NO_SHARING,
     docsUrl: "https://zcode.z.ai",
     more: true,
+    launchPath: true,
   },
   {
     id: "omp",
@@ -217,6 +223,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     docsUrl:
       "https://www.workbuddy.ai/docs/workbuddy/From-Beginner-to-Expert-Guide/Installation-Win-Guide",
     more: true,
+    launchPath: true,
   },
 ];
 
@@ -240,6 +247,8 @@ export interface Rly0HubAgent {
   readonly desktopOnly?: true;
   /** Listed in the collapsed "更多" group. */
   readonly more?: true;
+  /** Accepts a custom installation folder (`agents.launchPathGet` / `agents.launchPathSet`). */
+  readonly launchPath?: true;
 }
 
 /** Antigravity's desktop app (IDE) on Windows: its own `bin` holds `antigravity.cmd`, not `agy`. */
@@ -258,6 +267,11 @@ function antigravityDesktopInstalled(
 
 export function rly0HubAgentSharing(agent: string): Rly0HubAgentSharing {
   return RLY0_HUB_AGENTS.find((entry) => entry.id === agent)?.sharing ?? NO_SHARING;
+}
+
+/** Agents whose installation folder can be set in the Hub (the former 连接 page's 应用路径). */
+export function rly0HubAgentTakesLaunchPath(agent: string): boolean {
+  return RLY0_HUB_AGENTS.some((entry) => entry.id === agent && entry.launchPath === true);
 }
 
 export function rly0HubAgentDocsUrl(agent: string): string | undefined {
@@ -303,6 +317,7 @@ export function listRly0HubAgents(
         ...(manual ? { manualCommand: manual } : {}),
         ...(desktopOnly ? { desktopOnly: true as const } : {}),
         ...(entry.more ? { more: true as const } : {}),
+        ...(entry.launchPath ? { launchPath: true as const } : {}),
       },
     ];
   });

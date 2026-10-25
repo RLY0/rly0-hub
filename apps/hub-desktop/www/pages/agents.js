@@ -528,7 +528,71 @@ window.registerHubAgents = ({
         renderAccess(agent, access);
         access.prepend(connectionLine(agent));
       } else renderLocked(agent, access, element);
+      if (agent.launchPath) body.append(launchPathEditor(agent));
       return element;
+    }
+
+    // 应用路径 for desktop-app agents (the former 连接 page's field): used after Codex restarts.
+    function launchPathEditor(agent) {
+      const input = h("input", {
+        class: "input",
+        type: "text",
+        placeholder: `${agent.name} 的安装文件夹，例如 D:\\Apps\\${agent.name}`,
+        "aria-label": `${agent.name} 应用路径`,
+        spellcheck: "false",
+      });
+      const save = (value) =>
+        call("agents.launchPathSet", { agent: agent.id, path: value })
+          .then(() => toast(value ? "已保存，重启 Codex 后生效" : "已清除，重启 Codex 后生效"))
+          .catch((error) =>
+            toast(
+              error && error.message === "LAUNCH_PATH_INVALID"
+                ? "这个文件夹不存在，或者不是完整路径"
+                : "没能保存",
+            ),
+          );
+      const details = h(
+        "details",
+        { class: "manual launch-path" },
+        h("summary", null, "应用路径"),
+        h(
+          "p",
+          { class: "sub" },
+          window.HubUI.info(
+            "找不到它时填安装文件夹",
+            `${agent.name} 是桌面应用，Codex 通常能自己找到；装在别处时，在这里填它的安装文件夹（macOS 填 .app）。重启 Codex 后生效。`,
+          ),
+        ),
+        h(
+          "div",
+          { class: "row" },
+          input,
+          h(
+            "button",
+            {
+              class: "btn sm",
+              type: "button",
+              onclick: () => input.value.trim() && save(input.value.trim()),
+            },
+            "保存",
+          ),
+          h(
+            "button",
+            {
+              class: "btn quiet sm",
+              type: "button",
+              onclick: () => save(null).then(() => (input.value = "")),
+            },
+            "清除",
+          ),
+        ),
+      );
+      call("agents.launchPathGet", { agent: agent.id })
+        .then((settings) => {
+          if (settings && settings.path) input.value = settings.path;
+        })
+        .catch(() => undefined);
+      return details;
     }
 
     // Connection state from the last check the Codex side ran (diagnostics live here now).

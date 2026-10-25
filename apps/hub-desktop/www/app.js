@@ -1674,6 +1674,7 @@
           canOpenLogin: true,
           manualCommand: "npm install -g opencode-ai",
           ...(more ? { more: true } : {}),
+          ...(id === "zcode" || id === "workbuddy" ? { launchPath: true } : {}),
           // Only the Antigravity desktop app is installed here, not agy.
           ...(id === "antigravity" ? { desktopOnly: true } : {}),
         })),
