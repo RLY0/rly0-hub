@@ -1,41 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { RLY0_THREAD_PROVIDER_LOCKED_CODE } from "@codexhost/shared-contracts";
+import {
+  RLY0_THREAD_CONTINUED_CODE,
+  RLY0_THREAD_CONTINUED_NOTE,
+  RLY0_THREAD_PROVIDER_LOCKED_CODE,
+} from "@codexhost/shared-contracts";
 
 import {
   isThreadProviderLockedError,
+  threadContinuedTarget,
   threadProviderLockedReason,
-  turnStartFollowUp,
   withRelayThreadContinue,
-  type RelayThreadContinueOffer,
 } from "../src/renderer-relay-thread-continue.js";
 
-const LOCKED = `这个对话是用官方账号开始的，Codex 不能在同一个对话里改用中转模型。 (${RLY0_THREAD_PROVIDER_LOCKED_CODE})`;
+const LOCKED = `这个对话是用官方账号开始的，没能自动换到中转模型继续。 (${RLY0_THREAD_PROVIDER_LOCKED_CODE})`;
 const THREAD_ID = "019a0000-0000-7000-8000-000000000001";
+const FORK_ID = "019a0000-0000-7000-8000-000000000002";
+const CONTINUED = `${RLY0_THREAD_CONTINUED_NOTE} (${RLY0_THREAD_CONTINUED_CODE}:${FORK_ID})`;
 
-function setup() {
-  const offers: RelayThreadContinueOffer[] = [];
-  const handoff = vi.fn(async () => ({
-    threadId: "019a0000-0000-7000-8000-000000000002",
-    mode: "created" as const,
-    title: "↪ 支付系统 · 接力 Codex",
-    carried: {
-      turns: 1,
-      includedTurns: 1,
-      omittedTurns: 0,
-      commands: 0,
-      files: 0,
-      truncated: false,
-    },
-  }));
-  const open = vi.fn(async () => undefined);
-  const sender = withRelayThreadContinue(undefined, {
-    handoff: handoff as never,
-    open: open as never,
-    show: (offer) => offers.push(offer),
-    requestId: () => "click-relay-0001",
+function setup(openFails = false) {
+  const notes: string[] = [];
+  const open = vi.fn(async () => {
+    if (openFails) throw new Error("not found");
   });
-  return { offers, handoff, open, sender };
+  const sender = withRelayThreadContinue(undefined, {
+    open: open as never,
+    note: (text) => notes.push(text),
+  });
+  return { notes, open, sender };
 }
 
 const params = {
@@ -44,8 +36,10 @@ const params = {
   model: null,
 };
 
-describe("在新对话里继续 after a provider-lock refusal", () => {
-  it("recognises only the Host's provider-lock refusal", () => {
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("continuing a provider-locked Thread without a choice dialog", () => {
+  it("recognises the Host's markers", () => {
     expect(isThreadProviderLockedError(new Error(LOCKED))).toBe(true);
     expect(isThreadProviderLockedError({ code: -32602, message: LOCKED })).toBe(true);
     expect(
@@ -58,36 +52,42 @@ describe("在新对话里继续 after a provider-lock refusal", () => {
     expect(threadProviderLockedReason(new Error(LOCKED))).not.toContain(
       RLY0_THREAD_PROVIDER_LOCKED_CODE,
     );
-    expect(turnStartFollowUp(params)).toBe("继续写支付回调");
-    expect(turnStartFollowUp({ input: [{ type: "image", url: "x" }] })).toBeUndefined();
+    expect(threadContinuedTarget({ message: CONTINUED })).toBe(FORK_ID);
+    expect(threadContinuedTarget(new Error(LOCKED))).toBeUndefined();
   });
 
-  it("keeps the rejection, and one click hands off to a new Codex Thread with the draft", async () => {
-    const { offers, handoff, open, sender } = setup();
-    const send = vi.fn(() => Promise.reject(new Error(LOCKED)));
-    await expect(sender(params, send) as Promise<unknown>).rejects.toThrow(
-      RLY0_THREAD_PROVIDER_LOCKED_CODE,
-    );
-    expect(offers).toHaveLength(1);
-    expect(offers[0]?.threadId).toBe(THREAD_ID);
-    await offers[0]?.continue();
-    expect(handoff).toHaveBeenCalledWith({
-      threadId: THREAD_ID,
-      targetHarnessId: "codex",
-      requestId: "click-relay-0001",
-      followUp: "继续写支付回调",
-    });
-    expect(open).toHaveBeenCalledWith("019a0000-0000-7000-8000-000000000002");
+  it("opens the forked Thread and shows a short note; the reply still reaches Desktop", async () => {
+    const { notes, open, sender } = setup();
+    await expect(
+      sender(params, () => Promise.reject(new Error(CONTINUED))) as Promise<unknown>,
+    ).rejects.toThrow(RLY0_THREAD_CONTINUED_CODE);
+    await flush();
+    expect(open).toHaveBeenCalledWith(FORK_ID);
+    expect(notes).toEqual([RLY0_THREAD_CONTINUED_NOTE]);
   });
 
-  it("passes other results and errors through untouched", async () => {
-    const { offers, sender } = setup();
+  it("still says where the conversation went when the new Thread cannot be opened", async () => {
+    const { notes, sender } = setup(true);
+    await expect(
+      sender(params, () => Promise.reject(new Error(CONTINUED))) as Promise<unknown>,
+    ).rejects.toThrow();
+    await flush();
+    expect(notes[0]).toContain(RLY0_THREAD_CONTINUED_NOTE);
+  });
+
+  it("only notes the reason when even the fork failed, and passes other results through", async () => {
+    const { notes, open, sender } = setup();
+    await expect(
+      sender(params, () => Promise.reject(new Error(LOCKED))) as Promise<unknown>,
+    ).rejects.toThrow(RLY0_THREAD_PROVIDER_LOCKED_CODE);
+    expect(open).not.toHaveBeenCalled();
+    expect(notes).toEqual([threadProviderLockedReason(new Error(LOCKED))]);
     const ok = { turn: { id: "t" } };
     expect(await (sender(params, () => Promise.resolve(ok)) as Promise<unknown>)).toBe(ok);
     await expect(
       sender(params, () => Promise.reject(new Error("network"))) as Promise<unknown>,
     ).rejects.toThrow("network");
     expect(sender(params, () => "sync")).toBe("sync");
-    expect(offers).toHaveLength(0);
+    expect(notes).toHaveLength(1);
   });
 });
