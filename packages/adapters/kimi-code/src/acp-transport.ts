@@ -3,6 +3,12 @@ import { Readable, Writable } from "node:stream";
 
 import { sanitizeDiagnosticTail } from "@codexhost/harness-adapter";
 import {
+  promptWithSharedContext,
+  sharedAcpMcpServers,
+  type SharedResourceRequest,
+  type SharedResourcesProvider,
+} from "@codexhost/harness-adapter/plugin";
+import {
   ClientSideConnection,
   ndJsonStream,
   type Client,
@@ -97,8 +103,23 @@ export type SessionEventHandler = (
   >,
 ) => void;
 
+/** Codex MCP servers and the shared memory server: native ACP Session configuration. */
+export const KIMI_SHARED_MCP_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "kimi-code",
+  mcp: true,
+  memoryMcp: true,
+});
+/** Skill index and the memory instruction: reference context sent with each prompt. */
+export const KIMI_SHARED_CONTEXT_REQUEST: SharedResourceRequest = Object.freeze({
+  harnessId: "kimi-code",
+  skills: true,
+  memory: true,
+  memoryMcp: true,
+});
+
 export interface KimiAcpTransportOptions {
   cwd: string;
+  sharedResources?: SharedResourcesProvider;
   command?: string;
   environment?: NodeJS.ProcessEnv;
   commandTimeoutMs?: number;
@@ -179,6 +200,7 @@ export function projectKimiCommandsUpdate(
 }
 
 export class KimiAcpTransport {
+  #promptCwd: string | undefined;
   #options: KimiAcpTransportOptions;
   #child: ChildProcessWithoutNullStreams | null = null;
   #connection: ClientSideConnection | null = null;
@@ -259,10 +281,14 @@ export class KimiAcpTransport {
     if (!connection) throw new KimiTransportError("unavailable", "Kimi ACP is unavailable");
 
     const targetCwd = input.cwd || this.#options.cwd;
+    this.#promptCwd = targetCwd;
+    const mcpServers = sharedAcpMcpServers(
+      await this.#options.sharedResources?.(targetCwd, KIMI_SHARED_MCP_REQUEST).catch(() => undefined),
+    );
 
     if (input.kind === "create") {
       const created = await withTimeout(
-        connection.newSession({ cwd: targetCwd, mcpServers: [] }),
+        connection.newSession({ cwd: targetCwd, mcpServers }),
         this.#commandTimeoutMs,
         "Kimi session/new",
       );
@@ -287,7 +313,7 @@ export class KimiAcpTransport {
           connection.unstable_forkSession({
             sessionId: input.sessionId,
             cwd: targetCwd,
-            mcpServers: [],
+            mcpServers,
           }),
           this.#commandTimeoutMs,
           "Kimi session/fork",
@@ -327,7 +353,7 @@ export class KimiAcpTransport {
         connection.loadSession({
           sessionId: input.sessionId,
           cwd: targetCwd,
-          mcpServers: [],
+          mcpServers,
         }),
         this.#commandTimeoutMs,
         "Kimi session/load",
@@ -388,7 +414,15 @@ export class KimiAcpTransport {
 
     this.#activePrompt = handler;
     try {
-      return await connection.prompt({ sessionId, prompt: [{ type: "text", text }] });
+      const context = (
+        await this.#options
+          .sharedResources?.(this.#promptCwd ?? this.#options.cwd, KIMI_SHARED_CONTEXT_REQUEST)
+          .catch(() => undefined)
+      )?.context;
+      return await connection.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: promptWithSharedContext(context, text) }],
+      });
     } catch (error) {
       throw new KimiTransportError(
         "unavailable",

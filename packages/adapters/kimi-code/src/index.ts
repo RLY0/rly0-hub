@@ -10,6 +10,8 @@ export {
 export {
   KimiAcpTransport,
   KimiTransportError,
+  KIMI_SHARED_CONTEXT_REQUEST,
+  KIMI_SHARED_MCP_REQUEST,
   type KimiTransportFaultKind,
   type KimiAcpTransportOptions,
 } from "./acp-transport.js";

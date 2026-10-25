@@ -11,6 +11,7 @@ export function createHarnessAdapter(context: HarnessPluginContext): KimiAdapter
     new KimiAdapter({
       ...(environment[KIMI_COMMAND_ENV] ? { command: environment[KIMI_COMMAND_ENV] } : {}),
       environment,
+      ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
     }),
     {
       installation: createKimiInstallation(environment),

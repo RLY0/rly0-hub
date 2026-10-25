@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -103,6 +104,7 @@ export interface KimiAdapterDependencies {
 
 export interface KimiAdapterOptions {
   command?: string;
+  sharedResources?: SharedResourcesProvider;
   environment?: NodeJS.ProcessEnv;
   commandTimeoutMs?: number;
   closeTimeoutMs?: number;
@@ -190,9 +192,12 @@ export class KimiAdapter implements HarnessAdapter {
   }
 
   #createTransport(options: KimiAcpTransportOptions): KimiAcpTransportLike {
+    const withShared = this.#options.sharedResources
+      ? { ...options, sharedResources: this.#options.sharedResources }
+      : options;
     return this.#deps.createTransport
-      ? this.#deps.createTransport(options)
-      : new KimiAcpTransport(options);
+      ? this.#deps.createTransport(withShared)
+      : new KimiAcpTransport(withShared);
   }
 
   #resolveExecutable(input: {
