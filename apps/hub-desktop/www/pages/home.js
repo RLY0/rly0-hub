@@ -702,27 +702,29 @@ window.registerHubHome = (api) => {
             `${total} 个会话 · 活跃 ${active} 天 · 单日最多 ${peak === 1 && total === 0 ? 0 : peak}`,
           ),
         ),
+        // Pixel squares, oldest first: six weeks per row, two rows, each square sized to
+        // fill the card's width. Brand red by level, as before.
         h(
           "div",
-          { class: "activity-bars", role: "img", "aria-label": `最近 12 周共 ${total} 个会话` },
+          { class: "activity-grid", role: "img", "aria-label": `最近 12 周共 ${total} 个会话` },
           days.map((day) =>
-            h(
-              "span",
-              {
-                class: `activity-day ${day.count ? "" : "zero"}`,
-                "data-tip": `${md(day.date)} · ${day.count} 个会话`,
-              },
-              h("i", {
-                style: { height: `${day.count ? Math.max(6, (day.count / peak) * 100) : 0}%` },
-              }),
-            ),
+            h("span", {
+              class: `heat-cell l${day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count / peak) * 4))}`,
+              "data-tip": `${md(day.date)} · ${day.count} 个会话`,
+            }),
           ),
         ),
         h(
           "div",
-          { class: "activity-axis tabular", "aria-hidden": "true" },
-          days.filter((_, index) => index % 14 === 0).map((day) => h("span", null, md(day.date))),
-          h("span", null, "今天"),
+          { class: "activity-foot", "aria-hidden": "true" },
+          h("span", { class: "tabular" }, `${md(days[0] && days[0].date)} — 今天`),
+          h(
+            "span",
+            { class: "heat-legend" },
+            "少",
+            [0, 1, 2, 3, 4].map((level) => h("i", { class: `heat-cell l${level}` })),
+            "多",
+          ),
         ),
       );
       put(
