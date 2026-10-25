@@ -3344,9 +3344,9 @@ export class AppServerHost {
   #publishCodexRateLimits(accountId: string, rateLimits: Partial<HostUsage>): void {
     const usage = codexUsageFromPlan(rateLimits);
     if (!usage) return;
-    const current = this.#accountControl.snapshot().accounts.find(
-      (account) => account.accountId === accountId,
-    );
+    const current = this.#accountControl
+      .snapshot()
+      .accounts.find((account) => account.accountId === accountId);
     this.#liveQuotaFeed.record({
       provider: "codex",
       key: accountId,
