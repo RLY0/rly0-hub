@@ -1292,16 +1292,8 @@
         autostart,
         about,
         alertCard,
-        h(
-          "section",
-          { class: "m span-6" },
-          h("h3", null, "Codex 内工具"),
-          h(
-            "p",
-            { class: "sub" },
-            "在 Codex 里右键 RLY/0 图标还有更多工具：自定义启动命令、浏览器添加账号、导入会话、界面和额度提示。",
-          ),
-        ),
+        // What the in-Codex 通用 page set for Codex itself now lives here.
+        window.renderCodexPreferences({ h, call, toast, failed, alive }),
       ),
     );
     async function load() {

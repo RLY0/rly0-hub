@@ -454,6 +454,7 @@ describe("Renderer fixed Model request client", () => {
       "rly0ClaudeCodeAuthStatus",
       "rly0ClaudeCodeLogin",
       "rly0ClaudeCodeLogout",
+      "rly0CodexPreferences",
       "rly0CoreStatus",
       "rly0DashboardHealth",
       "rly0DashboardThreadStats",

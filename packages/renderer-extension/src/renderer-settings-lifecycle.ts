@@ -36,7 +36,8 @@ import {
   showHubUnavailableNotice,
   type HubUnavailableNotice,
 } from "./settings/hub-routing.js";
-import type { Rly0HubPage } from "@codexhost/shared-contracts";
+import type { Rly0CodexPreferences, Rly0HubPage } from "@codexhost/shared-contracts";
+import { applyCodexPreferences } from "./renderer-codex-preferences.js";
 import {
   installRendererSettingsRailTrigger,
   type RendererSettingsRailTriggerControl,
@@ -48,6 +49,7 @@ export const RLY0_WELCOME_STORAGE_KEY = "rly0-hub:welcome-shown";
 
 export interface RendererHubClient {
   rly0HubStatus?(): Promise<{ available: boolean }>;
+  rly0CodexPreferences?(): Promise<{ preferences: Rly0CodexPreferences | null }>;
   rly0OpenHub?(params?: { page?: Rly0HubPage }): Promise<{ available: boolean; ok: boolean }>;
 }
 
@@ -257,6 +259,26 @@ export function installRendererSettingsLifecycle(
     return { shell: nextShell, trigger: nextTrigger };
   };
 
+  // Codex-side preferences now set in the Hub (设置 → 通用 → Codex 里): applied on start, on
+  // reconnection and whenever Codex gets focus back (the person may just have changed them).
+  let preferencesRequest: Promise<void> | null = null;
+  const syncCodexPreferences = (): void => {
+    const client = options.getHubClient?.();
+    if (disposed || preferencesRequest || !client?.rly0CodexPreferences) return;
+    const request = client
+      .rly0CodexPreferences()
+      .then((result) => {
+        if (!disposed) applyCodexPreferences(ownerWindow, result.preferences);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (preferencesRequest === request) preferencesRequest = null;
+      });
+    preferencesRequest = request;
+  };
+  const onFocus = (): void => syncCodexPreferences();
+  ownerWindow.addEventListener?.("focus", onFocus);
+
   const refreshHubAvailability = (): Promise<void> => {
     const client = options.getHubClient?.();
     if (!client?.rly0HubStatus || checkedHubClient === client)
@@ -407,6 +429,7 @@ export function installRendererSettingsLifecycle(
   void refreshLocale();
   refreshUpdateIndicator();
   void refreshHubAvailability();
+  syncCodexPreferences();
 
   // Welcome opens only the standalone Hub. A late rail or Host connection is retried on refresh.
   let welcomeChecked = false;
@@ -438,6 +461,7 @@ export function installRendererSettingsLifecycle(
     },
     refresh() {
       const refreshed = trigger?.refresh() ?? false;
+      syncCodexPreferences();
       refreshUpdateIndicator();
       void refreshHubAvailability().then(maybeShowWelcome);
       bindCodexTools();
@@ -451,6 +475,7 @@ export function installRendererSettingsLifecycle(
       openGeneration += 1;
       updateCheckGeneration += 1;
       lifecycleController.abort();
+      ownerWindow.removeEventListener?.("focus", onFocus);
       clearUpdateRetry();
       trigger?.dispose();
       shell?.dispose();

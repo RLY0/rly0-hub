@@ -160,6 +160,8 @@ import {
   RLY0_APPEARANCE_AUTOSTART_GET_METHOD,
   RLY0_HUB_OPEN_METHOD,
   RLY0_HUB_STATUS_METHOD,
+  RLY0_CODEX_PREFERENCES_GET_METHOD,
+  rly0CodexPreferencesGetParamsSchema,
   rly0HubOpenParamsSchema,
   RLY0_APPEARANCE_AUTOSTART_SET_METHOD,
   rly0AppearanceAutostartGetParamsSchema,
@@ -171,6 +173,7 @@ import { Rly0McpManager, rly0McpRpcError } from "./rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "./rly0-skills/index.js";
 import { Rly0ThreadsManager, rly0ThreadsRpcError } from "./rly0-threads/index.js";
 import { Rly0DashboardManager, rly0DashboardRpcError } from "./rly0-dashboard/index.js";
+import { readCodexPreferences } from "./rly0-appearance/codex-preferences.js";
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "./rly0-maintenance/index.js";
 import { Rly0AppearanceManager, rly0AppearanceRpcError } from "./rly0-appearance/index.js";
 import {
@@ -2286,6 +2289,20 @@ export class AppServerHost {
         }
         const result = await this.reloadOfficialBackend();
         await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+      });
+      return;
+    }
+    if (request.method === RLY0_CODEX_PREFERENCES_GET_METHOD) {
+      // Codex-side preferences set in the Hub window (设置 → 通用); read-only here.
+      this.#dispatchDesktopRequest(async () => {
+        if (!rly0CodexPreferencesGetParamsSchema.safeParse(request.params ?? {}).success) {
+          await this.#writer.json(rpcError(request, -32602, "Invalid preferences params"));
+          return;
+        }
+        const preferences = await readCodexPreferences(this.#options.environment ?? process.env);
+        await this.#writer.json(
+          rpcEnvelope(request, { result: jsonValueSchema.parse({ preferences }) }),
+        );
       });
       return;
     }

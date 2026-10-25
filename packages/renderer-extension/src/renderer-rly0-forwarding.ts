@@ -42,6 +42,7 @@ export const RENDERER_RLY0_FORWARDED_METHODS = [
   "rly0AppearanceAutostartStatus",
   "rly0OpenHub",
   "rly0HubStatus",
+  "rly0CodexPreferences",
   "rly0AppearanceAutostartSet",
   "rly0ProxySettingsGet",
   "rly0ProxySettingsSet",

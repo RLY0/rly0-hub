@@ -48,6 +48,8 @@ window.hubManagementMock = (() => {
     })),
   });
   let trash = [];
+  // 设置 → 通用 → Codex 里: soft wrap on, the rest as Codex's defaults.
+  let codexPrefs = { updatedAt: 1, reasoningSoftWrap: true };
   let recoveredHistory = false;
   const filters = { imageTool: false, webSearchTool: false };
   const zoomSteps = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
@@ -348,6 +350,11 @@ window.hubManagementMock = (() => {
       case "mcp.setEnabled":
         servers.find((s) => s.name === p.name).enabled = p.enabled;
         return { ok: true };
+      case "prefs.codexGet":
+        return { preferences: codexPrefs };
+      case "prefs.codexSet":
+        codexPrefs = { ...(codexPrefs || {}), ...p, updatedAt: Date.now() };
+        return { preferences: codexPrefs };
       case "dashboard.threadStats": {
         // 84 days, busier on weekdays, so the heat map shows every level.
         const activity = Array.from({ length: 84 }, (_, index) => {

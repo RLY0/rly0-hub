@@ -9,6 +9,7 @@ import {
   rly0SkillsRestoreParamsSchema,
   rly0ThreadsListParamsSchema,
   rly0ThreadsMoveParamsSchema,
+  rly0CodexPreferenceValuesSchema,
 } from "@codexhost/shared-contracts";
 import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
@@ -28,6 +29,10 @@ import { Rly0McpManager, rly0McpRpcError } from "../rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "../rly0-skills/index.js";
 import { Rly0ThreadsManager, rly0ThreadsRpcError } from "../rly0-threads/index.js";
 import { Rly0DashboardManager, rly0DashboardRpcError } from "../rly0-dashboard/index.js";
+import {
+  readCodexPreferences,
+  writeCodexPreferences,
+} from "../rly0-appearance/codex-preferences.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { checkHubUpdate } from "./update-check.js";
 import type { Rly0CodexControl } from "./codex-control.js";
@@ -35,6 +40,8 @@ import type { Rly0CoreBridge } from "../rly0-core/index.js";
 
 const empty = z.object({}).strict();
 type RpcFailure = (error: unknown) => { code: number; message: string };
+
+const codexPrefsRpcError = () => ({ code: -32000, message: "CODEX_PREFERENCES_FAILED" });
 
 function route<T>(schema: z.ZodType<T>, run: (params: T) => unknown, failure: RpcFailure) {
   return async (raw: unknown): Promise<unknown> => {
@@ -142,6 +149,17 @@ export function createHubManagementRoutes(options: {
       rly0ThreadsListParamsSchema,
       (p) => threads.list(p.limit),
       rly0ThreadsRpcError,
+    ),
+    // 设置 → 通用 → Codex 里: what the in-Codex 通用 page set; Codex applies it on its next check.
+    "prefs.codexGet": route(
+      empty,
+      async () => ({ preferences: await readCodexPreferences(environment) }),
+      codexPrefsRpcError,
+    ),
+    "prefs.codexSet": route(
+      rly0CodexPreferenceValuesSchema,
+      async (p) => ({ preferences: await writeCodexPreferences(environment, p) }),
+      codexPrefsRpcError,
     ),
     // 首页 → Codex 概况 (the former in-Codex 仪表盘): session totals and the 12-week activity.
     "dashboard.threadStats": route(empty, () => dashboard.threadStats(), rly0DashboardRpcError),

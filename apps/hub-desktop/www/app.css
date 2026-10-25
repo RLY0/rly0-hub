@@ -4995,3 +4995,28 @@ select.input,
 .heat-cell.l4 {
   background: #b83220;
 }
+
+/* 设置 → 通用 → Codex 里 */
+.codex-prefs {
+  display: grid;
+  gap: 4px;
+}
+.codex-prefs h3 {
+  margin: 0 0 6px;
+}
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(233, 233, 227, 0.07);
+}
+.pref-row .row {
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+@media (max-width: 720px) {
+  .pref-row {
+    flex-wrap: wrap;
+  }
+}
