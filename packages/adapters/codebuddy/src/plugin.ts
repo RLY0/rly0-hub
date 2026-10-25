@@ -21,8 +21,14 @@ export function createHarnessAdapter(context: HarnessPluginContext) {
     });
   }
   const environment = { ...context.environment };
-  return Object.assign(new CodeBuddyAdapter({ environment }), {
-    installation: createCodeBuddyInstallation(environment),
-    install: createHarnessInstaller(environment, { npm: "@tencent-ai/codebuddy-code" }),
-  });
+  return Object.assign(
+    new CodeBuddyAdapter({
+      environment,
+      ...(context.sharedResources ? { sharedResources: context.sharedResources } : {}),
+    }),
+    {
+      installation: createCodeBuddyInstallation(environment),
+      install: createHarnessInstaller(environment, { npm: "@tencent-ai/codebuddy-code" }),
+    },
+  );
 }

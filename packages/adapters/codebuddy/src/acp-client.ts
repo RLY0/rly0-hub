@@ -8,6 +8,11 @@ import {
   type RequestPermissionResponse,
   type SessionNotification,
 } from "@agentclientprotocol/sdk";
+import {
+  promptWithSharedContext,
+  sharedAcpMcpServers,
+  type SharedResourcesProvider,
+} from "@codexhost/harness-adapter/plugin";
 import { CodeBuddyCopyCleanup } from "./copy-cleanup.js";
 import { codeBuddyInvocation } from "./command.js";
 import { bounded, CodeBuddyError, record } from "./common.js";
@@ -38,6 +43,9 @@ export interface CodeBuddyClient {
 export type CodeBuddyClientFactory = (options: {
   cwd: string;
   environment: NodeJS.ProcessEnv;
+  /** Codex MCP servers, rly0-memory and the skill index from the local Host. */
+  sharedResources?: SharedResourcesProvider;
+  harnessId?: string;
   ephemeral: boolean;
   temporarySessionId?: string;
   handlers: CodeBuddyClientHandlers;
@@ -172,12 +180,18 @@ export class CodeBuddyAcpClient implements CodeBuddyClient {
   }
 
   async open(cwd: string, sessionId?: string) {
+    const harnessId = this.options.harnessId ?? "codebuddy";
+    const mcpServers = sharedAcpMcpServers(
+      await this.options
+        .sharedResources?.(cwd, { harnessId, mcp: true, memoryMcp: true })
+        .catch(() => undefined),
+    );
     return record(
       await this.#request(
         () =>
           sessionId
-            ? this.#connection.loadSession({ cwd, sessionId, mcpServers: [] })
-            : this.#connection.newSession({ cwd, mcpServers: [] }),
+            ? this.#connection.loadSession({ cwd, sessionId, mcpServers })
+            : this.#connection.newSession({ cwd, mcpServers }),
         "ACP Session open",
         20_000,
       ),
@@ -194,9 +208,21 @@ export class CodeBuddyAcpClient implements CodeBuddyClient {
   }
 
   async prompt(sessionId: string, input: string) {
+    const harnessId = this.options.harnessId ?? "codebuddy";
+    const context = (
+      await this.options
+        .sharedResources?.(this.options.cwd, {
+          harnessId,
+          skills: true,
+          memory: true,
+          memoryMcp: true,
+        })
+        .catch(() => undefined)
+    )?.context;
+    const text = promptWithSharedContext(context, input);
     return record(
       await this.#request(() =>
-        this.#connection.prompt({ sessionId, prompt: [{ type: "text", text: input }] }),
+        this.#connection.prompt({ sessionId, prompt: [{ type: "text", text }] }),
       ),
     );
   }

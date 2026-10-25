@@ -7,7 +7,11 @@ for await (const line of createInterface({ input: process.stdin })) {
   let result = {};
   if (message.method === "initialize")
     result = { protocolVersion: 1, agentCapabilities: { loadSession: true } };
-  else if (message.method === "session/new") result = { sessionId: "native" };
+  else if (message.method === "session/new")
+    result = {
+      sessionId: "native",
+      ...(scenario === "echo" ? { _meta: { mcpServers: message.params.mcpServers } } : {}),
+    };
   else if (message.method === "session/prompt" && scenario === "exit-open-pipes") {
     spawn(process.execPath, ["-e", "setTimeout(()=>process.exit(0),3000)"], {
       stdio: ["ignore", process.stdout, process.stderr],
@@ -19,6 +23,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     message.method.includes("resolveInterruption")
   )
     continue;
-  else if (message.method === "session/prompt") result = { stopReason: "end_turn" };
+  else if (message.method === "session/prompt")
+    result = {
+      stopReason: "end_turn",
+      ...(scenario === "echo" ? { _meta: { prompt: message.params.prompt } } : {}),
+    };
   process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }) + "\n");
 }

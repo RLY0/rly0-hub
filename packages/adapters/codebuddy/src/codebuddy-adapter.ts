@@ -1,3 +1,4 @@
+import type { SharedResourcesProvider } from "@codexhost/harness-adapter/plugin";
 import { createCodeBuddyUsageStatistics } from "./usage-statistics.js";
 import { stat } from "node:fs/promises";
 import type {
@@ -36,6 +37,7 @@ import { CODEBUDDY_COMMAND_CATALOG, nativeCommandsEnabled } from "./slash-comman
 
 export interface CodeBuddyAdapterOptions {
   environment?: NodeJS.ProcessEnv;
+  sharedResources?: SharedResourcesProvider;
   clientFactory?: CodeBuddyClientFactory;
   readHistory?: CodeBuddyHistoryReader;
   profile?: CodeBuddyRuntimeProfile;
@@ -96,7 +98,16 @@ export class CodeBuddyAdapter implements HarnessAdapter {
     this.#invocation = options.invocationFactory ?? codeBuddyInvocation;
     this.#factory =
       options.clientFactory ??
-      ((clientOptions) => new CodeBuddyAcpClient(clientOptions, undefined, this.#invocation));
+      ((clientOptions) =>
+        new CodeBuddyAcpClient(
+          {
+            ...clientOptions,
+            ...(options.sharedResources ? { sharedResources: options.sharedResources } : {}),
+            harnessId: this.#profile.harnessId,
+          },
+          undefined,
+          this.#invocation,
+        ));
   }
 
   inspect(input: InspectHarnessInput = {}): Promise<HarnessInspection> {
