@@ -282,24 +282,11 @@ window.registerHubHome = (api) => {
     const agentsModule = h("section", { class: "m panel span-3" });
     const lines = h("section", { class: "m panel span-3" });
     // Same switch as 中转站 and 账号 (pages/no-account.js).
-    // 首页: a slim strip, the switch right beside its label. (统一渠道 is not a switch any more:
-    // it is turned on once in the required first-run dialog, see app.js channelGate.)
-    const noAccount = h("section", { class: "m span-6 no-account home-switch" });
     // Codex 概况: what the in-Codex 仪表盘 showed (sessions, MCP, Skills, 12-week activity).
     const overview = h("section", { class: "m panel span-6 codex-overview" });
     root.append(
-      h(
-        "div",
-        { class: "grid home-grid" },
-        promo,
-        people,
-        noAccount,
-        agentsModule,
-        lines,
-        overview,
-      ),
+      h("div", { class: "grid home-grid" }, promo, people, agentsModule, lines, overview),
     );
-    api.noAccount.mount(noAccount, alive, { compact: true });
 
     async function loadPromo() {
       const result = await call("balance.get").catch((error) => ({

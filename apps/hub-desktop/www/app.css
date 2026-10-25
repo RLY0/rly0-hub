@@ -197,12 +197,17 @@ button {
 /* Modules */
 .grid {
   display: grid;
-  gap: 12px;
+  /* More air between modules top to bottom than side by side. */
+  gap: 20px 14px;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   grid-auto-rows: minmax(120px, auto);
 }
 .grid.compact {
   grid-auto-rows: auto;
+}
+/* Stacked grids and blocks on one page keep the same vertical rhythm. */
+#page > * + * {
+  margin-top: 20px;
 }
 .m {
   border-radius: var(--r-lg);
@@ -1377,15 +1382,6 @@ textarea.models {
 /* ---------- 不登录 OpenAI 也能用 ---------- */
 .no-account {
   gap: 12px;
-}
-/* 首页: slim strips, switch first and right beside its label. */
-.home-switch {
-  padding-top: 14px;
-  padding-bottom: 14px;
-}
-.home-switch .row {
-  justify-content: flex-start;
-  gap: 14px;
 }
 .plan-lines {
   margin: 0;
@@ -5214,4 +5210,38 @@ select.input,
 }
 .pure-result p {
   margin: 0;
+}
+
+/* 免登录用中转 lives in the header now, next to 重启 Codex: just the switch and its label. */
+.top-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 10px;
+  height: 40px;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.06);
+}
+.top-switch:empty {
+  display: none;
+}
+.top-switch .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+.top-switch .who {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+}
+.top-switch .who b {
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.top-switch .who > span,
+.top-switch > p {
+  display: none;
 }

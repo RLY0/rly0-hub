@@ -14,7 +14,6 @@ window.registerHubRelays = ({
   isOfficialKey,
   moneyBadge,
   rateBadge,
-  noAccount: { mount: noAccountMount },
 }) => {
   const RLY0_BASE = "https://api.rly0.com/v1";
   const put = (element, ...items) =>
@@ -334,20 +333,15 @@ window.registerHubRelays = ({
         h("span", null, "填地址和 API Key，自动识别名称、图标和模型"),
       ),
     );
-    const noAccount = h("section", { class: "m span-3 no-account" });
     const rly0Module = h("section", { class: "m bal span-6 rly0-connect" });
     const list = h("div", { class: "grid compact" });
     const proxyLine = h("div", { class: "row proxy-line" });
     root.append(
-      h("div", { class: "grid compact relay-top" }, addTile, noAccount),
+      h("div", { class: "grid compact relay-top" }, addTile),
       h("div", { class: "grid compact" }, rly0Module),
       h("h2", { class: "section-title" }, "我的中转站", proxyLine),
       list,
     );
-
-    // No-account switch: the shared card (no-account.js), also on 首页 and 账号.
-    const noAccountCard = noAccountMount(noAccount, alive);
-    const loadNoAccount = noAccountCard.reload;
 
     const rly0Key = h("input", {
       class: "input on-red",
@@ -458,7 +452,6 @@ window.registerHubRelays = ({
           ? items.map(card)
           : h("p", { class: "empty span-6" }, "还没有中转站。点上面的“添加中转站”。"),
       );
-      loadNoAccount();
     }
 
     function card(relay) {

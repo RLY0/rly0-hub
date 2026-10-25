@@ -709,6 +709,8 @@
   };
   pageApi.applyToCodex = window.registerHubCodexApply(pageApi).apply;
   pageApi.noAccount = window.registerHubNoAccount(pageApi);
+  // 免登录用中转: one switch in the header (next to 重启 Codex) instead of a card on three pages.
+  pageApi.noAccount.mount(document.getElementById("topNoAccount"), () => true, { compact: true });
   pageApi.unifiedChannel = window.registerHubUnifiedChannel(pageApi);
   Object.assign(pageApi, window.registerHubResources(pageApi));
   pageApi.consoleFeatures = window.registerHubConsoleFeatures(pageApi);
@@ -995,19 +997,11 @@
       }, 2000);
       pollers.add(timer);
     }
-    // Same switch as 中转站 and 首页 (pages/no-account.js).
-    const noAccountSection = h("section", { class: "m span-6 no-account" });
-    pageApi.noAccount.mount(noAccountSection, alive);
     root.append(
       head,
       filePicker,
       addStatus,
-      h(
-        "div",
-        { class: "grid compact account-auto" },
-        cards.autoSwitchCard({ alive }),
-        noAccountSection,
-      ),
+      h("div", { class: "grid compact account-auto" }, cards.autoSwitchCard({ alive })),
       list,
     );
 
