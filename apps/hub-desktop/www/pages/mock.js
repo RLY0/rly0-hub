@@ -15,38 +15,56 @@ window.hubManagementMock = (() => {
     mtimeMs: Date.now(),
   };
   let threads = [sample];
-  const sharing = { mcp: true, skills: true, memory: false };
-  const ALL = { mcp: true, skills: true, memory: true };
-  const NONE = { mcp: false, skills: false, memory: false };
+  const sharing = { mcp: true, skills: true, memory: true };
+  const ACP = ["native", "context", "native"];
+  const NONE3 = ["none", "none", "none"];
   const sharingAgents = [
-    ["claude-code", "Claude Code", true, ALL, "开启 Claude 隔离模式时不共享"],
+    ["claude-code", "Claude Code", true, ACP, "开启 Claude 隔离模式时不共享"],
     [
       "antigravity",
       "Antigravity",
       false,
-      { ...ALL, mcp: false },
-      "Antigravity 命令行接入无法挂载 MCP",
+      ["global", "context", "context"],
+      "agy 只读取全局 ~/.gemini/config/mcp_config.json，需在打通设置里单独开启",
     ],
-    ["grok", "Grok", false, ALL, null],
-    ["opencode", "OpenCode", true, NONE, "接入方式暂不支持接收 Codex 的资源"],
-    ["pi", "Pi", true, NONE, "接入方式暂不支持接收 Codex 的资源"],
-    ["hermes", "Hermes", true, NONE, "接入方式暂不支持接收 Codex 的资源"],
-    ["cursor-cli", "Cursor", false, NONE, "接入方式暂不支持接收 Codex 的资源"],
-    ["kiro-cli", "Kiro", false, NONE, "接入方式暂不支持接收 Codex 的资源"],
+    ["grok", "Grok", false, ACP, null],
+    ["opencode", "OpenCode", true, ACP, null],
+    ["pi", "Pi", true, ["native", "native", "native"], null],
+    [
+      "hermes",
+      "Hermes",
+      true,
+      ["global", "native", "context"],
+      "Hermes 只从全局 ~/.hermes/config.yaml 读取 MCP，需在打通设置里单独开启",
+    ],
+    ["cursor-cli", "Cursor", false, ACP, null],
+    ["kiro-cli", "Kiro", false, ACP, null],
+    ["kimi-code", "Kimi Code", false, ACP, null],
+    ["deepseek-harness", "DeepSeek", false, NONE3, "DeepSeek 接入没有 MCP 或附加上下文的入口"],
   ];
   const sharingState = () => ({
     ...sharing,
     enabled: sharing.mcp || sharing.skills || sharing.memory,
-    defaults: { mcp: true, skills: true, memory: false },
-    agents: sharingAgents.map(([id, name, installed, support, note]) => ({
+    defaults: { mcp: true, skills: true, memory: true },
+    agents: sharingAgents.map(([id, name, installed, [mcp, skills, memory], note]) => ({
       id,
       name,
       installed,
-      support,
+      support: { mcp: mcp === "native", skills: skills !== "none", memory: memory !== "none" },
+      modes: { mcp, skills, memory },
       blocked: null,
       note,
     })),
   });
+  const globals = [
+    { agent: "antigravity", enabled: false, file: "C:\\Users\\me\\.gemini\\config\\mcp_config.json", servers: [], skipped: [] },
+    { agent: "hermes", enabled: false, file: "C:\\Users\\me\\.hermes\\config.yaml", servers: [], skipped: [] },
+  ];
+  let memories = [
+    { id: "m1", text: "提交前先跑 npm run typecheck，再跑 sync-workspace-copies。", tags: ["workflow"], agent: "claude-code", scope: "project", project: "f:/dev/projects/rly0-hub", time: Date.now() - 3600e3, source: null },
+    { id: "m2", text: "回复用中文，结论先说。", tags: [], agent: "codex", scope: "global", project: null, time: Date.now() - 86400e3, source: "import" },
+    { id: "m3", text: "部署脚本在 scripts/release 下，发布前不要推送。", tags: ["release"], agent: "pi", scope: "project", project: "f:/dev/projects/rly0-hub", time: Date.now() - 7200e3, source: null },
+  ];
   let trash = [];
   const launchPaths = {};
   // 设置 → 通用 → Codex 里: soft wrap on, the rest as Codex's defaults.
@@ -981,7 +999,49 @@ window.hubManagementMock = (() => {
       case "resources.sharingSet":
         for (const key of ["mcp", "skills", "memory"])
           if (typeof p[key] === "boolean") sharing[key] = p[key];
-        return sharingState();
+        return { ...sharingState(), codexMemory: typeof p.memory === "boolean" ? (p.memory ? "added" : "removed") : "unchanged" };
+      case "bridge.status":
+        return { memoryServer: { available: true }, globals: globals.map((g) => ({ ...g })) };
+      case "bridge.globalSet": {
+        const g = globals.find((x) => x.agent === p.agent);
+        g.enabled = p.enabled;
+        g.servers = p.enabled ? ["rly0-memory", "rly0-docs"] : [];
+        g.skipped = p.enabled ? ["github"] : [];
+        return { ...g };
+      }
+      case "memory.list": {
+        const q = (p.query || "").toLowerCase();
+        const records = memories
+          .filter((m) => (p.scope === "global" ? m.scope === "global" : p.scope === "project" ? m.scope === "project" : true))
+          .filter((m) => !q || m.text.toLowerCase().includes(q) || m.tags.some((t) => t.includes(q)))
+          .sort((a, b) => b.time - a.time);
+        return {
+          records,
+          total: memories.length,
+          projects: new Set(memories.filter((m) => m.project).map((m) => m.project)).size,
+          agents: [...new Set(memories.map((m) => m.agent))].sort(),
+          directory: "C:\\Users\\me\\.rly0-hub\\memory",
+          limits: { text: 4000, records: 5000 },
+        };
+      }
+      case "memory.add": {
+        const record = { id: `m${Date.now()}`, text: p.text, tags: p.tags || [], agent: "hub", scope: p.scope, project: p.project || null, time: Date.now(), source: null };
+        memories = [record, ...memories];
+        return record;
+      }
+      case "memory.forget":
+        memories = memories.filter((m) => m.id !== p.id);
+        return { forgotten: true };
+      case "memory.export":
+        return { file: "C:\\Users\\me\\.rly0-hub\\memory\\exports\\memory-20261025T120000.json", count: memories.length };
+      case "memory.openFolder":
+      case "skills.openFolder":
+        return { ok: true };
+      case "mcp.update": {
+        const server = servers.find((s) => s.name === p.name);
+        Object.assign(server, p);
+        return { ok: true };
+      }
       default:
         return null;
     }

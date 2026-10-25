@@ -267,9 +267,11 @@
     instructions: "自定义指令",
     network: "网络代理",
     wizard: "开始使用",
-    mcp: "MCP 管理",
-    skills: "Skills 管理",
-    threads: "线程管理",
+    bridge: "打通设置",
+    mcp: "打通设置",
+    skills: "打通设置",
+    memory: "打通设置",
+    threads: "打通设置",
     maintenance: "维护工具",
     updates: "更新",
     remote: "远程连接",
@@ -292,7 +294,11 @@
     current = name;
     stopPollers();
     const mine = ++generation;
-    const railPage = SETTINGS_SECTIONS.some(([id]) => id === name) ? "settings" : name;
+    const railPage = SETTINGS_SECTIONS.some(([id]) => id === name)
+      ? "settings"
+      : BRIDGE_TABS.includes(name)
+        ? "bridge"
+        : name;
     document.querySelectorAll(".rail button").forEach((button) => {
       button.classList.toggle("on", button.dataset.page === railPage);
       if (button.dataset.page === railPage) button.setAttribute("aria-current", "page");
@@ -601,15 +607,14 @@
   /* ---------- Pages ---------- */
   const pages = {};
 
+  /* 打通设置 tabs (pages/bridge.js): their own rail entry. */
+  const BRIDGE_TABS = [];
   /* Settings: one rail entry with its own second-level menu. */
   const SETTINGS_SECTIONS = [
     ["general", "通用"],
     ["instructions", "自定义指令"],
     ["network", "网络代理"],
     ["backup", "备份"],
-    ["mcp", "MCP"],
-    ["skills", "Skills"],
-    ["threads", "线程"],
     ["remote", "远程连接"],
     ["usage", "用量统计"],
     ["updates", "更新"],
@@ -707,6 +712,9 @@
   window.registerHubSystem(pageApi);
   Object.assign(pageApi, window.registerHubDiscovery(pageApi));
   pageApi.resourceSharing = window.registerHubResourceSharing(pageApi);
+  // 打通设置 wraps the MCP / 技能 / 线程 pages registered above, so it comes after them.
+  const { BRIDGE_TABS: bridgeTabs } = window.registerHubBridge(pageApi);
+  BRIDGE_TABS.push(...bridgeTabs);
   window.registerHubAgents(pageApi);
   const relayModule = window.registerHubRelays(pageApi);
   pageApi.relayStrip = relayModule.relayStrip;

@@ -15,7 +15,11 @@ const runDir = process.env.HUB_PATROL_RUN || path.resolve(".local-test/patrol/ma
 const WIDTHS = (process.env.HUB_PATROL_WIDTHS || "1240,760").split(",").map(Number);
 const HEIGHT = 820;
 
-type Target = { id: string; kind: "rail" | "settings" | "accounts" | "wizard"; label?: string };
+type Target = {
+  id: string;
+  kind: "rail" | "settings" | "accounts" | "wizard" | "bridge";
+  label?: string;
+};
 const TARGETS: Target[] = [
   ...["home", "relays", "agents", "maintenance", "support"].map((id): Target => ({
     id,
@@ -36,14 +40,21 @@ const TARGETS: Target[] = [
       ["instructions", "自定义指令"],
       ["network", "网络代理"],
       ["backup", "备份"],
-      ["mcp", "MCP"],
-      ["skills", "Skills"],
-      ["threads", "线程"],
       ["remote", "远程连接"],
       ["usage", "用量统计"],
       ["updates", "更新"],
     ] as const
   ).map(([id, label]): Target => ({ id: `settings-${id}`, kind: "settings", label })),
+  // 打通设置: its own rail entry with one tab per kind.
+  ...(
+    [
+      ["bridge", "概览"],
+      ["mcp", "MCP"],
+      ["skills", "技能"],
+      ["memory", "记忆"],
+      ["threads", "线程"],
+    ] as const
+  ).map(([id, label]): Target => ({ id: `bridge-${id}`, kind: "bridge", label })),
   { id: "wizard", kind: "wizard" },
 ];
 
@@ -131,6 +142,7 @@ for (const width of WIDTHS) {
             document.getElementById("title")?.textContent,
             document.querySelector(".rail button.on")?.getAttribute("data-page"),
             document.querySelector(".settings-menu button.on")?.textContent,
+            document.querySelector(".bridge-tabs button.on")?.textContent,
             document.body.classList.contains("guided"),
           ].join("|"),
         );
@@ -142,6 +154,10 @@ for (const width of WIDTHS) {
           await page.waitForFunction(() => document.body.classList.contains("guided"));
         } else if (target.kind === "rail") {
           if (target.id !== "home") await page.click(`.rail button[data-page="${target.id}"]`);
+        } else if (target.kind === "bridge") {
+          await page.click('.rail button[data-page="bridge"]');
+          await settle(150);
+          await page.locator(".bridge-tabs button", { hasText: target.label ?? "" }).first().click();
         } else if (target.kind === "accounts") {
           await page.click('.rail button[data-page="accounts"]');
           await settle(150);
@@ -1058,9 +1074,9 @@ for (const width of WIDTHS) {
       }, pageName);
     for (const [name, title] of [
       ["agents", "AI 助手"],
-      ["threads", "设置"],
-      ["mcp", "设置"],
-      ["skills", "设置"],
+      ["threads", "打通设置"],
+      ["mcp", "打通设置"],
+      ["skills", "打通设置"],
       ["general", "设置"],
       ["remote", "设置"],
       ["usage", "设置"],
@@ -1105,6 +1121,115 @@ for (const width of WIDTHS) {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
+  });
+}
+
+// 打通设置: one table of what every agent gets, the opt-in global blocks, and the shared memory.
+for (const width of WIDTHS) {
+  test(`打通设置 and shared memory @${width}`, async ({ page }) => {
+    const dir = path.join(runDir, "bridge", String(width));
+    mkdirSync(dir, { recursive: true });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error.message)));
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.setViewportSize({ width, height: HEIGHT });
+    await page.goto("/index.html");
+    const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+    await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+    if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+    const settled = async () => {
+      await page.waitForFunction(
+        () => !document.getElementById("boot")?.classList.contains("show"),
+        null,
+        { timeout: 8000 },
+      );
+      await page.waitForTimeout(500); // the loading cover fades out
+    };
+    const noOverflow = async () =>
+      expect(
+        await page.evaluate(() => {
+          const el = document.getElementById("page");
+          return Math.max(
+            document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            el ? el.scrollWidth - el.clientWidth : 0,
+          );
+        }),
+      ).toBeLessThanOrEqual(1);
+
+    await page.click('.rail button[data-page="bridge"]');
+    await expect(page.locator("#title")).toHaveText("打通设置");
+    const card = page.locator(".share-card");
+    await expect(card.locator('button[role="switch"][aria-label="打通记忆"]')).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(card.locator('tr[data-agent="codex"]')).toContainText("已接通");
+    await expect(card.locator('tr[data-agent="pi"] td').nth(0)).toHaveText("✓ 已接通");
+    await expect(card.locator('tr[data-agent="opencode"] td').nth(1)).toContainText("提示注入");
+    await expect(card.locator('tr[data-agent="grok"] td').nth(0)).toHaveText("需要安装");
+    await expect(card.locator('tr[data-agent="deepseek-harness"] td').nth(0)).toHaveText("不支持");
+    await expect(card.locator('tr[data-agent="hermes"] td').nth(0)).toHaveText("需单独开启");
+    await settled();
+    await page.screenshot({ path: path.join(dir, "overview.png"), fullPage: false });
+    await card.locator('[data-global="hermes"] button[role="switch"]').click();
+    await expect(page.locator(".toast").last()).toContainText("备份");
+    await expect(card.locator('tr[data-agent="hermes"] td').nth(0)).toHaveText("已接通 · 全局");
+    await expect(card.locator('[data-global="hermes"]')).toContainText("带密钥未写入");
+    await card.locator('button[role="switch"][aria-label="打通记忆"]').click();
+    await expect(card.locator('tr[data-agent="pi"] td').nth(2)).toHaveText("已关闭");
+    await card.locator('button[role="switch"][aria-label="打通记忆"]').click();
+    await expect(card.locator('tr[data-agent="pi"] td').nth(2)).toHaveText("✓ 已接通");
+    await noOverflow();
+    await card.locator(".share-globals").scrollIntoViewIfNeeded();
+    await settled();
+    await page.screenshot({ path: path.join(dir, "overview-globals.png") });
+
+    // 记忆: search, add, delete, export.
+    await page.locator(".bridge-tabs button", { hasText: "记忆" }).click();
+    const items = page.locator(".memory-item");
+    await expect(items).toHaveCount(3);
+    await page.locator('input[aria-label="搜索记忆"]').fill("typecheck");
+    await expect(items).toHaveCount(1);
+    await page.locator('input[aria-label="搜索记忆"]').fill("");
+    await expect(items).toHaveCount(3);
+    await page.locator('.memory-filter button[role="tab"]', { hasText: "全局" }).click();
+    await expect(items).toHaveCount(1);
+    await page.locator('.memory-filter button[role="tab"]', { hasText: "全部" }).click();
+    await page.locator('textarea[aria-label="记忆内容"]').fill("所有助手都用 pnpm");
+    await page.locator("button", { hasText: "记住" }).click();
+    await expect(items).toHaveCount(4);
+    const remove = items.first().locator("button", { hasText: "删除" });
+    await remove.click();
+    await expect(remove).toHaveText("确认删除");
+    await remove.click();
+    await expect(items).toHaveCount(3);
+    await page.locator(".memory-actions button", { hasText: "导出" }).click();
+    await expect(page.locator(".toast").last()).toContainText("已导出 3 条");
+    await noOverflow();
+    await page.locator(".memory-list").scrollIntoViewIfNeeded();
+    await settled();
+    await page.screenshot({ path: path.join(dir, "memory.png") });
+
+    // MCP: edit keeps the list in one place.
+    await page.locator(".bridge-tabs button", { hasText: "MCP" }).click();
+    await expect(page.locator("#title")).toHaveText("打通设置");
+    const first = page.locator(".grid.compact section.m").first();
+    await first.locator("button", { hasText: "修改" }).click();
+    await expect(page.locator("h2.section-title", { hasText: "修改" })).toBeVisible();
+    await page.locator("button", { hasText: "取消修改" }).click();
+    await page.locator(".bridge-tabs button", { hasText: "技能" }).click();
+    await expect(page.locator("button", { hasText: "打开技能文件夹" })).toBeVisible();
+    await page.locator(".bridge-tabs button", { hasText: "线程" }).click();
+    await expect(page.locator(".bridge-tabs button.on")).toHaveText("线程");
+    await noOverflow();
+
+    // AI 助手 points here instead of holding the switches.
+    await page.click('.rail button[data-page="agents"]');
+    await page.locator(".share-link button", { hasText: "打通设置" }).click();
+    await expect(page.locator(".bridge-tabs button.on")).toHaveText("概览");
     expect(errors).toEqual([]);
   });
 }

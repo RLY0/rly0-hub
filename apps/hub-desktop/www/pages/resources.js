@@ -36,6 +36,29 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
   pages.mcp = (root, alive) => {
     const list = h("div", { class: "grid compact" });
     const name = input("例如：docs");
+    // Editing: the form below holds the server; saving changes only how it connects.
+    let editing = null;
+    const formTitle = h("h2", { class: "section-title" }, "添加服务");
+    const submit = h("span", null, "添加");
+    const cancelEdit = h(
+      "button",
+      { class: "btn sm ghost", type: "button", hidden: true, onclick: () => edit(null) },
+      "取消修改",
+    );
+    function edit(server) {
+      editing = server;
+      formTitle.textContent = server ? `修改 ${server.name}` : "添加服务";
+      submit.textContent = server ? "保存修改" : "添加";
+      cancelEdit.hidden = !server;
+      name.value = server ? server.name : "";
+      name.disabled = Boolean(server);
+      type.value = server ? server.type : "stdio";
+      type.dispatchEvent(new Event("change"));
+      command.value = server && server.command ? server.command : "";
+      args.value = server && server.args ? server.args.join("\n") : "";
+      url.value = server && server.url ? server.url : "";
+      if (server) name.scrollIntoView({ block: "center" });
+    }
     const type = h(
       "select",
       { class: "input" },
@@ -62,10 +85,10 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
       h(
         "p",
         { class: "sub page-note" },
-        "管理本机 Codex 的 MCP 配置。修改后 Hub 会自动让 Codex 重新载入（正在回复时等它回复完），不用手动重启。",
+        "所有助手共用的 MCP 列表，保存在 Codex 配置里（改动前自动备份）。修改后 Hub 会自动让 Codex 重新载入，其他助手新对话起生效。",
       ),
       list,
-      h("h2", { class: "section-title" }, "添加服务"),
+      formTitle,
       h(
         "section",
         { class: "m" },
@@ -80,10 +103,11 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
         h(
           "div",
           { class: "row" },
-          button("添加", async () => {
+          button(submit, async () => {
             const common = { name: name.value.trim(), type: type.value };
+            const updating = Boolean(editing);
             await call(
-              "mcp.add",
+              updating ? "mcp.update" : "mcp.add",
               type.value === "stdio"
                 ? {
                     ...common,
@@ -92,10 +116,11 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
                   }
                 : { ...common, url: url.value.trim() },
             );
-            name.value = "";
+            edit(null);
             await load();
-            await applyToCodex("backend", "MCP 服务已添加");
+            await applyToCodex("backend", updating ? "MCP 服务已修改" : "MCP 服务已添加");
           }),
+          cancelEdit,
         ),
       ),
     );
@@ -124,6 +149,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
                   h(
                     "div",
                     { class: "row" },
+                    button("修改", async () => edit(server)),
                     button(server.enabled ? "停用" : "启用", async () => {
                       await call("mcp.setEnabled", { name: server.name, enabled: !server.enabled });
                       await load();
@@ -156,8 +182,22 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
     const source = input("含 SKILL.md 的文件夹完整路径");
     const name = input("可选，默认用文件夹名");
     root.append(
-      h("div", { class: "row section-title" }, h("h2", null, "已安装"), button("刷新", load)),
-      h("p", { class: "sub page-note" }, "停用会移入备份，随时可以恢复。"),
+      h(
+        "div",
+        { class: "row section-title" },
+        h("h2", null, "已安装"),
+        h(
+          "div",
+          { class: "row" },
+          button("打开技能文件夹", () => call("skills.openFolder", {})),
+          button("刷新", load),
+        ),
+      ),
+      h(
+        "p",
+        { class: "sub page-note" },
+        "这些技能打通给所有助手：Pi、Hermes 直接注册，其他助手按目录读取。停用会移入备份，随时可以恢复。",
+      ),
       installed,
       h("h2", { class: "section-title" }, "从本地导入"),
       h(
@@ -194,6 +234,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
               h(
                 "div",
                 { class: "row" },
+                button("打开文件夹", () => call("skills.openFolder", { name: skill.name })),
                 confirmButton("停用", async () => {
                   await call("skills.deactivate", { name: skill.name });
                   await load();

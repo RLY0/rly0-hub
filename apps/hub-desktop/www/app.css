@@ -5020,3 +5020,70 @@ select.input,
     flex-wrap: wrap;
   }
 }
+
+/* 打通设置 (pages/bridge.js, pages/resource-sharing.js). */
+.bridge-tabs {
+  margin-bottom: 14px;
+}
+.share-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.share-table td {
+  white-space: nowrap;
+}
+.share-globals {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(152, 152, 145, 0.18);
+}
+.share-globals .who span.mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+.share-link .row {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 12px;
+}
+.memory-filter {
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 6px;
+}
+.memory-filter .input {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.memory-actions {
+  gap: 8px;
+}
+.memory-list {
+  display: grid;
+  gap: 8px;
+}
+.memory-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(152, 152, 145, 0.22);
+  min-width: 0;
+}
+.memory-text {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memory-meta {
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted-dark);
+}
+.memory-meta .btn {
+  margin-left: auto;
+}
+.tag.soft {
+  opacity: 0.75;
+}

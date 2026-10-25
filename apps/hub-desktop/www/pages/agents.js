@@ -19,7 +19,6 @@ window.registerHubAgents = ({
   moneyBadge,
   rateBadge,
   applyToCodex,
-  resourceSharing,
 }) => {
   const LOGOS = {
     "claude-code": "agents/claude-code.svg",
@@ -314,8 +313,22 @@ window.registerHubAgents = ({
     // Rarely used agents: the same cards, folded away until opened.
     const more = h("div", { class: "grid compact agent-grid" });
     const moreHead = h("summary", { class: "agent-more-summary" });
-    const sharingCard = h("section", { class: "m span-6 share-card" });
-    resourceSharing.mount(sharingCard, alive);
+    // MCP / 技能 / 记忆 sharing moved to its own page; this keeps one line pointing there.
+    const sharingCard = h(
+      "section",
+      { class: "m span-6 share-card share-link" },
+      h(
+        "div",
+        { class: "row" },
+        h(
+          "div",
+          { class: "who" },
+          h("b", null, "MCP / 技能 / 记忆 打通"),
+          h("span", null, "所有助手共用 Codex 的 MCP、技能和一份共享记忆"),
+        ),
+        h("button", { class: "btn sm", type: "button", onclick: () => go("bridge") }, "打通设置"),
+      ),
+    );
     root.append(
       h("section", { class: "agent-section official" }, officialHead, official),
       h("section", { class: "agent-section community" }, communityHead, community),
