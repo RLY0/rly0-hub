@@ -231,13 +231,24 @@ export function claudeCodeRelayEnvironment(
   relayId: string,
 ): NodeJS.ProcessEnv {
   const root = proxyBaseUrl.replace(/\/v1\/?$/u, "");
+  return claudeCodeForwardedEnvironment(base, `${root}/r/${relayId}`);
+}
+
+/**
+ * The same, with `baseUrl` as Claude Code's endpoint: the Host's forwarder
+ * (`ClaudeRelayForwarder`), which resolves the relay chosen now on every request.
+ */
+export function claudeCodeForwardedEnvironment(
+  base: NodeJS.ProcessEnv,
+  baseUrl: string,
+): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
     if (key === "ANTHROPIC_API_KEY" || key === "ANTHROPIC_AUTH_TOKEN") continue;
     if (key === "ANTHROPIC_BASE_URL") continue;
     environment[key] = value;
   }
-  environment.ANTHROPIC_BASE_URL = `${root}/r/${relayId}`;
+  environment.ANTHROPIC_BASE_URL = baseUrl;
   environment.ANTHROPIC_AUTH_TOKEN = CLAUDE_CODE_RELAY_TOKEN;
   return environment;
 }

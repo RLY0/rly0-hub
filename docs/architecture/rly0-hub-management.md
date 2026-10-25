@@ -82,7 +82,9 @@ Gemini 的上次 /usage 结果保存在 antigravity-usage.json。agents.antigrav
 
 Gemini 首屏直接读取 Antigravity 状态，不再等待所有助手的检测。令牌卡片先显示本地名称和脱敏信息，再补联网详情。网页登录账号沿用本地别名；订阅令牌和 API Key 通过 officialKeys.rename 保存所属凭据名称，校验 vendor/id，只更新名称，不切换身份或重写密钥。名称编辑支持中文输入，失败后可重试。
 
-0.11.8：Anthropic 凭据按 core relay id 分卡存储。`officialKeys.set` 不带 id 新增、带 id 仅替换对应项；core 以完整密钥比较去重，不依赖末四位。新增和导入不改当前绑定；`officialKeys.select` 才改变 Claude Code 后续新会话使用的凭据。info/remove 校验 vendor 和 id，正在使用的令牌须先切换再删除。AI 助手的选择器也按 id 列出所有令牌。原有单凭据和 OAuth 记录不迁移。
+0.11.8：Anthropic 凭据按 core relay id 分卡存储。`officialKeys.set` 不带 id 新增、带 id 仅替换对应项；core 以完整密钥比较去重，不依赖末四位。新增和导入不改当前绑定；`officialKeys.select` 才改变 Claude Code 使用的凭据。info/remove 校验 vendor 和 id，正在使用的令牌须先切换再删除。AI 助手的选择器也按 id 列出所有令牌。原有单凭据和 OAuth 记录不迁移。
+
+Claude Code 进程只在启动时读取 `ANTHROPIC_BASE_URL`，打开的对话一直沿用它；以前该地址固定为 `/r/<relay id>`，所以切换令牌只对新对话生效，已打开的对话要重启 Codex。现在 Host 给 Claude Code 的是本机转发地址（`rly0-relay/claude-relay-forwarder.ts`，`127.0.0.1:<随机端口>/claude-code`，只接受 `rly0-local-proxy` 占位令牌）：每个请求都重新读取 `agent-relays.json`，有变化先重建，再转到 core 代理的 `/r/<当前 relay id>`，因此切换（手动或自动切换）从下一个请求起对所有已打开的 Claude 对话生效，包括 Claude Code 对 429 的自动重试。改回 Claude Code 自己的登录时，已打开的进程没有自身凭据，转发器返回 401 并说明需新开对话。上游 429 时，错误消息末尾附“换个账号重试”：其他已保存的 Anthropic 令牌/Key，按上次查询的剩余额度排序（无记录写“额度未知”），以及在 Hub 账号页切换后直接重发；开启了自动切换时另行注明。网页登录账号的切换（`claudeAccounts.switch`）不经过转发器。
 
 Codex 模型目录保留官方原条目，每个已启用中转模型另用 `rly0/<relayId>/<model>` 作稳定选择标识，展示站点名和原模型名。core 每次校验目标中转仍启用、有密钥且声明该模型，然后仅在出站副本将 model 改回上游名；不可用时拒绝，不回退其他中转或官方。Host 路由判断失败必须回错误，不转发原始请求。不同 provider 的对话切换继续遵守原有新建对话边界，不静默重定向。
 

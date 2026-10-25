@@ -196,6 +196,7 @@ import { AgentInstaller } from "./rly0-agents/agent-installer.js";
 import { applyProxyEnvironment } from "./rly0-core/proxy-settings.js";
 import {
   Rly0AgentRelaySettings,
+  claudeCodeForwardedEnvironment,
   claudeCodeRelayEnvironment,
   claudeCodeRelayQuotaBlock,
   hermesRelayEnvironment,
@@ -257,6 +258,13 @@ import {
   type AgentConnectionStatus,
 } from "./rly0-maintenance/backend-reload-channel.js";
 import { officialVendorOf, Rly0OfficialKeyModels } from "./rly0-relay/official-keys.js";
+import {
+  ClaudeRelayForwarder,
+  describeClaudeAlternatives,
+  type ClaudeRelayTarget,
+} from "./rly0-relay/claude-relay-forwarder.js";
+import { Rly0OfficialKeyUsage } from "./rly0-relay/official-key-usage.js";
+import { Rly0HubStateStore } from "./rly0-hub-service/hub-state.js";
 import {
   ClaudeOfficialKeyQuota,
   type ClaudeOfficialKeyRef,
@@ -906,6 +914,14 @@ export class AppServerHost {
   readonly #agentInstaller: AgentInstaller;
   /** Relay Claude Code was loaded with; undefined until agents are loaded. */
   #claudeCodeRelayApplied: string | null | undefined;
+  /** The saved Claude Code choice the overlays were last built from. */
+  #claudeCodeRelaySaved: string | null | undefined;
+  /** Where the forwarder sends Claude Code's requests now (see ClaudeRelayForwarder). */
+  #claudeRelayTarget: ClaudeRelayTarget | null = null;
+  readonly #claudeRelayForwarder = new ClaudeRelayForwarder({
+    resolve: () => this.#currentClaudeRelay(),
+    describeAlternatives: (relayId) => this.#claudeAlternatives(relayId),
+  });
   /**
    * Why Claude Code cannot report its plan windows while it runs through the local proxy: the
    * key or subscription token stays in rly0-core, so Claude Code is not signed in to claude.ai
@@ -1252,6 +1268,7 @@ export class AppServerHost {
     if (this.#closeRequested) return;
     this.#closeRequested = true;
     if (this.#relayWatchTimer) clearInterval(this.#relayWatchTimer);
+    void this.#claudeRelayForwarder.close();
     this.#options.sharedThreads?.close();
     this.#externalRuntime.idleRelease.disable();
     this.#pluginLoadAbort.abort();
@@ -1466,6 +1483,7 @@ export class AppServerHost {
     ].filter((id): id is string => Boolean(id));
     const next = new Map<string, (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv>();
     let claudeApplied: string | null = null;
+    let claudeTarget: ClaudeRelayTarget | null = null;
     let claudeQuotaBlocked: "proxiedCredential" | "relay" | null = null;
     let claudeOfficialKey: ClaudeOfficialKeyRef | null = null;
     if (wanted.length) {
@@ -1483,8 +1501,16 @@ export class AppServerHost {
         claudeQuotaBlocked = claudeCodeRelayQuotaBlock(claude);
         if (claudeQuotaBlocked === "proxiedCredential")
           claudeOfficialKey = { relayId: claude.id, keyMask: claude.keyMask ?? null };
+        claudeTarget = { proxyBaseUrl, relayId: claude.id };
+        // Open Threads keep their Claude Code process; the forwarder lets them follow a switch.
+        const forwarderUrl = await this.#claudeRelayForwarder.url().catch((error: unknown) => {
+          this.#diagnose(error);
+          return null;
+        });
         next.set("claude-code", (environment) =>
-          claudeCodeRelayEnvironment(environment, proxyBaseUrl, claude.id),
+          forwarderUrl
+            ? claudeCodeForwardedEnvironment(environment, forwarderUrl)
+            : claudeCodeRelayEnvironment(environment, proxyBaseUrl, claude.id),
         );
       }
       for (const [id, choice] of Object.entries(saved.agents ?? {})) {
@@ -1518,8 +1544,35 @@ export class AppServerHost {
     this.#relayOverlays.clear();
     for (const [id, overlay] of next) this.#relayOverlays.set(id, overlay);
     this.#claudeCodeRelayApplied = claudeApplied;
+    this.#claudeCodeRelaySaved = saved.claudeCode;
+    this.#claudeRelayTarget = claudeTarget;
     this.#claudeCodeQuotaBlocked = claudeQuotaBlocked;
     this.#claudeCodeOfficialKey = claudeOfficialKey;
+  }
+
+  /** Per forwarded request: the relay saved now, rebuilt first when the Hub changed it. */
+  async #currentClaudeRelay(): Promise<ClaudeRelayTarget | null> {
+    const saved = await this.#rly0AgentRelays.get();
+    if (saved.claudeCode !== this.#claudeCodeRelaySaved) await this.#refreshRelayOverlays();
+    return this.#claudeRelayTarget;
+  }
+
+  /** The other saved Anthropic tokens/keys and their last known quota, for a 429. */
+  async #claudeAlternatives(relayId: string): Promise<string | null> {
+    const listed = await this.#rly0Core.listRelays();
+    if (!listed.available) return null;
+    const environment = this.#options.environment ?? process.env;
+    const usage = new Rly0OfficialKeyUsage(environment);
+    const [snapshots, state] = await Promise.all([
+      usage.read(),
+      new Rly0HubStateStore(environment).read(),
+    ]);
+    return describeClaudeAlternatives(
+      relayId,
+      listed.relays.filter((relay) => officialVendorOf(relay) === "anthropic"),
+      (relay) => usage.forRelay(relay, snapshots),
+      state.agentAutoSwitch?.claude?.enabled === true,
+    );
   }
 
   /** A read of the official key's quota landed: open Claude Code Threads re-inspect Usage. */
