@@ -4988,32 +4988,67 @@ select.input,
   color: var(--muted-dark);
   font-size: 12px;
 }
-.codex-overview .heat {
+/* Codex 概况 → 最近 12 周: a full-width daily column chart. Brand red only as the bars. */
+.activity {
   display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, 10px);
-  grid-auto-columns: 10px;
-  gap: 3px;
-  margin-top: 14px;
-  max-width: 100%;
-  overflow: hidden;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 16px 18px 12px;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.04);
 }
-.heat-cell {
-  border-radius: 2px;
-  background: rgba(233, 233, 227, 0.07);
+.activity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-/* Brand red only as graphics: the heat cells. */
-.heat-cell.l1 {
-  background: rgba(184, 50, 32, 0.35);
+.activity-head b {
+  font-size: 14px;
+  font-weight: 650;
 }
-.heat-cell.l2 {
-  background: rgba(184, 50, 32, 0.55);
+.activity-head span {
+  color: var(--muted-dark);
+  font-size: 12px;
 }
-.heat-cell.l3 {
-  background: rgba(184, 50, 32, 0.78);
+.activity-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+  box-shadow: inset 0 -1px 0 rgba(233, 233, 227, 0.14);
 }
-.heat-cell.l4 {
-  background: #b83220;
+/* The hit target is the whole day column, taller than its bar. */
+.activity-day {
+  flex: 1 1 0;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  cursor: default;
+}
+.activity-day i {
+  display: block;
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: var(--brand);
+}
+.activity-day.zero i {
+  height: 2px !important;
+  border-radius: 0;
+  background: rgba(233, 233, 227, 0.1);
+}
+.activity-day:hover i {
+  background: #d4452f;
+}
+.activity-day.zero:hover i {
+  background: rgba(233, 233, 227, 0.35);
+}
+.activity-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted-dark);
+  font-size: 11px;
 }
 
 /* 设置 → 通用 → Codex 里 */

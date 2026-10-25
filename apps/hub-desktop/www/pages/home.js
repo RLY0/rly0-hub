@@ -697,15 +697,49 @@ window.registerHubHome = (api) => {
           h("span", null, label),
         );
       const days = (threads && threads.activity) || [];
+      // 最近 12 周: one column per day across the full width, height = that day's sessions.
+      // Single series, so no legend; the summary line names it and each bar has a hover tip.
       const peak = Math.max(1, ...days.map((day) => day.count));
+      const total = days.reduce((sum, day) => sum + day.count, 0);
+      const active = days.filter((day) => day.count > 0).length;
+      const md = (date) => {
+        const [, m, d] = String(date).split("-");
+        return m && d ? `${Number(m)}/${Number(d)}` : String(date);
+      };
       const heat = h(
         "div",
-        { class: "heat", role: "img", "aria-label": "最近 12 周每天的会话数" },
-        days.map((day) =>
-          h("span", {
-            class: `heat-cell l${day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count / peak) * 4))}`,
-            title: `${day.date}：${day.count} 个会话`,
-          }),
+        { class: "activity" },
+        h(
+          "div",
+          { class: "activity-head" },
+          h("b", null, "最近 12 周"),
+          h(
+            "span",
+            { class: "tabular" },
+            `${total} 个会话 · 活跃 ${active} 天 · 单日最多 ${peak === 1 && total === 0 ? 0 : peak}`,
+          ),
+        ),
+        h(
+          "div",
+          { class: "activity-bars", role: "img", "aria-label": `最近 12 周共 ${total} 个会话` },
+          days.map((day) =>
+            h(
+              "span",
+              {
+                class: `activity-day ${day.count ? "" : "zero"}`,
+                "data-tip": `${md(day.date)} · ${day.count} 个会话`,
+              },
+              h("i", {
+                style: { height: `${day.count ? Math.max(6, (day.count / peak) * 100) : 0}%` },
+              }),
+            ),
+          ),
+        ),
+        h(
+          "div",
+          { class: "activity-axis tabular", "aria-hidden": "true" },
+          days.filter((_, index) => index % 14 === 0).map((day) => h("span", null, md(day.date))),
+          h("span", null, "今天"),
         ),
       );
       put(
