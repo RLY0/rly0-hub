@@ -321,8 +321,11 @@ window.HubUI = (() => {
   function briefOf(text) {
     const first = text.split(/[。；！？]/u)[0].trim();
     if (first && first.length <= 34 && first.length < text.length) return first;
-    const comma = first.indexOf("，");
-    if (comma >= 8 && comma <= 34) return first.slice(0, comma);
+    // Cut at the first pause that leaves a meaningful line: ，：（
+    for (const mark of ["，", "：", "（"]) {
+      const at = first.indexOf(mark);
+      if (at >= 8 && at <= 34) return first.slice(0, at);
+    }
     const head = first.slice(0, 32);
     const pause = head.lastIndexOf("、");
     return pause >= 10 ? head.slice(0, pause) : `${head.slice(0, 28)}…`;
@@ -335,6 +338,8 @@ window.HubUI = (() => {
     const full = element.textContent.trim();
     const long = full.replace(/[。.]$/u, "").length > MIN_BRIEF && /[，。；：]/u.test(full);
     const short = element.getAttribute("data-brief") || (long ? briefOf(full) : null);
+    // Nothing would be hidden: keep the sentence as it is.
+    if (short && short === full.replace(/[。.]$/u, "")) return;
     if (!short || short === full) return;
     element.replaceChildren(make("span", { class: "brief-text" }, short), " ", ...infoButton(full));
     element.classList.add("brief");

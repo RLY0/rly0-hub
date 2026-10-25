@@ -40,11 +40,15 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
         h(
           "ul",
           { class: "plan-notes" },
-          h("li", null, "开启后 Codex 只用中转站的模型，官方模型暂时不可用。"),
+          h(
+            "li",
+            { "data-brief": "Codex 模型菜单只显示中转模型" },
+            "开启后 Codex 只用中转站的模型，模型菜单只显示中转模型，官方模型暂时不可用；已选的官方模型自动换成同名中转模型（没有同名时用默认模型）。",
+          ),
           h("li", null, "Hub 要一直在托盘里运行（开机自启已默认打开）。"),
           h(
             "li",
-            null,
+            { "data-brief": "会自动让 Codex 重新打开一次，对话记录都在" },
             "开启后 Hub 会自动让 Codex 重新打开一次来生效，对话记录都在；Codex 正在回复时，会等它回复完。",
           ),
         ),
@@ -138,7 +142,7 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
             h("b", null, "不登录 OpenAI 也能用"),
             h(
               "span",
-              null,
+              { "data-brief": status.enabled ? null : "Codex 直接用中转站的 GPT 模型" },
               status.enabled
                 ? `已开启 · 默认模型 ${status.model || ""}`
                 : "没有 OpenAI 账号时，Codex 直接用中转站的 GPT 模型",

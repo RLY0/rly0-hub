@@ -283,7 +283,7 @@ window.registerHubGrokGeminiAccounts = (
     USAGE_BAD_RESPONSE: "Antigravity 没有给出额度",
   };
   const MULTI_REASON =
-    "Antigravity 把登录存在系统钥匙串（Windows 凭据管理器）里，并和 Antigravity 桌面版、IDE 插件共用这一份，也没有能换位置的设置；Hub 不去读写它，所以暂不支持保存和切换多个 Google 账号。";
+    "暂不支持保存和切换多个 Google 账号：Antigravity 把登录存在系统钥匙串（Windows 凭据管理器）里，并和 Antigravity 桌面版、IDE 插件共用这一份，也没有能换位置的设置；Hub 不去读写它。";
 
   function gemini(root, alive) {
     const list = h("div", { class: "grid compact" });
@@ -321,7 +321,7 @@ window.registerHubGrokGeminiAccounts = (
           "Google 的官方助手 Antigravity 用 Google 账号登录；Gemini API Key 也能给 Pi、Hermes 等助手用。",
         beta: BETA_GEMINI,
         refresh: refresh.element,
-        saveCurrent: { reason: `暂不支持：${MULTI_REASON}` },
+        saveCurrent: { reason: MULTI_REASON },
         addItems: [
           {
             icon: LOGIN_ICONS.web,
@@ -412,7 +412,7 @@ window.registerHubGrokGeminiAccounts = (
                     ? "装好 Antigravity 后可以读取它当前登录的额度。"
                     : error
                       ? `读取失败：${AGY_ERRORS[error] || explain(error)}`
-                      : "点右上角刷新，用 Antigravity 自己的 /usage 读取当前登录的额度（没登录时它可能会打开浏览器让你登录）。",
+                      : "点右上角刷新读取当前登录的额度（用 Antigravity 自己的 /usage；没登录时它可能会打开浏览器让你登录）。",
               }),
           notes: [
             historical
