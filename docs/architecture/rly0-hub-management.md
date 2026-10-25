@@ -88,6 +88,8 @@ Claude Code 进程只在启动时读取 `ANTHROPIC_BASE_URL`，打开的对话�
 
 Codex 模型目录保留官方原条目，每个已启用中转模型另用 `rly0/<relayId>/<model>` 作稳定选择标识，展示站点名和原模型名。core 每次校验目标中转仍启用、有密钥且声明该模型，然后仅在出站副本将 model 改回上游名；不可用时拒绝，不回退其他中转或官方。Host 路由判断失败必须回错误，不转发原始请求。不同 provider 的对话切换继续遵守原有新建对话边界，不静默重定向。
 
+“不登录 OpenAI 也能用”（no-account：config.toml 的 `rly0` provider 写 `requires_openai_auth = false`）开启时，没有官方模型能回答，所以 `model/list` 只返回中转模型（官方行在每一页都去掉，按中转站分组，`config.toml` 写入的默认模型标为默认）；没有任何可用中转模型时才保留官方行并在名称后加“走零号中转”。仍点名官方模型的 `thread/start|resume|fork`，以及已在 `rly0` provider 上的对话的 `turn/start`，改用同名中转模型，没有同名时用配置的默认模型。关闭后菜单与路由恢复原样（每次 `model/list` 重新读取模式）。
+
 `.app` 的网格行限制在窗口内，`.stage` 和 `#page` 允许收缩，页面内容在 `#page` 内滚动；菜单自身也能滚动，支持壳的最小窗口。新管理页面位于 `www/pages/resources.js`、`system.js`，mock 数据位于 `mock.js`，由 `index.html` 的同源脚本加载，保持 CSP `script-src 'self'`。新增资源同时列入 Windows payload 清单。
 
 后端测试使用隔离的临时 HOME、CODEX_HOME 和 Hub 数据目录；安装分支使用虚拟 runner。浏览器 mock 预览可验证页面交互和滚动，但不代表 C#/WebView2、真实安装、登录或启动器进程控制验收。

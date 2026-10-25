@@ -1082,6 +1082,12 @@ export class AppServerHost {
       loadOfficialModels: () => this.#listOfficialModelNames(),
       // Matches config.toml: in no-account mode the rly0 provider must not demand a login.
       providerRequiresOpenaiAuth: async () => !(await this.#rly0RelayConfig.status()).noAccount,
+      // Same source: in no-account mode the picker lists relay models only.
+      noAccountMode: async () => {
+        const status = await this.#rly0RelayConfig.status();
+        if (!status.noAccount) return null;
+        return status.model ? { model: status.model } : {};
+      },
     });
     this.#rly0AddAccount = new Rly0AddAccountLogins({
       coreAvailable: async () => (await this.#rly0Core.status()).available,
@@ -3067,11 +3073,16 @@ export class AppServerHost {
     }
     if (request.method === "turn/start" && typeof params.threadId === "string") {
       const provider = router.threadProvider(params.threadId);
-      const relayModel = await router.isRelayModel(params.model);
+      // No-account mode: a thread already on the relay provider that still names an official model
+      // (Codex's remembered choice) continues on the matching relay model.
+      const migrated =
+        provider === RLY0_CODEX_PROVIDER_ID ? await router.migrateTurnParams(params) : null;
+      const turnParams = migrated ?? params;
+      const relayModel = await router.isRelayModel(turnParams.model);
       if (
         provider === RLY0_CODEX_PROVIDER_ID &&
         !relayModel &&
-        typeof params.model === "string" &&
+        typeof turnParams.model === "string" &&
         (await router.requiresOfficialAuth())
       ) {
         this.#pendingOfficialTurnStarts.delete(request.id);
@@ -3100,6 +3111,7 @@ export class AppServerHost {
         await this.#writer.json(rpcError(request, -32001, RLY0_RELAY_PROXY_FAILED_MESSAGE));
         return "handled";
       }
+      if (migrated) return { ...request, params: migrated } as unknown as JsonObject;
     }
     return null;
   }

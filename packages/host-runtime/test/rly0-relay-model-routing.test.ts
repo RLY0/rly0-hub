@@ -369,4 +369,118 @@ describe("RLY/0 relay model routing", () => {
       "RLY0_PROXY_UNAVAILABLE",
     );
   });
+
+  describe("no-account mode", () => {
+    const pagedOfficial = (cursor: string | null, ids: string[]) => ({
+      id: 11,
+      result: {
+        data: ids.map((id, index) => ({
+          id,
+          model: id,
+          displayName: id.toUpperCase(),
+          isDefault: index === 0,
+          defaultReasoningEffort: "medium",
+        })),
+        nextCursor: cursor,
+      },
+    });
+
+    it("lists only relay models, grouped by relay, with the configured default", async () => {
+      const { core } = fakeCore();
+      const router = new Rly0RelayModelRouter(core, {
+        noAccountMode: async () => ({ model: "gpt-5.5" }),
+      });
+      await router.prepareModelList();
+      // Earlier pages lose their official rows but keep paging.
+      const first = router.rewriteModelListResponse(pagedOfficial("p2", ["gpt-6-astra"]));
+      expect(first).toMatchObject({ result: { data: [], nextCursor: "p2" } });
+      const last = router.rewriteModelListResponse(
+        pagedOfficial(null, ["gpt-6.1-sol", "gpt-5.5"]),
+      ) as { result: { data: Record<string, unknown>[] } };
+      expect(last.result.data.map((row) => [row.id, row.displayName, row.isDefault])).toEqual([
+        ["rly0/r1/gpt-relay-1", "My relay · gpt-relay-1", false],
+        ["rly0/r1/gpt-5.5", "My relay · gpt-5.5", true],
+      ]);
+      // Official names are still known as official for later decisions.
+      expect(await router.isOfficialModel("gpt-6-astra")).toBe(true);
+    });
+
+    it("moves official names onto the same relay model, else the configured default", async () => {
+      const { core } = fakeCore();
+      const router = new Rly0RelayModelRouter(core, {
+        providerRequiresOpenaiAuth: async () => false,
+        noAccountMode: async () => ({ model: "gpt-relay-1" }),
+      });
+      expect(await router.rewriteThreadParams({ model: "gpt-5.5", cwd: "x" })).toMatchObject({
+        model: "rly0/r1/gpt-5.5",
+        modelProvider: "rly0",
+        cwd: "x",
+        config: { "model_providers.rly0": { requires_openai_auth: false } },
+      });
+      expect(await router.rewriteThreadParams({ model: "gpt-6-astra" })).toMatchObject({
+        model: "rly0/r1/gpt-relay-1",
+        modelProvider: "rly0",
+      });
+      expect(await router.migrateTurnParams({ threadId: "t", model: "gpt-6-astra" })).toEqual({
+        threadId: "t",
+        model: "rly0/r1/gpt-relay-1",
+      });
+      // Relay selectors and model-less turns stay as they are.
+      expect(
+        await router.migrateTurnParams({ threadId: "t", model: "rly0/r1/gpt-5.5" }),
+      ).toBeNull();
+      expect(await router.migrateTurnParams({ threadId: "t" })).toBeNull();
+    });
+
+    it("keeps official rows labelled when no relay model is available", async () => {
+      const router = new Rly0RelayModelRouter(
+        {
+          ...fakeCore().core,
+          async listRelays() {
+            return { available: true, relays: [] };
+          },
+        },
+        { noAccountMode: async () => ({}) },
+      );
+      await router.prepareModelList();
+      const rewritten = router.rewriteModelListResponse(pagedOfficial(null, ["gpt-6-astra"])) as {
+        result: { data: Record<string, unknown>[] };
+      };
+      expect(rewritten.result.data.map((row) => [row.id, row.displayName])).toEqual([
+        ["gpt-6-astra", "GPT-6-ASTRA · 走零号中转"],
+      ]);
+      expect(await router.migrateTurnParams({ threadId: "t", model: "gpt-6-astra" })).toBeNull();
+    });
+
+    it("restores the original menu and routing exactly when the mode is off", async () => {
+      let mode: { model?: string } | null = { model: "gpt-5.5" };
+      const { core } = fakeCore();
+      const router = new Rly0RelayModelRouter(core, { noAccountMode: async () => mode });
+      await router.prepareModelList();
+      router.rewriteModelListResponse(structuredClone(officialList));
+      mode = null;
+      await router.prepareModelList();
+      const rewritten = router.rewriteModelListResponse(structuredClone(officialList)) as {
+        result: { data: Record<string, unknown>[] };
+      };
+      expect(rewritten.result.data[0]).toEqual(officialList.result.data[0]);
+      expect(rewritten.result.data.map((row) => row.model)).toEqual([
+        "gpt-5.5",
+        "rly0/r1/gpt-relay-1",
+        "rly0/r1/gpt-5.5",
+      ]);
+      expect(await router.rewriteThreadParams({ model: "gpt-5.5" })).toBeNull();
+      expect(await router.migrateTurnParams({ threadId: "t", model: "gpt-5.5" })).toBeNull();
+    });
+
+    it("treats an unreadable mode as off", async () => {
+      const { core } = fakeCore();
+      const router = new Rly0RelayModelRouter(core, {
+        noAccountMode: async () => {
+          throw new Error("unreadable");
+        },
+      });
+      expect(await router.rewriteThreadParams({ model: "gpt-5.5" })).toBeNull();
+    });
+  });
 });

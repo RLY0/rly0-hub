@@ -27,8 +27,22 @@ export interface Rly0RelayModelRouterOptions {
    * config.toml, or Codex would ask for a login again.
    */
   readonly providerRequiresOpenaiAuth?: () => Promise<boolean>;
+  /**
+   * No-account mode (config.toml's `rly0` provider asks for no login), with the default model it
+   * wrote; `null` when the mode is off. In that mode only relay models can answer, so the picker
+   * shows only relay models and official names are moved onto the matching relay model.
+   */
+  readonly noAccountMode?: () => Promise<Rly0NoAccountMode | null>;
   readonly now?: () => number;
 }
+
+export interface Rly0NoAccountMode {
+  /** The default model written to config.toml (a bare relay model name). */
+  readonly model?: string;
+}
+
+/** Suffix for official entries kept in no-account mode only because no relay model is known. */
+export const RLY0_NO_ACCOUNT_OFFICIAL_LABEL = "走零号中转";
 
 /** One complete read of the official catalog: every `model`/`id` name, and the entry count. */
 export interface Rly0OfficialCatalogRead {
@@ -114,6 +128,8 @@ export class Rly0RelayModelRouter {
   } | null = null;
   readonly #loadOfficialModels: (() => Promise<Rly0OfficialCatalogRead>) | undefined;
   readonly #providerRequiresOpenaiAuth: (() => Promise<boolean>) | undefined;
+  readonly #noAccountMode: (() => Promise<Rly0NoAccountMode | null>) | undefined;
+  #noAccount: { at: number; mode: Rly0NoAccountMode | null } | null = null;
   readonly #now: () => number;
   /** Entries on earlier pages of the `model/list` currently being paged through. */
   #pagedCount = 0;
@@ -130,6 +146,7 @@ export class Rly0RelayModelRouter {
     this.#core = core;
     this.#loadOfficialModels = options.loadOfficialModels;
     this.#providerRequiresOpenaiAuth = options.providerRequiresOpenaiAuth;
+    this.#noAccountMode = options.noAccountMode;
     this.#now = options.now ?? Date.now;
   }
 
@@ -228,9 +245,51 @@ export class Rly0RelayModelRouter {
     return this.#cache;
   }
 
-  /** Warms the relay list before a `model/list` response has to be rewritten synchronously. */
+  /** Warms the relay list and the mode before a `model/list` response is rewritten synchronously. */
   async prepareModelList(): Promise<void> {
-    await this.#relayModels(true);
+    await Promise.all([this.#relayModels(true), this.#readNoAccount(true)]);
+  }
+
+  /** No-account mode as last read (cached briefly); an unreadable mode counts as off. */
+  async #readNoAccount(fresh = false): Promise<Rly0NoAccountMode | null> {
+    const now = Date.now();
+    if (!fresh && this.#noAccount && now - this.#noAccount.at < CACHE_TTL_MS)
+      return this.#noAccount.mode;
+    let mode: Rly0NoAccountMode | null = null;
+    try {
+      mode = (await this.#noAccountMode?.()) ?? null;
+    } catch {
+      mode = null;
+    }
+    this.#noAccount = { at: now, mode };
+    return mode;
+  }
+
+  /**
+   * In no-account mode, the relay selector a bare model name moves to: the same model on the first
+   * relay offering it, else the configured default, else the first relay model. `undefined` when
+   * nothing changes (mode off, already a selector, or no relay model known).
+   */
+  async #noAccountSelector(model: unknown): Promise<string | undefined> {
+    if (typeof model !== "string" || !model || model.startsWith(RLY0_RELAY_MODEL_ID_PREFIX))
+      return undefined;
+    const mode = await this.#readNoAccount();
+    if (!mode) return undefined;
+    const { models } = await this.#relayModels();
+    const target =
+      models.find((entry) => entry.model === model) ??
+      (mode.model ? models.find((entry) => entry.model === mode.model) : undefined) ??
+      models[0];
+    return target ? relayModelId(target.relayId, target.model) : undefined;
+  }
+
+  /**
+   * `turn/start` params with an official model name moved onto its relay model in no-account mode,
+   * or `null` when nothing changes. Only for threads already on the `rly0` provider.
+   */
+  async migrateTurnParams(params: JsonRecord): Promise<JsonRecord | null> {
+    const selector = await this.#noAccountSelector(params.model);
+    return selector ? { ...params, model: selector } : null;
   }
 
   /** Appends relay models to a `model/list` result. Returns `null` when nothing changes. */
@@ -246,6 +305,9 @@ export class Rly0RelayModelRouter {
     // Only the last page carries the extra entries.
     if (typeof result.nextCursor === "string" && result.nextCursor) {
       this.#pagedCount += official.length;
+      // No-account mode: no official model can answer, so its rows are left out of every page.
+      if (this.#noAccount?.mode && (this.#cache?.models.length ?? 0) > 0)
+        return { ...response, result: { ...result, data: [] } };
       return null;
     }
     this.#officialSnapshot = {
@@ -255,6 +317,24 @@ export class Rly0RelayModelRouter {
     };
     this.#pagedCount = 0;
     const relayModels = this.#cache?.models ?? [];
+    const noAccount = this.#noAccount?.mode ?? null;
+    if (noAccount && relayModels.length === 0) {
+      // Nothing to replace them with: keep the official rows, but say where they really go.
+      return {
+        ...response,
+        result: {
+          ...result,
+          data: result.data.map((entry: unknown) =>
+            isRecord(entry)
+              ? {
+                  ...entry,
+                  displayName: `${typeof entry.displayName === "string" ? entry.displayName : String(entry.model ?? "")} · ${RLY0_NO_ACCOUNT_OFFICIAL_LABEL}`,
+                }
+              : entry,
+          ),
+        },
+      };
+    }
     if (relayModels.length === 0) return null;
     const template =
       official.find((entry) => entry.isDefault !== true && entry.hidden !== true) ?? official[0];
@@ -277,6 +357,14 @@ export class Rly0RelayModelRouter {
         ...(template ? {} : { supportedReasoningEfforts: [] }),
       };
     });
+    if (noAccount) {
+      // Only relay models, grouped by relay; the configured default stays the default.
+      const preferred =
+        relayModels.find((entry) => entry.model === noAccount.model) ?? relayModels[0];
+      const defaultId = preferred ? relayModelId(preferred.relayId, preferred.model) : undefined;
+      const only = additions.map((entry) => ({ ...entry, isDefault: entry.id === defaultId }));
+      return { ...response, result: { ...result, data: only } };
+    }
     return { ...response, result: { ...result, data: [...result.data, ...additions] } };
   }
 
@@ -332,7 +420,11 @@ export class Rly0RelayModelRouter {
    * For thread creation/resume params naming a relay model: the params to send instead
    * (provider switched to the local proxy), or `null` to forward the original request.
    */
-  async rewriteThreadParams(params: JsonRecord): Promise<JsonRecord | null> {
+  async rewriteThreadParams(input: JsonRecord): Promise<JsonRecord | null> {
+    // No-account mode: an official name (an older thread, or Codex's remembered choice) moves to
+    // the matching relay model, so it keeps working and shows as the relay model it really is.
+    const selector = await this.#noAccountSelector(input.model);
+    const params = selector ? { ...input, model: selector } : input;
     if (!(await this.isRelayModel(params.model))) {
       // A conversation started on a relay model is recorded with the `rly0` provider; resuming it
       // later needs the provider defined again even when the request names no model.
