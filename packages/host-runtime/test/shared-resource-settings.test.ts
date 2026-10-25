@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { ANTIGRAVITY_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-antigravity";
 import { CLAUDE_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-claude-code";
@@ -51,14 +52,68 @@ async function fixture() {
 }
 
 describe("Codex resource sharing settings", () => {
-  it("shares MCP and skills by default but keeps memory opt-in", async () => {
+  it("shares MCP, skills and memory by default on a new install", async () => {
     const f = await fixture();
-    expect(DEFAULT_SHARED_RESOURCE_SETTINGS).toEqual({ mcp: true, skills: true, memory: false });
-    expect(await sharedResourceSettings(f.env)).toEqual({ mcp: true, skills: true, memory: false });
+    expect(DEFAULT_SHARED_RESOURCE_SETTINGS).toEqual({ mcp: true, skills: true, memory: true });
+    expect(await sharedResourceSettings(f.env)).toEqual({ mcp: true, skills: true, memory: true });
     const shared = await f.provider(f.project, CLAUDE_SHARED_RESOURCE_REQUEST);
     expect(Object.keys(shared.mcpServers).sort()).toEqual(["codex_docs", "codex_local"]);
     expect(shared.context).toContain('"name":"review"');
-    expect(shared.context).not.toContain("project-memory-line");
+    expect(shared.context).toContain("project-memory-line");
+  });
+
+  it("keeps a 0.11.12 choice: its file had memory off unless the person turned it on", async () => {
+    const f = await fixture();
+    const file = path.join(f.env.CODEXHOST_DATA_DIR, "shared-resources.json");
+    await fs.mkdir(f.env.CODEXHOST_DATA_DIR, { recursive: true });
+    await fs.writeFile(file, JSON.stringify({ version: 2, mcp: false, skills: true, memory: false }));
+    expect(await sharedResourceSettings(f.env)).toEqual({ mcp: false, skills: true, memory: false });
+    await fs.writeFile(file, JSON.stringify({ version: 2, mcp: true }));
+    expect(await sharedResourceSettings(f.env)).toEqual({ mcp: true, skills: true, memory: false });
+    await fs.writeFile(file, JSON.stringify({ version: 2, mcp: true, skills: true, memory: true }));
+    expect(await sharedResourceSettings(f.env)).toEqual({ mcp: true, skills: true, memory: true });
+    await setSharedResourceSettings(f.env, { skills: false });
+    expect(JSON.parse(await fs.readFile(file, "utf8"))).toEqual({
+      version: 3,
+      mcp: true,
+      skills: false,
+      memory: true,
+    });
+  });
+
+  it("attaches rly0-memory to MCP agents with a one-line instruction instead of Codex files", async () => {
+    const f = await fixture();
+    await fs.writeFile(
+      path.join(f.codex, "memories", "MEMORY.md"),
+      `# Task Group: here
+applies_to: cwd=${await fs.realpath(f.project)}
+## Reusable knowledge
+codex-group-line
+`,
+    );
+    const entry = pathToFileURL(path.join(f.codex, "dist", "installed-harness-plugins.js")).href;
+    const provider = sharedResourcesProvider(f.env, { memoryEntryUrl: entry });
+    const shared = await provider(f.project, CLAUDE_SHARED_RESOURCE_REQUEST);
+    expect(shared.mcpServers.rly0_memory).toMatchObject({
+      type: "stdio",
+      command: process.execPath,
+      args: [path.join(f.codex, "dist", "rly0-memory", "server-main.js")],
+      env: {
+        RLY0_MEMORY_DIR: path.join(f.env.CODEXHOST_DATA_DIR, "memory"),
+        RLY0_MEMORY_AGENT: "claude-code",
+      },
+    });
+    expect(shared.context).toContain("rly0-memory is memory shared by every AI agent");
+    expect(shared.context).not.toContain("codex-group-line");
+    // Antigravity cannot mount MCP: it reads a digest, which now holds the imported Codex memory.
+    const turn = await provider(f.project, ANTIGRAVITY_SHARED_RESOURCE_REQUEST);
+    expect(turn.mcpServers).toEqual({});
+    expect(turn.context).toContain("read-only digest");
+    expect(turn.context).toContain("codex-group-line");
+    await setSharedResourceSettings(f.env, { memory: false });
+    expect((await provider(f.project, CLAUDE_SHARED_RESOURCE_REQUEST)).mcpServers).not.toHaveProperty(
+      "rly0_memory",
+    );
   });
 
   it("respects an explicit off from the former single switch", async () => {
@@ -117,7 +172,7 @@ describe("Codex resource sharing settings", () => {
     expect(lastSharedResourceDelivery("grok", f.project)).toMatchObject({
       mcpServers: ["docs", "local"],
       skills: 1,
-      memory: 0,
+      memory: 1,
     });
     const status = await sharedResourceStatus({
       environment: f.env,
@@ -126,10 +181,10 @@ describe("Codex resource sharing settings", () => {
     });
     expect(status).toEqual({
       applicable: true,
-      settings: { mcp: true, skills: true, memory: false },
+      settings: { mcp: true, skills: true, memory: true },
       support: { mcp: true, skills: true, memory: true },
       blocked: null,
-      delivered: { mcpServers: ["docs", "local"], skills: 1, memory: 0 },
+      delivered: { mcpServers: ["docs", "local"], skills: 1, memory: 1 },
     });
     expect(
       await sharedResourceStatus({ environment: f.env, harnessId: "pi", cwd: f.project }),

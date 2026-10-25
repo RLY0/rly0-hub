@@ -9,11 +9,12 @@ import {
 
 describe("Grok shared Codex resources", () => {
   it("asks for MCP when a Session opens and for skills and memory with each prompt", () => {
-    expect(GROK_SHARED_MCP_REQUEST).toEqual({ harnessId: "grok", mcp: true });
+    expect(GROK_SHARED_MCP_REQUEST).toEqual({ harnessId: "grok", mcp: true, memoryMcp: true });
     expect(GROK_SHARED_CONTEXT_REQUEST).toEqual({
       harnessId: "grok",
       skills: true,
       memory: true,
+      memoryMcp: true,
     });
   });
 

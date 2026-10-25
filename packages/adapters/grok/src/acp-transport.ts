@@ -1,7 +1,8 @@
-import type {
-  SharedHarnessResources,
-  SharedResourceRequest,
-  SharedResourcesProvider,
+import {
+  promptWithSharedContext,
+  sharedAcpMcpServers,
+  type SharedResourceRequest,
+  type SharedResourcesProvider,
 } from "@codexhost/harness-adapter/plugin";
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readdir, readFile } from "node:fs/promises";
@@ -156,36 +157,19 @@ export interface GrokPermissionRequest {
 export const GROK_SHARED_MCP_REQUEST: SharedResourceRequest = Object.freeze({
   harnessId: "grok",
   mcp: true,
+  memoryMcp: true,
 });
 /** Skill index and memory: reference context sent with each prompt. */
 export const GROK_SHARED_CONTEXT_REQUEST: SharedResourceRequest = Object.freeze({
   harnessId: "grok",
   skills: true,
   memory: true,
+  memoryMcp: true,
 });
 
 /** ACP `mcpServers` for `session/new` / `session/load`; options stay out of the prompt. */
-export function grokAcpMcpServers(shared: SharedHarnessResources | undefined) {
-  return Object.entries(shared?.mcpServers ?? {}).map(([name, server]) =>
-    server.type === "stdio"
-      ? {
-          name,
-          command: server.command,
-          args: server.args,
-          env: Object.entries(server.env).map(([name, value]) => ({ name, value })),
-        }
-      : {
-          name,
-          type: "http" as const,
-          url: server.url,
-          headers: Object.entries(server.headers).map(([name, value]) => ({ name, value })),
-        },
-  );
-}
-
-export function grokPromptWithSharedContext(context: string | undefined, text: string): string {
-  return context ? `${context}\n\n[Current user request]\n${text}` : text;
-}
+export const grokAcpMcpServers = sharedAcpMcpServers;
+export const grokPromptWithSharedContext = promptWithSharedContext;
 
 export interface GrokAcpTransportOptions {
   sharedResources?: SharedResourcesProvider;

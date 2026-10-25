@@ -144,6 +144,7 @@ export const CLAUDE_SHARED_RESOURCE_REQUEST: SharedResourceRequest = Object.free
   mcp: true,
   skills: true,
   memory: true,
+  memoryMcp: true,
 });
 
 export interface ClaudeSdkTransportOptions {

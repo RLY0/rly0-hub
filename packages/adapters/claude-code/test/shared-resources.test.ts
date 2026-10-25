@@ -58,6 +58,7 @@ describe("Claude Code shared Codex resources", () => {
       mcp: true,
       skills: true,
       memory: true,
+      memoryMcp: true,
     });
     expect(options?.mcpServers).toEqual({
       codex_docs: {

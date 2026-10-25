@@ -12,6 +12,8 @@ import type {
 import { resolveRly0DataDir } from "./rly0-maintenance/paths.js";
 import { parseSkillFrontMatter } from "./rly0-skills/frontmatter.js";
 import { redactCredentialText, redactCredentialTokens } from "./secret-redaction.js";
+import { RLY0_MEMORY_MCP_KEY } from "./rly0-memory/launch.js";
+import { sharedMemoryPart } from "./shared-memory-resources.js";
 
 const record = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -26,15 +28,17 @@ export interface SharedResourceSettings {
   memory: boolean;
 }
 /**
- * MCP servers and the skill index are shared unless turned off. Memory is not: its filter only
- * drops known credential shapes and assignment lines, and memory can hold other private notes
- * that would then reach another vendor's model, so the person opts in.
+ * Everything is shared unless turned off (the person's decision for 0.11.13: every agent gets the
+ * same MCP servers, skills and shared memory). Memory is scrubbed of credential shapes on write and
+ * read; the Hub's 打通设置 page says that memories reach other vendors' models.
  */
 export const DEFAULT_SHARED_RESOURCE_SETTINGS: Readonly<SharedResourceSettings> = Object.freeze({
   mcp: true,
   skills: true,
-  memory: false,
+  memory: true,
 });
+/** 0.11.12 stored all three keys with memory off by default; that stays the person's choice. */
+const VERSION_2_MEMORY_DEFAULT = false;
 
 export async function sharedResourceSettings(
   env: NodeJS.ProcessEnv,
@@ -50,8 +54,12 @@ export async function sharedResourceSettings(
   if (stored.version !== 2 && typeof stored.enabled === "boolean") {
     return { mcp: stored.enabled, skills: stored.enabled, memory: stored.enabled };
   }
+  const fallback = (key: keyof SharedResourceSettings) =>
+    stored.version === 2 && key === "memory"
+      ? VERSION_2_MEMORY_DEFAULT
+      : DEFAULT_SHARED_RESOURCE_SETTINGS[key];
   const pick = (key: keyof SharedResourceSettings) =>
-    typeof stored[key] === "boolean" ? stored[key] : DEFAULT_SHARED_RESOURCE_SETTINGS[key];
+    typeof stored[key] === "boolean" ? stored[key] : fallback(key);
   return { mcp: pick("mcp"), skills: pick("skills"), memory: pick("memory") };
 }
 
@@ -64,7 +72,7 @@ export async function setSharedResourceSettings(
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomUUID()}.tmp`;
   try {
-    await fs.writeFile(temp, JSON.stringify({ version: 2, ...next }), { flag: "wx" });
+    await fs.writeFile(temp, JSON.stringify({ version: 3, ...next }), { flag: "wx" });
     await fs.rename(temp, file);
   } finally {
     await fs.unlink(temp).catch(() => undefined);
@@ -195,15 +203,22 @@ function scopedMemory(content: string, cwd: string): { groups: string[]; truncat
  * global config writes. MCP options (which may carry tokens) go to the Agent's own process
  * configuration exactly as Codex would pass them; model-visible context lists only names.
  */
-export function sharedResourcesProvider(env: NodeJS.ProcessEnv): SharedResourcesProvider {
+export function sharedResourcesProvider(
+  env: NodeJS.ProcessEnv,
+  options: {
+    /** A module of the running Host; without it the memory server is not attached. */
+    memoryEntryUrl?: string;
+  } = {},
+): SharedResourcesProvider {
   return async (cwd, request?: SharedResourceRequest) => {
     const settings = await sharedResourceSettings(env);
     const wants = {
       mcp: settings.mcp && (request ? request.mcp === true : true),
       skills: settings.skills && (request ? request.skills === true : true),
       memory: settings.memory && (request ? request.memory === true : true),
+      memoryServer: settings.memory && request?.mcp === true && request.memoryMcp === true,
     };
-    if (!wants.mcp && !wants.skills && !wants.memory) {
+    if (!wants.mcp && !wants.skills && !wants.memory && !wants.memoryServer) {
       noteDelivery(request, cwd, [], 0, 0);
       return empty();
     }
@@ -306,6 +321,22 @@ export function sharedResourcesProvider(env: NodeJS.ProcessEnv): SharedResources
       }
     }
     const memory: { source: string; content: string }[] = [];
+    // Explicit requests use the shared memory store; an older plugin without a request keeps
+    // receiving the Codex memory files it was built for.
+    const shared =
+      request && (wants.memory || wants.memoryServer)
+        ? await sharedMemoryPart({
+            environment: env,
+            project,
+            request,
+            entryUrl: options.memoryEntryUrl,
+            forMcp: wants.memoryServer,
+            forContext: wants.memory,
+          }).catch(() => ({ records: 0 }) as Awaited<ReturnType<typeof sharedMemoryPart>>)
+        : undefined;
+    if (shared?.server) servers[RLY0_MEMORY_MCP_KEY] = shared.server;
+    if (shared?.context) memory.push(shared.context);
+    const codexMemory = wants.memory && !(request?.memoryMcp === true && shared?.context);
     const projectFile = path.join(project, ".rly0", "shared-memory.md");
     if (wants.memory)
       try {
@@ -317,7 +348,7 @@ export function sharedResourcesProvider(env: NodeJS.ProcessEnv): SharedResources
         /* optional */
       }
     const memoryRoot = path.join(codex, "memories");
-    if (wants.memory)
+    if (codexMemory)
       try {
         const file = await within(memoryRoot, path.join(memoryRoot, "memory_summary.md"));
         const summary = await bounded(file, 128 * 1024);
@@ -331,7 +362,7 @@ export function sharedResourcesProvider(env: NodeJS.ProcessEnv): SharedResources
       } catch {
         /* optional */
       }
-    if (wants.memory)
+    if (codexMemory)
       try {
         const file = await within(memoryRoot, path.join(memoryRoot, "MEMORY.md"));
         const scoped = scopedMemory(await bounded(file, 2 * 1024 * 1024), project);
@@ -370,7 +401,9 @@ export function sharedResourcesProvider(env: NodeJS.ProcessEnv): SharedResources
     noteDelivery(
       request,
       cwd,
-      Object.keys(servers).map((name) => name.replace(/^codex_/u, "")),
+      Object.keys(servers).map((name) =>
+        name === RLY0_MEMORY_MCP_KEY ? "rly0-memory" : name.replace(/^codex_/u, ""),
+      ),
       skills.length,
       memory.length,
     );

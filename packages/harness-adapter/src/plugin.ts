@@ -42,8 +42,18 @@ export interface SharedResourceRequest {
   readonly mcp?: boolean;
   /** Skill index in model context; the Agent reads SKILL.md files itself. */
   readonly skills?: boolean;
-  /** Project-scoped Codex memory and general preferences in model context. */
+  /**
+   * Shared memory in model context: with `memoryMcp` a one-line instruction to use the
+   * rly0-memory tools; without it (no native MCP) a bounded read-only digest of this project's
+   * and global memories.
+   */
   readonly memory?: boolean;
+  /**
+   * The Harness mounts native MCP servers it receives, so the shared memory server (rly0-memory)
+   * is attached with them: on an MCP request it is added to `mcpServers` when memory sharing is
+   * on; on a context request it switches memory context to the short instruction.
+   */
+  readonly memoryMcp?: boolean;
 }
 /**
  * Without a request the Host materializes every enabled kind (older plugins). The Host still
@@ -53,6 +63,30 @@ export type SharedResourcesProvider = (
   cwd: string,
   request?: SharedResourceRequest,
 ) => Promise<SharedHarnessResources>;
+
+/** ACP `mcpServers` for `session/new` / `session/load`; options stay out of the prompt. */
+export function sharedAcpMcpServers(shared: SharedHarnessResources | undefined) {
+  return Object.entries(shared?.mcpServers ?? {}).map(([name, server]) =>
+    server.type === "stdio"
+      ? {
+          name,
+          command: server.command,
+          args: server.args,
+          env: Object.entries(server.env).map(([key, value]) => ({ name: key, value })),
+        }
+      : {
+          name,
+          type: "http" as const,
+          url: server.url,
+          headers: Object.entries(server.headers).map(([key, value]) => ({ name: key, value })),
+        },
+  );
+}
+
+/** Reference context goes in front of the person's text, clearly separated from it. */
+export function promptWithSharedContext(context: string | undefined, text: string): string {
+  return context ? `${context}\n\n[Current user request]\n${text}` : text;
+}
 
 /** Per Host/connection construction context; never contains Host or Renderer internals. */
 export interface HarnessPluginContext {

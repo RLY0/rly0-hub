@@ -34,7 +34,13 @@ export function installedHarnessPluginOptions(
       environment,
       platform: process.platform,
       managedRemoteHost,
-      ...(!managedRemoteHost ? { sharedResources: sharedResourcesProvider(environment) } : {}),
+      ...(!managedRemoteHost
+        ? {
+            sharedResources: sharedResourcesProvider(environment, {
+              memoryEntryUrl: hostRuntimeUrl,
+            }),
+          }
+        : {}),
       ...(opener ? { openLocalUrl: (url: string) => opener(new URL(url)) } : {}),
       ...(openLocalPage ? { openLocalPage } : {}),
     },
