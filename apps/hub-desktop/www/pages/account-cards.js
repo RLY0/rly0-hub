@@ -268,7 +268,7 @@ window.registerHubAccountCards = ({
       h(
         "span",
         { class: "sub" },
-        intro,
+        window.HubUI.explainLine(intro),
         beta ? h("span", { class: "tag beta-tag", "data-tip": beta }, "测试版") : null,
       ),
       h(

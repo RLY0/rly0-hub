@@ -460,5 +460,11 @@ window.HubUI = (() => {
     };
   }
 
-  return { menuButton, enhanceSelect, closeLayer, dialog, armable, info };
+  /** A short line + ⓘ for long text, or the text itself when it is already short. */
+  function explainLine(text) {
+    const long = text.replace(/[。.]$/u, "").length > MIN_BRIEF && /[，。；：]/u.test(text);
+    return long ? info(briefOf(text), text) : text;
+  }
+
+  return { menuButton, enhanceSelect, closeLayer, dialog, armable, info, explainLine };
 })();
