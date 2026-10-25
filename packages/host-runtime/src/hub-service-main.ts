@@ -18,6 +18,10 @@ async function main(): Promise<void> {
     environment,
     installRoot,
     killCodexProcesses: () => killCodexProcesses({ environment, installRoot }),
+    // Quota / balance updates for the window (the shell forwards them to the page).
+    onEvent: (event, params) => {
+      process.stdout.write(`${JSON.stringify({ event, params })}\n`);
+    },
     ...(autostartCommand ? { autostartCommand } : {}),
   });
   await service.start().catch(() => undefined);

@@ -133,6 +133,8 @@ export class ClaudeOfficialKeyQuota {
   readonly #onUpdate: (() => void) | undefined;
   #key: string | null = null;
   #entry: Entry = ClaudeOfficialKeyQuota.#empty();
+  /** The latest numbers a real reply carried, per token (see `observe`). */
+  readonly #observed = new Map<string, { snapshot: ClaudeKeyQuotaSnapshot; at: number }>();
 
   constructor(
     read: ClaudeKeyInfoReader,
@@ -182,8 +184,37 @@ export class ClaudeOfficialKeyQuota {
     if (this.#key !== key) {
       this.#key = key;
       this.#entry = ClaudeOfficialKeyQuota.#empty();
+      const seen = this.#observed.get(ref.relayId);
+      if (seen) this.#seed(this.#entry, seen.snapshot, seen.at);
     }
     return this.#entry;
+  }
+
+  #seed(entry: Entry, snapshot: ClaudeKeyQuotaSnapshot, at: number): void {
+    entry.snapshot = snapshot;
+    entry.outcome = "live";
+    entry.rateLimited = false;
+    // Counts as a read: the automatic interval starts again, so no probe follows a reply.
+    entry.attemptedAt = Math.max(entry.attemptedAt ?? 0, at);
+  }
+
+  /**
+   * Numbers a real reply carried (Anthropic's unified rate-limit headers, read by the local
+   * forwarder). They replace the last read and restart the automatic interval, so an active
+   * Thread never needs a quota probe of its own.
+   */
+  observe(relayId: string, usage: Rly0AccountUsage): void {
+    const snapshot = projectClaudeKeyUsage(usage);
+    if (!snapshot) return;
+    const at = this.#now();
+    this.#observed.delete(relayId);
+    this.#observed.set(relayId, { snapshot, at });
+    const oldest = this.#observed.keys().next();
+    if (this.#observed.size > 16 && !oldest.done) this.#observed.delete(oldest.value);
+    if (this.#key?.startsWith(`${relayId}\u0000`)) {
+      this.#seed(this.#entry, snapshot, at);
+      this.#onUpdate?.();
+    }
   }
 
   #state(entry: Entry, status: "live" | "cached" | "failed"): ClaudeKeyQuotaRead {

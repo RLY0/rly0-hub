@@ -244,6 +244,13 @@ import {
 } from "./delegation-mention-rewrite.js";
 import { managedDelegationSkillReference } from "./delegation-skill.js";
 import { AccountRateLimits } from "./codex-runtime/account-rate-limits.js";
+import {
+  codexUsageFromPlan,
+  liveQuotaFeedPath,
+  parseAnthropicRateLimitHeaders,
+  Rly0LiveQuotaFeed,
+} from "./rly0-relay/live-quota-feed.js";
+import type http from "node:http";
 import { NativeAccountObserver } from "./native-account-observer.js";
 import { nativeThreadSupportsReferences } from "./native-thread-reference-capability.js";
 import { THREAD_REFERENCE_SOURCE_HOST_PARAM } from "@codexhost/shared-contracts";
@@ -921,7 +928,12 @@ export class AppServerHost {
   readonly #claudeRelayForwarder = new ClaudeRelayForwarder({
     resolve: () => this.#currentClaudeRelay(),
     describeAlternatives: (relayId) => this.#claudeAlternatives(relayId),
+    observeResponse: (relayId, headers) => this.#observeClaudeRelayHeaders(relayId, headers),
   });
+  /** Quota numbers real replies carried, handed to the Hub window (live-quota-feed.ts). */
+  readonly #liveQuotaFeed: Rly0LiveQuotaFeed;
+  /** Threads whose running turn is on a relay model (their completion changes a balance). */
+  readonly #relayTurnThreads = new Set<string>();
   /**
    * Why Claude Code cannot report its plan windows while it runs through the local proxy: the
    * key or subscription token stays in rly0-core, so Claude Code is not signed in to claude.ai
@@ -1074,6 +1086,7 @@ export class AppServerHost {
         ],
       }));
     this.#rly0Core = new Rly0CoreBridge({ environment });
+    this.#liveQuotaFeed = new Rly0LiveQuotaFeed({ file: liveQuotaFeedPath(environment) });
     this.#claudeKeyQuota = new ClaudeOfficialKeyQuota(
       (relayId) => this.#rly0Core.claudeAccounts("keyInfo", { relayId }),
       { onUpdate: () => void this.#announceClaudeKeyQuota() },
@@ -3121,6 +3134,8 @@ export class AppServerHost {
       // when the Thread's earlier choice applies; Codex never changes the provider on a turn.
       const turnModel = router.turnModel(params.threadId, turnParams);
       const relayModel = await router.isRelayModel(turnModel);
+      if (relayModel) this.#relayTurnThreads.add(params.threadId);
+      else this.#relayTurnThreads.delete(params.threadId);
       const customModel = await router.isCustomModel(turnModel);
       // Unified channel: a `rly0` Thread takes any model. Relay and config.toml choices still
       // need `rly0`; a Thread loaded on another provider continues in a fork that runs on it.
@@ -3244,7 +3259,10 @@ export class AppServerHost {
       if (parsed.method === "account/updated") this.#officialRateLimits.reset(input.accountId);
     }
     const rateLimits = observeCodexRateLimits(parsed);
-    if (rateLimits) this.#officialRateLimits.observe(input.accountId, rateLimits);
+    if (rateLimits) {
+      this.#officialRateLimits.observe(input.accountId, rateLimits);
+      this.#publishCodexRateLimits(input.accountId, rateLimits);
+    }
     // Owner already rejects retired generations.
     try {
       await this.#observeOfficialTurnLifecycle(parsed);
@@ -3320,6 +3338,29 @@ export class AppServerHost {
     refresh = false,
   ): Promise<HarnessAccountInspectResult> {
     return this.#accountInspections.inspect(adapter, this.#pluginDescriptors, refresh);
+  }
+
+  /** A rate-limit notification of the official account → the Hub window (no extra request). */
+  #publishCodexRateLimits(accountId: string, rateLimits: Partial<HostUsage>): void {
+    const usage = codexUsageFromPlan(rateLimits);
+    if (!usage) return;
+    const current = this.#accountControl.snapshot().accounts.find(
+      (account) => account.accountId === accountId,
+    );
+    this.#liveQuotaFeed.record({
+      provider: "codex",
+      key: accountId,
+      ...(current?.email ? { email: current.email } : {}),
+      usage,
+    });
+  }
+
+  /** Anthropic's unified rate-limit headers on a forwarded reply → the capsule and the Hub. */
+  #observeClaudeRelayHeaders(relayId: string, headers: http.IncomingHttpHeaders): void {
+    const usage = parseAnthropicRateLimitHeaders(headers);
+    if (!usage) return;
+    this.#claudeKeyQuota.observe(relayId, usage);
+    this.#liveQuotaFeed.record({ provider: "claude", key: relayId, usage });
   }
 
   async #currentCodexAccountId(): Promise<string | null> {
@@ -3896,6 +3937,8 @@ export class AppServerHost {
       this.#forgetPendingOfficialTurnStarts(params.threadId);
       this.#activeOfficialTurns.delete(params.threadId);
       this.#signalActiveWorkChanged();
+      // A relay turn spent balance: the Hub re-reads it (debounced there).
+      if (this.#relayTurnThreads.delete(params.threadId)) this.#liveQuotaFeed.relayTurnFinished();
       const delegation = await this.#repository.getDelegationByChild(
         hostThreadIdSchema.parse(params.threadId),
       );

@@ -127,6 +127,8 @@ import {
 } from "../shared-harness-resources.js";
 import { sharedResourceStatus } from "../shared-resource-status.js";
 import { resetPrepareParams, resetConsumeParams, resetAcknowledgeParams } from "./reset-credits.js";
+import { Rly0HubLiveQuota } from "./live-quota.js";
+import { liveQuotaFeedPath } from "../rly0-relay/live-quota-feed.js";
 
 /** 零号中转 itself: the relay the home page shows a balance for. */
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
@@ -195,7 +197,14 @@ export interface Rly0HubServiceOptions {
   readonly agentAutoSwitch?: Partial<
     Pick<Rly0AgentAutoSwitchDeps, "busy" | "now" | "sleep" | "pollMs" | "maxWaitMs">
   >;
+  /** Pushes an event to the window (`{event, params}` on stdout); quota and balance updates. */
+  readonly onEvent?: (event: string, params: Record<string, unknown>) => void;
+  /** The live quota feed's poll interval (tests). */
+  readonly liveQuotaPollMs?: number;
 }
+
+/** Timed refreshes read a Claude subscription token's quota at most this often. */
+export const CLAUDE_KEY_AUTO_READ_MS = 5 * 60_000;
 
 export function isRly0Relay(relay: Pick<Rly0Relay, "baseUrl">): boolean {
   try {
@@ -263,6 +272,9 @@ export class Rly0HubService {
   readonly #agentRelays: Rly0AgentRelaySettings;
   readonly #officialModels: Rly0OfficialKeyModels;
   readonly #officialUsage: Rly0OfficialKeyUsage;
+  /** When each Claude token's quota was last read through rly0-core (epoch ms). */
+  readonly #claudeKeyReadAt = new Map<string, number>();
+  readonly #liveQuota: Rly0HubLiveQuota;
   #usageSequence = 0;
   readonly #usageReads = new Map<string, number>();
   readonly #discovery: Rly0LocalDiscovery;
@@ -368,6 +380,21 @@ export class Rly0HubService {
       ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#state = new Rly0HubStateStore(environment);
+    this.#liveQuota = new Rly0HubLiveQuota({
+      file: liveQuotaFeedPath(environment),
+      listAccounts: async () => {
+        const result = await this.#core.listAccounts();
+        return result.available ? result.accounts : [];
+      },
+      listRelays: async () => {
+        const result = await this.#core.listRelays();
+        return result.available ? result.relays : [];
+      },
+      recordToken: (relay, info) => this.#officialUsage.record(relay, info),
+      emit: (event, params) => options.onEvent?.(event, params),
+      readBalance: async () => (await this.handle("balance.get", {})) as Record<string, unknown>,
+      ...(options.liveQuotaPollMs ? { pollMs: options.liveQuotaPollMs } : {}),
+    });
     const agentSources = createAgentAutoSwitchSources({
       core: this.#core,
       claudeSelection: async () => (await this.#agentRelays.get()).claudeCode ?? null,
@@ -422,6 +449,8 @@ export class Rly0HubService {
     await this.#compatibility.check().catch(() => undefined);
     // Shared memory: import Codex memories once; Codex's rly0_memory entry follows the switch.
     await this.#bridge.start().catch(() => undefined);
+    // Quota numbers real replies carried (no request of its own).
+    this.#liveQuota.start();
   }
 
   /** Tray notices to show now; each is remembered so it is not repeated. */
@@ -802,6 +831,7 @@ export class Rly0HubService {
   }
 
   async dispose(): Promise<void> {
+    this.#liveQuota.dispose();
     this.#isolation.close();
     this.#claudeAdd.close();
     this.#grokAdd.close();
@@ -1103,6 +1133,8 @@ export class Rly0HubService {
       "accounts.current": route(empty, () => core.currentAccount()),
       "accounts.usageCurrent": route(empty, () => core.usageCurrent()),
       "accounts.usageAll": route(empty, () => core.usageAll()),
+      // Quota numbers replies carried so far (the window's store starts from these).
+      "quota.live": route(empty, async () => ({ updates: this.#liveQuota.snapshot() })),
       "accounts.resetPrepare": route(resetPrepareParams, (p) => core.resetPrepare(p)),
       "accounts.resetConsume": route(resetConsumeParams, (p) => core.resetConsume(p)),
       "accounts.resetAcknowledge": route(resetAcknowledgeParams, (p) => core.resetAcknowledge(p)),
@@ -1422,12 +1454,29 @@ export class Rly0HubService {
               .string()
               .regex(/^[a-f0-9]{12}$/u)
               .optional(),
+            /** A timed refresh (not the user's click): may answer "skipped" instead. */
+            auto: z.boolean().optional(),
           })
           .strict(),
         async (p) => {
           const relay = await this.#officialKey(core, p.vendor, p.id);
           if (!relay) return { info: null };
           if (p.vendor === "anthropic") {
+            // A subscription-token read can cost a tiny model request: a timed refresh reads at
+            // most once per 5 minutes per token, and not at all while replies keep it current.
+            if (p.auto) {
+              const previous = this.#officialUsage.forRelay(
+                relay,
+                await this.#officialUsage.read(),
+              );
+              const lastRead = this.#claudeKeyReadAt.get(relay.id) ?? 0;
+              const fetchedMs = (previous?.usage.fetchedAt ?? 0) * 1000;
+              if (Date.now() - Math.max(lastRead, fetchedMs) < CLAUDE_KEY_AUTO_READ_MS)
+                return { info: null, skipped: true };
+            }
+            this.#claudeKeyReadAt.set(relay.id, Date.now());
+            if (this.#claudeKeyReadAt.size > 256)
+              this.#claudeKeyReadAt.delete(this.#claudeKeyReadAt.keys().next().value ?? "");
             const sequence = ++this.#usageSequence;
             this.#usageReads.set(relay.id, sequence);
             if (this.#usageReads.size > 256)

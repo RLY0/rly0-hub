@@ -26,6 +26,12 @@ export interface ClaudeRelayForwarderOptions {
   readonly resolve: () => Promise<ClaudeRelayTarget | null>;
   /** Plain-words lines appended to a quota rejection (429): the other saved credentials. */
   readonly describeAlternatives?: (currentRelayId: string) => Promise<string | null>;
+  /**
+   * Every upstream response's headers, before the body streams (429s included). The host reads
+   * Anthropic's unified rate-limit headers from them, so a reply updates the token's quota
+   * without another request. Must not throw or block.
+   */
+  readonly observeResponse?: (relayId: string, headers: http.IncomingHttpHeaders) => void;
 }
 
 const PREFIX = "/claude-code";
@@ -122,6 +128,11 @@ export class ClaudeRelayForwarder {
         { method: request.method ?? "GET", headers },
         (upstreamResponse) => {
           const status = upstreamResponse.statusCode ?? 502;
+          try {
+            this.#options.observeResponse?.(target.relayId, upstreamResponse.headers);
+          } catch {
+            // Observation never affects the reply.
+          }
           if (status === 429 && this.#options.describeAlternatives) {
             void this.#rewriteQuotaRejection(upstreamResponse, response, target.relayId).then(
               resolve,
