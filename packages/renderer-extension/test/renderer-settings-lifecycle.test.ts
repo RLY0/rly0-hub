@@ -206,7 +206,8 @@ describe("Renderer Settings lifecycle", () => {
     });
     const call = vi.mocked(createDefaultRendererSettingsPages).mock.calls.at(-1);
     expect(call?.[8]).toBe(requestUsageStatistics);
-    expect(call?.[9]).toBe(usageStatisticsHosts);
+    // RLY/0 Hub clients follow the upstream positions; the Host list provider stays last.
+    expect(call?.at(-1)).toBe(usageStatisticsHosts);
     lifecycle.dispose();
   });
 

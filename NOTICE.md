@@ -1,7 +1,7 @@
 # NOTICE
 
 RLY/0 Hub（仓库：<https://github.com/RLY0/rly0-hub>）是基于
-**CodexHost**（<https://github.com/BytePioneer-AI/codex-host>，v0.10.2）修改的衍生作品。
+**CodexHost**（<https://github.com/BytePioneer-AI/codex-host>，自 v0.10.2 分支，已合并上游至 v0.14.0）修改的衍生作品。
 
 - CodexHost 以 **GNU Lesser General Public License v3.0（LGPL-3.0）** 发布。
 - 本仓库保留原项目的 [`LICENSE`](./LICENSE) 文件与全部版权声明，未作改动；本项目的修改部分同样以 LGPL-3.0 发布。

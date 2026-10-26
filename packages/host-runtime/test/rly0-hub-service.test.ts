@@ -516,6 +516,7 @@ describe("AI 助手 catalog and relay logos", () => {
       "qoder-cn",
       "codebuddy",
       "workbuddy",
+      "copilot",
     ]);
     // A desktop-only agent without an installer recipe still shows up, for its status.
     expect(agents.find((a) => a.id === "zcode")).toMatchObject({

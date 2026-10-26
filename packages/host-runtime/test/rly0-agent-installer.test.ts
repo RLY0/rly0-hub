@@ -85,6 +85,7 @@ describe("one-click agent installation", () => {
         "antigravity",
         "claude-code",
         "codebuddy",
+        "copilot",
         "cursor-cli",
         "deepseek-harness",
         "grok",

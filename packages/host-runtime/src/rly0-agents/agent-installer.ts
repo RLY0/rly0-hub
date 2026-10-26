@@ -170,6 +170,12 @@ export const RLY0_AGENT_RECIPES: Readonly<Record<string, Recipe>> = {
     loginCommand: "kimi",
     detectionCommand: "kimi",
   },
+  copilot: {
+    requires: ["node"],
+    attempts: [npm("@github/copilot")],
+    loginCommand: "copilot",
+    detectionCommand: "copilot",
+  },
 };
 
 const NPM_MIRROR = "https://registry.npmmirror.com";

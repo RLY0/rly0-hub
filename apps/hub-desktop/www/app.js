@@ -1782,6 +1782,7 @@
           ["qoder-cn", "Qoder CN", "Qoder", "community", false, "none", false, true],
           ["codebuddy", "CodeBuddy", "Tencent", "community", false, "none", false, true],
           ["workbuddy", "WorkBuddy", "Tencent", "community", false, "none", false, true],
+          ["copilot", "GitHub Copilot", "GitHub", "community", false, "none", false, true],
         ].map(([id, name, vendor, category, openSource, relay, installed, more]) => ({
           id,
           name,

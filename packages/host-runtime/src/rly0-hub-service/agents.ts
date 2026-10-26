@@ -249,6 +249,18 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     more: true,
     launchPath: true,
   },
+  {
+    id: "copilot",
+    name: "GitHub Copilot",
+    vendor: "GitHub",
+    category: "community",
+    openSource: false,
+    relay: "none",
+    sharing: sharing("none", "none", "none", "Copilot SDK 接入的 MCP / 技能参数未核实，暂不接入"),
+    docsUrl:
+      "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
+    more: true,
+  },
 ];
 
 export interface Rly0HubAgent {

@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, it, vi } from "vitest";
 import { ClaudeCodeAdapter } from "@codexhost/adapter-claude-code";
 import { FakeHarnessAdapter } from "@codexhost/harness-adapter/testing";
@@ -222,7 +223,8 @@ it("preserves a live Claude continuation identity through refresh, reload and ex
     expect(forkSession).toHaveBeenCalledWith({
       sourceSessionId: nativeSessionId,
       checkpointId: "continuation-answer",
-      cwd: "/synthetic",
+      // The Host resolves the Thread cwd, so Windows sees a drive-qualified path.
+      cwd: path.resolve("/synthetic"),
     });
   } finally {
     await stopFixture(fixture);
