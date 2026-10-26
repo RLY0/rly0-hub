@@ -1335,23 +1335,31 @@ for (const width of WIDTHS) {
 
     // 记忆: search, add, delete, export.
     await page.locator(".bridge-tabs button", { hasText: "记忆" }).click();
-    const items = page.locator(".memory-item");
-    await expect(items).toHaveCount(3);
+    const pinned = page.locator('[aria-label="常驻偏好"] .memory-item');
+    const items = page.locator(".memory-list .memory-item");
+    await expect(pinned).toHaveCount(1);
+    await expect(pinned).toContainText("回复用中文");
+    await expect(items).toHaveCount(2);
     await page.locator('input[aria-label="搜索记忆"]').fill("typecheck");
     await expect(items).toHaveCount(1);
+    await expect(pinned).toHaveCount(1);
+    await expect(pinned).toContainText("回复用中文");
     await page.locator('input[aria-label="搜索记忆"]').fill("");
-    await expect(items).toHaveCount(3);
+    await expect(items).toHaveCount(2);
     await page.locator('.memory-filter button[role="tab"]', { hasText: "全局" }).click();
-    await expect(items).toHaveCount(1);
+    await expect(items).toHaveCount(0);
+    await expect(pinned).toHaveCount(1);
     await page.locator('.memory-filter button[role="tab"]', { hasText: "全部" }).click();
     await page.locator('textarea[aria-label="记忆内容"]').fill("所有助手都用 pnpm");
     await page.locator("button", { hasText: "记住" }).click();
-    await expect(items).toHaveCount(4);
+    await expect(items).toHaveCount(3);
+    await expect(pinned).toHaveCount(1);
     const remove = items.first().locator("button", { hasText: "删除" });
     await remove.click();
     await expect(remove).toHaveText("确认删除");
     await remove.click();
-    await expect(items).toHaveCount(3);
+    await expect(items).toHaveCount(2);
+    await expect(pinned).toHaveCount(1);
     await page.locator(".memory-actions button", { hasText: "导出" }).click();
     await expect(page.locator(".toast").last()).toContainText("已导出 3 条");
     await noOverflow();
