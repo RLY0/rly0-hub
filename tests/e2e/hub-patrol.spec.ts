@@ -973,9 +973,9 @@ test("gemini: current Antigravity login quota on request, multi-account unsuppor
   await openAccountsTab(page, "Google");
   const card = page.locator(".account-card", { hasText: "Antigravity 当前登录" });
   await expect(page.locator(".beta-tag")).toHaveText("测试版");
-  await expect(card).toContainText("点右上角刷新");
+  await expect(card).toContainText("点刷新读取额度");
   // Antigravity cannot keep accounts: the auto-switch card stays off with the reason.
-  await expect(page.locator(".auto-switch")).toContainText("系统钥匙串");
+  await expect(page.locator(".auto-switch")).toContainText("暂不支持多个 Google 账号");
   await expect(page.locator(".auto-switch")).toContainText("暂不支持");
   await expect(page.locator('.auto-switch button[role="switch"]')).toHaveAttribute(
     "aria-disabled",
