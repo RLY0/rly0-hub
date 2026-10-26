@@ -207,7 +207,7 @@ describe("reset-credit interactions (synthetic)", () => {
     expect(body).toContain("synthetic@example.test");
     expect(body).toContain("1 张额度重置卡（现有 1 张，用后剩 0 张）");
     expect(body).toContain("5 小时额度（现在剩 12%）、每周额度（现在剩 60%）");
-    expect(body).toContain("不会消耗");
+    expect(body).toContain("用掉后不能撤销。");
     expect(f.calls.map((c) => c.method)).toEqual(["accounts.resetPrepare"]);
   });
 });
