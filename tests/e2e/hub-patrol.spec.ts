@@ -1247,9 +1247,9 @@ for (const width of WIDTHS) {
     await send("agents");
     const more = page.locator("details[data-agent-more]");
     await expect(more).not.toHaveAttribute("open", "");
-    await expect(more.locator(":scope > summary")).toContainText("更多 Agent（8）");
+    await expect(more.locator(":scope > summary")).toContainText("更多 Agent（9）");
     await more.locator(":scope > summary").click();
-    await expect(more.locator(".agent-card")).toHaveCount(8);
+    await expect(more.locator(".agent-card")).toHaveCount(9);
     const zcode = more.locator(".agent-card", { hasText: "ZCode" });
     await zcode.locator("details.launch-path summary").click();
     await zcode.locator("details.launch-path input").fill("D:\\Apps\\ZCode");
