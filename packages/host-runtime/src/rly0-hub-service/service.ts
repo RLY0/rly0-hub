@@ -933,7 +933,50 @@ export class Rly0HubService {
       }),
       "hub.state": route(empty, async () => {
         const state = await this.#state.read();
-        return { onboarded: state.onboarded === true };
+        return {
+          onboarded: state.onboarded === true,
+          channelConsented: state.channelConsented === true,
+        };
+      }),
+      // Required first-run step: every Codex conversation goes through the Hub (统一渠道 on and
+      // the local proxy running). The only way back is 恢复纯净状态 below.
+      "hub.enableChannel": route(empty, async () => {
+        await writeUnifiedChannel(true, this.#options.environment);
+        let proxyRunning = false;
+        try {
+          await this.#router.ensureProxy();
+          const status = await core.proxyStatus();
+          proxyRunning = status.available && status.running === true;
+        } catch {
+          proxyRunning = false;
+        }
+        await this.#state.update({ channelConsented: true });
+        return { ok: true, proxyRunning };
+      }),
+      // 恢复纯净状态: undo everything the Hub changed in how Codex connects. Saved accounts,
+      // relays and keys are kept. Each step reports on its own; Codex is restarted by the caller.
+      "hub.restorePure": route(empty, async () => {
+        const steps: Record<string, boolean> = {};
+        await writeUnifiedChannel(false, this.#options.environment);
+        steps.unified = true;
+        steps.noAccount = await this.#codexConfig.restore().then(
+          (r) => r.ok,
+          () => false,
+        );
+        steps.proxy = await Promise.resolve(core.proxyStop()).then(
+          () => true,
+          () => false,
+        );
+        const backup = await this.#backup.status().catch(() => null);
+        steps.config =
+          backup && backup.available
+            ? await this.#backup.restore().then(
+                (r) => Boolean(r && (r as { ok?: unknown }).ok),
+                () => false,
+              )
+            : true;
+        await this.#state.update({ channelConsented: false });
+        return { ok: Object.values(steps).every(Boolean), steps };
       }),
       "hub.finishOnboarding": route(empty, async () => {
         await this.#state.update({ onboarded: true });

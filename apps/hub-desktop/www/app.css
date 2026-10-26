@@ -149,7 +149,7 @@ button {
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 24px 32px 16px;
+  padding: 18px 18px;
 }
 .top .lockup {
   height: 24px;
@@ -190,19 +190,25 @@ button {
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 8px 32px 32px;
+  /* The page edge keeps the same 18 px as the space between modules. */
+  padding: 0 18px 18px;
   outline: none;
 }
 
 /* Modules */
 .grid {
   display: grid;
-  gap: 12px;
+  /* The same space between modules in every direction. */
+  gap: 18px;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   grid-auto-rows: minmax(120px, auto);
 }
 .grid.compact {
   grid-auto-rows: auto;
+}
+/* Stacked grids and blocks on one page keep the same vertical rhythm. */
+#page > * + * {
+  margin-top: 18px;
 }
 .m {
   border-radius: var(--r-lg);
@@ -989,7 +995,7 @@ textarea.input {
 }
 
 .top {
-  padding-left: 32px;
+  padding-left: 18px;
 }
 .top h1 {
   color: var(--paper-100);
@@ -1377,15 +1383,6 @@ textarea.models {
 /* ---------- 不登录 OpenAI 也能用 ---------- */
 .no-account {
   gap: 12px;
-}
-/* 首页: slim strips, switch first and right beside its label. */
-.home-switch {
-  padding-top: 14px;
-  padding-bottom: 14px;
-}
-.home-switch .row {
-  justify-content: flex-start;
-  gap: 14px;
 }
 .plan-lines {
   margin: 0;
@@ -5039,43 +5036,62 @@ select.input,
   color: var(--muted-dark);
   font-size: 12px;
 }
-.activity-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 96px;
-  box-shadow: inset 0 -1px 0 rgba(233, 233, 227, 0.14);
+/* GitHub-style: 7 rows (Sunday–Saturday), one column per week; the columns share the width so
+   the squares fill the card (home.js picks how many weeks fit at about 15 px). */
+.activity-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, auto);
+  grid-template-columns: repeat(var(--weeks, 12), minmax(0, 1fr));
+  gap: 3px;
 }
-/* The hit target is the whole day column, taller than its bar. */
-.activity-day {
-  flex: 1 1 0;
-  height: 100%;
-  display: flex;
-  align-items: flex-end;
-  cursor: default;
+.activity-grid .heat-cell {
+  aspect-ratio: 1;
 }
-.activity-day i {
-  display: block;
-  width: 100%;
-  border-radius: 4px 4px 0 0;
-  background: var(--brand);
+.activity-grid .heat-cell.pad {
+  visibility: hidden;
 }
-.activity-day.zero i {
-  height: 2px !important;
-  border-radius: 0;
-  background: rgba(233, 233, 227, 0.1);
+.heat-cell {
+  aspect-ratio: 1;
 }
-.activity-day:hover i {
-  background: #d4452f;
+.heat-cell {
+  border-radius: 3px;
+  background: rgba(233, 233, 227, 0.07);
 }
-.activity-day.zero:hover i {
-  background: rgba(233, 233, 227, 0.35);
+/* Brand red only as graphics: the heat cells. */
+.heat-cell.l1 {
+  background: rgba(184, 50, 32, 0.35);
 }
-.activity-axis {
+.heat-cell.l2 {
+  background: rgba(184, 50, 32, 0.55);
+}
+.heat-cell.l3 {
+  background: rgba(184, 50, 32, 0.78);
+}
+.heat-cell.l4 {
+  background: #b83220;
+}
+.activity-grid .heat-cell:hover {
+  box-shadow: 0 0 0 2px rgba(245, 245, 240, 0.7);
+}
+.activity-foot {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   color: var(--muted-dark);
   font-size: 11px;
+}
+.heat-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.heat-legend .heat-cell {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
 }
 
 /* 设置 → 通用 → Codex 里 */
@@ -5168,4 +5184,102 @@ select.input,
 }
 .tag.soft {
   opacity: 0.75;
+}
+
+/* ---------- Required first-run dialog: 开启 Hub 转发 ---------- */
+.gate {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+.gate p {
+  margin: 0;
+}
+.gate-list {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  color: var(--paper-100);
+}
+.gate-status:empty {
+  display: none;
+}
+
+/* ---------- Problem banner: only when the local hub is down ---------- */
+.hub-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  background: rgba(184, 50, 32, 0.18);
+  box-shadow: inset 3px 0 0 var(--brand);
+  font-size: 13px;
+}
+.hub-alert[hidden] {
+  display: none;
+}
+.hub-alert > span:not(.pulse):not(.spacer) {
+  color: var(--muted-dark);
+}
+
+/* ---------- 设置 → 恢复纯净 ---------- */
+.pure {
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+.pure > p {
+  margin: 0;
+}
+.pure-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.pure-result {
+  display: grid;
+  gap: 4px;
+  padding-top: 6px;
+}
+.pure-result p {
+  margin: 0;
+}
+
+/* 免登录用中转 lives in the header now, next to 重启 Codex: just the switch and its label. */
+.top-switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 10px;
+  height: 40px;
+  border-radius: var(--r-md);
+  background: rgba(233, 233, 227, 0.06);
+}
+.top-switch:empty {
+  display: none;
+}
+.top-switch .row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+.top-switch .who {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+}
+.top-switch .who b {
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.top-switch .who > span,
+.top-switch > p {
+  display: none;
 }

@@ -264,6 +264,7 @@
     relays: "中转站",
     accounts: "账号",
     backup: "备份",
+    pure: "恢复纯净",
     support: "支持",
     settings: "设置",
     general: "通用",
@@ -618,6 +619,7 @@
     ["instructions", "自定义指令"],
     ["network", "网络代理"],
     ["backup", "备份"],
+    ["pure", "恢复纯净"],
     ["remote", "远程连接"],
     ["usage", "用量统计"],
     ["updates", "更新"],
@@ -718,6 +720,8 @@
   );
   pageApi.applyToCodex = window.registerHubCodexApply(pageApi).apply;
   pageApi.noAccount = window.registerHubNoAccount(pageApi);
+  // 免登录用中转: one switch in the header (next to 重启 Codex) instead of a card on three pages.
+  pageApi.noAccount.mount(document.getElementById("topNoAccount"), () => true, { compact: true });
   pageApi.unifiedChannel = window.registerHubUnifiedChannel(pageApi);
   Object.assign(pageApi, window.registerHubResources(pageApi));
   pageApi.consoleFeatures = window.registerHubConsoleFeatures(pageApi);
@@ -1039,23 +1043,11 @@
       }, 2000);
       pollers.add(timer);
     }
-    // Same switch as 中转站 and 首页 (pages/no-account.js).
-    const noAccountSection = h("section", { class: "m span-6 no-account" });
-    pageApi.noAccount.mount(noAccountSection, alive);
-    // Same switch as 中转站 and 首页 (pages/unified-channel.js).
-    const unifiedSection = h("section", { class: "m span-6 unified-channel" });
-    pageApi.unifiedChannel.mount(unifiedSection, alive);
     root.append(
       head,
       filePicker,
       addStatus,
-      h(
-        "div",
-        { class: "grid compact account-auto" },
-        cards.autoSwitchCard({ alive }),
-        noAccountSection,
-        unifiedSection,
-      ),
+      h("div", { class: "grid compact account-auto" }, cards.autoSwitchCard({ alive })),
       list,
     );
 
@@ -1178,6 +1170,70 @@
       if (alive() && accountCount) refresh.refresh();
     });
   }
+
+  /* 恢复纯净: undo how the Hub routes Codex (统一渠道, local hub, 免登录用中转, Codex config).
+     Saved accounts, relays and keys stay. Afterwards the required dialog shows on next start. */
+  pages.pure = (root, alive) => {
+    const result = h("div", { class: "pure-result", hidden: true });
+    let confirmTap = () => true;
+    const go_ = h(
+      "button",
+      {
+        class: "btn",
+        type: "button",
+        onclick: async () => {
+          if (!confirmTap()) return;
+          go_.disabled = true;
+          const r = await call("hub.restorePure").catch(() => null);
+          if (!alive()) return;
+          go_.disabled = false;
+          result.hidden = false;
+          if (!r) {
+            result.replaceChildren(h("p", { class: "warn-text" }, "没有完成，请重试"));
+            return;
+          }
+          const restart = await call("codex.restart").catch(() => null);
+          if (!alive()) return;
+          result.replaceChildren(
+            h("b", null, r.ok ? "已恢复纯净状态" : "部分没有恢复"),
+            h(
+              "p",
+              { class: "sub" },
+              r.ok
+                ? `${restart && restart.ok ? "Codex 正在重启。" : "请手动重启 Codex。"}之后 Codex 直接连官方或你自己配的服务，不经过 Hub。`
+                : "可以再点一次重试，或到“维护 → 系统诊断”查看。",
+            ),
+            h("p", { class: "sub" }, "想继续用 Hub 时，重新打开 Hub 按提示开启即可。"),
+          );
+        },
+      },
+      "恢复纯净状态",
+    );
+    confirmTap = window.HubUI.armable(go_, { armedText: "确认恢复" });
+    root.append(
+      h(
+        "div",
+        { class: "grid compact" },
+        h(
+          "section",
+          { class: "m span-6 pure" },
+          h("b", null, "恢复到装 Hub 之前"),
+          h("p", { class: "sub" }, "Codex 不再经过 Hub，恢复原来的连接方式。"),
+          h(
+            "ul",
+            { class: "pure-steps" },
+            h("li", null, "关闭统一渠道，停止本机枢纽"),
+            h("li", null, "关闭免登录用中转"),
+            h("li", null, "Codex 配置还原为安装前的备份"),
+            h("li", null, "完成后自动重启 Codex"),
+          ),
+          h("p", { class: "sub" }, "已保存的账号、中转站和 Key 会保留。"),
+          h("div", { class: "row" }, go_),
+          result,
+        ),
+      ),
+    );
+  };
 
   pages.backup = (root, alive) => {
     const module = h("section", { class: "m span-6" }, h("div", { class: "sub" }, "读取中…"));
@@ -1928,7 +1984,15 @@
           'model = "gpt-6.1-sol" （原来是 "gpt-5.5"）',
         ],
       },
-      "hub.state": { onboarded: !/[?&]wizard/.test(location.search) },
+      "hub.state": {
+        onboarded: !/[?&]wizard/.test(location.search),
+        channelConsented: !/[?&]gate/.test(location.search),
+      },
+      "hub.enableChannel": { ok: true, proxyRunning: true },
+      "hub.restorePure": {
+        ok: true,
+        steps: { unified: true, noAccount: true, proxy: true, config: true },
+      },
       "discovery.scan": {
         coreAvailable: true,
         items: [
@@ -2048,9 +2112,99 @@
   }
 
   if (!webview) onMessage({ event: "ready" });
+  /* ---------- Required first-run step: route Codex through the Hub ---------- */
+  // One button only. The way back is 设置 → 恢复纯净, named right in the dialog.
+  function channelGate() {
+    return new Promise((resolve) => {
+      const ui = window.HubUI.dialog({ title: "开启 Hub 转发", locked: true });
+      const status = h("p", { class: "sub gate-status", "aria-live": "polite" });
+      const ok = h(
+        "button",
+        {
+          class: "btn paper",
+          type: "button",
+          onclick: async () => {
+            ok.disabled = true;
+            status.textContent = "正在开启…";
+            const r = await call("hub.enableChannel").catch(() => null);
+            if (!r || !r.ok) {
+              ok.disabled = false;
+              status.textContent = "没有开启成功，请重试";
+              return;
+            }
+            ui.close();
+            if (!r.proxyRunning) checkHubAlert();
+            resolve();
+          },
+        },
+        "开启",
+      );
+      ui.body.append(
+        h(
+          "div",
+          { class: "gate" },
+          h("p", null, "Hub 需要让 Codex 的请求先经过本机的零号枢纽，才能："),
+          h(
+            "ul",
+            { class: "gate-list" },
+            h("li", null, "使用中转站"),
+            h("li", null, "管理和切换账号"),
+            h("li", null, "同一对话里换模型、分发任务"),
+          ),
+          h(
+            "p",
+            { class: "sub" },
+            "只在这台电脑上转发，用的还是你自己的账号，不经过第三方服务器。",
+          ),
+          h("p", { class: "sub" }, "想恢复成装 Hub 之前的样子：设置 → 恢复纯净。"),
+          status,
+        ),
+      );
+      ui.foot.append(h("span", { class: "spacer" }), ok);
+      setTimeout(() => ok.focus(), 50);
+    });
+  }
+
+  /* ---------- Shown only when something is wrong: the local hub is not running ---------- */
+  const alertEl = document.getElementById("hubAlert");
+  let channelOn = false;
+  async function checkHubAlert() {
+    if (!channelOn) {
+      alertEl.hidden = true;
+      return;
+    }
+    const proxy = await call("proxy.status").catch(() => null);
+    const down = Boolean(proxy && proxy.available && !proxy.running);
+    alertEl.hidden = !down;
+    if (!down) return;
+    alertEl.replaceChildren(
+      h("span", { class: "pulse off" }),
+      h("b", null, "本机枢纽没有运行"),
+      h("span", null, "Codex 现在发不出消息"),
+      h("span", { class: "spacer" }),
+      h(
+        "button",
+        {
+          class: "btn sm paper",
+          type: "button",
+          onclick: async (event) => {
+            event.currentTarget.disabled = true;
+            await call("proxy.start").catch(failed);
+            checkHubAlert();
+          },
+        },
+        "重新启动",
+      ),
+    );
+  }
+  setInterval(checkHubAlert, 30_000);
+
   go("home");
   call("hub.state")
-    .then((state) => {
+    .then(async (state) => {
+      if (!state.channelConsented) await channelGate();
+      channelOn = true;
+      checkHubAlert();
       if (!state.onboarded) go("wizard");
     })
     .catch(() => undefined);

@@ -14,8 +14,6 @@ window.registerHubRelays = ({
   isOfficialKey,
   moneyBadge,
   rateBadge,
-  noAccount: { mount: noAccountMount },
-  unifiedChannel: { mount: unifiedMount },
 }) => {
   const RLY0_BASE = "https://api.rly0.com/v1";
   const put = (element, ...items) =>
@@ -335,23 +333,15 @@ window.registerHubRelays = ({
         h("span", null, "填地址和 API Key，自动识别名称、图标和模型"),
       ),
     );
-    const noAccount = h("section", { class: "m span-3 no-account" });
     const rly0Module = h("section", { class: "m bal span-6 rly0-connect" });
-    // 统一渠道: the shared card (unified-channel.js), also on 首页 and 账号.
-    const unified = h("section", { class: "m span-6 unified-channel" });
     const list = h("div", { class: "grid compact" });
     const proxyLine = h("div", { class: "row proxy-line" });
     root.append(
-      h("div", { class: "grid compact relay-top" }, addTile, noAccount),
-      h("div", { class: "grid compact" }, rly0Module, unified),
+      h("div", { class: "grid compact relay-top" }, addTile),
+      h("div", { class: "grid compact" }, rly0Module),
       h("h2", { class: "section-title" }, "我的中转站", proxyLine),
       list,
     );
-
-    // No-account switch: the shared card (no-account.js), also on 首页 and 账号.
-    const noAccountCard = noAccountMount(noAccount, alive);
-    unifiedMount(unified, alive);
-    const loadNoAccount = noAccountCard.reload;
 
     const rly0Key = h("input", {
       class: "input on-red",
@@ -438,24 +428,23 @@ window.registerHubRelays = ({
       // Claude Code's own Anthropic API key is kept like a relay but managed on the AI 助手 page.
       const items = ((relays && relays.relays) || []).filter((r) => !isOfficialKey(r));
       const running = Boolean(proxy && proxy.running);
-      put(
-        proxyLine,
-        h("span", { class: `pulse ${running ? "" : "off"}` }),
-        h(
-          "span",
-          { class: "sub tabular" },
-          running ? `本地代理 127.0.0.1:${proxy.port}` : "本地代理未开启",
-        ),
-        h(
-          "button",
-          {
-            class: "btn quiet sm",
-            type: "button",
-            onclick: () => call(running ? "proxy.stop" : "proxy.start").then(load, failed),
-          },
-          running ? "停止" : "开启",
-        ),
-      );
+      // The local hub is not a choice any more; it only shows up here when it is not running.
+      if (running) put(proxyLine);
+      else
+        put(
+          proxyLine,
+          h("span", { class: "pulse off" }),
+          h("span", { class: "sub" }, "本机枢纽没有运行"),
+          h(
+            "button",
+            {
+              class: "btn quiet sm",
+              type: "button",
+              onclick: () => call("proxy.start").then(load, failed),
+            },
+            "启动",
+          ),
+        );
       renderRly0(items.some((relay) => relay.hasKey && isRly0(relay)));
       put(
         list,
@@ -463,7 +452,6 @@ window.registerHubRelays = ({
           ? items.map(card)
           : h("p", { class: "empty span-6" }, "还没有中转站。点上面的“添加中转站”。"),
       );
-      loadNoAccount();
     }
 
     function card(relay) {

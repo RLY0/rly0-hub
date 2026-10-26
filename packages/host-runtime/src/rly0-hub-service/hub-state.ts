@@ -19,6 +19,11 @@ export interface Rly0HubState {
   readonly autostartDefaulted?: boolean;
   /** The first-run guide was finished or skipped. */
   readonly onboarded?: boolean;
+  /**
+   * The person turned on routing through RLY/0 Hub (统一渠道 + local proxy) from the required
+   * first-run dialog. Cleared by 恢复纯净状态, so the dialog shows again next time.
+   */
+  readonly channelConsented?: boolean;
   /** A low-balance notice was shown and the balance has not recovered since. */
   readonly balanceLowNotified?: boolean;
   /** `resetsAt` of the Codex quota window a low-quota notice was shown for. */
@@ -45,6 +50,7 @@ function clean(value: unknown): Rly0HubState {
   return {
     ...(raw.autostartDefaulted === true ? { autostartDefaulted: true } : {}),
     ...(raw.onboarded === true ? { onboarded: true } : {}),
+    ...(raw.channelConsented === true ? { channelConsented: true } : {}),
     ...(raw.balanceLowNotified === true ? { balanceLowNotified: true } : {}),
     ...(typeof raw.quotaNotifiedFor === "number" && Number.isSafeInteger(raw.quotaNotifiedFor)
       ? { quotaNotifiedFor: raw.quotaNotifiedFor }

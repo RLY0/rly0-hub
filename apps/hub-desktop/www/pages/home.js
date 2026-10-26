@@ -283,26 +283,11 @@ window.registerHubHome = (api) => {
     const agentsModule = h("section", { class: "m panel span-3" });
     const lines = h("section", { class: "m panel span-3" });
     // Same switch as 中转站 and 账号 (pages/no-account.js).
-    // 首页: the two Codex switches side by side as slim strips, each switch beside its label.
-    const noAccount = h("section", { class: "m span-3 no-account home-switch" });
-    const unified = h("section", { class: "m span-3 unified-channel home-switch" });
     // Codex 概况: what the in-Codex 仪表盘 showed (sessions, MCP, Skills, 12-week activity).
     const overview = h("section", { class: "m panel span-6 codex-overview" });
     root.append(
-      h(
-        "div",
-        { class: "grid home-grid" },
-        promo,
-        people,
-        noAccount,
-        unified,
-        agentsModule,
-        lines,
-        overview,
-      ),
+      h("div", { class: "grid home-grid" }, promo, people, agentsModule, lines, overview),
     );
-    api.noAccount.mount(noAccount, alive, { compact: true });
-    api.unifiedChannel.mount(unified, alive, { compact: true });
 
     async function loadPromo() {
       const result = await call("balance.get").catch((error) => ({
@@ -602,25 +587,10 @@ window.registerHubHome = (api) => {
 
     /* 线路与余额: where requests go and whether the balance holds. */
     function renderLines(summary) {
-      const proxy = summary && summary.proxy;
-      const running = Boolean(proxy && proxy.running);
       const list = h("div", { class: "line-list" }, h("span", { class: "sub" }, "读取中…"));
       put(
         lines,
-        modHead(
-          "route",
-          "中转站",
-          "接入的中转站和余额",
-          h(
-            "span",
-            {
-              class: `state-pill ${running ? "ok" : ""}`,
-              "data-tip": running ? `本地代理 127.0.0.1:${proxy.port}` : "有启用的中转站时自动开启",
-            },
-            h("span", { class: `pulse ${running ? "" : "off"}` }),
-            running ? "代理在线" : "代理未开",
-          ),
-        ),
+        modHead("route", "中转站", "接入的中转站和余额"),
         list,
         h(
           "div",
@@ -727,55 +697,92 @@ window.registerHubHome = (api) => {
           h("b", { class: "tabular" }, value),
           h("span", null, label),
         );
-      const days = (threads && threads.activity) || [];
-      // 最近 12 周: one column per day across the full width, height = that day's sessions.
-      // Single series, so no legend; the summary line names it and each bar has a hover tip.
-      const peak = Math.max(1, ...days.map((day) => day.count));
-      const total = days.reduce((sum, day) => sum + day.count, 0);
-      const active = days.filter((day) => day.count > 0).length;
+      // 活跃: GitHub-style pixel squares, 7 rows (Sunday–Saturday), one column per week, as many
+      // recent weeks as fit the card at ~13–18 px per square (up to 105 from `history`).
+      const allDays = (threads && (threads.history || threads.activity)) || [];
       const md = (date) => {
         const [, m, d] = String(date).split("-");
         return m && d ? `${Number(m)}/${Number(d)}` : String(date);
       };
-      const heat = h(
-        "div",
-        { class: "activity" },
-        h(
-          "div",
-          { class: "activity-head" },
-          h("b", null, "最近 12 周"),
+      const heat = h("div", { class: "activity" });
+      function drawHeat(width) {
+        const CELL = 15;
+        const GAP = 3;
+        const weeksAvailable = Math.ceil(allDays.length / 7);
+        const weeks = Math.max(
+          4,
+          Math.min(weeksAvailable, Math.floor((width + GAP) / (CELL + GAP))),
+        );
+        // Last `weeks` columns ending with today's week; pad the first column to its weekday.
+        const today = allDays[allDays.length - 1];
+        const todayDow = today ? new Date(`${today.date}T00:00:00`).getDay() : 6;
+        const count = Math.min(allDays.length, (weeks - 1) * 7 + todayDow + 1);
+        const days = allDays.slice(allDays.length - count);
+        const firstDow = days[0] ? new Date(`${days[0].date}T00:00:00`).getDay() : 0;
+        const peak = Math.max(1, ...days.map((day) => day.count));
+        const total = days.reduce((sum, day) => sum + day.count, 0);
+        const active = days.filter((day) => day.count > 0).length;
+        heat.style.setProperty("--weeks", String(weeks));
+        heat.replaceChildren(
           h(
-            "span",
-            { class: "tabular" },
-            `${total} 个会话 · 活跃 ${active} 天 · 单日最多 ${peak === 1 && total === 0 ? 0 : peak}`,
-          ),
-        ),
-        h(
-          "div",
-          { class: "activity-bars", role: "img", "aria-label": `最近 12 周共 ${total} 个会话` },
-          days.map((day) =>
+            "div",
+            { class: "activity-head" },
+            h("b", null, `最近 ${weeks} 周`),
             h(
               "span",
-              {
-                class: `activity-day ${day.count ? "" : "zero"}`,
+              { class: "tabular" },
+              `${total} 个会话 · 活跃 ${active} 天 · 单日最多 ${total === 0 ? 0 : peak}`,
+            ),
+          ),
+          h(
+            "div",
+            {
+              class: "activity-grid",
+              role: "img",
+              "aria-label": `最近 ${weeks} 周共 ${total} 个会话`,
+            },
+            Array.from({ length: firstDow }, () =>
+              h("span", { class: "heat-cell pad", "aria-hidden": "true" }),
+            ),
+            days.map((day) =>
+              h("span", {
+                class: `heat-cell l${day.count === 0 ? 0 : Math.min(4, Math.ceil((day.count / peak) * 4))}`,
                 "data-tip": `${md(day.date)} · ${day.count} 个会话`,
-              },
-              h("i", {
-                style: { height: `${day.count ? Math.max(6, (day.count / peak) * 100) : 0}%` },
               }),
             ),
           ),
-        ),
-        h(
-          "div",
-          { class: "activity-axis tabular", "aria-hidden": "true" },
-          days.filter((_, index) => index % 14 === 0).map((day) => h("span", null, md(day.date))),
-          h("span", null, "今天"),
-        ),
-      );
+          h(
+            "div",
+            { class: "activity-foot", "aria-hidden": "true" },
+            h("span", { class: "tabular" }, `${md(days[0] && days[0].date)} — 今天`),
+            h(
+              "span",
+              { class: "heat-legend" },
+              "少",
+              [0, 1, 2, 3, 4].map((level) => h("i", { class: `heat-cell l${level}` })),
+              "多",
+            ),
+          ),
+        );
+      }
+      // Redraw only when the number of weeks that fit changes.
+      let drawnFor = -1;
+      const fit = () => {
+        const inner = heat.clientWidth - 36;
+        const weeks = Math.floor((inner + 3) / 18);
+        if (inner > 0 && weeks !== drawnFor) {
+          drawnFor = weeks;
+          drawHeat(inner);
+        }
+      };
+      if (allDays.length) {
+        const observer = new ResizeObserver(() => (alive() ? fit() : observer.disconnect()));
+        observer.observe(heat);
+        drawHeat(1000);
+      }
       put(
         overview,
-        modHead("chart", "Codex 概况", "会话、MCP、Skills 和最近 12 周的活跃"),
+        modHead("chart", "Codex 概况", "会话、MCP、Skills 和每天的活跃"),
         h(
           "div",
           { class: "overview-stats" },
@@ -796,7 +803,7 @@ window.registerHubHome = (api) => {
           ),
           stat("活跃天数", threads ? String(threads.stats.activeDays) : "—", "threads"),
         ),
-        days.length ? heat : null,
+        allDays.length ? heat : null,
       );
     }
 

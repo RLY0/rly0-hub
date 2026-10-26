@@ -288,6 +288,7 @@ export {
   RLY0_DASHBOARD_HEALTH_METHOD,
   RLY0_DASHBOARD_THREAD_STATS_METHOD,
   RLY0_DASHBOARD_ACTIVITY_DAYS,
+  RLY0_DASHBOARD_HISTORY_DAYS,
   rly0DashboardHealthParamsSchema,
   rly0DashboardHealthResultSchema,
   rly0DashboardThreadStatsParamsSchema,

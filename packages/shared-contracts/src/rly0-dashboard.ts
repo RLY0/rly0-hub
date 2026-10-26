@@ -13,6 +13,8 @@ export const RLY0_DASHBOARD_THREAD_STATS_METHOD = "codexhost/rly0/dashboard/thre
 
 /** The activity heat map covers the last 12 weeks. */
 export const RLY0_DASHBOARD_ACTIVITY_DAYS = 84;
+/** RLY/0 Hub 首页 grid: 105 weeks, shown as many weeks as fit the window. */
+export const RLY0_DASHBOARD_HISTORY_DAYS = 735;
 
 export const rly0DashboardHealthParamsSchema = z.object({}).strict();
 export type Rly0DashboardHealthParams = z.infer<typeof rly0DashboardHealthParamsSchema>;
@@ -49,6 +51,8 @@ export const rly0DashboardThreadStatsResultSchema = z
     stats: rly0ThreadStatsSchema,
     /** Oldest first, exactly 84 consecutive days ending today (host local time). */
     activity: z.array(rly0DashboardActivityDaySchema).length(RLY0_DASHBOARD_ACTIVITY_DAYS),
+    /** Same, for the last 735 days (105 weeks); the Hub window shows as many weeks as fit. */
+    history: z.array(rly0DashboardActivityDaySchema).max(RLY0_DASHBOARD_HISTORY_DAYS).optional(),
   })
   .strict();
 export type Rly0DashboardThreadStatsResult = z.infer<typeof rly0DashboardThreadStatsResultSchema>;

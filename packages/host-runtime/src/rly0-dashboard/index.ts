@@ -8,6 +8,7 @@ import type {
   Rly0DashboardThreadStatsResult,
 } from "@codexhost/shared-contracts";
 
+import { RLY0_DASHBOARD_HISTORY_DAYS } from "@codexhost/shared-contracts";
 import { resolveCodexHome } from "../rly0-mcp/file-io.js";
 import { Rly0ThreadsManager, computeActivity, computeThreadStats } from "../rly0-threads/index.js";
 
@@ -81,6 +82,7 @@ export class Rly0DashboardManager {
       rootExists,
       stats: computeThreadStats(files),
       activity: computeActivity(files, this.#now()),
+      history: computeActivity(files, this.#now(), RLY0_DASHBOARD_HISTORY_DAYS),
     };
   }
 }
