@@ -1336,7 +1336,7 @@ for (const width of WIDTHS) {
     // 记忆: search, add, delete, export.
     await page.locator(".bridge-tabs button", { hasText: "记忆" }).click();
     const pinned = page.locator('[aria-label="常驻偏好"] .memory-item');
-    const items = page.locator(".memory-list .memory-item");
+    const items = page.locator(".memory-list .memory-item:not(.pinned)");
     await expect(pinned).toHaveCount(1);
     await expect(pinned).toContainText("回复用中文");
     await expect(items).toHaveCount(2);
@@ -1363,7 +1363,7 @@ for (const width of WIDTHS) {
     await page.locator(".memory-actions button", { hasText: "导出" }).click();
     await expect(page.locator(".toast").last()).toContainText("已导出 3 条");
     await noOverflow();
-    await page.locator(".memory-list").scrollIntoViewIfNeeded();
+    await items.last().scrollIntoViewIfNeeded();
     await settled();
     await page.screenshot({ path: path.join(dir, "memory.png") });
 
