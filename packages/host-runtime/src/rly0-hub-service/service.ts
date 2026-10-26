@@ -203,9 +203,6 @@ export interface Rly0HubServiceOptions {
   readonly liveQuotaPollMs?: number;
 }
 
-/** Timed refreshes read a Claude subscription token's quota at most this often. */
-export const CLAUDE_KEY_AUTO_READ_MS = 5 * 60_000;
-
 export function isRly0Relay(relay: Pick<Rly0Relay, "baseUrl">): boolean {
   try {
     return RLY0_HOSTS.test(new URL(relay.baseUrl).hostname);
@@ -273,7 +270,6 @@ export class Rly0HubService {
   readonly #officialModels: Rly0OfficialKeyModels;
   readonly #officialUsage: Rly0OfficialKeyUsage;
   /** When each Claude token's quota was last read through rly0-core (epoch ms). */
-  readonly #claudeKeyReadAt = new Map<string, number>();
   readonly #liveQuota: Rly0HubLiveQuota;
   #usageSequence = 0;
   readonly #usageReads = new Map<string, number>();
@@ -398,7 +394,8 @@ export class Rly0HubService {
     const agentSources = createAgentAutoSwitchSources({
       core: this.#core,
       claudeSelection: async () => (await this.#agentRelays.get()).claudeCode ?? null,
-      recordTokenUsage: (relay, info) => this.#officialUsage.record(relay, info),
+      tokenUsage: async (relay) =>
+        this.#officialUsage.forRelay(relay, await this.#officialUsage.read())?.usage,
       handle: (method, params) => this.handle(method, params),
     });
     this.#agentSwitch = createAgentAutoSwitch(this.#state, {
@@ -1505,26 +1502,15 @@ export class Rly0HubService {
           const relay = await this.#officialKey(core, p.vendor, p.id);
           if (!relay) return { info: null };
           if (p.vendor === "anthropic") {
-            // A subscription-token read can cost a tiny model request: a timed refresh reads at
-            // most once per 5 minutes per token, and not at all while replies keep it current.
-            if (p.auto) {
-              const previous = this.#officialUsage.forRelay(
-                relay,
-                await this.#officialUsage.read(),
-              );
-              const lastRead = this.#claudeKeyReadAt.get(relay.id) ?? 0;
-              const fetchedMs = (previous?.usage.fetchedAt ?? 0) * 1000;
-              if (Date.now() - Math.max(lastRead, fetchedMs) < CLAUDE_KEY_AUTO_READ_MS)
-                return { info: null, skipped: true };
-            }
-            this.#claudeKeyReadAt.set(relay.id, Date.now());
-            if (this.#claudeKeyReadAt.size > 256)
-              this.#claudeKeyReadAt.delete(this.#claudeKeyReadAt.keys().next().value ?? "");
+            // A timed or page-open read never goes to Anthropic for a subscription token: its
+            // numbers come from the rate-limit headers of Claude Code's own replies (live quota
+            // feed). Only the person's 刷新 reads, and may use Claude Code's one-token quota check.
+            if (p.auto) return { info: null, skipped: true };
             const sequence = ++this.#usageSequence;
             this.#usageReads.set(relay.id, sequence);
             if (this.#usageReads.size > 256)
               this.#usageReads.delete(this.#usageReads.keys().next().value ?? "");
-            const info = await core.claudeAccounts("keyInfo", { relayId: relay.id });
+            const info = await core.claudeAccounts("keyInfo", { relayId: relay.id, probe: true });
             if (!info) throw codedHubError("RLY0_CORE_UNAVAILABLE");
             const current = await this.#officialKey(core, p.vendor, relay.id);
             if (!current || (relay.keyRevision && current.keyRevision !== relay.keyRevision))

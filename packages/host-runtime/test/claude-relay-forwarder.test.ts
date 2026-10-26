@@ -111,6 +111,64 @@ describe("Claude relay forwarder", () => {
     ]);
   });
 
+  it("passes Claude Code's own headers and body through untouched, adding none", async () => {
+    let received: { headers: [string, string][]; body: string } | null = null;
+    const server = http.createServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk: string) => (body += chunk));
+      request.on("end", () => {
+        const headers: [string, string][] = [];
+        for (let i = 0; i < request.rawHeaders.length; i += 2)
+          headers.push([
+            (request.rawHeaders[i] as string).toLowerCase(),
+            request.rawHeaders[i + 1] as string,
+          ]);
+        received = { headers, body };
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end("{}");
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const proxyBaseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+    const instance = forwarder({
+      resolve: () => Promise.resolve({ proxyBaseUrl, relayId: "aaaaaaaaaaaa" }),
+    });
+    const url = new URL(`${await instance.url()}/v1/messages?beta=true`);
+    const body = '{"model":"claude-opus-5-5","max_tokens":32000,"stream":true,"messages":[]}';
+    // What Claude Code 2.1 sends (synthetic values).
+    const claudeCode: Record<string, string> = {
+      accept: "application/json",
+      "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "anthropic-version": "2023-06-01",
+      authorization: `Bearer ${CLAUDE_CODE_RELAY_TOKEN}`,
+      "content-type": "application/json",
+      "user-agent": "claude-cli/2.1.300 (external, cli)",
+      "x-app": "cli",
+      "x-claude-code-session-id": "5f0c0000-0000-4000-8000-000000000001",
+      "x-stainless-lang": "js",
+      "x-stainless-retry-count": "0",
+      "content-length": String(Buffer.byteLength(body)),
+    };
+    await new Promise<void>((resolve, reject) => {
+      const request = http.request(url, { method: "POST", headers: claudeCode }, (response) => {
+        response.resume();
+        response.once("end", resolve);
+      });
+      request.once("error", reject);
+      request.end(body);
+    });
+    const got = received as { headers: [string, string][]; body: string } | null;
+    expect(got?.body).toBe(body);
+    // Only the hop headers HTTP itself sets differ (host, connection); nothing else is added.
+    const hop = new Set(["host", "connection"]);
+    const sent = Object.entries(claudeCode).sort();
+    const seen = (got?.headers ?? []).filter(([name]) => !hop.has(name)).sort();
+    expect(seen).toEqual(sent);
+  });
+
   it("streams responses through as they arrive", async () => {
     const proxy = await fakeProxy((_id, response) => {
       response.writeHead(200, { "content-type": "text/event-stream" });

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CLAUDE_KEY_QUOTA_AUTO_INTERVAL_MS,
   ClaudeOfficialKeyQuota,
   projectClaudeKeyUsage,
   withClaudeKeyPlanUsage,
@@ -84,39 +83,34 @@ describe("Claude official key quota", () => {
     expect(withClaudeKeyPlanUsage(null, {})).toBeNull();
   });
 
-  it("reads on its own at most once per 5 minutes, without making the inspection wait", async () => {
+  it("never reads on its own: passive inspections report what real replies carried", async () => {
     const h = harness([SETUP_TOKEN_INFO]);
-    const landed = h.updated();
-    // First passive inspection: nothing known yet, a read starts in the background.
+    // Nothing known yet and nothing read, however long it stays open.
     await expect(h.quota.inspect(KEY, false)).resolves.toEqual({ snapshot: null });
-    await landed;
-    expect(h.reads).toEqual([KEY.relayId]);
+    h.advance(24 * 3600_000);
+    await expect(h.quota.inspect(KEY, false)).resolves.toEqual({ snapshot: null });
+    expect(h.reads).toEqual([]);
+    // A Claude Code reply carried the numbers: shown, still without a read.
+    const update = h.updated();
+    h.quota.observe(KEY.relayId, SETUP_TOKEN_INFO.usage as never);
+    await update;
     const cached = await h.quota.inspect(KEY, false);
     expect(cached.quota).toEqual({
       status: "cached",
       observedAt: new Date(FETCHED * 1000).toISOString(),
     });
     expect(cached.snapshot?.credits.usedPercent).toBe(39);
-
-    h.advance(CLAUDE_KEY_QUOTA_AUTO_INTERVAL_MS - 1);
-    await h.quota.inspect(KEY, false);
-    expect(h.reads).toHaveLength(1);
-
-    h.advance(1);
-    const again = h.updated();
-    await h.quota.inspect(KEY, false);
-    await again;
-    expect(h.reads).toHaveLength(2);
+    expect(h.reads).toEqual([]);
   });
 
   it("an explicit refresh reads now, at most every 10 seconds, and joins a read in flight", async () => {
     const h = harness([SETUP_TOKEN_INFO]);
-    const passive = h.quota.inspect(KEY, false);
-    const explicit = await h.quota.inspect(KEY, true);
-    await passive;
-    // The passive call had already started a read; the refresh waited for it.
+    const first = h.quota.inspect(KEY, true);
+    const joined = await h.quota.inspect(KEY, true);
+    await first;
+    // The second refresh waited for the read in flight.
     expect(h.reads).toHaveLength(1);
-    expect(explicit.quota?.status).toBe("live");
+    expect(joined.quota?.status).toBe("live");
 
     h.advance(5_000);
     await expect(h.quota.inspect(KEY, true)).resolves.toMatchObject({
@@ -154,19 +148,19 @@ describe("Claude official key quota", () => {
     });
   });
 
-  it("a failed first read is reported, and a replaced token reads afresh", async () => {
+  it("a failed first read is reported, and a replaced token starts afresh", async () => {
     const h = harness([{ kind: "subscription", valid: true, usageError: "USAGE_NETWORK" }]);
-    const landed = h.updated();
-    await h.quota.inspect(KEY, false);
-    await landed;
+    await h.quota.inspect(KEY, true);
     await expect(h.quota.inspect(KEY, false)).resolves.toEqual({
       quota: { status: "failed" },
       snapshot: null,
     });
     expect(h.reads).toHaveLength(1);
-    const replaced = h.updated();
-    await h.quota.inspect({ ...KEY, keyMask: "sk-ant-oat01-…efgh" }, false);
-    await replaced;
+    await expect(
+      h.quota.inspect({ ...KEY, keyMask: "sk-ant-oat01-…efgh" }, false),
+    ).resolves.toEqual({ snapshot: null });
+    expect(h.reads).toHaveLength(1);
+    await h.quota.inspect({ ...KEY, keyMask: "sk-ant-oat01-…efgh" }, true);
     expect(h.reads).toHaveLength(2);
   });
 
@@ -180,7 +174,7 @@ describe("Claude official key quota", () => {
     const h = harness([limited, SETUP_TOKEN_INFO]);
     const failed = await h.quota.inspect(KEY, true);
     expect(failed).toEqual({ quota: { status: "failed", failure: "rateLimited" }, snapshot: null });
-    h.advance(CLAUDE_KEY_QUOTA_AUTO_INTERVAL_MS);
+    h.advance(10_000);
     const live = await h.quota.inspect(KEY, true);
     expect(live.quota?.status).toBe("live");
     expect(live.quota).not.toHaveProperty("failure");

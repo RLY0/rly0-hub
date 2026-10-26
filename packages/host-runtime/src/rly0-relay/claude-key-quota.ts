@@ -11,15 +11,15 @@ import { sanitizeRly0Usage } from "../rly0-core/index.js";
  * Plan quota of the official Anthropic key or subscription token that RLY/0 Hub keeps for Claude
  * Code (the `claudeCode` relay choice pointing at an `api.anthropic.com` entry). Claude Code runs
  * behind the local proxy and never sees the token, so it reports no plan windows itself; rly0-core
- * `claude/keyInfo` reads them instead (the OAuth usage endpoint, or for a `claude setup-token`
- * token the rate-limit headers of a one-token model request).
+ * the numbers come from the rate-limit headers of Claude Code's own replies (`observe`, read by the
+ * local forwarder), so the official side sees no request Claude Code would not make itself.
  *
- * Because a read can cost a tiny model request, reads happen at most once per
- * `autoIntervalMs` per token on their own (Usage inspections, opening a Thread), and on the
- * user's explicit refresh no more often than `manualIntervalMs`. A passive inspection never
- * waits: it starts the read and reports what is known; `onUpdate` fires when the read lands.
+ * Nothing is read on a timer or on a passive inspection (Usage popover, opening a Thread): those
+ * report what real replies carried, or nothing yet ("未知 · 聊一句后更新"). Only the person's explicit
+ * refresh reads with rly0-core `claude/keyInfo` (`probe: true`: the OAuth usage endpoint, or for a
+ * `claude setup-token` token Claude Code's own one-token quota check), no more often than
+ * `manualIntervalMs`.
  */
-export const CLAUDE_KEY_QUOTA_AUTO_INTERVAL_MS = 5 * 60_000;
 export const CLAUDE_KEY_QUOTA_MANUAL_INTERVAL_MS = 10_000;
 
 /** Which saved key: its relay entry and the core's mask, so a replaced token reads afresh. */
@@ -128,7 +128,6 @@ export function projectClaudeKeyUsage(usage: Rly0AccountUsage): ClaudeKeyQuotaSn
 export class ClaudeOfficialKeyQuota {
   readonly #read: ClaudeKeyInfoReader;
   readonly #now: () => number;
-  readonly #autoIntervalMs: number;
   readonly #manualIntervalMs: number;
   readonly #onUpdate: (() => void) | undefined;
   #key: string | null = null;
@@ -140,14 +139,12 @@ export class ClaudeOfficialKeyQuota {
     read: ClaudeKeyInfoReader,
     options: {
       now?: () => number;
-      autoIntervalMs?: number;
       manualIntervalMs?: number;
       onUpdate?: () => void;
     } = {},
   ) {
     this.#read = read;
     this.#now = options.now ?? Date.now;
-    this.#autoIntervalMs = options.autoIntervalMs ?? CLAUDE_KEY_QUOTA_AUTO_INTERVAL_MS;
     this.#manualIntervalMs = options.manualIntervalMs ?? CLAUDE_KEY_QUOTA_MANUAL_INTERVAL_MS;
     this.#onUpdate = options.onUpdate;
   }
@@ -163,16 +160,13 @@ export class ClaudeOfficialKeyQuota {
   }
 
   /**
-   * Passive (`explicit` false): starts a read when none happened within the automatic interval
-   * and answers at once from what is known. Explicit: awaits a read (or the one in flight).
+   * Passive (`explicit` false): answers at once from what real replies carried; never reads.
+   * Explicit (the person's refresh): awaits a read (or the one in flight).
    */
   async inspect(ref: ClaudeOfficialKeyRef, explicit: boolean): Promise<ClaudeKeyQuotaRead> {
     const entry = this.#entryFor(ref);
     const since = entry.attemptedAt === null ? Infinity : this.#now() - entry.attemptedAt;
-    if (!explicit) {
-      if (!entry.inflight && since >= this.#autoIntervalMs) void this.#start(ref.relayId, entry);
-      return this.#state(entry, "cached");
-    }
+    if (!explicit) return this.#state(entry, "cached");
     if (entry.inflight) await entry.inflight;
     else if (since >= this.#manualIntervalMs) await this.#start(ref.relayId, entry);
     else return this.#state(entry, "cached");

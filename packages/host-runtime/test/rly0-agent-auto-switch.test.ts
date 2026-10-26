@@ -17,6 +17,7 @@ import {
   type Rly0AutoSwitchCandidate,
 } from "../src/rly0-hub-service/agent-auto-switch.js";
 import { Rly0HubService } from "../src/rly0-hub-service/service.js";
+import { Rly0OfficialKeyUsage } from "../src/rly0-relay/official-key-usage.js";
 
 let directory: string | undefined;
 afterEach(async () => {
@@ -379,7 +380,8 @@ describe("Claude / Grok auto-switch in the Hub service", () => {
                 : { id, ok: true, usage: claude.usage[id] },
             ),
           };
-        if (method === "keyInfo") return { kind: "subscription", valid: true, usage: claude.token };
+        // A subscription token's quota is never read from Anthropic by the auto-switch.
+        if (method === "keyInfo") throw new Error("auto-switch must not read a token's quota");
         if (method === "switch") {
           claude.current = String(p.id);
           return { switched: true };
@@ -403,7 +405,20 @@ describe("Claude / Grok auto-switch in the Hub service", () => {
       core: fake.core,
       agentAutoSwitch: { busy, sleep: async () => undefined, pollMs: 1 },
     });
-    return { hub, root: directory, ...fake };
+    // The numbers Claude Code's replies carried for the token (live quota feed → cache).
+    const seedToken = async (usage: unknown) => {
+      const later = Math.floor(Date.now() / 1000) + 3600;
+      const windows = (usage as { windows: Record<string, unknown>[] }).windows.map((w) => ({
+        ...w,
+        resetsAt: later,
+      }));
+      await new Rly0OfficialKeyUsage({ CODEXHOST_DATA_DIR: directory }).record(
+        relay("cccccccccccc", "Claude 订阅令牌") as never,
+        { kind: "subscription", usage: { windows, fetchedAt: later - 3600, source: "live" } },
+      );
+    };
+    await seedToken(fake.claude.token);
+    return { hub, root: directory, seedToken, ...fake };
   }
 
   const settings = { remain5h: 15, remainWeekly: 10, mode: "auto" } as const;
@@ -477,9 +492,9 @@ describe("Claude / Grok auto-switch in the Hub service", () => {
 
   it("asks to move a low token back to a saved account; the click waits for the reply", async () => {
     let busy: boolean | null = true;
-    const { hub, calls, claude } = await service(async () => busy);
+    const { hub, calls, seedToken } = await service(async () => busy);
     await hub.handle("agents.relays.set", { claudeCode: "cccccccccccc" });
-    claude.token = claudeUsage(97, 0);
+    await seedToken(claudeUsage(97, 0));
     await hub.handle("agents.autoSwitch.set", {
       agent: "claude",
       enabled: true,

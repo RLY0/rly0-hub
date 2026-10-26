@@ -24,8 +24,14 @@ export interface AgentAutoSwitchSourceDeps {
   readonly core: Pick<Rly0CoreBridge, "claudeAccounts" | "grokAccounts" | "listRelays">;
   /** Relay id Claude Code is bound to (null: its own login). */
   readonly claudeSelection: () => Promise<string | null>;
-  /** Keeps the token's quota for the 账号 page (official-key-usage.json). */
-  readonly recordTokenUsage: (relay: Rly0Relay, info: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * A subscription token's last numbers (official-key-usage.json), which the live quota feed keeps
+   * current from the rate-limit headers of Claude Code's own replies. The auto-switch decides on
+   * these and never sends Anthropic a request of its own.
+   */
+  readonly tokenUsage: (relay: Rly0Relay) => Promise<unknown>;
+  /** Unix seconds now (tests). */
+  readonly nowSeconds?: () => number;
   readonly handle: (method: string, params: unknown) => Promise<unknown>;
 }
 
@@ -85,12 +91,16 @@ export function createAgentAutoSwitchSources(deps: AgentAutoSwitchSourceDeps) {
     return out;
   }
 
+  /** Live numbers only; a window whose reset has passed counts as unused again. */
   async function tokenUsage(relay: Rly0Relay) {
-    const info = await core.claudeAccounts("keyInfo", { relayId: relay.id }).catch(() => null);
-    if (!info) return null;
-    await deps.recordTokenUsage(relay, info).catch(() => undefined);
-    if (info.kind !== "subscription" || info.valid === false || info.usageError) return null;
-    return readQuotaUsage(info.usage);
+    const usage = readQuotaUsage(await deps.tokenUsage(relay).catch(() => null));
+    if (!usage) return null;
+    const now = (deps.nowSeconds ?? (() => Date.now() / 1000))();
+    return {
+      windows: usage.windows.map((w) =>
+        w.resetsAt !== undefined && w.resetsAt <= now ? { ...w, usedPercent: 0 } : w,
+      ),
+    };
   }
 
   async function claude(scope: "current" | "all"): Promise<Rly0AutoSwitchCandidate[] | null> {

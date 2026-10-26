@@ -102,6 +102,22 @@ describe("SYNTHETIC multiple Claude credentials", () => {
           id: "bbbbbbbbbbbb",
         }),
       ).toMatchObject({ info: { id: "bbbbbbbbbbbb", last4: "bbbbbbbbbbbb" } });
+      // The person's 刷新 may use Claude Code's quota check...
+      expect(calls.at(-1)).toEqual({
+        method: "keyInfo",
+        params: { relayId: "bbbbbbbbbbbb", probe: true },
+      });
+      // ...a timed or page-open read never reaches Anthropic, however often it comes.
+      const before = calls.length;
+      for (let i = 0; i < 3; i += 1)
+        await expect(
+          service.handle("agents.officialKeys.info", {
+            vendor: "anthropic",
+            id: "bbbbbbbbbbbb",
+            auto: true,
+          }),
+        ).resolves.toEqual({ info: null, skipped: true });
+      expect(calls.length).toBe(before);
       await service.handle("agents.officialKeys.select", {
         vendor: "anthropic",
         id: "bbbbbbbbbbbb",

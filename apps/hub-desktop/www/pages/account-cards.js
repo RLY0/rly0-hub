@@ -602,6 +602,8 @@ window.registerHubAccountCards = ({
     USAGE_BLOCKED: "官方返回异常，读不到额度，稍后点刷新重试。",
     USAGE_RATE_LIMITED: "官方暂时限制查询，稍后点刷新。",
     USAGE_TOKEN_EXPIRED: "令牌失效了，请点“换一个”保存新的令牌。",
+    // No timed quota requests to Anthropic: the numbers come with Claude Code's replies.
+    USAGE_LIVE_ONLY: "未知 · 聊一句后更新",
   };
   function keyQuota(info) {
     if (!info || info.kind !== "subscription")
@@ -745,12 +747,14 @@ window.registerHubAccountCards = ({
       const state = reading
         ? h("span", { class: `tag${loadError ? " warn" : ""}` }, loadError ? "读取失败" : "读取中")
         : info.usageCached && info.usage
-          ? h("span", { class: "tag" }, "上次查询")
-          : info.valid === true
-            ? h("span", { class: "tag ok" }, "有效")
-            : info.valid === false
-              ? h("span", { class: "tag warn" }, "已失效")
-              : h("span", { class: "tag" }, "未能验证");
+          ? h("span", { class: "tag" }, info.liveOnly ? "随对话更新" : "上次查询")
+          : info.usageError === "USAGE_LIVE_ONLY" && !info.usage
+            ? h("span", { class: "tag" }, "随对话更新")
+            : info.valid === true
+              ? h("span", { class: "tag ok" }, "有效")
+              : info.valid === false
+                ? h("span", { class: "tag warn" }, "已失效")
+                : h("span", { class: "tag" }, "未能验证");
       const card = accountCard({
         name:
           info.name ||
@@ -809,9 +813,11 @@ window.registerHubAccountCards = ({
             ? h(
                 "p",
                 { class: "sub" },
-                info.usageError || info.error
-                  ? "刷新暂未成功，显示上次查询的额度"
-                  : "先显示上次查询的额度，正在后台更新",
+                info.liveOnly
+                  ? "额度随 Claude 对话自动更新；需要时可点刷新查询"
+                  : info.usageError || info.error
+                    ? "刷新暂未成功，显示上次查询的额度"
+                    : "先显示上次查询的额度，正在后台更新",
               )
             : null,
           info.cacheError
@@ -887,8 +893,9 @@ window.registerHubAccountCards = ({
       put(element, ...card.childNodes);
     }
 
-    // `auto`: a timed or page-open read; the service may answer "skipped" for a Claude token read
-    // within 5 minutes of the last one (or of a reply that carried its numbers).
+    // `auto`: a timed or page-open read. For a Claude token the service always answers "skipped":
+    // nothing goes to Anthropic on its own; the numbers come with Claude Code's replies (live
+    // quota feed), and only 刷新 asks Anthropic.
     async function load({ auto = false } = {}) {
       const generation = ++loadGeneration;
       if (!info && !id) {
@@ -903,6 +910,9 @@ window.registerHubAccountCards = ({
       }).catch(() => undefined);
       if (!alive() || generation !== loadGeneration) return info;
       if (result && result.skipped) {
+        if (info && info.kind === "pending")
+          info = { ...info, kind: "subscription", usageError: "USAGE_LIVE_ONLY" };
+        if (info) info = { ...info, liveOnly: true };
         render();
         if (onLoaded) onLoaded(info);
         return info;

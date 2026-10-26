@@ -183,7 +183,7 @@ describe("Claude forwarder headers", () => {
     expect(seen).toEqual([{ relayId: "0123456789ab", used: 25 }]);
   });
 
-  it("an observed reply replaces the token probe for the automatic interval", async () => {
+  it("an observed reply is what passive inspections show; they never probe", async () => {
     let now = 1_000_000;
     const read = vi.fn(async () => ({ kind: "subscription", usage: usage(1, 900) }));
     const quota = new ClaudeOfficialKeyQuota(read, { now: () => now });
@@ -193,9 +193,9 @@ describe("Claude forwarder headers", () => {
     now += 4 * 60_000;
     await quota.inspect({ relayId: "0123456789ab", keyMask: "m" }, false);
     expect(read).not.toHaveBeenCalled();
-    now += 2 * 60_000;
+    now += 24 * 3600_000;
     await quota.inspect({ relayId: "0123456789ab", keyMask: "m" }, false);
-    expect(read).toHaveBeenCalledTimes(1);
+    expect(read).not.toHaveBeenCalled();
   });
 });
 

@@ -1088,7 +1088,8 @@ export class AppServerHost {
     this.#rly0Core = new Rly0CoreBridge({ environment });
     this.#liveQuotaFeed = new Rly0LiveQuotaFeed({ file: liveQuotaFeedPath(environment) });
     this.#claudeKeyQuota = new ClaudeOfficialKeyQuota(
-      (relayId) => this.#rly0Core.claudeAccounts("keyInfo", { relayId }),
+      // Only the person's explicit refresh reads (see ClaudeOfficialKeyQuota), so it may probe.
+      (relayId) => this.#rly0Core.claudeAccounts("keyInfo", { relayId, probe: true }),
       { onUpdate: () => void this.#announceClaudeKeyQuota() },
     );
     this.#rly0Mcp = new Rly0McpManager({ environment });
