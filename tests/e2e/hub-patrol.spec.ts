@@ -620,6 +620,34 @@ test("accounts: the card in use is marked on every provider tab", async ({ page 
   }
 });
 
+// A Claude subscription token is never read from Anthropic on page open: the last numbers a reply
+// carried, or "未知 · 聊一句后更新" when none yet; only 刷新 asks.
+test("accounts: Claude token quota comes with replies, no read on open", async ({ page }) => {
+  const dir = path.join(runDir, "claude-live-only");
+  mkdirSync(dir, { recursive: true });
+  for (const width of WIDTHS) {
+    for (const [name, query, expected] of [
+      ["unknown", "?claudeUses=key&liveOnly&noQuotaCache", "未知 · 聊一句后更新"],
+      ["cached", "?claudeUses=key&liveOnly", "额度随 Claude 对话自动更新"],
+    ] as const) {
+      await page.setViewportSize({ width, height: HEIGHT });
+      await page.goto(`/index.html${query}`);
+      await page.click('.rail button[data-page="accounts"]');
+      const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+      await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+      if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+      await page.click('.account-tabs button[aria-label^="Anthropic"]');
+      const card = page.locator(".account-card.key-card.in-use");
+      await expect(card).toContainText(expected);
+      await expect(card).toContainText("随对话更新");
+      await expect(card).not.toContainText("读取中");
+      await card.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(dir, `${name}-${width}.png`) });
+    }
+  }
+});
+
 // Claude accounts (pages/mock.js): three saved accounts, one signed out elsewhere; adding one by
 // web login (code pasted) and by a credentials file, both without touching the current login.
 test("claude accounts: cards, add by web login, import from file", async ({ page }) => {

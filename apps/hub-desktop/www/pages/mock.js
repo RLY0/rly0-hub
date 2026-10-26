@@ -1019,6 +1019,14 @@ window.hubManagementMock = (() => {
           })),
         };
       case "agents.officialKeys.info":
+        // `?liveOnly`: the real service's behavior — a timed or page-open read of a Claude token
+        // never reaches Anthropic (numbers come with Claude Code's replies).
+        if (
+          p.vendor === "anthropic" &&
+          p.auto &&
+          new URLSearchParams(location.search).has("liveOnly")
+        )
+          return { info: null, skipped: true };
         if (p.vendor === "anthropic")
           return { info: claudeKeys.get(p.id || selectedClaudeKey || "cccccccccccc") || null };
         return { info: officialKeys[p.vendor] || null };
