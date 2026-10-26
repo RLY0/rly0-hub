@@ -1010,13 +1010,16 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
   await expect(accountsSwitch).toContainText("已开启 · 默认模型 gpt-6-astra");
   await page.click('.rail button[data-page="home"]');
   await dismiss();
-  const home = page.locator(".home-switch.no-account");
-  await expect(home).toContainText("已开启 · 默认模型 gpt-6-astra");
-  await expect(home.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "true");
+  // The switch lives in the header only (next to 重启 Codex), on every page.
+  const header = page.locator("#topNoAccount");
+  await expect(header).toContainText("已开启 · 默认模型 gpt-6-astra");
+  await expect(header.locator('button[role="switch"]')).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator(".no-account:not(#topNoAccount)")).toHaveCount(0);
   await settled();
   await page.screenshot({ path: path.join(dir, "home.png"), fullPage: true });
   await page.click('.rail button[data-page="relays"]');
-  await expect(page.locator(".relay-top .no-account")).toContainText("并自动应用到 Codex");
+  await expect(header).toContainText("已开启 · 默认模型 gpt-6-astra");
+  await expect(page.locator(".no-account:not(#topNoAccount)")).toHaveCount(0);
   await settled();
   await page.screenshot({ path: path.join(dir, "relays.png"), fullPage: true });
   await expect(page.locator("body")).not.toContainText("重启 Codex 生效");
@@ -1050,10 +1053,13 @@ test("hub routing: required one-button dialog, no switch on pages, 恢复纯净 
   await page.click('.settings-menu button:has-text("恢复纯净")');
   const pure = page.locator(".pure");
   await expect(pure).toContainText("已保存的账号、中转站和 Key 会保留");
-  const restore = pure.getByRole("button", { name: "恢复纯净状态" });
+  // The label changes once armed, so hold the button by place, not by name.
+  const restore = pure.locator(".row .btn");
+  await expect(restore).toHaveText("恢复纯净状态");
   await restore.click();
   await expect(restore).toHaveClass(/armed/);
-  await pure.getByRole("button", { name: "确认恢复" }).click();
+  await expect(restore).toHaveText("确认恢复");
+  await restore.click();
   await expect(pure).toContainText("已恢复纯净状态");
   await page.screenshot({ path: path.join(dir, "pure.png"), fullPage: true });
 });
@@ -1169,8 +1175,10 @@ for (const width of WIDTHS) {
     // 首页 → Codex 概况 (the old 仪表盘).
     const overview = page.locator(".codex-overview");
     await expect(overview.locator(".overview-stat")).toHaveCount(4);
-    await expect(overview.locator(".activity-day")).toHaveCount(84);
-    await expect(overview.locator(".activity-head")).toContainText("最近 12 周");
+    // 7-row week grid: as many weeks as fit the card (at least 4), ending today.
+    await expect(overview.locator(".activity-head")).toContainText(/最近 \d+ 周/);
+    const cells = await overview.locator(".activity-grid .heat-cell:not(.pad)").count();
+    expect(cells).toBeGreaterThanOrEqual(22);
     await overview.screenshot({ path: path.join(dir, "home-overview.png") });
 
     // Codex asks for pages by name; every former settings page has one.
