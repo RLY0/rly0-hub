@@ -82,11 +82,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
     });
     root.append(
       h("div", { class: "row section-title" }, h("h2", null, "MCP 服务"), button("刷新", load)),
-      h(
-        "p",
-        { class: "sub page-note" },
-        "所有助手共用的 MCP 列表，保存在 Codex 配置里（改动前自动备份）。修改后 Hub 会自动让 Codex 重新载入，其他助手新对话起生效。",
-      ),
+      h("p", { class: "sub page-note" }, "所有助手共用，保存在 Codex 配置里"),
       list,
       formTitle,
       h(
@@ -193,11 +189,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
           button("刷新", load),
         ),
       ),
-      h(
-        "p",
-        { class: "sub page-note" },
-        "这些技能打通给所有助手：Pi、Hermes 直接注册，其他助手按目录读取。停用会移入备份，随时可以恢复。",
-      ),
+      h("p", { class: "sub page-note" }, "所有助手共用，停用后可以恢复"),
       installed,
       h("h2", { class: "section-title" }, "从本地导入"),
       h(

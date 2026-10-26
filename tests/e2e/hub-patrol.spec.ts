@@ -566,9 +566,9 @@ test("maintenance: chat repair lists every problem with its reason", async ({ pa
         await expect(detail).toContainText("→ 可以修复：从旧版复制过来");
         await expect(detail).toContainText("→ 可以修复：换成新内容（旧内容另存一份）");
         await expect(detail).toContainText("（1 条已归档）");
-        await expect(detail).toContainText("当前 Claude Code 记录目录中未找到会话文件");
-        await expect(detail).toContainText("→ 需要进一步恢复：需检查旧目录、备份或隔离环境");
-        await expect(detail).toContainText("旧服务商未在当前配置中");
+        await expect(detail).toContainText("Claude Code 目录里找不到会话文件");
+        await expect(detail).toContainText("→ 需要进一步恢复：需要原文件或备份才能恢复");
+        await expect(detail).toContainText("原来的服务商已不在配置里");
         await expect(detail).not.toContainText("无法修复");
         await expect(detail.locator('button:has-text("修复 2 条")')).toBeVisible();
         await expect(detail).toContainText("含已删除的 1 条");
@@ -1002,7 +1002,7 @@ test("gemini: current Antigravity login quota on request, multi-account unsuppor
   await page.screenshot({ path: path.join(dir, "stale.png"), fullPage: true });
 });
 
-// One no-account switch on 首页, 账号 → OpenAI and 中转站 (pages/no-account.js), and a reset card
+// The no-account switch sits in the header next to 重启 Codex (pages/no-account.js), and a reset card
 // that is only used after a confirmation naming the account, the one card and the windows.
 test("no-account switch everywhere, auto-applied; reset card confirm", async ({ page }) => {
   const dir = path.join(runDir, "settings-apply");
@@ -1012,7 +1012,7 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
     await page.waitForTimeout(400);
   };
   const dismiss = await openAccountsTab(page, "OpenAI");
-  const accountsSwitch = page.locator(".no-account").first();
+  const accountsSwitch = page.locator("#topNoAccount");
   await expect(accountsSwitch).toContainText("免登录用中转");
   await settled();
   await page.screenshot({ path: path.join(dir, "accounts-codex.png"), fullPage: true });
@@ -1033,12 +1033,12 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
   await confirm.screenshot({ path: path.join(dir, "reset-done.png") });
   await confirm.locator('button:has-text("完成")').click();
 
-  // Turning it on from 账号 applies by itself; 首页 and 中转站 show the same state.
+  // Turning it on from the header applies by itself.
   await accountsSwitch.locator('button[role="switch"]').click();
   const enable = page.locator('.dialog-backdrop.show .dialog[aria-label="免登录用中转"]');
   await expect(enable).toContainText("自动让 Codex 重新打开一次");
   await enable.locator('button:has-text("开启并应用")').click();
-  await expect(page.locator("#toast")).toContainText("Codex 正在自动重新打开");
+  await expect(page.locator("#toast")).toContainText("Codex 正在重新打开");
   await expect(accountsSwitch).toContainText("已开启 · 默认模型 gpt-6-astra");
   await page.click('.rail button[data-page="home"]');
   await dismiss();
@@ -1159,18 +1159,17 @@ test("short explanations keep their full text in an accessible ⓘ tooltip", asy
   if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
   await page.click('.rail button[data-page="maintenance"]');
   const diagnose = page.locator(".tool", { hasText: "系统诊断" });
-  await expect(diagnose.locator(".brief-text")).toHaveText(
-    "检查连接、模型、配置、登录和代理，给出修复",
-  );
-  const info = diagnose.locator(".info-tip");
-  const full =
-    "一次检查 Codex 能否连上模型服务、模型是否被拒、配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。";
+  await expect(diagnose.locator(".tool-text p")).toHaveText("Codex 用不了时，找出原因并修复");
+  await expect(page.locator(".tools .info-tip")).toHaveCount(0);
+  await page.click('.rail button[data-page="accounts"]');
+  await page.click('.account-tabs button:has-text("Anthropic")');
+  const info = page.locator(".auto-switch .quota-note .info-tip").first();
   const describedBy = await info.getAttribute("aria-describedby");
-  await expect(page.locator(`#${describedBy}`)).toHaveText(full);
+  await expect(page.locator(`#${describedBy}`)).toContainText("使用条款");
   const bubble = page.locator(".tip-bubble");
   await info.focus();
   await expect(bubble).toHaveClass(/show/u);
-  await expect(bubble).toHaveText(full);
+  await expect(bubble).toContainText("使用条款");
   await page.screenshot({ path: path.join(dir, "focus.png") });
   await page.keyboard.press("Escape");
   await expect(bubble).not.toHaveClass(/show/u);
@@ -1179,8 +1178,6 @@ test("short explanations keep their full text in an accessible ⓘ tooltip", asy
   await page.mouse.click(5, 5);
   await expect(bubble).not.toHaveClass(/show/u);
   // The terms risk stays readable without opening anything.
-  await page.click('.rail button[data-page="accounts"]');
-  await page.click('.account-tabs button:has-text("Anthropic")');
   await expect(page.locator(".auto-switch .quota-note .brief-text").first()).toContainText(
     "使用条款",
   );

@@ -74,13 +74,7 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
               fact("重置", `这个账号的 ${windowText}，以官方实际重置为准`),
               ready.expiresAt ? fact("这张卡到期", ready.expiresAt) : null,
             ),
-        attempt
-          ? h("span")
-          : h(
-              "p",
-              { class: "sub" },
-              "用掉后不能撤销；不会切换 Codex 当前登录。点“取消”或关掉这个窗口不会消耗。",
-            ),
+        attempt ? h("span") : h("p", { class: "sub" }, "用掉后不能撤销。"),
         result,
       );
       const confirm = h(
@@ -169,7 +163,7 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
       return resetCardTile(count, {
         onUse: () => use(account, refreshed),
         reason: Number.isInteger(count)
-          ? "点“使用”先核对，确认后才会消耗 1 张"
+          ? "点“使用”先核对，确认后才消耗"
           : "张数待核实；点“核实”向官方查询，确认后才会使用",
         action: Number.isInteger(count) ? "使用" : "核实",
         primary: Number.isInteger(count),

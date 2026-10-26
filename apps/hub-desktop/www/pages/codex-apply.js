@@ -9,7 +9,7 @@ window.registerHubCodexApply = ({ h, call, toast }) => {
     reloaded: (lead) => `${lead}，已经生效，不用重启 Codex`,
     deferred: (lead) => `${lead}，Codex 回复完这一条就生效`,
     notRunning: (lead) => `${lead}，下次打开 Codex 时自动生效`,
-    restarting: (lead) => `${lead}，Codex 正在自动重新打开（对话记录都在）`,
+    restarting: (lead) => `${lead}，Codex 正在重新打开`,
     scheduled: (lead) => `${lead}，Codex 忙完手上的任务后会自动重新打开`,
     failed: (lead) => `${lead}，但没能自动重新打开 Codex，下次打开时生效`,
   };
@@ -42,16 +42,8 @@ window.registerHubCodexApply = ({ h, call, toast }) => {
         ui.close();
       });
       ui.body.append(
-        h(
-          "p",
-          null,
-          "这个 Codex 不是通过 RLY/0 Hub 打开的（或版本较旧），Hub 没法在不重启的情况下让设置生效。",
-        ),
-        h(
-          "p",
-          { class: "sub" },
-          "点“立即应用”，Hub 会自动关掉 Codex 再重新打开，对话记录都会保留。如果 Codex 正在回复，这一条回复会被中断。",
-        ),
+        h("p", null, "这个 Codex 不是从 Hub 打开的，需要重启才能生效。"),
+        h("p", { class: "sub" }, "Codex 会关闭再打开，正在进行的回复会中断。"),
       );
       ui.foot.append(
         h("span", { class: "spacer" }),

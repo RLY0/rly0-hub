@@ -87,13 +87,7 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status, applyToCodex }
       },
       label,
     );
-  box.append(
-    h(
-      "p",
-      { class: "sub" },
-      "只共享你选择的项目；文件修改会同步到电脑。沙箱使用独立登录，不需要卸载本地 Claude。环境隔离不保证账号不会被封。",
-    ),
-  );
+  box.append(h("p", { class: "sub" }, "只共享选中的项目。隔离不保证账号不被封。"));
   box.append(
     h(
       "p",
@@ -156,13 +150,7 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status, applyToCodex }
     h("label", { class: "isolation-field" }, "沿用的本机代理", proxy),
     save,
   );
-  box.append(
-    h(
-      "p",
-      { class: "sub" },
-      "保存会设置该隔离数据目录中的 Docker 代理。网络检查只验证配置和本机代理连接；固定出口 IP 由代理服务提供。",
-    ),
-  );
+  box.append(h("p", { class: "sub" }, "隔离环境用的代理"));
   if (!settings) return box;
   box.append(action("登录 Docker", "dockerLogin", {}, "请在新窗口完成 Docker 登录，再刷新状态"));
   if (status.networkError)
@@ -234,11 +222,7 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status, applyToCodex }
           placeholder: "粘贴官方授权页面给出的完整授权码",
         });
         box.append(
-          h(
-            "p",
-            { class: "sub" },
-            "在官方浏览器页面完成授权后，将页面给出的授权码填入 Hub。授权码只交给当前沙箱，不保存到 Hub，也不用发到聊天。",
-          ),
+          h("p", { class: "sub" }, "在浏览器完成授权后，把授权码粘贴到这里"),
           h("label", { class: "isolation-field" }, "Claude 授权码", code),
           action(
             "完成登录",
@@ -272,11 +256,7 @@ window.renderClaudeIsolation = ({ h, call, toast, reload, status, applyToCodex }
   );
   box.append(action("刷新状态", "status", {}, "已刷新"));
   box.append(
-    h(
-      "p",
-      { class: "sub" },
-      "开关隔离后 Hub 会让 Codex 自动重新打开一次（等正在进行的任务结束，对话记录都在）。沙箱会话支持继续对话；第一版暂不支持分叉、回滚和导入本地 Claude 会话。",
-    ),
+    h("p", { class: "sub" }, "开关隔离会让 Codex 重新打开一次；沙箱会话暂不支持分叉和回滚"),
   );
   return box;
 };

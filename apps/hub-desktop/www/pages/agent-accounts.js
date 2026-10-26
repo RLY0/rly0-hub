@@ -129,14 +129,14 @@ window.registerHubAgentAccounts = ({
       }, loginFailed);
     root.append(
       cards.pageHead({
-        intro: "保存多个 Claude 账号一键切换，也能用官方 API Key / 订阅令牌。",
+        intro: "保存多个账号，一键切换",
         refresh: refresh.element,
         saveCurrent: { onClick: saveCurrent },
         addItems: [
           {
             icon: LOGIN_ICONS.web,
             title: "网页登录",
-            desc: "在浏览器里登录另一个 Claude 账号（Pro / Max），当前登录不受影响",
+            desc: "用浏览器登录另一个账号",
             onSelect: () =>
               window.openClaudeAddLogin({
                 h,
@@ -237,7 +237,7 @@ window.registerHubAgentAccounts = ({
               current: using === "login",
               signedIn: using !== "login",
               quota: cards.quotaCards(null, { reason: "保存后会读取它的额度" }),
-              notes: [h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。")],
+              notes: [h("p", { class: "sub" }, "还没保存")],
               actions: [
                 h(
                   "button",

@@ -225,7 +225,7 @@ window.registerHubHome = (api) => {
       "div",
       { class: "mod-head" },
       h("span", { class: "mod-icon" }, icon24(ICONS[icon])),
-      h("div", { class: "mod-title" }, h("b", null, title), h("span", null, hint)),
+      h("div", { class: "mod-title" }, h("b", null, title), hint ? h("span", null, hint) : null),
       h("span", { class: "spacer" }),
       extra || null,
     );
@@ -414,7 +414,7 @@ window.registerHubHome = (api) => {
         : h(
             "div",
             { class: "acct-current empty-cta" },
-            h("p", { class: "sub" }, "Codex 还没登录账号。添加后这里显示额度和重置卡。"),
+            h("p", { class: "sub" }, "Codex 还没登录账号"),
             h(
               "button",
               { class: "btn paper sm", type: "button", onclick: () => go("accounts") },
@@ -450,14 +450,14 @@ window.registerHubHome = (api) => {
                 ),
               );
             })
-          : h("p", { class: "sub" }, "只有一个账号。额度用完时可以切到别的账号继续用。"),
+          : null,
       );
       put(
         people,
         modHead(
           "people",
           "账号额度",
-          "当前账号还剩多少、什么时候重置",
+          null,
           h(
             "button",
             { class: "btn sm", type: "button", onclick: () => go("accounts") },
@@ -533,7 +533,7 @@ window.registerHubHome = (api) => {
         modHead(
           "agents",
           "AI 助手",
-          "装好的都能在 Codex 里直接调用",
+          null,
           h("span", { class: "count-pill tabular" }, `${installed.length} / ${agents.length}`),
         ),
         installed.length
@@ -575,7 +575,7 @@ window.registerHubHome = (api) => {
                 { class: "logo-stack" },
                 agents.slice(0, 4).map((agent) => agentLogo(agent, 32)),
               ),
-              h("p", { class: "sub" }, "还没有装 AI 助手。滑动解锁一个，就能在 Codex 里让它帮忙。"),
+              h("p", { class: "sub" }, "还没有装 AI 助手"),
               h(
                 "button",
                 { class: "btn paper sm", type: "button", onclick: () => go("agents") },
@@ -590,7 +590,7 @@ window.registerHubHome = (api) => {
       const list = h("div", { class: "line-list" }, h("span", { class: "sub" }, "读取中…"));
       put(
         lines,
-        modHead("route", "中转站", "接入的中转站和余额"),
+        modHead("route", "中转站", null),
         list,
         h(
           "div",
@@ -621,11 +621,7 @@ window.registerHubHome = (api) => {
               h(
                 "div",
                 { class: "empty-cta" },
-                h(
-                  "p",
-                  { class: "sub" },
-                  "还没有接入中转站。接入零号后，Codex 和各家 AI 都能用一个密钥。",
-                ),
+                h("p", { class: "sub" }, "还没有接入中转站"),
                 h(
                   "button",
                   {
@@ -782,7 +778,7 @@ window.registerHubHome = (api) => {
       }
       put(
         overview,
-        modHead("chart", "Codex 概况", "会话、MCP、Skills 和每天的活跃"),
+        modHead("chart", "Codex 概况", null),
         h(
           "div",
           { class: "overview-stats" },

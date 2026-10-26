@@ -324,7 +324,7 @@ window.registerHubAccountCards = ({
         { class: "risk-text" },
         `自动在多个订阅账号之间轮换来绕开额度限制，可能违反 ${vendor} 的使用条款，存在账号被限制或封禁的风险。确定开启吗？`,
       ),
-      h("p", { class: "sub" }, "只问这一次；之后可以随时在这里关掉。"),
+      null,
     );
     put(
       ui.foot,
@@ -784,9 +784,7 @@ window.registerHubAccountCards = ({
         badge: state,
         quota: reading
           ? quotaCards(null, {
-              reason: loadError
-                ? "官方信息读取失败，可点击刷新重试"
-                : "正在读取官方信息，账号卡片已可使用",
+              reason: loadError ? "官方信息读取失败，可点击刷新重试" : "正在读取…",
             })
           : subscription
             ? quotaCards(info.usage || null, {
@@ -796,7 +794,7 @@ window.registerHubAccountCards = ({
               })
             : quotaCards(null, {
                 value: "不支持",
-                reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
+                reason: "API Key 没有额度查询",
               }),
         notes: [
           info.usageCached && info.usage && !loadError

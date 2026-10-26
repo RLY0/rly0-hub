@@ -69,11 +69,7 @@ window.registerHubDiscovery = ({ h, call, toast, failed }) => {
             "div",
             { class: "who" },
             h("b", null, `本机找到 ${items.length} 项 Key / 中转`),
-            h(
-              "span",
-              null,
-              "来自已装 AI 助手的现有配置。导入后可在 Hub 里查看额度、一键切换；原来的配置不会改动，正在用的登录也不会被切换。",
-            ),
+            h("span", null, "来自已装助手的配置"),
           ),
         ),
         h(

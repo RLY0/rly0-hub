@@ -31,11 +31,7 @@ window.registerHubSystem = ({
         "section",
         { class: "m" },
         h("h2", null, "网络代理"),
-        h(
-          "p",
-          { class: "sub" },
-          "用于 Hub 核心服务、AI 助手下载和软件更新。保存后核心服务重新连接。",
-        ),
+        h("p", { class: "sub" }, "用于下载和更新"),
         mode,
         url,
         h(
@@ -222,7 +218,7 @@ window.registerHubSystem = ({
           "div",
           { class: "tool-text" },
           h("h3", null, title),
-          h("p", { "data-brief": brief || null }, text),
+          brief ? h("p", { "data-keep": "" }, brief) : null,
           meta || null,
         ),
         h("div", { class: "tool-action" }, action),
@@ -538,20 +534,20 @@ window.registerHubSystem = ({
         cannot: "里面没有内容，新开一个聊天即可",
       },
       "session-missing": {
-        what: "当前 Claude Code 记录目录中未找到会话文件，可能影响打开或续聊",
-        next: "需检查旧目录、备份或隔离环境；找到完整副本后才能恢复，目前不能判定永久丢失",
+        what: "Claude Code 目录里找不到会话文件",
+        next: "需要原文件或备份才能恢复",
       },
       "codex-rollout-missing": {
-        what: "Codex 列表指向的位置未找到对话文件，可能报 no rollout found",
-        next: "需检查归档、移动目录和备份；当前未找到不代表已永久丢失",
+        what: "对话文件不在了（no rollout found）",
+        next: "需要从归档或备份恢复",
       },
       "codex-provider-missing": {
-        what: "聊天文件还在，但旧服务商未在当前配置中，可能影响显示或续聊",
-        next: "可核对并恢复原服务商配置，或另选续聊线路；Hub 暂未自动处理，仅恢复配置不保证能续聊",
+        what: "原来的服务商已不在配置里",
+        next: "恢复原服务商，或换一条线路续聊",
       },
       "codex-unlisted-rollout": {
-        what: "发现未列入当前 Codex 索引的对话文件，内容完整性尚待核实",
-        next: "可检查原文件，再准备重新索引或导入；Hub 暂未执行，不能据此判定无法恢复",
+        what: "有没列进 Codex 的对话文件",
+        next: "可以用“会话导入”导入",
       },
     };
     const chatTitle = (item) =>
@@ -758,25 +754,12 @@ window.registerHubSystem = ({
             { class: "diag-sum" },
             `已生成 ${status.recovered || 0} 份可查看副本，${status.partial || 0} 份为部分内容；${status.failed || 0} 份因文件或格式未生成，${status.limited || 0} 份因处理限制暂未生成；${status.unavailable || 0} 条 Codex 记录未定位到原文件。`,
           ),
-          h(
-            "p",
-            { class: "sub" },
-            "本次仅找回 Codex 本地文件。Claude 等助手仍需对应会话或备份。副本保存在本机，原聊天、归档和服务商未变；原生列表和续聊尚未修复。不明旧格式、隐藏推理和工具内容不导出，附件可能不完整。",
-          ),
-          status.scanIncomplete
-            ? h("p", { class: "sub" }, "本次扫描达到范围上限，尚未检查全部目录；未扫描不代表丢失。")
-            : null,
+          h("p", { class: "sub" }, "副本是只读的，不能续聊。"),
+          status.scanIncomplete ? h("p", { class: "sub" }, "只扫描了一部分目录。") : null,
           button("查看历史", () => call("maintenance.openRecoveredHistory")),
         );
       } else {
-        put(
-          recoveryDetail,
-          h(
-            "p",
-            { class: "sub" },
-            "没能完成历史找回。请检查聊天文件、配置和目录权限后重试；原聊天没有被改写。",
-          ),
-        );
+        put(recoveryDetail, h("p", { class: "sub" }, "没能找回历史，请重试。"));
       }
     }
 
@@ -844,26 +827,19 @@ window.registerHubSystem = ({
 
     root.append(
       h(
-        "p",
-        { class: "sub page-note" },
-        "诊断运行状态、导出日志、清理数据，处理 Codex 卡住、打不开或中转报错。",
-      ),
-      h(
         "section",
         { class: "m tools" },
         tool({
           name: "diagnose",
           title: "系统诊断",
-          brief: "检查连接、模型、配置、登录和代理，给出修复",
-          text: "一次检查 Codex 能否连上模型服务、模型是否被拒、配置、登录、零号核心和本地中转代理；发现问题直接给出修复按钮，修好后可一键重启 Codex。",
+          brief: "Codex 用不了时，找出原因并修复",
           action: runDiag,
           detail: diagDetail,
         }),
         tool({
           name: "chats",
           title: "修复聊天记录",
-          brief: "聊天打不开、历史不见或无法续聊时用",
-          text: "检查聊天打不开、历史不见或无法续聊的原因。“找回可查看历史”从仍在本机的 Codex 文件生成只读副本，不改原生列表、不换线路、不重启 Codex；缺失记录仍需原文件或备份。修复 Hub 自身记录时会先备份并关闭 Codex，之后重新打开；不删除记录。",
+          brief: "聊天打不开或无法续聊时用",
           meta: chatMeta,
           action: [chatRepair, recoverReadable],
           detail: [chatDetail, recoveryDetail],
@@ -871,53 +847,45 @@ window.registerHubSystem = ({
         tool({
           name: "import",
           title: "会话导入",
-          brief: "把其他助手的会话导入 Codex",
-          text: "把 Claude Code 等助手的原生会话导入 Codex 继续用。",
+          brief: "导入 Claude Code 等助手的会话",
           action: button("导入会话", () => consoleFeatures.openSessionImport()),
         }),
         tool({
           name: "log",
           title: "调试日志",
-          brief: "导出脱敏诊断包或反馈材料，只存本机",
-          text: "导出脱敏诊断包（运行状态、配置检查、缓存占用），只保存在本机，不会上传。“反馈问题”另外保存当前窗口截图和最近的出错记录，同样只在本机，提交反馈时自己附上。",
+          brief: "反馈问题时附上",
           action: [exportLog, feedback],
           detail: logDetail,
         }),
         tool({
           name: "clean",
           title: "清理数据",
-          brief: "删除缓存和旧安装包，不动账号和会话",
-          text: "删除 Hub 的缓存、临时文件和已下载的旧安装包，不动账号、中转站和会话。",
+          brief: "不动账号和会话",
           meta: cleanSize,
           action: clean,
         }),
         tool({
           name: "quit",
           title: "强制关闭 Codex",
-          brief: "结束全部 Codex 进程，进行中的任务会中断",
-          text: "结束所有 Codex 相关进程（窗口、后台服务、插件进程），解决进程残留导致打不开或中转连不上。正在进行的任务会中断。",
+          brief: "进行中的任务会中断",
           action: quit,
         }),
         tool({
           name: "image",
           title: "生图工具过滤",
-          brief: "去掉发往中转的生图工具，避免 403",
-          text: "开启：发往中转站的请求去掉生图工具，避免不支持生图的中转返回 403。关闭：原样发送。官方账号不受影响，开启也不会新增生图能力。",
+          brief: "中转报 403 时打开",
           action: imageSwitch,
         }),
         tool({
           name: "search",
           title: "联网搜索过滤",
-          brief: "Claude Code 走中转时去掉内置联网搜索",
-          text: "开启：Claude Code 走中转时去掉内置联网搜索工具，避免不支持的中转报错。不影响 MCP 或插件里的搜索工具，Claude 官方登录不受影响。",
+          brief: "Claude Code 走中转搜索报错时打开",
           action: searchSwitch,
           detail: filterNote,
         }),
         tool({
           name: "restart",
           title: "重启 Codex",
-          brief: "关闭并重新打开 Codex",
-          text: "关闭并重新打开 Codex，让配置变更生效或恢复异常状态。",
           action: confirmButton("重启", () => restart()),
         }),
       ),
@@ -985,18 +953,7 @@ window.registerHubSystem = ({
       );
     };
     root.append(
-      h(
-        "section",
-        { class: "m" },
-        h("h2", null, "RLY/0 Hub 更新"),
-        result,
-        actions,
-        h(
-          "p",
-          { class: "sub" },
-          "Hub 在后台自动检查更新（每 6 小时一次）。有新版本时会弹窗提醒，侧边栏的“设置”也会亮起红点。",
-        ),
-      ),
+      h("section", { class: "m" }, h("h2", null, "RLY/0 Hub 更新"), result, actions, null),
     );
     void check(false);
   };

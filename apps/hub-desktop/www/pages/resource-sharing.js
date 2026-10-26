@@ -5,26 +5,10 @@
 // settings each time they open a conversation or send a message; Codex's own memory server entry
 // is written by the Hub and applied by codex-apply, so nothing needs a manual restart.
 window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) => {
-  const info = (short, full) => window.HubUI.info(short, full);
   const KINDS = [
-    {
-      key: "mcp",
-      label: "MCP",
-      hint: "MCP 服务器接到每个助手",
-      full: "MCP 管理里的服务器（来自 Codex 配置）按每个助手自己的方式接上：Claude / Grok / Kiro / Kimi / Cursor / CodeBuddy 走会话参数，OpenCode 走进程配置，Pi 走临时扩展。密钥只进本机的助手进程，不写进对话，也不写进全局文件。需要 OAuth 或限定了工具的服务器不转接。",
-    },
-    {
-      key: "skills",
-      label: "技能",
-      hint: "Codex 的技能给每个助手用",
-      full: "Pi 和 Hermes 直接注册技能文件夹；其他助手拿到技能目录（名称、说明、SKILL.md 位置），用到时自己去读。",
-    },
-    {
-      key: "memory",
-      label: "记忆",
-      hint: "所有助手共用一份记忆 rly0-memory",
-      full: "rly0-memory 是本机的共享记忆：能接 MCP 的助手（包括 Codex 自己）可以记住、回想、搜索、删除，任何一个助手记下的其他助手都能看到。不能接 MCP 的助手只读到本项目和全局记忆的摘要。写入和读出时都会去掉常见的密钥、令牌、密码、私钥和连接串，但记忆内容会发给各助手的模型厂商。",
-    },
+    { key: "mcp", label: "MCP", hint: "Codex 的 MCP 接给每个助手" },
+    { key: "skills", label: "技能", hint: "Codex 的技能给每个助手用" },
+    { key: "memory", label: "记忆", hint: "所有助手共用，内容会发给各自的模型厂商" },
   ];
   const MODE_TEXT = { native: "已接通", context: "已接通 · 提示注入", global: "需单独开启" };
   /** One table cell: 已接通 / 需要安装 / 不支持（原因）, following the switch and the agent. */
@@ -57,15 +41,7 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
         h(
           "div",
           { class: "row share-head" },
-          h(
-            "div",
-            { class: "who" },
-            h("b", null, "共享 MCP / 技能 / 记忆"),
-            info(
-              "改了自动生效，不用重启",
-              "新对话和下一条消息起生效；Codex 自己的记忆服务器由 Hub 写进配置后自动应用。已打开的对话里已挂上的 MCP 在重新打开后更新。",
-            ),
-          ),
+          h("div", { class: "who" }, h("b", null, "共享 MCP / 技能 / 记忆")),
         ),
       );
       if (state === undefined) return void card.append(h("p", { class: "sub" }, "读取中…"));
@@ -80,7 +56,7 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
           h(
             "div",
             { class: "row share-toggle" },
-            h("div", { class: "who" }, h("b", null, kind.label), info(kind.hint, kind.full)),
+            h("div", { class: "who" }, h("b", null, kind.label), h("span", null, kind.hint)),
             h("button", {
               class: "switch",
               type: "button",
@@ -162,10 +138,7 @@ window.registerHubResourceSharing = ({ h, call, toast, failed, applyToCodex }) =
           "div",
           { class: "who" },
           h("b", null, "仅全局配置的助手"),
-          info(
-            "默认不改，开了才写",
-            "这两个助手只从自己的全局配置文件读取 MCP。开启后 Hub 先备份那个文件，只添加 rly0-* 条目（含共享记忆），带密钥的服务器不写进去；关闭时只删掉这些条目。",
-          ),
+          h("span", null, "开启后才写入它们的全局配置"),
         ),
         ...bridge.globals.map((g) =>
           h(

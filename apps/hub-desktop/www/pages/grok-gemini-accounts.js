@@ -26,10 +26,8 @@ window.registerHubGrokGeminiAccounts = (
     if (GROK_ERRORS[code]) toast(GROK_ERRORS[code]);
     else loginFailed(error);
   };
-  const BETA_GROK =
-    "还没用真实 Grok 账号验证过。切换会替换 Grok 的 ~/.grok/auth.json（替换前会先备份当前登录）；遇到问题请在「维护工具」里反馈。";
-  const BETA_GEMINI =
-    "还没用真实 Antigravity 账号验证过：额度来自 Antigravity 自己的 /usage 命令。";
+  const BETA_GROK = "测试中：切换会替换 Grok 的登录文件";
+  const BETA_GEMINI = "测试中";
 
   /* ---------- xAI · Grok ---------- */
   function grok(root, alive) {
@@ -76,7 +74,7 @@ window.registerHubGrokGeminiAccounts = (
       );
     root.append(
       cards.pageHead({
-        intro: "保存多个 Grok 账号手动一键切换，也能用 xAI 官方 API Key。",
+        intro: "保存多个账号，一键切换",
         beta: BETA_GROK,
         refresh: refresh.element,
         saveCurrent: { onClick: saveCurrent },
@@ -84,7 +82,7 @@ window.registerHubGrokGeminiAccounts = (
           {
             icon: LOGIN_ICONS.web,
             title: "网页登录",
-            desc: "用 Grok 官方的 grok login 在浏览器里登录另一个 xAI 账号，当前登录不受影响",
+            desc: "用浏览器登录另一个账号",
             onSelect: () =>
               window.openGrokAddLogin({
                 h,
@@ -119,7 +117,7 @@ window.registerHubGrokGeminiAccounts = (
           vendor: "xAI",
           sub: "额度低时换到余量最多的 Grok 账号",
           windows: [["remainWeekly", "每周 / 每月额度", "额度阈值"]],
-          beta: "还没用真实 Grok 账号验证过自动切换；切换方式和「切换到这个」一样，替换 Grok 的登录文件。",
+          beta: "测试中",
         }),
       ),
       list,
@@ -153,7 +151,7 @@ window.registerHubGrokGeminiAccounts = (
                 { class: "sub" },
                 listed.liveIdentityUnknown
                   ? "Grok 的登录文件里没有账号 ID，暂时无法保存这个登录。"
-                  : "还没保存。保存后可以和其他账号一键切换。",
+                  : "还没保存",
               ),
             ],
             actions: listed.liveIdentityUnknown
@@ -176,9 +174,7 @@ window.registerHubGrokGeminiAccounts = (
               h(
                 "p",
                 { class: "empty span-6" },
-                listed
-                  ? "还没有保存的 Grok 账号。点右上角“+ 添加” → 网页登录，可以添加多个，手动一键切换。"
-                  : "后台服务还没准备好，读不到 Grok 账号。",
+                listed ? "还没有保存的 Grok 账号" : "后台服务还没准备好，读不到 Grok 账号。",
               ),
             ]),
         key.element,
@@ -281,8 +277,7 @@ window.registerHubGrokGeminiAccounts = (
     TIMEOUT: "Antigravity 回答超时",
     USAGE_BAD_RESPONSE: "Antigravity 没有给出额度",
   };
-  const MULTI_REASON =
-    "暂不支持保存和切换多个 Google 账号：Antigravity 把登录存在系统钥匙串（Windows 凭据管理器）里，并和 Antigravity 桌面版、IDE 插件共用这一份，也没有能换位置的设置；Hub 不去读写它。";
+  const MULTI_REASON = "暂不支持多个 Google 账号";
 
   function gemini(root, alive) {
     const list = h("div", { class: "grid compact" });
@@ -316,8 +311,7 @@ window.registerHubGrokGeminiAccounts = (
     };
     root.append(
       cards.pageHead({
-        intro:
-          "Google 的官方助手 Antigravity 用 Google 账号登录；Gemini API Key 也能给 Pi、Hermes 等助手用。",
+        intro: "Antigravity 用 Google 账号登录",
         beta: BETA_GEMINI,
         refresh: refresh.element,
         saveCurrent: { reason: MULTI_REASON },
@@ -325,7 +319,7 @@ window.registerHubGrokGeminiAccounts = (
           {
             icon: LOGIN_ICONS.web,
             title: "网页登录",
-            desc: "打开 Antigravity，在浏览器里登录 Google 账号（会替换它当前的登录）",
+            desc: "在浏览器里登录（会替换当前登录）",
             onSelect: openLogin,
           },
           {
@@ -407,10 +401,10 @@ window.registerHubGrokGeminiAccounts = (
                     ? "状态读取失败，请重试读取"
                     : "正在读取本机状态"
                   : !installed
-                    ? "装好 Antigravity 后可以读取它当前登录的额度。"
+                    ? "装好 Antigravity 后可以读取额度"
                     : error
                       ? `读取失败：${AGY_ERRORS[error] || explain(error)}`
-                      : "点右上角刷新读取当前登录的额度（用 Antigravity 自己的 /usage；没登录时它可能会打开浏览器让你登录）。",
+                      : "点刷新读取额度",
               }),
           notes: [
             historical

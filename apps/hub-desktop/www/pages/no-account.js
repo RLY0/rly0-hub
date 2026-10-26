@@ -16,7 +16,7 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
   function enableDialog(models) {
     const ui = window.HubUI.dialog({
       title: "免登录用中转",
-      sub: "会修改 Codex 的设置文件，改之前先备份，随时可以关掉恢复",
+      sub: "会修改 Codex 的设置",
     });
     const model = h(
       "select",
@@ -43,13 +43,13 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
           h(
             "li",
             { "data-brief": "Codex 模型菜单只显示中转模型" },
-            "开启后 Codex 只用中转站的模型，模型菜单只显示中转模型，官方模型暂时不可用；已选的官方模型自动换成同名中转模型（没有同名时用默认模型）。",
+            "开启后 Codex 只用中转模型，官方模型暂时不可用。",
           ),
-          h("li", null, "Hub 要一直在托盘里运行（开机自启已默认打开）。"),
+          h("li", null, "Hub 需要一直在托盘里运行。"),
           h(
             "li",
             { "data-brief": "会自动让 Codex 重新打开一次，对话记录都在" },
-            "开启后 Hub 会自动让 Codex 重新打开一次来生效，对话记录都在；Codex 正在回复时，会等它回复完。",
+            "Codex 会重新打开一次。",
           ),
         ),
       );
@@ -154,12 +154,8 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
         compact
           ? null
           : status.enabled
-            ? h(
-                "p",
-                { class: "sub" },
-                "请保持 Hub 在托盘里运行。关掉开关会恢复原来的设置，并自动应用到 Codex。",
-              )
-            : h("p", { class: "sub" }, blocked || "打开前先列出改动并自动备份"),
+            ? h("p", { class: "sub" }, "保持 Hub 在托盘里运行")
+            : h("p", { class: "sub" }, blocked || null),
       );
     }
     window.addEventListener(CHANGED, load);

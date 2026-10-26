@@ -401,7 +401,7 @@
     updatePromptShown = true;
     const ui = window.HubUI.dialog({
       title: `发现新版本 ${updateInfo.latestVersion}`,
-      sub: `当前 ${updateInfo.currentVersion}，更新后功能和修复会立即生效`,
+      sub: `当前 ${updateInfo.currentVersion}`,
     });
     const notes = (updateInfo.releaseNotes || "").trim();
     ui.body.append(
@@ -489,7 +489,7 @@
             "div",
             { class: "who" },
             h("b", null, "需要先关闭 Codex"),
-            h("span", null, "更新会替换 Codex 正在用的文件。装好后会自动重新打开 Codex。"),
+            h("span", null, "需要先关闭 Codex，装好后自动重新打开。"),
           ),
         ),
       );
@@ -973,11 +973,7 @@
               "取消",
             ),
           ),
-          h(
-            "p",
-            { class: "sub" },
-            "保存为一个账号，切换到它后 Codex 按用量从这个 Key 扣费；Pi、Hermes、OpenCode 等助手也能用它。Key 加密保存在本机，不会显示出来。",
-          ),
+          h("p", { class: "sub" }, "切换到它后，Codex 按用量从这个 Key 扣费。"),
           h(
             "div",
             { class: "form" },
@@ -1022,11 +1018,7 @@
             h("span", { class: "spacer" }),
             cancel,
           ),
-          h(
-            "p",
-            { class: "sub" },
-            "用要添加的账号登录，完成后这里会自动保存。你当前在 Codex 里的登录不受影响。",
-          ),
+          h("p", { class: "sub" }, "用要添加的账号登录，完成后自动保存。"),
           started.url ? h("p", { class: "sub tabular login-url" }, started.url) : null,
         ),
       );
@@ -1071,7 +1063,7 @@
                 reason: "保存后会读取它的额度",
                 reset: { vendor: "openai" },
               }),
-              notes: [h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。")],
+              notes: [h("p", { class: "sub" }, "还没保存")],
               actions: [
                 h(
                   "button",
@@ -1098,7 +1090,7 @@
               h(
                 "p",
                 { class: "empty span-6" },
-                "还没有保存的 Codex 账号。先在 Codex 里登录，再点“保存登录”。",
+                "还没有保存的账号。先在 Codex 里登录，再点“保存登录”。",
               ),
             ]),
         key.element,
@@ -1203,10 +1195,12 @@
               "p",
               { class: "sub" },
               r.ok
-                ? `${restart && restart.ok ? "Codex 正在重启。" : "请手动重启 Codex。"}之后 Codex 直接连官方或你自己配的服务，不经过 Hub。`
-                : "可以再点一次重试，或到“维护 → 系统诊断”查看。",
+                ? restart && restart.ok
+                  ? "Codex 正在重启"
+                  : "请手动重启 Codex"
+                : "再点一次重试",
             ),
-            h("p", { class: "sub" }, "想继续用 Hub 时，重新打开 Hub 按提示开启即可。"),
+            null,
           );
         },
       },
@@ -1221,7 +1215,7 @@
           "section",
           { class: "m span-6 pure" },
           h("b", null, "恢复到装 Hub 之前"),
-          h("p", { class: "sub" }, "Codex 不再经过 Hub，恢复原来的连接方式。"),
+          null,
           h(
             "ul",
             { class: "pure-steps" },
@@ -1245,10 +1239,7 @@
       const status = await call("backup.status").catch(() => null);
       if (!alive()) return;
       if (!status || !status.available) {
-        module.replaceChildren(
-          h("span", { class: "label" }, "Backup"),
-          h("p", null, "还没有备份。第一次启动时会自动备份 Codex 的配置。"),
-        );
+        module.replaceChildren(h("span", { class: "label" }, "Backup"), h("p", null, "还没有备份"));
         return;
       }
       let confirmTap = () => true;
@@ -1355,11 +1346,7 @@
           "div",
           { class: "who" },
           h("b", null, "界面大小"),
-          h(
-            "span",
-            null,
-            `当前 ${Math.round(zoom * 100)}%，只对这次有效；重开 Hub 会回到默认的“大”（110%）`,
-          ),
+          h("span", null, `当前 ${Math.round(zoom * 100)}%，重开 Hub 恢复 110%`),
         ),
         h(
           "div",
@@ -1479,7 +1466,7 @@
           { class: "m span-3" },
           h("span", { class: "label" }, "Author-run relay"),
           h("h3", { class: "big" }, "RLY/0 零号中转"),
-          h("p", { class: "sub" }, "作者自营。用零号中转，也是在支持这个项目。"),
+          h("p", { class: "sub" }, "作者自营"),
           h(
             "div",
             { class: "row" },
@@ -1610,7 +1597,7 @@
       frame(
         "RLY/0 零号中转",
         "接入零号中转",
-        "一个密钥，Claude、GPT 等模型都能用。没有账号可以先注册。",
+        "一个密钥，所有模型都能用",
         h("div", { class: "row wide" }, key, connect),
         h(
           "div",
@@ -1642,9 +1629,7 @@
         frame(
           "Claude Code",
           "Claude Code 已安装",
-          state.relayId
-            ? "让它用零号中转，不用另外登录 Claude 账号。"
-            : "之后可以在 AI 助手里登录。",
+          state.relayId ? "用零号中转，不用登录 Claude 账号" : "之后可以在 AI 助手里登录。",
           h(
             "div",
             { class: "row" },
@@ -1693,7 +1678,7 @@
       frame(
         "Claude Code",
         "装上 Claude Code",
-        "Anthropic 官方编程助手，装好就能在 Codex 里用。需要几分钟。",
+        "装好就能在 Codex 里用，需要几分钟",
         status,
         h(
           "div",
@@ -1724,7 +1709,7 @@
         frame(
           "Done",
           "准备好了",
-          "关掉窗口后它在托盘里待命，从托盘图标随时打开。",
+          "关掉窗口后在托盘里继续运行",
           h(
             "div",
             { class: "row" },
@@ -2155,11 +2140,7 @@
             h("li", null, "管理和切换账号"),
             h("li", null, "同一对话里换模型、分发任务"),
           ),
-          h(
-            "p",
-            { class: "sub" },
-            "只在这台电脑上转发，用的还是你自己的账号，不经过第三方服务器。",
-          ),
+          h("p", { class: "sub" }, "只在本机转发，不经过第三方服务器。"),
           h("p", { class: "sub" }, "想恢复成装 Hub 之前的样子：设置 → 恢复纯净。"),
           status,
         ),

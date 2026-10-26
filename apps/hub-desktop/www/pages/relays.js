@@ -105,7 +105,7 @@ window.registerHubRelays = ({
     let saved = false;
     const ui = window.HubUI.dialog({
       title: editing ? `编辑 ${relay.name}` : "添加中转站",
-      sub: "填地址和 API Key，测试后选择要显示在 Codex 里的 GPT 模型",
+      sub: "填地址和 API Key",
       wide: true,
       onClose: () => {
         if (!editing && draft && !saved)
@@ -266,7 +266,7 @@ window.registerHubRelays = ({
               h(
                 "div",
                 { class: "row" },
-                h("span", null, "勾选要显示在 Codex 模型菜单里的模型（只有 GPT 系列能勾）"),
+                h("span", null, "勾选要放进 Codex 菜单的模型"),
                 h("span", { class: "spacer" }),
                 gpt.length ? count : null,
                 gpt.length
@@ -278,7 +278,7 @@ window.registerHubRelays = ({
                 ? h(
                     "p",
                     { class: "sub" },
-                    `灰色的 ${others.length} 个不是 GPT 模型，不进 Codex 菜单，但 Claude Code、Pi、Hermes 等助手可以用。`,
+                    `灰色的 ${others.length} 个不是 GPT 模型，只给其他助手用`,
                   )
                 : null,
             )
@@ -326,12 +326,7 @@ window.registerHubRelays = ({
       "button",
       { class: "m add-tile span-3", type: "button", onclick: () => relayDialog({ onDone: load }) },
       h("span", { class: "plus", "aria-hidden": "true" }, "+"),
-      h(
-        "span",
-        { class: "who" },
-        h("b", null, "添加中转站"),
-        h("span", null, "填地址和 API Key，自动识别名称、图标和模型"),
-      ),
+      h("span", { class: "who" }, h("b", null, "添加中转站"), h("span", null, "填地址和 API Key")),
     );
     const rly0Module = h("section", { class: "m bal span-6 rly0-connect" });
     const list = h("div", { class: "grid compact" });

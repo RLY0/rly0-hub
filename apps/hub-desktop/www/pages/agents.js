@@ -530,13 +530,7 @@ window.registerHubAgents = ({
       const access = h("div");
       body.append(access);
       if (isolated) {
-        access.append(
-          h(
-            "p",
-            { class: "sub" },
-            "CodexHost 将使用授权项目的沙箱登录。请重新加载助手后检测连接；沙箱失败会停止任务。",
-          ),
-        );
+        access.append(h("p", { class: "sub" }, "使用沙箱登录，重新加载助手后检测连接"));
       } else if (agent.installed) {
         renderAccess(agent, access);
         access.prepend(connectionLine(agent));
@@ -568,14 +562,7 @@ window.registerHubAgents = ({
         "details",
         { class: "manual launch-path" },
         h("summary", null, "应用路径"),
-        h(
-          "p",
-          { class: "sub" },
-          window.HubUI.info(
-            "找不到它时填安装文件夹",
-            `${agent.name} 是桌面应用，Codex 通常能自己找到；装在别处时，在这里填它的安装文件夹（macOS 填 .app）。重启 Codex 后生效。`,
-          ),
-        ),
+        h("p", { class: "sub" }, "找不到它时填安装文件夹，重启 Codex 后生效"),
         h(
           "div",
           { class: "row" },
@@ -755,7 +742,7 @@ window.registerHubAgents = ({
           ? h(
               "p",
               { class: "warn-text", "data-brief": "还缺命令行版 agy：滑动下面的按钮安装" },
-              "桌面版 Antigravity 已装，但命令行版 agy 没装：Codex 需要 agy，滑动下面的按钮装上它。",
+              "还缺命令行版 agy，滑动下面的按钮装上",
             )
           : null,
         agent.automatic
@@ -928,7 +915,7 @@ window.registerHubAgents = ({
               "p",
               { class: "sub" },
               isClaude
-                ? "还没有 Claude 账号或中转站。先到「账号 → Claude Code」添加账号，或到「中转站」接入零号。"
+                ? "先在「账号」添加 Claude 账号，或在「中转站」接入零号"
                 : "先登录官方账号，或接入一个中转站。",
             ),
             links,
@@ -947,11 +934,7 @@ window.registerHubAgents = ({
           put(
             detail,
             option.value === "own" && !isClaude
-              ? h(
-                  "p",
-                  { class: "sub" },
-                  `用 ${agent.name} 自己登录的服务商。还没登录的话，点下面“登录官方账号”。`,
-                )
+              ? h("p", { class: "sub" }, `用 ${agent.name} 自己登录的服务商`)
               : null,
             links,
           );
@@ -1005,11 +988,7 @@ window.registerHubAgents = ({
                 h("p", { class: "sub" }, `把 ${KEY_PLACEHOLDER} 换成你在中转站后台复制的密钥。`),
                 snippets(agent, relay).map(([title, text]) => codeBlock(title, text)),
               )
-            : h(
-                "p",
-                { class: "sub" },
-                "已自动接入：新开的对话通过这个中转站运行，不改你电脑上的配置。",
-              ),
+            : h("p", { class: "sub" }, "新开的对话通过这个中转站运行"),
           links,
         );
         if (option.official) {

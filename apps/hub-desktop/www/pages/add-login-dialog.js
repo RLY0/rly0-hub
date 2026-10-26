@@ -144,10 +144,7 @@
           ),
           busyLine("等待你在浏览器里完成登录…"),
           ...(field
-            ? [
-                h("label", { class: "field" }, h("span", null, "授权码（可选）"), field.code),
-                h("p", { class: "sub" }, "授权码只交给这次登录用的 Claude Code，不会保存。"),
-              ]
+            ? [h("label", { class: "field" }, h("span", null, "授权码（可选）"), field.code), null]
             : []),
         );
         foot.push(

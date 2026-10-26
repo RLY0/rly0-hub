@@ -53,7 +53,12 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
     ["global", "全局"],
   ];
   const when = (time) =>
-    new Date(time).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    new Date(time).toLocaleString("zh-CN", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   const tail = (project) => (project ? project.split("/").filter(Boolean).slice(-2).join("/") : "");
 
   function memory(root, alive) {
@@ -95,14 +100,23 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
         ),
       );
     drawScopes();
-    const text = h("textarea", { class: "input", rows: "3", placeholder: "要所有助手记住的事，不要写密钥", "aria-label": "记忆内容" });
+    const text = h("textarea", {
+      class: "input",
+      rows: "3",
+      placeholder: "要所有助手记住的事，不要写密钥",
+      "aria-label": "记忆内容",
+    });
     const kind = h(
       "select",
       { class: "input", "aria-label": "记忆范围" },
       h("option", { value: "global" }, "全局（所有项目）"),
       h("option", { value: "project" }, "只在一个项目"),
     );
-    const project = h("input", { class: "input", placeholder: "项目文件夹完整路径", "aria-label": "项目文件夹" });
+    const project = h("input", {
+      class: "input",
+      placeholder: "项目文件夹完整路径",
+      "aria-label": "项目文件夹",
+    });
     const projectField = h("label", { class: "field" }, h("span", null, "项目"), project);
     projectField.hidden = true;
     kind.addEventListener("change", () => (projectField.hidden = kind.value !== "project"));
@@ -142,14 +156,7 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
           action("打开文件夹", () => call("memory.openFolder")),
         ),
       ),
-      h(
-        "p",
-        { class: "sub page-note" },
-        info(
-          "所有助手共用，谁记下的都能看到",
-          "rly0-memory 保存在本机 RLY/0 数据目录。每条记录有内容、标签、来自哪个助手、时间和范围（某个项目或全局）。写入和读出时都会去掉常见的密钥、令牌、密码、私钥和连接串；删除会把内容从磁盘上去掉，操作记录在 audit.jsonl 里（不含内容）。",
-        ),
-      ),
+      h("p", { class: "sub page-note" }, "所有助手共用，谁记下的都能看到"),
       h("div", { class: "row memory-filter" }, search, scopes),
       summary,
       list,
@@ -218,7 +225,11 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
             h(
               "div",
               { class: "row memory-meta" },
-              h("span", { class: "tag" }, record.scope === "global" ? "全局" : tail(record.project) || "项目"),
+              h(
+                "span",
+                { class: "tag" },
+                record.scope === "global" ? "全局" : tail(record.project) || "项目",
+              ),
               h("span", null, record.agent),
               ...record.tags.map((tag) => h("span", { class: "tag soft" }, tag)),
               h("span", { class: "sub" }, when(record.time)),

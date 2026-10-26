@@ -58,13 +58,13 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
       row(
         "推理换行",
         "长推理自动换行",
-        "Codex 对话里的推理过程按窗口宽度自动换行，不用左右拖动。",
+        "推理过程自动换行",
         toggle("推理换行", p.reasoningSoftWrap, (on) => save({ reasoningSoftWrap: on })),
       ),
       row(
         "强调色",
         "Codex 里 RLY/0 控件的颜色",
-        "助手标签、模型选择器标记等 RLY/0 控件在 Codex 里用的颜色。",
+        "RLY/0 控件在 Codex 里的颜色",
         select(
           "强调色",
           p.accentColor,
@@ -82,7 +82,7 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
       row(
         "额度刷新",
         "输入框上的额度多久刷新",
-        "Codex 输入框上方显示的账号额度多久刷新一次。越短越及时，请求也越多。",
+        "越短越及时，请求也越多",
         select(
           "额度刷新",
           p.quotaRefresh,
@@ -98,7 +98,7 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
       row(
         "Codex 里的低额度提醒",
         "剩余额度低时在 Codex 里提示",
-        "当前账号的剩余额度低于这个比例时，Codex 窗口里弹一次提示。托盘提醒在上面单独设置。",
+        "低于这个比例时在 Codex 里提醒一次",
         h(
           "div",
           { class: "row" },
@@ -122,7 +122,7 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
       row(
         "空闲释放",
         "闲置的助手进程自动退出",
-        "外部助手（Claude Code 等）的会话闲置一段时间后结束它的后台进程，省内存；再发消息时自动恢复。",
+        "闲置后结束后台进程，再发消息时自动恢复",
         h(
           "div",
           { class: "row" },

@@ -34,11 +34,7 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed, go }) => {
     // The sharing switches live on the AI 助手 page now, next to the agents they affect.
     sharing.append(
       h("b", null, "共享给其他助手"),
-      h(
-        "p",
-        { class: "sub" },
-        "MCP、技能和记忆的共享开关在「AI 助手」页底部，那里也列出了每个助手能接收哪些。",
-      ),
+      null,
       h("button", { class: "btn sm", type: "button", onclick: () => go("agents") }, "去设置"),
     );
     const editor = h("textarea", {
@@ -71,11 +67,7 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed, go }) => {
             state.protected ? "Protected" : state.managed ? "Managed" : "Not set",
           ),
         ),
-        h(
-          "p",
-          { class: "sub" },
-          "对所有 Codex 对话生效。只改 Hub 自己的那一段，你手写的其他规则和项目里的 AGENTS.md 都不动。",
-        ),
+        h("p", { class: "sub" }, "对所有 Codex 对话生效"),
         state.protected
           ? h(
               "p",
@@ -262,7 +254,7 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed, go }) => {
                 ),
               ),
             )
-          : h("p", { class: "sub" }, "还没有改过。每次应用都会留一份，最多保留 10 份。"),
+          : h("p", { class: "sub" }, "还没有改过"),
       );
     }
 

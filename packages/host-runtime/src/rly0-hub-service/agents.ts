@@ -29,7 +29,11 @@ export interface Rly0HubAgentSharing {
   readonly mcp: boolean;
   readonly skills: boolean;
   readonly memory: boolean;
-  readonly modes: { readonly mcp: Rly0ShareMode; readonly skills: Rly0ShareMode; readonly memory: Rly0ShareMode };
+  readonly modes: {
+    readonly mcp: Rly0ShareMode;
+    readonly skills: Rly0ShareMode;
+    readonly memory: Rly0ShareMode;
+  };
   /** Why something is not shared or needs the opt-in global block, in the Hub's words. */
   readonly note?: string;
 }
@@ -85,12 +89,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "official",
     openSource: false,
     relay: "none",
-    sharing: sharing(
-      "global",
-      "context",
-      "context",
-      "agy 只读取全局 ~/.gemini/config/mcp_config.json，需在打通设置里单独开启",
-    ),
+    sharing: sharing("global", "context", "context", "只读全局配置，需单独开启"),
     docsUrl: "https://antigravity.google",
   },
   {
@@ -130,12 +129,7 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
     category: "community",
     openSource: true,
     relay: "auto",
-    sharing: sharing(
-      "global",
-      "native",
-      "context",
-      "Hermes 只从全局 ~/.hermes/config.yaml 读取 MCP，需在打通设置里单独开启",
-    ),
+    sharing: sharing("global", "native", "context", "只读全局配置，需单独开启"),
     docsUrl: "https://hermes-agent.nousresearch.com",
   },
   {
