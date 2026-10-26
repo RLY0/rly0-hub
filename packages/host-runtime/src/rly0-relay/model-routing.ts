@@ -824,6 +824,12 @@ export class Rly0RelayModelRouter {
       config: {
         ...config,
         [`model_providers.${RLY0_CODEX_PROVIDER_ID}`]: {
+          // Deliberately not "OpenAI": Codex 0.155 keys every official-only behavior on the
+          // provider name (`ModelProviderInfo::is_openai`: zstd bodies, remote compaction v2,
+          // hosted web_search / image_generation, speculative step context), per Thread, while
+          // this provider picks the upstream per request. Named "OpenAI" it would send those to
+          // relays and config.toml providers too. rly0-core re-applies what the ChatGPT backend
+          // sees natively instead (zstd bodies, Codex's headers, Cloudflare cookies).
           name: RLY0_CODEX_PROVIDER_NAME,
           base_url: baseUrl,
           wire_api: "responses",
