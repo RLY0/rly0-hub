@@ -787,6 +787,7 @@ test("live quota: freshness labels, pushed numbers, reset tile only on Codex", a
   await expect(team.locator(".quota-fresh")).toContainText("随对话更新");
   await dismiss();
   await settled();
+  await me.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(dir, "accounts-codex.png"), fullPage: true });
 
   await page.click('.account-tabs button[aria-label^="Anthropic"]');
@@ -797,6 +798,7 @@ test("live quota: freshness labels, pushed numbers, reset tile only on Codex", a
   await expect(page.locator("main")).not.toContainText("额度重置卡");
   await expect(page.locator("main")).not.toContainText("打开兑换页");
   await settled();
+  await claude.scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(dir, "accounts-claude.png"), fullPage: true });
   for (const [tab, name] of [
     ["xAI", "grok"],
@@ -807,6 +809,7 @@ test("live quota: freshness labels, pushed numbers, reset tile only on Codex", a
     await expect(page.locator(".reset-card.cards")).toHaveCount(0);
     await expect(page.locator("main")).not.toContainText("额度重置卡");
     await settled();
+    await page.locator(".account-card").first().scrollIntoViewIfNeeded();
     await page.screenshot({ path: path.join(dir, `accounts-${name}.png`), fullPage: true });
   }
 
