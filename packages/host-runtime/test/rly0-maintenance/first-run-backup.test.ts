@@ -81,6 +81,22 @@ describe("Rly0FirstRunBackup", () => {
     expect(await fs.readFile(path.join(safety, "AGENTS.md"), "utf8")).toBe("# added later\n");
   });
 
+  it("restores only the named files when asked (恢复纯净 keeps AGENTS.md)", async () => {
+    await fs.writeFile(path.join(codexHome, "config.toml"), 'model = "gpt-5"\n');
+    await backup().ensure();
+    await fs.writeFile(path.join(codexHome, "config.toml"), 'model = "relay"\n');
+    await fs.writeFile(path.join(codexHome, "AGENTS.md"), "# my instructions\n");
+
+    const result = await backup(1_795_000_000).restore({ only: ["config.toml"] });
+    expect(result).toMatchObject({ ok: true, restored: ["config.toml"], removed: [] });
+    expect(await fs.readFile(path.join(codexHome, "config.toml"), "utf8")).toBe(
+      'model = "gpt-5"\n',
+    );
+    expect(await fs.readFile(path.join(codexHome, "AGENTS.md"), "utf8")).toBe(
+      "# my instructions\n",
+    );
+  });
+
   it("changes nothing without a complete saved copy", async () => {
     await fs.writeFile(path.join(codexHome, "config.toml"), "current\n");
     expect(await backup().restore()).toEqual({

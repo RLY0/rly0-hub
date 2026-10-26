@@ -149,13 +149,22 @@ export class Rly0FirstRunBackup {
     };
   }
 
-  async restore(): Promise<Rly0MaintenanceRestoreBackupResult> {
+  /**
+   * Puts the saved files back. `only` limits it to some of them (恢复纯净 restores config.toml
+   * alone and leaves the person's AGENTS.md instructions as they are).
+   */
+  async restore(
+    options: { readonly only?: readonly BackedUpFile[] } = {},
+  ): Promise<Rly0MaintenanceRestoreBackupResult> {
     const manifest = await this.#readManifest();
     if (!manifest) return { ok: false, error: "NO_BACKUP", restored: [], removed: [] };
     const directory = this.backupDir();
+    const targets = RLY0_BACKED_UP_CODEX_FILES.filter(
+      (name) => !options.only || options.only.includes(name),
+    );
     // Verify every saved copy is readable before changing anything.
     const saved = new Map<BackedUpFile, Buffer>();
-    for (const name of RLY0_BACKED_UP_CODEX_FILES) {
+    for (const name of targets) {
       if (!manifest.files[name].existed) continue;
       const content = await readOptional(path.join(directory, name));
       if (content === null)
@@ -175,7 +184,7 @@ export class Rly0FirstRunBackup {
 
     const restored: BackedUpFile[] = [];
     const removed: BackedUpFile[] = [];
-    for (const name of RLY0_BACKED_UP_CODEX_FILES) {
+    for (const name of targets) {
       const target = this.#codexFile(name);
       const content = saved.get(name);
       if (content !== undefined) {

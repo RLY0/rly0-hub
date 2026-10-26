@@ -970,7 +970,7 @@ export class Rly0HubService {
         const backup = await this.#backup.status().catch(() => null);
         steps.config =
           backup && backup.available
-            ? await this.#backup.restore().then(
+            ? await this.#backup.restore({ only: ["config.toml"] }).then(
                 (r) => Boolean(r && (r as { ok?: unknown }).ok),
                 () => false,
               )
