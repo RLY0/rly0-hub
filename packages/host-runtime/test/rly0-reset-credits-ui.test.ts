@@ -49,6 +49,7 @@ function fixture(outcomes: (string | Error | Promise<string>)[] = ["reset"]) {
         reason: string;
         action?: string;
         disabledReason?: string;
+        status?: string;
       };
     },
     HubUI: {
@@ -166,7 +167,9 @@ describe("reset-credit interactions (synthetic)", () => {
       expect(f.api.tile(undefined, { vendor, account })).toBeNull();
       expect(f.api.tile(2, { vendor })).toBeNull();
     }
-    expect(f.api.tile(2, { vendor: "openai", account: { ...account, plan: "api-key" } })).toBeNull();
+    expect(
+      f.api.tile(2, { vendor: "openai", account: { ...account, plan: "api-key" } }),
+    ).toBeNull();
     expect(f.api.tile(undefined, { vendor: "openai" }).status).toBe("待保存");
     expect(f.calls).toEqual([]);
   });

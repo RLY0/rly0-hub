@@ -147,15 +147,7 @@ const empty = z.object({}).strict();
 const addLoginIdParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/u) }).strict();
 const linkParams = z
   .object({
-    target: z.enum([
-      "site",
-      "recharge",
-      "github",
-      "nodejs",
-      "releases",
-      "keys",
-      "codexWebGpt",
-    ]),
+    target: z.enum(["site", "recharge", "github", "nodejs", "releases", "keys", "codexWebGpt"]),
   })
   .strict();
 
