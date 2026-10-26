@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import path from "node:path";
 
@@ -47,7 +47,13 @@ const { outputFiles } = await build({
           control, { agent: "claude-code", phase: "locked" }, "ready", false,
           { "claude-code": "ready", grok: "ready", pi: "notInstalled" },
           null, false,
-          { handoff: true, sharedSummary: "共享自 Codex：MCP 2 个 · 技能 5 个 · 记忆 未共享" },
+          {
+            handoff: true,
+            sharedSummary: {
+              summary: "共享：MCP 14 · 技能 44 · 记忆 1",
+              detail: "MCP：basic-memory, codegraph, node_repl",
+            },
+          },
         );
       };
 
@@ -167,13 +173,13 @@ test("defaults uninstalled Harnesses to More and restores order after installati
   expect(await order()).toEqual(["codex", "claude-code", "omp", "pi", "grok"]);
 });
 
+const shotDirectory = process.env.HANDOFF_SCREENSHOT_DIR;
+
 test.describe("handoff on a started Thread", () => {
   test.use({ locale: "zh-CN" });
 
-  test("enables the Agent control with an honest tooltip and keyboard handoff", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 760, height: 560 });
+  const openHandoffMenu = async (page: Page, width: number) => {
+    await page.setViewportSize({ width, height: 560 });
     await page.setContent(
       '<!doctype html><body style="margin:0;background:#1e1e1e;color:#eee"></body>',
     );
@@ -183,6 +189,13 @@ test.describe("handoff on a started Thread", () => {
       '[data-codexhost-agent-control="handoff-composer"] > button[aria-haspopup="menu"]',
     );
     const menu = page.locator("#handoff-composer-agent-menu");
+    return { trigger, menu };
+  };
+
+  test("enables the Agent control with an honest tooltip and keyboard handoff", async ({
+    page,
+  }) => {
+    const { trigger, menu } = await openHandoffMenu(page, 760);
     await expect(trigger).toBeEnabled();
     await expect(trigger).toHaveAttribute(
       "title",
@@ -192,15 +205,54 @@ test.describe("handoff on a started Thread", () => {
     await trigger.focus();
     await page.keyboard.press("ArrowDown");
     await expect(menu).toBeVisible();
-    await expect(menu.locator("[data-codexhost-handoff-note]")).toContainText("原对话保持不变");
-    await expect(menu.locator("[data-codexhost-shared-resources]")).toContainText("MCP 2 个");
+
+    // One compact header row; the long notes live in the ⓘ tooltip only.
+    const header = menu.locator("[data-codexhost-agent-note]");
+    const info = header.locator("button[data-codexhost-agent-note-info]");
+    const tooltip = menu.locator('[role="tooltip"]');
+    await expect(header.locator("[data-codexhost-agent-note-title]")).toHaveText("换个助手接着聊");
+    const headerBox = await header.boundingBox();
+    expect(headerBox?.height).toBeLessThanOrEqual(30);
+    await expect(tooltip).toBeHidden();
+    await expect(info).toHaveAttribute("aria-describedby", "handoff-composer-agent-note");
+    const firstRow = await menu.locator('button[data-agent="codex"]').boundingBox();
+    const menuBox = await menu.boundingBox();
+    if (!firstRow || !menuBox) throw new Error("Agent menu geometry is unavailable");
+    expect(firstRow.y - menuBox.y).toBeLessThan(40);
+
     await expect(menu.locator('button[data-agent="claude-code"]')).toBeDisabled();
     await expect(menu.locator('button[data-agent="pi"]')).toBeDisabled();
     await expect(menu.locator('button[data-agent="codex"]')).toBeFocused();
-    const shotDirectory = process.env.HANDOFF_SCREENSHOT_DIR;
-    if (shotDirectory) {
-      await page.screenshot({ path: `${shotDirectory}/handoff-picker-760.png` });
-    }
+    if (shotDirectory) await page.screenshot({ path: `${shotDirectory}/handoff-picker-760.png` });
+
+    // Hover shows the full explanation and the sharing line.
+    await info.hover();
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText("原对话保持不变");
+    await expect(tooltip).toContainText("共享：MCP 14 · 技能 44 · 记忆 1");
+    await expect(tooltip).toContainText("basic-memory, codegraph, node_repl");
+    const tooltipBox = await tooltip.boundingBox();
+    if (!tooltipBox) throw new Error("Agent note tooltip geometry is unavailable");
+    expect(tooltipBox.width).toBeLessThanOrEqual(280);
+    expect(tooltipBox.x).toBeGreaterThanOrEqual(0);
+    expect(tooltipBox.x + tooltipBox.width).toBeLessThanOrEqual(760);
+    expect(tooltipBox.y).toBeGreaterThanOrEqual(0);
+    if (shotDirectory)
+      await page.screenshot({ path: `${shotDirectory}/handoff-picker-760-info.png` });
+    await page.mouse.move(5, 5);
+    await expect(tooltip).toBeHidden();
+    await expect(menu).toBeVisible();
+
+    // Keyboard: Shift+Tab reaches ⓘ (focus shows the tooltip), Escape closes only the tooltip.
+    await expect(menu.locator('button[data-agent="codex"]')).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(info).toBeFocused();
+    await expect(tooltip).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(tooltip).toBeHidden();
+    await expect(menu).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(menu.locator('button[data-agent="codex"]')).toBeFocused();
     await page.keyboard.press("ArrowDown");
     await expect(menu.locator('button[data-agent="grok"]')).toBeFocused();
     await page.keyboard.press("Enter");
@@ -208,5 +260,28 @@ test.describe("handoff on a started Thread", () => {
     expect(await page.evaluate(() => Reflect.get(globalThis, "handoffSelections"))).toEqual([
       "grok",
     ]);
+  });
+
+  test("keeps the ⓘ tooltip inside a narrow window", async ({ page }) => {
+    const { trigger, menu } = await openHandoffMenu(page, 360);
+    await trigger.click();
+    await expect(menu).toBeVisible();
+    const info = menu.locator("button[data-codexhost-agent-note-info]");
+    const tooltip = menu.locator('[role="tooltip"]');
+    if (shotDirectory) await page.screenshot({ path: `${shotDirectory}/handoff-picker-360.png` });
+    await info.click();
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText("原对话保持不变");
+    const box = await tooltip.boundingBox();
+    if (!box) throw new Error("Agent note tooltip geometry is unavailable");
+    expect(box.x).toBeGreaterThanOrEqual(8);
+    expect(box.x + box.width).toBeLessThanOrEqual(352);
+    expect(box.y).toBeGreaterThanOrEqual(8);
+    if (shotDirectory)
+      await page.screenshot({ path: `${shotDirectory}/handoff-picker-360-info.png` });
+    // Clicking ⓘ pins the tooltip; clicking it again closes only the tooltip.
+    await info.click();
+    await expect(tooltip).toBeHidden();
+    await expect(menu).toBeVisible();
   });
 });

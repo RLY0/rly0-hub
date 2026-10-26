@@ -4,7 +4,7 @@
 
 对话一旦开始，它的 Agent 就固定了：每个 Harness 拥有自己的 Native Session，Session 不能在 Harness 之间迁移，Host 也不能把一个 Thread 的后续 Turn 交给另一个 Harness（见 openspec `versioned-renderer-agent-routing` 与 `cross-harness-delegation`：每个 Thread 只归属一个 Harness）。所以「同一个 Thread 内原地切换 Agent」不支持，改为 Handoff：
 
-- 已开始的对话里，Composer 的 Agent 按钮保持可用，悬停提示「换个助手接着聊：会新开一个对话并带上之前的内容」，菜单顶部说明会带过去什么。当前 Agent、未安装或出错的 Agent 不可选。键盘可用（↓/↑ 打开并移动，Enter 选择，Esc 关闭）。
+- 已开始的对话里，Composer 的 Agent 按钮保持可用，悬停提示「换个助手接着聊：会新开一个对话并带上之前的内容」，菜单顶部只有一行「换个助手接着聊」和 ⓘ，悬停、聚焦或点击 ⓘ 弹出说明（会带过去什么、共享给该助手的 Codex 资源）。当前 Agent、未安装或出错的 Agent 不可选。键盘可用（↓/↑ 打开并移动，Enter 选择，Shift+Tab 到 ⓘ，Esc 先关说明再关菜单）。
 - 选另一个 Agent 时，Renderer 调 `codexhost/thread/handoff`。Host 读出源对话已投影的 Turn，在同一工作目录、目标 Harness 上新建一个普通可写 Thread，标题为 `↪ 原标题 · 接力 <Agent>`，第一条消息就是带过去的内容，然后打开它。原对话不变。
 - 新 Thread 与原对话通过 Delegation 关系关联（`requestId` 以 `handoff:` 开头，父 Thread 为原对话），不复制会话身份。
 - 在接力出来的对话里再选回原来的 Agent：不新建第三个对话，而是把接力对话里新增的内容（不含第一条接力消息本身；只有对它的确认回复时不发）作为一条消息发回原对话并打开原对话。原对话正在回复时会报错，不会打断它。

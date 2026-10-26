@@ -51,4 +51,4 @@ Antigravity 和 Hermes 只从全局文件读取 MCP。概览底部每个一枚�
 
 ## Composer 显示
 
-外部助手对话的 Agent 菜单顶部显示该助手在本项目最近一次实际拿到的内容（`codexhost/thread/shared-resources/inspect`），共享记忆显示为 `rly0-memory`。
+外部助手对话的 Agent 菜单顶部 ⓘ 弹出说明里显示一行简要计数（如「共享：MCP 14 · 技能 44 · 记忆 1」）和 MCP 名称，内容是该助手在本项目最近一次实际拿到的内容（`codexhost/thread/shared-resources/inspect`），共享记忆显示为 `rly0-memory`。

@@ -111,7 +111,7 @@ import {
 import { compatibleRendererPluginPresentation, rendererAgentLabel } from "./renderer-agent-icon.js";
 import { openRendererThread } from "./renderer-fork-control.js";
 import { rendererHandoffSupported, startRendererThreadHandoff } from "./renderer-thread-handoff.js";
-import { sharedResourcesSummary } from "./renderer-shared-resources.js";
+import { sharedResourcesSummary, type SharedResourcesLine } from "./renderer-shared-resources.js";
 import {
   mountRendererModelSelectionNotice,
   type RendererModelSelectionNotice,
@@ -1097,8 +1097,8 @@ export function installRendererBindingProbe(
   };
   const composerAdapterState = (mounted: MountedComposer): RendererAdapterStatus["state"] =>
     composerClient(mounted) ? "ready" : "installing";
-  // "共享自 Codex" line in the Agent menu of an external Agent Thread, per Host and Thread.
-  const sharedSummaries = new Map<string, string | null>();
+  // Codex resources line in the Agent menu info popover of an external Agent Thread, per Host and Thread.
+  const sharedSummaries = new Map<string, SharedResourcesLine | null>();
   const sharedSummaryRequests = new Set<string>();
   const sharedSummaryKey = (mounted: MountedComposer): string | null => {
     const threadId = threadIdFromComposerModelTarget(mounted.modelTarget);
@@ -1126,7 +1126,7 @@ export function installRendererBindingProbe(
     if (isMountedComposer(mounted.composer) && sharedSummaryKey(mounted) === key)
       renderMounted(mounted);
   };
-  const sharedSummaryFor = (mounted: MountedComposer): string | null => {
+  const sharedSummaryFor = (mounted: MountedComposer): SharedResourcesLine | null => {
     const key = sharedSummaryKey(mounted);
     if (!key) return null;
     if (!sharedSummaries.has(key)) void refreshSharedSummary(mounted);

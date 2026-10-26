@@ -7,6 +7,7 @@ import {
   rendererAgentPickerTooltip,
   rendererAgentPickerView,
 } from "../src/renderer-agent-picker.js";
+import { agentPickerInfoPlacement } from "../src/renderer-agent-picker-info.js";
 
 describe("Renderer Agent picker presentation", () => {
   it("normalizes viewport coordinates against the Codex window zoom", () => {
@@ -27,6 +28,34 @@ describe("Renderer Agent picker presentation", () => {
         Number.NaN,
       ),
     ).toEqual({ left: 676, bottom: 86 });
+  });
+
+  it("keeps the header ⓘ tooltip inside the window, above the icon when there is room", () => {
+    const anchor = { top: 300, bottom: 324, right: 600 };
+    expect(agentPickerInfoPlacement(anchor, 120, { width: 1_000, height: 800 }, 1)).toEqual({
+      left: 320,
+      top: 174,
+      width: 280,
+    });
+    // Narrow window: the tooltip shrinks and is clamped to the margin.
+    expect(
+      agentPickerInfoPlacement({ ...anchor, right: 200 }, 120, { width: 240, height: 800 }, 1),
+    ).toEqual({ left: 8, top: 174, width: 224 });
+    // No room above: it opens below the icon, over the list.
+    expect(
+      agentPickerInfoPlacement(
+        { top: 40, bottom: 64, right: 600 },
+        120,
+        { width: 1_000, height: 800 },
+        1,
+      ),
+    ).toMatchObject({ top: 70 });
+    // Codex window zoom: viewport pixels become the menu's CSS pixels.
+    expect(agentPickerInfoPlacement(anchor, 160, { width: 1_600, height: 1_280 }, 2)).toEqual({
+      left: 20,
+      top: 64,
+      width: 280,
+    });
   });
 
   it("splits Codex Account email names from their muted domains", () => {

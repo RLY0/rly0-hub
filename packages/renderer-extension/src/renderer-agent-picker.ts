@@ -11,6 +11,8 @@ import type {
 import { RLY0_HIDDEN_RENDERER_AGENTS } from "./agent-selection-state.js";
 import type { CodexAccountSummary, HarnessPluginDescriptor } from "@codexhost/shared-contracts";
 import { createRendererAgentIcon, rendererAgentLabel } from "./renderer-agent-icon.js";
+import { mountAgentPickerInfo, type AgentPickerInfoControl } from "./renderer-agent-picker-info.js";
+import type { SharedResourcesLine } from "./renderer-shared-resources.js";
 import { requestConnectionsPageFocus } from "./settings/connections-page.js";
 import { codexSideSettingsEntry } from "./settings/codex-side-entry.js";
 import {
@@ -29,7 +31,9 @@ function pickerGroupMessages(): Pick<
 > & {
   readonly ownershipErrorLabel: string;
   readonly handoffTooltip: string;
+  readonly handoffTitle: string;
   readonly handoffNote: string;
+  readonly noteInfoLabel: string;
   readonly handoffLabel: (agent: string) => string;
 } {
   const languages = typeof navigator !== "undefined" ? navigator.languages : [];
@@ -43,6 +47,8 @@ function pickerGroupMessages(): Pick<
     handoffTooltip: zh
       ? RENDERER_HANDOFF_TOOLTIP_ZH
       : "Continue with another agent: opens a new conversation that carries this one over",
+    handoffTitle: zh ? "换个助手接着聊" : "Continue with another agent",
+    noteInfoLabel: zh ? "说明" : "About",
     handoffNote: zh
       ? "换个助手接着聊：会新开一个对话，第一条消息就是带过去的内容（用户和助手的消息、命令结果摘要、改动过的文件；太长时省略较早的轮次）。原对话保持不变；选回原来的助手会把新内容带回原对话。"
       : "Opens a new conversation whose first message carries this one over (messages, command result summaries, changed files; older turns are left out when long). This conversation stays as it is; picking the original agent again brings the new turns back here.",
@@ -57,8 +63,8 @@ export const RENDERER_HANDOFF_TOOLTIP_ZH = "换个助手接着聊：会新开一
 export interface RendererAgentPickerExtras {
   /** The Thread is locked but the Host can continue it with another Agent (handoff). */
   readonly handoff: boolean;
-  /** One line about Codex resources shared with this Agent, or null. */
-  readonly sharedSummary: string | null;
+  /** Codex resources shared with this Agent, shown in the header's ⓘ tooltip, or null. */
+  readonly sharedSummary: SharedResourcesLine | null;
 }
 
 // Opens the Connections settings page from the picker's "More Agents" group.
@@ -101,7 +107,8 @@ interface AgentOptionControl {
 
 export interface RendererAgentPickerControl {
   root: HTMLElement;
-  note: { root: HTMLElement; handoff: HTMLElement; shared: HTMLElement };
+  /** One-line menu header; its ⓘ tooltip holds the handoff and sharing notes. */
+  note: AgentPickerInfoControl;
   trigger: HTMLButtonElement;
   iconSlot: HTMLElement;
   spinner: HTMLElement;
@@ -312,26 +319,15 @@ export function mountRendererAgentPicker(
   menu.style.zIndex = "2147483647";
   trigger.setAttribute("aria-controls", menu.id);
 
-  const note = document.createElement("div");
-  note.dataset.codexhostAgentNote = "true";
-  note.hidden = true;
-  note.style.padding = "6px 8px 8px";
-  note.style.marginBottom = "2px";
-  note.style.borderBottom = "1px solid rgba(127, 127, 127, 0.16)";
-  note.style.font = "12px/1.45 system-ui, sans-serif";
-  note.style.opacity = "0.78";
-  note.style.whiteSpace = "normal";
-  const handoffNote = document.createElement("div");
-  handoffNote.dataset.codexhostHandoffNote = "true";
-  const sharedNote = document.createElement("div");
-  sharedNote.dataset.codexhostSharedResources = "true";
-  note.append(handoffNote, sharedNote);
+  const groupMessages = pickerGroupMessages();
+  const note = mountAgentPickerInfo(composerId, groupMessages.noteInfoLabel);
+  menu.setAttribute("aria-describedby", note.tooltip.id);
 
   const options: Partial<Record<RendererAgent, AgentOptionControl>> = {};
   const rowsByAgent = new Map<RendererAgent, HTMLDivElement>();
-  const groupMessages = pickerGroupMessages();
 
   const close = (): void => {
+    note.close();
     if (!popoverOpen(menu)) return;
     if (typeof menu.hidePopover === "function") menu.hidePopover();
     else menu.hidden = true;
@@ -682,7 +678,7 @@ export function mountRendererAgentPicker(
   regroup();
   const unsubscribeGroup = groupPreference.subscribe(regroup);
 
-  menu.append(note, mainGroup, moreToggle, morePanel, cta, remoteEntry);
+  menu.append(note.root, mainGroup, moreToggle, morePanel, cta, remoteEntry);
   root.append(trigger, menu);
 
   const onTriggerClick = (): void => {
@@ -701,11 +697,30 @@ export function mountRendererAgentPicker(
     const current = event.target instanceof Element ? event.target.closest("button") : null;
     const index = buttons.indexOf(current as HTMLButtonElement);
     if (event.key === "Escape") {
+      // The first Escape only dismisses the ⓘ tooltip; the menu stays open.
+      if (note.isOpen()) {
+        event.preventDefault();
+        event.stopPropagation();
+        note.close();
+        return;
+      }
       close();
       trigger.focus();
       return;
     }
     if (event.key === "Tab") {
+      // Shift+Tab from a choice reaches the header's ⓘ; Tab from it returns to the choices.
+      const onInfo = current === note.button;
+      const infoReachable = !note.root.hidden;
+      if (infoReachable && (onInfo ? !event.shiftKey : event.shiftKey)) {
+        event.preventDefault();
+        if (onInfo) {
+          note.close();
+          focusOption("selected");
+          if (document.activeElement === note.button) focusOption("first");
+        } else note.button.focus();
+        return;
+      }
       close();
       return;
     }
@@ -722,6 +737,7 @@ export function mountRendererAgentPicker(
     target?.focus();
   };
   const onToggle = (): void => {
+    if (!popoverOpen(menu)) note.close();
     trigger.setAttribute("aria-expanded", String(popoverOpen(menu)));
   };
   const onViewportChange = (): void => {
@@ -736,7 +752,7 @@ export function mountRendererAgentPicker(
 
   const control: RendererAgentPickerControl = {
     root,
-    note: { root: note, handoff: handoffNote, shared: sharedNote },
+    note,
     trigger,
     iconSlot,
     spinner,
@@ -760,6 +776,7 @@ export function mountRendererAgentPicker(
     close,
     dispose() {
       close();
+      note.dispose();
       unsubscribeGroup();
       trigger.removeEventListener("click", onTriggerClick);
       trigger.removeEventListener("keydown", onTriggerKeyDown);
@@ -794,12 +811,18 @@ export function renderRendererAgentPicker(
     handoff,
   );
   const messages = pickerGroupMessages();
-  control.note.handoff.textContent = handoff ? messages.handoffNote : "";
-  control.note.handoff.hidden = !handoff;
-  control.note.shared.textContent = extras.sharedSummary ?? "";
-  control.note.shared.hidden = !extras.sharedSummary;
-  control.note.shared.style.marginTop = handoff ? "4px" : "0";
-  control.note.root.hidden = !handoff && !extras.sharedSummary;
+  const shared = extras.sharedSummary;
+  control.note.render(
+    handoff || shared
+      ? {
+          title: handoff ? messages.handoffTitle : "",
+          paragraphs: [
+            ...(handoff ? [messages.handoffNote] : []),
+            ...(shared ? [shared.summary, ...(shared.detail ? [shared.detail] : [])] : []),
+          ],
+        }
+      : null,
+  );
   control.menu.setAttribute("aria-label", handoff ? messages.handoffTooltip : "Agent");
   control.updateAvailability(availability);
   if (control.iconSlot.dataset.agent !== state.agent) {
