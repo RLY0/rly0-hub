@@ -944,6 +944,11 @@ export class Rly0HubService {
       // relays and keys are kept. Each step reports on its own; Codex is restarted by the caller.
       "hub.restorePure": route(empty, async () => {
         const steps: Record<string, boolean> = {};
+        await setSharedResourceSettings(this.#options.environment, {
+          mcp: false,
+          skills: false,
+          memory: false,
+        });
         await writeUnifiedChannel(false, this.#options.environment);
         steps.unified = true;
         steps.noAccount = await this.#codexConfig.restore().then(
@@ -962,6 +967,11 @@ export class Rly0HubService {
                 () => false,
               )
             : true;
+        // Run after restoring config.toml so an old backup cannot reintroduce the managed MCP.
+        steps.sharedResources = await this.#bridge.restorePure().then(
+          () => true,
+          () => false,
+        );
         await this.#state.update({ channelConsented: false });
         return { ok: Object.values(steps).every(Boolean), steps };
       }),
@@ -1155,8 +1165,11 @@ export class Rly0HubService {
             ...(p.skills === undefined ? {} : { skills: p.skills }),
             ...(p.memory === undefined ? {} : { memory: p.memory }),
           });
-          const codex = await this.#bridge.afterSharingChange().catch(() => "unchanged" as const);
-          return { ...(await this.#sharingState()), codexMemory: codex };
+          const result = await this.#bridge.afterSharingChange().then(
+            (codex) => ({ codexMemory: codex }),
+            () => ({ sharingError: "SHARED_RESOURCE_SYNC_FAILED" }),
+          );
+          return { ...(await this.#sharingState()), ...result };
         },
       ),
       "accounts.usage": route(rly0AccountsUsageParamsSchema, (p) => core.usage(p)),

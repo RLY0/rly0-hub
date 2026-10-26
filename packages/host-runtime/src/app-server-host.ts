@@ -1,3 +1,4 @@
+import { parse as parseToml } from "smol-toml";
 import {
   DELEGATION_READ_METHOD,
   delegationReadParamsSchema,
@@ -4030,6 +4031,7 @@ export class AppServerHost {
 
   async #inspectOfficialDelegationTarget(
     input: HarnessInspectInput,
+    chatgpt = false,
   ): Promise<HarnessInspectResult> {
     const response = await this.#requestOfficial("model/list", {});
     if (isRecord(response.error)) {
@@ -4041,7 +4043,17 @@ export class AppServerHost {
       );
     }
     const result = isRecord(response.result) ? response.result : null;
-    const data = result && Array.isArray(result.data) ? result.data : [];
+    const raw = result && Array.isArray(result.data) ? result.data : [];
+    const data = chatgpt
+      ? raw.filter(
+          (candidate) =>
+            isRecord(candidate) &&
+            typeof candidate.model === "string" &&
+            candidate.model.trim().length > 0 &&
+            !candidate.model.includes("/") &&
+            candidate.hidden !== true,
+        )
+      : raw;
     const thinkingById = new Map<ReturnType<typeof harnessThinkingOptionIdSchema.parse>, string>();
     const models = data.flatMap((candidate) => {
       if (!isRecord(candidate) || typeof candidate.model !== "string" || !candidate.model.trim()) {
@@ -4078,9 +4090,9 @@ export class AppServerHost {
         },
       ];
     });
-    const defaultEntry = data.find(
-      (candidate) => isRecord(candidate) && candidate.isDefault === true,
-    );
+    const defaultEntry =
+      data.find((candidate) => isRecord(candidate) && candidate.isDefault === true) ??
+      (chatgpt ? data[0] : undefined);
     const defaultModel =
       isRecord(defaultEntry) && typeof defaultEntry.model === "string"
         ? encodeOfficialCodexModelRef(defaultEntry.model)
@@ -4111,18 +4123,18 @@ export class AppServerHost {
     input: DelegationStartInput & { parentThreadId: string; cwd: string; title: string },
   ): Promise<DelegationStartResult> {
     let requestedModel: HarnessModelRef | undefined;
+    let defaultInspection: HarnessInspectResult | undefined;
     try {
       requestedModel = input.model ? canonicalizeOfficialCodexModelRef(input.model) : undefined;
     } catch {
       throw new DelegationControlError("INVALID_ARGUMENT", "Official Model Ref is invalid");
     }
-    const nativeModelId = requestedModel ? decodeOfficialCodexModelRef(requestedModel) : undefined;
     const digest = createHash("sha256")
       .update(
         JSON.stringify({
           task: input.task,
           cwd: input.cwd,
-          modelId: requestedModel?.id ?? null,
+          modelId: input.model?.id ?? null,
           thinkingOptionId: input.thinkingOptionId ?? null,
         }),
       )
@@ -4160,6 +4172,64 @@ export class AppServerHost {
         },
       };
     }
+    if (!requestedModel) {
+      const snapshot = await this.#codexAccountSnapshot().catch((error: unknown) => {
+        this.#diagnose(error);
+        return null;
+      });
+      const current = snapshot?.accounts.find(
+        (account) => account.accountId === snapshot?.currentAccountId,
+      );
+      if (current && (this.#accountControl.refresh || current.email || current.planType)) {
+        const inspected = await this.#inspectOfficialDelegationTarget(
+          { harnessId: "codex", cwd: input.cwd },
+          true,
+        );
+        defaultInspection = inspected;
+        const environment = this.#options.environment ?? process.env;
+        let configured: HarnessModelRef | undefined;
+        try {
+          const config = parseToml(
+            await fs.readFile(
+              path.join(
+                environment.CODEX_HOME ??
+                  path.join(environment.USERPROFILE ?? environment.HOME ?? os.homedir(), ".codex"),
+                "config.toml",
+              ),
+              "utf8",
+            ),
+          );
+          const profiles = isRecord(config.profiles) ? config.profiles : {};
+          const selectedProfile =
+            typeof config.profile === "string" ? profiles[config.profile] : undefined;
+          const profile = isRecord(selectedProfile) ? selectedProfile : {};
+          const model = profile.model ?? config.model;
+          const provider = profile.model_provider ?? config.model_provider;
+          if (typeof model === "string" && (!provider || provider === "openai")) {
+            const ref = encodeOfficialCodexModelRef(model);
+            if (
+              inspected.inspection.status === "ready" &&
+              inspected.inspection.catalog.models.some((entry) => entry.ref.id === ref.id)
+            )
+              configured = ref;
+          }
+        } catch {
+          /* Missing/invalid config leaves the native catalog default. */
+        }
+
+        requestedModel =
+          configured ??
+          (inspected.inspection.status === "ready"
+            ? inspected.inspection.catalog.defaultModel
+            : undefined);
+        if (!requestedModel)
+          throw new DelegationControlError(
+            "DELEGATION_FAILED",
+            "当前 ChatGPT 账号没有可用的官方默认模型，请明确选择模型。",
+          );
+      }
+    }
+    const nativeModelId = requestedModel ? decodeOfficialCodexModelRef(requestedModel) : undefined;
     // A relay model (from "在新对话里继续") is not in the official catalog; the router validates it.
     let relayModel = false;
     try {
@@ -4168,10 +4238,12 @@ export class AppServerHost {
       throw new DelegationControlError("INVALID_ARGUMENT", "Relay Model is unavailable");
     }
     if (!relayModel && (requestedModel || input.thinkingOptionId)) {
-      const inspected = await this.#inspectOfficialDelegationTarget({
-        harnessId: "codex",
-        cwd: input.cwd,
-      });
+      const inspected =
+        defaultInspection ??
+        (await this.#inspectOfficialDelegationTarget({
+          harnessId: "codex",
+          cwd: input.cwd,
+        }));
       if (inspected.inspection.status !== "ready") {
         throw new DelegationControlError(
           "DELEGATION_FAILED",

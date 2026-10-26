@@ -157,7 +157,12 @@ async function prepareDelegationRuntime(input: {
       ),
   });
   const token = randomBytes(32).toString("hex");
-  const server = await startDelegationControlServer({ token, api: registry, watchApi: registry });
+  const server = await startDelegationControlServer({
+    token,
+    api: registry,
+    watchApi: registry,
+    environment: input.environment,
+  });
   const environment = {
     ...input.environment,
     ...delegationCliEnvironment(input.environment, input.hostRuntimePath),

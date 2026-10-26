@@ -80,7 +80,7 @@ window.hubManagementMock = (() => {
     {
       id: "m2",
       text: "回复用中文，结论先说。",
-      tags: [],
+      tags: ["preference"],
       agent: "codex",
       scope: "global",
       project: null,
@@ -1075,7 +1075,11 @@ window.hubManagementMock = (() => {
             typeof p.memory === "boolean" ? (p.memory ? "added" : "removed") : "unchanged",
         };
       case "bridge.status":
-        return { memoryServer: { available: true }, globals: globals.map((g) => ({ ...g })) };
+        return {
+          memoryServer: { available: true },
+          globals: globals.map((g) => ({ ...g })),
+          nativeError: null,
+        };
       case "bridge.globalSet": {
         const g = globals.find((x) => x.agent === p.agent);
         g.enabled = p.enabled;
@@ -1096,6 +1100,14 @@ window.hubManagementMock = (() => {
           .filter(
             (m) => !q || m.text.toLowerCase().includes(q) || m.tags.some((t) => t.includes(q)),
           )
+          .filter((m) =>
+            p.pinned === true
+              ? m.tags.includes("preference")
+              : p.pinned === false
+                ? !m.tags.includes("preference")
+                : true,
+          )
+          .map((m) => ({ ...m, pinned: m.tags.includes("preference") }))
           .sort((a, b) => b.time - a.time);
         return {
           records,
@@ -1118,11 +1130,21 @@ window.hubManagementMock = (() => {
           source: null,
         };
         memories = [record, ...memories];
-        return record;
+        return { ...record, pinned: record.tags.includes("preference"), native: {} };
       }
       case "memory.forget":
         memories = memories.filter((m) => m.id !== p.id);
         return { forgotten: true };
+      case "memory.pin": {
+        const m = memories.find((x) => x.id === p.id);
+        if (!m) return { record: null, native: {} };
+        m.tags = p.pinned
+          ? [...new Set([...m.tags, "preference"])]
+          : m.tags.filter((t) => t !== "preference");
+        return { record: { ...m, pinned: p.pinned }, native: {} };
+      }
+      case "bridge.syncNative":
+        return { ok: true };
       case "memory.export":
         return {
           file: "C:\\Users\\me\\.rly0-hub\\memory\\exports\\memory-20261025T120000.json",

@@ -1,14 +1,21 @@
 const COMMAND_HELP = {
+  "delegate context": `codexhost delegate context --memory-token <token> [--cwd <absolute-path>] [--query <text>] [--format json|compact]
+Read standing preferences and relevant project memories, bounded and scoped to this workspace.
+Prefer CODEXHOST_DELEGATION_MEMORY_TOKEN in the process environment to avoid exposing the token in process arguments.`,
+  "delegate remember": `codexhost delegate remember --memory-token <token> [--cwd <absolute-path>] [--format json|compact]
+Read the bound child completed result and save its last complete marked reusable conclusion. The Runtime derives Agent/task/text; repeated identical writes are idempotent.
+Prefer CODEXHOST_DELEGATION_MEMORY_TOKEN in the process environment to avoid exposing the token in process arguments.`,
   "harness list": `codexhost harness list [--format json|compact]
 List Harnesses available in the active Runtime.`,
   "harness inspect": `codexhost harness inspect <harness> [--cwd <path>] [--refresh true|false] [--format json|compact]
 Read available Models, native defaults, Thinking options, and configuration capabilities.
 Use the returned Model and Thinking IDs for explicit selections.`,
-  "delegate start": `codexhost delegate start --harness <id> --task <text> [--task-name <name>] [--cwd <path>] [--model <opaque-ref>] [--thinking <option-id>] [--parent-thread <thread>] [--request-id <id>] [--watch true|false] [--watch-timeout-ms <n>] [--format json|compact]
+  "delegate start": `codexhost delegate start --harness <id> --task <text> [--task-name <name>] [--cwd <path>] [--model <opaque-ref>] [--thinking <option-id>] [--parent-thread <thread>] [--request-id <id>] [--memory true|false] [--watch true|false] [--watch-timeout-ms <n>] [--format json|compact]
 Create an independent child Thread, submit the task, and return immediately.
 --task-name supplies a short subtask name (1-120 characters); otherwise the first task line is used.
 The child title is "subtask name · parent title", fixed at creation; renaming the parent does not rename existing children.
 Omit --model and --thinking to use the Harness native defaults.
+--memory true attaches scoped reference data and returns a child-bound memoryToken for context/conclusion operations.
 --cwd overrides the child workspace. Otherwise use the resolved parent Thread workspace, then the Host Runtime process cwd.
 --parent-thread overrides caller inference. PARENT_THREAD_AMBIGUOUS requires an explicit parent.
 Reuse --request-id for an idempotent retry. Identical recent parent/target/task/configuration requests are also deduplicated briefly.

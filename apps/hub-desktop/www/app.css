@@ -5183,11 +5183,67 @@ select.input,
   font-size: 12px;
   color: var(--muted-dark);
 }
-.memory-meta .btn {
+.memory-meta > .memory-buttons {
   margin-left: auto;
+  gap: 8px;
 }
 .tag.soft {
   opacity: 0.75;
+}
+/* 常驻偏好: the one block every agent reads first — brand signal line on the left, like a
+   selected model item; the list inside keeps the plain memory-item look. */
+.pinned-card {
+  position: relative;
+  margin: 10px 0 18px;
+  padding-left: 20px;
+}
+.m.pinned-card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 4px;
+  border-radius: 0 var(--r-pill) var(--r-pill) 0;
+  background: var(--brand);
+}
+.pinned-head {
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.pinned-head h3,
+.memory-sub {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.memory-sub {
+  margin-top: 6px;
+}
+.pinned-sync {
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: var(--warn);
+}
+.pinned-sync .btn {
+  margin-left: auto;
+}
+.pin-check {
+  grid-column: 1 / -1;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pin-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
 }
 
 /* ---------- Required first-run dialog: 开启 Hub 转发 ---------- */

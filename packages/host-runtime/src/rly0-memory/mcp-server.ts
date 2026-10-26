@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 
 import { MemoryError, MEMORY_LIMITS, type MemoryRecord, type MemoryStore } from "./store.js";
+import { standingPreferences } from "./preferences.js";
 
 /**
  * Minimal MCP stdio server (newline-delimited JSON-RPC 2.0) for the shared memory, without an
@@ -9,7 +10,7 @@ import { MemoryError, MEMORY_LIMITS, type MemoryRecord, type MemoryStore } from 
  */
 export const RLY0_MEMORY_SERVER_NAME = "rly0-memory";
 export const RLY0_MEMORY_INSTRUCTION =
-  "rly0-memory is memory shared by every AI agent on this computer: call recall (cwd = workspace root) when starting a task, remember durable facts, decisions and preferences (never secrets), forget what is wrong.";
+  "rly0-memory is memory shared by every AI agent on this computer: call recall (cwd = workspace root) when starting a task, remember durable facts and decisions (never secrets); only the person can pin standing preferences in the Hub, forget what is wrong.";
 
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
 
@@ -21,7 +22,7 @@ export const RLY0_MEMORY_TOOLS = [
   {
     name: "remember",
     description:
-      "Save a durable memory visible to every agent: a fact, decision, convention or preference. Not for secrets (they are removed).",
+      "Save a durable memory visible to every agent: a fact, decision or convention. Standing preferences can only be pinned by the person in the Hub. Not for secrets (they are removed).",
     inputSchema: {
       type: "object",
       properties: {
@@ -81,6 +82,7 @@ export interface MemoryServerContext {
   thread?: string;
   /** Default workspace when a call has no `cwd`. */
   cwd: string;
+  environment?: NodeJS.ProcessEnv;
 }
 
 type Json = Record<string, unknown>;
@@ -107,6 +109,7 @@ function view(entry: MemoryRecord) {
 const MESSAGES: Record<MemoryError["code"], string> = {
   MEMORY_TEXT_EMPTY: "text is empty",
   MEMORY_TEXT_TOO_LONG: `text is longer than ${MEMORY_LIMITS.textChars} characters; shorten it`,
+  MEMORY_PREFERENCE_HUB_ONLY: "standing preferences can only be changed in the Hub",
   MEMORY_TAG_INVALID: `at most ${MEMORY_LIMITS.tags} tags of letters, digits, _ . : - (32 characters)`,
   MEMORY_FULL: "the memory store is full; forget old memories first",
   MEMORY_LOCKED: "the memory store is busy; retry",
@@ -117,7 +120,11 @@ export async function callMemoryTool(
   context: MemoryServerContext,
   name: string,
   args: Json,
-): Promise<{ content: { type: "text"; text: string }[]; isError?: boolean; structuredContent?: Json }> {
+): Promise<{
+  content: { type: "text"; text: string }[];
+  isError?: boolean;
+  structuredContent?: Json;
+}> {
   const cwd = text(args.cwd, 1024) || context.cwd;
   const result = (value: Json) => ({
     content: [{ type: "text" as const, text: JSON.stringify(value) }],
@@ -134,7 +141,9 @@ export async function callMemoryTool(
         agent: context.agent,
         ...(context.thread ? { thread: context.thread } : {}),
       });
-      return result({ saved: view(saved) });
+      return result({
+        saved: view(saved),
+      });
     }
     if (name === "recall") {
       const query = text(args.query);
@@ -158,22 +167,31 @@ export async function callMemoryTool(
     }
     if (name === "forget") {
       const id = text(args.id, 64) ?? "";
-      return result({ forgotten: await context.store.forget(id, context.agent) });
+      if ((await context.store.get(id))?.preferenceApproved === true)
+        throw new MemoryError("MEMORY_PREFERENCE_HUB_ONLY");
+      const forgotten = await context.store.forget(id, context.agent);
+      return result({ forgotten });
     }
     return { content: [{ type: "text", text: `unknown tool ${name}` }], isError: true };
   } catch (error) {
-    const message =
-      error instanceof MemoryError ? MESSAGES[error.code] : "memory operation failed";
+    const message = error instanceof MemoryError ? MESSAGES[error.code] : "memory operation failed";
     return { content: [{ type: "text", text: message }], isError: true };
   }
 }
 
-export async function handleMemoryRpc(context: MemoryServerContext, message: Json): Promise<Json | null> {
+export async function handleMemoryRpc(
+  context: MemoryServerContext,
+  message: Json,
+): Promise<Json | null> {
   const id = message.id;
   const method = typeof message.method === "string" ? message.method : "";
   const isRequest = typeof id === "string" || typeof id === "number";
   const reply = (resultValue: Json) => ({ jsonrpc: "2.0", id, result: resultValue });
-  const fail = (code: number, text: string) => ({ jsonrpc: "2.0", id, error: { code, message: text } });
+  const fail = (code: number, text: string) => ({
+    jsonrpc: "2.0",
+    id,
+    error: { code, message: text },
+  });
   if (!isRequest) return null;
   const params = record(message.params) ? message.params : {};
   switch (method) {
@@ -183,7 +201,14 @@ export async function handleMemoryRpc(context: MemoryServerContext, message: Jso
         protocolVersion: PROTOCOL_VERSIONS.includes(requested) ? requested : PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: RLY0_MEMORY_SERVER_NAME, version: "1.0.0" },
-        instructions: RLY0_MEMORY_INSTRUCTION,
+        instructions: [
+          context.agent === "codex"
+            ? ""
+            : (await standingPreferences(context.store, context.cwd)).content,
+          RLY0_MEMORY_INSTRUCTION,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       });
     }
     case "ping":
@@ -213,7 +238,9 @@ export async function serveMemoryMcp(
     try {
       message = JSON.parse(line);
     } catch {
-      output.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })}\n`);
+      output.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } })}\n`,
+      );
       continue;
     }
     if (!record(message)) continue;

@@ -29,7 +29,16 @@ describe("Rly0SkillsManager", () => {
   beforeEach(async () => {
     codexHome = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-skills-home-"));
     backupRoot = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-skills-backup-"));
-    manager = new Rly0SkillsManager({ environment: { CODEX_HOME: codexHome }, backupRoot });
+    manager = new Rly0SkillsManager({
+      environment: {
+        CODEX_HOME: codexHome,
+        HOME: codexHome,
+        USERPROFILE: codexHome,
+        CODEXHOST_DATA_DIR: path.join(codexHome, "hub"),
+        RLY0_MEMORY_DIR: path.join(codexHome, "memory"),
+      },
+      backupRoot,
+    });
   });
 
   afterEach(async () => {

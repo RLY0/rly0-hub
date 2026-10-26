@@ -61,11 +61,48 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
     });
   const tail = (project) => (project ? project.split("/").filter(Boolean).slice(-2).join("/") : "");
 
+  const PINNED_MAX = 20; // matches PREFERENCE_LIMITS.records in host-runtime
+
   function memory(root, alive) {
     let scope = "all";
     let query = "";
     let timer;
     const list = h("div", { class: "memory-list" }, h("p", { class: "sub" }, "读取中…"));
+    // 常驻偏好: pinned memories every agent reads at the start of a new chat.
+    const pinnedList = h("div", { class: "memory-list" }, h("p", { class: "sub" }, "读取中…"));
+    const pinnedCount = h("span", { class: "tag" });
+    const syncNote = h("div", { class: "row pinned-sync", role: "status" });
+    syncNote.hidden = true;
+    const showSync = (code) => {
+      syncNote.hidden = !code;
+      if (!code) return syncNote.replaceChildren();
+      syncNote.replaceChildren(
+        h("span", { class: "dot warn", "aria-hidden": "true" }),
+        h("span", null, "已保存，但还没同步给 Codex，Codex 新对话暂时读不到"),
+        action("重试同步", async () => {
+          await call("bridge.syncNative");
+          showSync(null);
+          toast("已同步");
+        }),
+      );
+    };
+    const afterNative = (result) => {
+      const code = result && result.native && result.native.error;
+      showSync(code || null);
+      return !code;
+    };
+    const pinButton = (record) =>
+      action(record.pinned ? "取消常驻" : "设为常驻", async () => {
+        const result = await call("memory.pin", { id: record.id, pinned: !record.pinned });
+        if (!result.record) {
+          toast("这条记忆已不存在，请刷新");
+        } else if (afterNative(result)) {
+          toast(
+            record.pinned ? "已取消，新对话不再自动带上" : "已设为常驻，所有助手新对话都会遵守",
+          );
+        }
+        await load();
+      });
     const summary = h("p", { class: "sub memory-summary" });
     const search = h("input", {
       class: "input",
@@ -120,8 +157,9 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
     const projectField = h("label", { class: "field" }, h("span", null, "项目"), project);
     projectField.hidden = true;
     kind.addEventListener("change", () => (projectField.hidden = kind.value !== "project"));
-    const action = (label, run, extra = {}) =>
-      h(
+    const pinNew = h("input", { type: "checkbox" });
+    function action(label, run, extra = {}) {
+      return h(
         "button",
         {
           class: "btn sm",
@@ -141,6 +179,7 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
         },
         label,
       );
+    }
     root.append(
       h(
         "div",
@@ -157,6 +196,23 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
         ),
       ),
       h("p", { class: "sub page-note" }, "所有助手共用，谁记下的都能看到"),
+      h(
+        "section",
+        { class: "m pinned-card", "aria-label": "常驻偏好" },
+        h(
+          "div",
+          { class: "row pinned-head" },
+          h("h3", null, "常驻偏好"),
+          pinnedCount,
+          info(
+            "新对话自动带上",
+            "Claude、Codex 等所有助手每次开新对话都会先读这些，用来定规矩，比如“回答一律用中文”。普通记忆要助手想起来才去查。",
+          ),
+        ),
+        syncNote,
+        pinnedList,
+      ),
+      h("h3", { class: "memory-sub" }, "其他记忆"),
       h("div", { class: "row memory-filter" }, search, scopes),
       summary,
       list,
@@ -170,76 +226,114 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
           h("label", { class: "field" }, h("span", null, "内容"), text),
           h("label", { class: "field" }, h("span", null, "范围"), kind),
           projectField,
+          h(
+            "label",
+            { class: "row pin-check" },
+            pinNew,
+            h("span", null, "设为常驻偏好（所有助手新对话都会遵守）"),
+          ),
         ),
         h(
           "div",
           { class: "row" },
           action("记住", async () => {
-            await call("memory.add", {
+            const result = await call("memory.add", {
               text: text.value.trim(),
               scope: kind.value,
               ...(kind.value === "project" ? { project: project.value.trim() } : {}),
+              ...(pinNew.checked ? { tags: ["preference"] } : {}),
             });
             text.value = "";
-            toast("已记住，所有助手都能用");
+            if (afterNative(result))
+              toast(pinNew.checked ? "已记住，所有助手新对话都会遵守" : "已记住，所有助手都能用");
+            pinNew.checked = false;
             await load();
           }),
         ),
       ),
     );
+    function item(record) {
+      const remove = h("button", { class: "btn sm", type: "button" }, "删除");
+      const confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
+      remove.addEventListener("click", async () => {
+        if (!confirmTap()) return;
+        remove.disabled = true;
+        try {
+          const result = await call("memory.forget", { id: record.id });
+          if (afterNative(result)) toast("已删除");
+          await load();
+        } catch (error) {
+          remove.disabled = false;
+          failed(error);
+        }
+      });
+      return h(
+        "article",
+        { class: `memory-item${record.pinned ? " pinned" : ""}`, "data-memory": record.id },
+        h("p", { class: "memory-text" }, record.text),
+        h(
+          "div",
+          { class: "row memory-meta" },
+          h(
+            "span",
+            { class: "tag" },
+            record.scope === "global" ? "全局" : tail(record.project) || "项目",
+          ),
+          h("span", null, record.agent),
+          ...record.tags
+            .filter((tag) => tag !== "preference")
+            .map((tag) => h("span", { class: "tag soft" }, tag)),
+          h("span", { class: "sub" }, when(record.time)),
+          h("span", { class: "memory-buttons row" }, pinButton(record), remove),
+        ),
+      );
+    }
     async function load() {
       let result;
+      let pinned;
       try {
-        result = await call("memory.list", { scope, ...(query ? { query } : {}) });
+        [result, pinned] = await Promise.all([
+          call("memory.list", { scope, pinned: false, ...(query ? { query } : {}) }),
+          call("memory.list", { pinned: true, limit: 500 }),
+        ]);
       } catch (error) {
-        if (alive()) list.replaceChildren(h("p", { class: "empty" }, "读取失败，请刷新重试"));
+        if (alive()) {
+          list.replaceChildren(h("p", { class: "empty" }, "读取失败，请刷新重试"));
+          pinnedList.replaceChildren(h("p", { class: "empty" }, "读取失败，请刷新重试"));
+        }
         failed(error);
         return;
       }
       if (!alive()) return;
-      summary.textContent = `共 ${result.total} 条 · ${result.projects} 个项目 · 来自 ${result.agents.length ? result.agents.join("、") : "—"}`;
-      if (!result.records.length) {
-        list.replaceChildren(h("p", { class: "empty" }, query ? "没有找到" : "还没有记忆"));
-        return;
-      }
-      list.replaceChildren(
-        ...result.records.map((record) => {
-          const remove = h("button", { class: "btn sm", type: "button" }, "删除");
-          const confirmTap = window.HubUI.armable(remove, { armedText: "确认删除" });
-          remove.addEventListener("click", async () => {
-            if (!confirmTap()) return;
-            remove.disabled = true;
-            try {
-              await call("memory.forget", { id: record.id });
-              toast("已删除");
-              await load();
-            } catch (error) {
-              remove.disabled = false;
-              failed(error);
-            }
-          });
-          return h(
-            "article",
-            { class: "memory-item", "data-memory": record.id },
-            h("p", { class: "memory-text" }, record.text),
-            h(
-              "div",
-              { class: "row memory-meta" },
+      const over = pinned.records.length > PINNED_MAX;
+      pinnedCount.textContent = `${pinned.records.length} / ${PINNED_MAX}`;
+      pinnedCount.classList.toggle("warn", over);
+      pinnedList.replaceChildren(
+        ...(pinned.records.length
+          ? pinned.records.map(item)
+          : [h("p", { class: "empty" }, "还没有常驻偏好，在下面的记忆上点「设为常驻」")]),
+        ...(over
+          ? [
               h(
-                "span",
-                { class: "tag" },
-                record.scope === "global" ? "全局" : tail(record.project) || "项目",
+                "p",
+                { class: "sub warn" },
+                `超过 ${PINNED_MAX} 条，多出的不会自动带上，助手需要时再去查`,
               ),
-              h("span", null, record.agent),
-              ...record.tags.map((tag) => h("span", { class: "tag soft" }, tag)),
-              h("span", { class: "sub" }, when(record.time)),
-              remove,
-            ),
-          );
-        }),
+            ]
+          : []),
+      );
+      summary.textContent = `共 ${result.total} 条 · ${result.projects} 个项目 · 来自 ${result.agents.length ? result.agents.join("、") : "—"}`;
+      list.replaceChildren(
+        ...(result.records.length
+          ? result.records.map(item)
+          : [h("p", { class: "empty" }, query ? "没有找到" : "还没有其他记忆")]),
       );
     }
     void load();
+    // A failed sync from an earlier change (or at Hub start) still shows here.
+    call("bridge.status")
+      .then((status) => alive() && status && showSync(status.nativeError || null))
+      .catch(() => undefined);
   }
 
   for (const [id] of TABS) {

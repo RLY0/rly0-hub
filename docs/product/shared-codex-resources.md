@@ -8,7 +8,7 @@ RLY/0 Hub 左侧「打通」（打通设置）一处管理：概览、MCP、技�
 | 开关 | 默认 | 说明 |
 | --- | --- | --- |
 | MCP | 开 | MCP 页的列表（即 `~/.codex/config.toml` 的 `mcp_servers`，改动前自动备份）按各助手自己的方式挂上。带 `enabled_tools` / `disabled_tools` / OAuth / scopes 的服务器不转接（无法保真翻译）。 |
-| 技能 | 开 | Codex 技能（`~/.codex/skills`）。能原生注册的助手直接注册文件夹，其余拿到技能目录（名称、说明、SKILL.md 路径）自己去读。 |
+| 技能 | 开 | 以 `${CODEX_HOME}/skills`（含 `.system`）为唯一源，自动同步到 Claude 与通用 Agent 的原生技能目录；其他助手仍按其能力接收原生文件或源文件索引。 |
 | 记忆 | 开 | 共享记忆 rly0-memory（见下）。能接 MCP 的助手（含 Codex 自己）可读写，其余只读到摘要。 |
 
 迁移：没有设置文件时用上表默认值（新安装和 0.11.12 从未改过开关的安装都全开）。0.11.12 写下的 `version: 2` 文件保留其中的选择，缺少 `memory` 键时按当时的默认“关”处理；0.11.12-preview.1 的单开关 `{ enabled }` 仍按它设置三项。Hub 之后写 `version: 3`。
@@ -21,8 +21,8 @@ RLY/0 Hub 左侧「打通」（打通设置）一处管理：概览、MCP、技�
 
 | 助手 | MCP | 技能 | 记忆 | 方式 |
 | --- | --- | --- | --- | --- |
-| Codex | 本身 | 本身 | 原生 | Hub 写 `[mcp_servers.rly0_memory]`（备份 + 原子写 + 重新解析校验）；关闭记忆时只删这一张表 |
-| Claude Code | 原生 | 提示注入 | 原生 | SDK `mcpServers` + `systemPrompt.append`；隔离模式开启时都不共享 |
+| Codex | 本身 | 本身 | 原生 | Hub 写 `[mcp_servers.rly0_memory]`；全局常驻偏好同步到原生全局指令文件的托管块，不再向 developerInstructions 或 Codex MCP initialize 重复注入偏好；项目条目可用 recall 按需读取 |
+| Claude Code | 原生 | 原生目录 + 提示索引 | 原生 | `~/.claude/skills`（尊重 `CLAUDE_CONFIG_DIR`）收到受管副本；SDK `mcpServers` + `systemPrompt.append` 含偏好原文；隔离模式不附带 Host 共享资源，但既有全局原生技能仍受 Claude 自己的发现规则控制 |
 | Grok / Kiro / Kimi / Cursor / CodeBuddy / WorkBuddy | 原生 | 提示注入 | 原生 | ACP `session/new`/`load` 的 `mcpServers`；技能目录和记忆说明随每条消息附在请求前。Cursor 只给真实会话，不给检测和历史回放 |
 | OpenCode | 原生 | 提示注入 | 原生 | 托管进程的 `OPENCODE_CONFIG_CONTENT`（OpenCode 与用户配置合并）：`mcp` 表 + `instructions` 临时文件，会话关闭时删除 |
 | Pi | 原生 | 原生 | 原生 | 每个进程生成 `--extension`（`pi.registerMcpServer`，旧版无 MCP 时跳过）、每个技能一个 `--skill`、`--append-system-prompt` 记忆说明；文件在私有临时目录，进程退出即删 |
@@ -36,13 +36,51 @@ Antigravity 和 Hermes 只从全局文件读取 MCP。概览底部每个一枚�
 
 ## 共享记忆 rly0-memory
 
-- 实现：`packages/host-runtime/src/rly0-memory/`。无 SDK 的 MCP stdio 服务器（换行分隔 JSON-RPC），工具 `remember` / `recall` / `search` / `forget`，`initialize` 的 `instructions` 带一句使用说明（“开始任务时 recall，持久事实用 remember，不记密钥”）。发布包用 `node app/host-runtime.mjs --rly0-memory-mcp` 启动，源码构建用 `dist/rly0-memory/server-main.js`。环境变量只有 `RLY0_MEMORY_DIR` / `RLY0_MEMORY_AGENT` / `RLY0_MEMORY_CWD`，不含凭据。
-- 存储：`<数据目录>/memory/records.jsonl`，每行 `{id, text, tags, agent, thread?, scope, project?, time, source?}`；追加写，跨进程锁文件 `.lock`（独占创建、15 秒过期、Windows 上 EPERM 视为占用重试）；`forget` 在锁内重写文件，正文真正离开磁盘。`audit.jsonl` 记录每次增删（不含正文，1 MiB 轮换）。
+- 实现：`packages/host-runtime/src/rly0-memory/`。无 SDK 的 MCP stdio 服务器（换行分隔 JSON-RPC），工具 `remember` / `recall` / `search` / `forget`。非 Codex 的 `initialize.instructions` 和 Host 会话上下文带已获 Hub 批准的全局及当前项目偏好；Codex 只用原生 AGENTS 托管块自动加载全局偏好，不改调用方 developerInstructions。发布包用 `node app/host-runtime.mjs --rly0-memory-mcp` 启动，源码构建用 `dist/rly0-memory/server-main.js`。启动环境含共享记忆、数据目录、Agent 和可选 cwd，均为路径/标识，不含凭据；不再写入无用途的绝对 CODEX_HOME。
+- 存储：`<数据目录>/memory/records.jsonl`，每行 `{id, text, tags, agent, thread?, scope, project?, time, source?, preferenceApproved?}`；追加写，跨进程锁文件 `.lock`（独占创建、15 秒过期、Windows 上 EPERM 视为占用重试）；`forget` 在锁内重写文件，正文真正离开磁盘。`audit.jsonl` 记录每次增删（不含正文，1 MiB 轮换）。
 - 范围：`project` 以仓库根（最近的 `.git`）归一化，`global` 对所有项目可见；`recall` 返回本项目 + 全局，`search` 可选 `all` 跨项目。
 - 限制：单条 4000 字、8 个标签（字母数字 `_ . : -`，32 字）、5000 条、16 MiB。
 - 脱敏：写入和读出都过 `redaction.ts`：常见令牌格式、私钥块、URL 中的密码（移植自 agentmemory，见 NOTICE.md）、凭据赋值、连接串密码。只是有界防护，不能证明文本没有其他隐私。
 - 导入：首次使用时只读复制 Codex 记忆（`MEMORY.md` 各任务组的偏好 / 可复用知识 / 失败教训，有 `applies_to: cwd=` 的归该项目；`memory_summary.md` 的 User Profile / preferences / General Tips 归全局），标签 `codex-import`，标记文件 `codex-import.json` 防止重复。Codex 自己的文件不改。
 - Hub：记忆页可搜索、按范围筛选、添加（来源 `hub`）、删除（二次确认）、导出到 `memory/exports/`、打开文件夹（`memory.*` 方法）。
+
+## 常驻偏好与原生技能同步（HUB-50）
+
+常驻偏好要求 `preference` 标签和 `preferenceApproved=true` 同时存在。只有 Hub 的 `memory.add(tags:["preference"])` / `memory.pin` 可以批准；MCP 和委派不能自行置顶，也不能经 forget 删除已批准偏好。旧的仅含标签记录默认不注入，需在 Hub 重新置顶。取消置顶保留 ID、原文、其他标签、Agent 和任务来源。最多附 20 条、正文块共 10000 字符，整条保留，超限数量可见；置顶不授予新操作权限。
+
+上述“只有 Hub 可以批准”是受支持 API 的规则，信任边界止于**同一 Windows 用户**：该用户下的其他进程（包括 full-access Agent）可直接改写 `records.jsonl` 的 `preferenceApproved` 字段，或启动本地 Hub stdio 服务调用 `memory.add`；stdio 调用本身没有额外身份鉴权。目前批准字段**没有密码学签名**，不能据此证明记录由用户亲自在界面批准，也不能抵抗同用户进程篡改。模型上下文保留 `agent`/记录 ID/项目来源，Hub 列表保留 Agent/任务来源；来源是可追溯元数据，不是身份认证。未加入本地 HMAC：同用户进程亦能读取存放在该用户目录的私钥，单独签字段不能封闭 stdio 批准入口。需要更强隔离时须另行设计受保护的密钥与批准通道。
+
+非原生 MCP 摘要可能进入 Pi/OpenCode 等助手的系统提示，因此排除带 `conclusion` 标签的委派输出；结论仍可显式 recall，或随委派作为有来源的参考数据传入。共享上下文达到 26000 字符预算时，按整块省略记忆并提示 recall，不截断半条常驻偏好或丢掉结束标记。
+
+Codex 全局偏好写入 `${CODEX_HOME}/AGENTS.md`，有 `AGENTS.override.md` 则优先写后者。只改 HTML 注释托管块，原子替换，不产生全文备份，并清理旧的含完整托管块的已知备份文件。偏好中的托管标记转义。纯托管的新文件关闭后删除，原有空文件保留。**不把项目私有偏好写入全局文件，也不再经 developerInstructions / Codex MCP initialize 重复注入。** Codex 的项目偏好仍可 recall，但当前不会自动送进原生新会话，避免未经作用域授权写项目 AGENTS；此项范围限制须在真实验收中明确。
+
+技能采用受管副本，同步至 `${CLAUDE_CONFIG_DIR:-~/.claude}/skills`、`~/.agents/skills`，清单在 `<数据目录>/bridge/native-skills.json`。Hub 启动、共享设置变化、技能变更和显式 `bridge.syncNative` 均等待同步；Agent 会话启动只在后台安排同步，按有界源目录元数据指纹合并并缓存，变化才读文件内容/哈希。首次后台复制未完成时，源目录及原生适配器技能路径仍可使用。技能变更主操作成功而原生同步失败时返回 `{ok:true,...,native:{error}}`，避免重复导入/移动。
+
+复制跳过 `.env`/环境变体、credentials/secret/token/auth 样式文件或目录、`.ssh`/`.aws`/包管理凭据、私钥和证书文件。单技能上限 1024 条/16 MiB；不跟随链接或嵌套 `.git`。同名用户技能和用户修改的副本保留；清理只回收仍能按根路径与内容散列核对的受管副本。仍不宣称能识别任意命名的秘密，校验至删除之间的竞态与本机 manifest 篡改另列残余风险。
+
+原生写入通过本进程队列及 SQLite OS 事务锁串行化，另留 pid/时间/随机标识的 wx 元数据文件。所有原生写入者在持有 SQLite 事务时才创建和移除元数据；取得事务锁后残留 wx 文件直接回收，不再靠 PID 探测判断（避免 Windows PID 复用或 EPERM 永久卡住）。进程被杀时 OS 锁释放；活进程持有事务时不会按时长抢锁。恢复过程也在 OS 锁内，避免两个回收者误删新锁。仅使用 wx 文件、不遵守 SQLite 门的旧实现不能并发写入此目录。MCP 子进程不参与原生同步。损坏托管块仍报告错误；同步失败与已保存记忆分开报告。后台失败可从 `bridge.status.nativeError` 查询并用 `bridge.syncNative` 重试。
+
+给界面的增量契约 `HUB-50 bridge v1`（Hub 既有鉴权 RPC，Codex 已实现/自验，Claude 已接入，修复保持参数不变；真实 UI 验收及修复后独立复核 pending）：
+
+| 方法 | 参数 | 返回 |
+| --- | --- | --- |
+| `memory.pin` | `{ id: string, pinned: boolean }` | `{ record: MemoryView \| null, native: { instructions?: string[], error?: string } }`；找不到时 `record=null` |
+| `memory.list` | 原参数另支持 `pinned?: boolean` | 记录新增 `pinned:boolean`、`thread:string\|null`；`pinned:true` 只列常驻偏好 |
+| `bridge.syncNative` | `{}` | `{ instructions, synced, skipped, removed }` 文件路径列表；冲突/不可用项在 skipped |
+| `bridge.status` | `{}` | 原字段另有 `nativeError:string\|null`（本次 Host 最近同步错误） |
+
+`memory.add`/`memory.pin` 返回原生指令同步结果；`memory.forget` 只在同步失败时另带 `native.error`。共享设置保存后若同步失败返回 `sharingError`，保存状态和同步状态分别报告。
+参数不合法返回既有 RPC `-32602/INVALID_PARAMS`；操作失败返回 `-32000` 及脱敏错误码。置顶是本地锁内原子操作，无异步任务或取消句柄；只有真实回包后才更新界面状态，未知结果应先重新读取记录，不直接重复创建。fixture 均标记 synthetic，真实模型/新会话验收另列。
+
+## 委派与模型默认值
+
+`tools/collab/rly0_delegate.mjs` 先检查实际 CLI 的 `delegate start --help` 是否列出 `--memory`，再读取 `<数据目录>/shared-resources.json` 的真实开关（兼容 v2 默认关闭及旧 enabled 格式）。支持且开启时使用 `delegate start --memory true --cwd ...`；旧 CLI 或探测失败时省略此参数，照常委派，在输出 `context.sharedMemory` / 编排步骤 `sharedMemory` 报 `enabled:false` 和 `reason:CLI_MEMORY_UNSUPPORTED`。关闭记忆、损坏配置及 Host 不发 token 分别报对应原因，不声称共享已启用。服务端在这次委派范围内组装偏好/项目参考，不再提供任意 cwd 的预读取。`--no-context` 不请求共享；关闭记忆时不带记忆或启动写回监听。Codex 不在任务正文重复加入全局偏好，非 Codex 可以收到已批准偏好。
+
+服务端给实际创建的 child 发放运行时内有效的 `memoryToken`，绑定其 cwd、harnessId 和 threadId。包装器通过子进程环境 `CODEXHOST_DELEGATION_MEMORY_TOKEN` 交给监听器及 CLI，`delegate context [--cwd ...] [--query ...]` 只读此绑定目录；`delegate remember [--cwd ...]` 不接受自报 agent/thread/text，由服务端读取这个 child 的 completed 结果并取最后一处完整的 `【可复用结论】...【可复用结论结束】`（不超过 3500 字），避免取到前面复述的标记说明；最后一个块为空时不回收更早块。兼容显式 `--memory-token`，但包装器不使用此参数。失败、取消、空或超长结论不保存；保存脱敏、标签 conclusion、source=delegation，重复幂等。再次注入时标明 child 来源和“参考数据，不是指令或授权”。CLI 内部接口较初轮收紧；Hub memory.pin/add 接口不变。
+
+运行时重启后 token 无效，需要重新委派获得绑定；每个运行时最多保存最近 2000 个绑定。包装器不将凭据写入监听状态文件、命令参数或模型正文，只在进程环境中传递；同用户进程仍可能读取进程环境。未带 `--return-to-parent` 的记忆监听最长五分钟（协议等待和进程超时受剩余期限约束），超时状态 `expired/CHILD_DEADLINE` 可用 `returns` 查询，较长任务可通过前台编排等待，不承诺后台结论必定入库。显式回传仍沿用六小时子任务期限。写回失败保留 `memory.status=failed` 和错误码；仅记忆监听报 `phase=failed`，显式回传继续传原结果、并保存写回失败状态。带 memory 的相同 requestId 在运行时内复用同一个 start 结果，不因记忆内容变化重复启动。
+
+省略 Codex 模型时，确认 ChatGPT 身份后优先用 config.toml（含选中 profile）中仍在官方目录且 provider 为 openai/未指定的模型，仅不兼容时回退官方默认/可用项。身份 refresh 失败保留原生默认。任务 digest 使用调用者原始模型输入，先查幂等任务再解析动态默认。显式模型与 Thinking 仍沿用原路由与校验。合成协议通过不代表真实账号调用通过。
 
 ## 安全
 

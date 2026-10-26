@@ -98,6 +98,8 @@ export interface DelegationConfigurationResult {
 }
 
 export interface DelegationStartResult {
+  /** Runtime-scoped capability for this child's memory, invalid after Runtime restart. */
+  memoryToken?: string;
   delegationId: string;
   threadId: string;
   turnId: string;

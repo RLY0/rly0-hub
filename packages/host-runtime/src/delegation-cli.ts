@@ -184,6 +184,36 @@ export async function runDelegationCli(input: {
       view: "result" | "messages" = "result",
     ): void =>
       writeJson(output, format === "json" ? body : compactDelegationOutput(name, body, view));
+    if (group === "delegate" && (command === "context" || command === "remember")) {
+      rejectUnknown(
+        parsed,
+        command === "context"
+          ? ["--cwd", "--query", "--memory-token"]
+          : ["--cwd", "--memory-token"],
+      );
+      if (parsed.positionals.length)
+        throw new DelegationControlError("INVALID_ARGUMENT", "No positional arguments allowed");
+      const keys = command === "context" ? ["cwd", "query", "memoryToken"] : ["cwd", "memoryToken"];
+      writeJson(
+        output,
+        await requestRuntime({
+          environment,
+          path: `/v1/delegate/${command}`,
+          body: Object.fromEntries(
+            keys.flatMap((key) => {
+              const v =
+                key === "memoryToken"
+                  ? (value(parsed, "--memory-token") ??
+                    environment.CODEXHOST_DELEGATION_MEMORY_TOKEN)
+                  : value(parsed, `--${key}`);
+              return v === undefined ? [] : [[key, v]];
+            }),
+          ),
+          ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+        }),
+      );
+      return 0;
+    }
     if (group === "harness" && command === "list") {
       rejectUnknown(parsed, []);
       if (parsed.positionals.length > 0) {
@@ -244,6 +274,7 @@ export async function runDelegationCli(input: {
         "--thinking",
         "--parent-thread",
         "--request-id",
+        "--memory",
         "--watch",
         "--watch-timeout-ms",
       ]);
@@ -257,6 +288,9 @@ export async function runDelegationCli(input: {
       if (!harnessId || !task)
         throw new DelegationControlError("INVALID_ARGUMENT", "--harness and --task are required");
       const parentThread = value(parsed, "--parent-thread") ?? callerThreadId(environment);
+      const memory = value(parsed, "--memory");
+      if (memory !== undefined && memory !== "true" && memory !== "false")
+        throw new DelegationControlError("INVALID_ARGUMENT", "--memory must be true or false");
       const watch = value(parsed, "--watch");
       if (watch !== undefined && watch !== "true" && watch !== "false")
         throw new DelegationControlError("INVALID_ARGUMENT", "--watch must be true or false");
@@ -271,6 +305,7 @@ export async function runDelegationCli(input: {
           environment,
           path: "/v1/delegate/start",
           body: {
+            ...(memory !== undefined ? { memory: memory === "true" } : {}),
             harnessId,
             task,
             ...(value(parsed, "--task-name") !== undefined

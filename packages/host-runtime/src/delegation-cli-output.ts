@@ -98,6 +98,9 @@ export function compactDelegationOutput(
   view: "result" | "messages" = "result",
 ): unknown {
   switch (command) {
+    case "delegate context":
+    case "delegate remember":
+      return body;
     case "harness list":
       return body;
     case "harness inspect":
@@ -107,6 +110,7 @@ export function compactDelegationOutput(
       const effective = result.configuration?.effective;
       return {
         thread: result.deepLink,
+        ...(result.memoryToken ? { memoryToken: result.memoryToken } : {}),
         harnessId: result.harnessId,
         status: result.status,
         ...(result.cwd ? { cwd: result.cwd } : {}),

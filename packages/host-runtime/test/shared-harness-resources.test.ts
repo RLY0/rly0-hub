@@ -1,3 +1,4 @@
+import { syncNativeResourcesIfChanged } from "../src/rly0-bridge/native-resources.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -5,11 +6,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   sharedResourcesProvider,
   setSharedResourcesEnabled,
+  sharedResourceSettings,
 } from "../src/shared-harness-resources.js";
 import { installedHarnessPluginOptions } from "../src/installed-harness-plugins.js";
 
 const roots: string[] = [];
+const environments: NodeJS.ProcessEnv[] = [];
 afterEach(async () => {
+  for (const env of environments.splice(0))
+    await syncNativeResourcesIfChanged(env, await sharedResourceSettings(env));
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 async function fixture() {
@@ -19,7 +24,14 @@ async function fixture() {
   const project = path.join(root, "project");
   await fs.mkdir(path.join(codex, "memories"), { recursive: true });
   await fs.mkdir(project);
-  const env = { CODEX_HOME: codex, CODEXHOST_DATA_DIR: path.join(root, "data") };
+  const env = {
+    HOME: root,
+    USERPROFILE: root,
+    CODEX_HOME: codex,
+    CODEXHOST_DATA_DIR: path.join(root, "data"),
+    RLY0_MEMORY_DIR: path.join(root, "memory"),
+  };
+  environments.push(env);
   return { root, codex, project, env, provider: sharedResourcesProvider(env) };
 }
 function payload(context: string) {

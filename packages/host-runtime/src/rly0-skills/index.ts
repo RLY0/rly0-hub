@@ -12,6 +12,8 @@ import { rly0SkillBackupIdSchema, rly0SkillNameSchema } from "@codexhost/shared-
 
 import { buildBackupDirName, parseBackupDirName } from "./backup-id.js";
 import { parseSkillFrontMatter } from "./frontmatter.js";
+import { syncNativeResources } from "../rly0-bridge/native-resources.js";
+import { sharedResourceSettings } from "../shared-harness-resources.js";
 
 function resolveCodexHome(environment: NodeJS.ProcessEnv): string {
   return path.resolve(
@@ -156,7 +158,9 @@ export class Rly0SkillsManager {
     }
   }
 
-  async deactivate(name: string): Promise<{ ok: true; backupId: string }> {
+  async deactivate(
+    name: string,
+  ): Promise<{ ok: true; backupId: string; native?: { error: string } }> {
     assertSafeName(name);
     const skillsRoot = this.skillsRoot();
     const source = path.join(skillsRoot, name);
@@ -167,10 +171,11 @@ export class Rly0SkillsManager {
     const backupId = buildBackupDirName(name);
     const destination = path.join(this.#backupRoot, backupId);
     await moveDirectory(source, destination);
-    return { ok: true, backupId };
+    const native = await this.#syncNative();
+    return { ok: true, backupId, ...native };
   }
 
-  async restore(backupId: string): Promise<{ ok: true }> {
+  async restore(backupId: string): Promise<{ ok: true; native?: { error: string } }> {
     assertSafeBackupId(backupId);
     const parsed = parseBackupDirName(backupId);
     if (!parsed) throw new Error("SKILL_INVALID_BACKUP_ID");
@@ -184,10 +189,13 @@ export class Rly0SkillsManager {
     if (await isDirectory(destination)) throw new Error("SKILL_ALREADY_EXISTS");
     await fs.mkdir(skillsRoot, { recursive: true });
     await moveDirectory(source, destination);
-    return { ok: true };
+    const native = await this.#syncNative();
+    return { ok: true, ...native };
   }
 
-  async importSkill(params: Rly0SkillsImportParams): Promise<{ ok: true; name: string }> {
+  async importSkill(
+    params: Rly0SkillsImportParams,
+  ): Promise<{ ok: true; name: string; native?: { error: string } }> {
     const sourcePath = path.resolve(params.sourcePath);
     if (!(await this.#hasSkillManifest(sourcePath))) throw new Error("SKILL_SOURCE_INVALID");
     const name = params.name ?? path.basename(sourcePath);
@@ -199,7 +207,24 @@ export class Rly0SkillsManager {
     if (await isDirectory(destination)) throw new Error("SKILL_ALREADY_EXISTS");
     await fs.mkdir(skillsRoot, { recursive: true });
     await fs.cp(sourcePath, destination, { recursive: true });
-    return { ok: true, name };
+    const native = await this.#syncNative();
+    return { ok: true, name, ...native };
+  }
+
+  async #syncNative(): Promise<{ native?: { error: string } }> {
+    try {
+      await syncNativeResources(this.#environment, await sharedResourceSettings(this.#environment));
+      return {};
+    } catch (error) {
+      return {
+        native: {
+          error:
+            error instanceof Error && /^GLOBAL_CONFIG_[A-Z_]+$/u.test(error.message)
+              ? error.message
+              : "GLOBAL_CONFIG_NATIVE_SYNC_FAILED",
+        },
+      };
+    }
   }
 
   async #hasSkillManifest(directory: string): Promise<boolean> {

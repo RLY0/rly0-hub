@@ -47,6 +47,7 @@ export function rly0MemoryServerLaunch(input: {
     args,
     env: {
       RLY0_MEMORY_DIR: rly0MemoryDirectory(input.environment),
+      CODEXHOST_DATA_DIR: resolveRly0DataDir(input.environment),
       RLY0_MEMORY_AGENT: input.agent,
       ...(input.cwd ? { RLY0_MEMORY_CWD: input.cwd } : {}),
     },
@@ -63,6 +64,7 @@ export async function runRly0MemoryServer(environment: NodeJS.ProcessEnv): Promi
       agent: environment.RLY0_MEMORY_AGENT || "unknown",
       ...(environment.RLY0_MEMORY_THREAD ? { thread: environment.RLY0_MEMORY_THREAD } : {}),
       cwd: environment.RLY0_MEMORY_CWD || process.cwd(),
+      environment,
     },
     process.stdin,
     process.stdout,

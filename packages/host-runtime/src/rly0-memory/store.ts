@@ -22,6 +22,8 @@ export interface MemoryRecord {
   readonly time: number;
   /** "import" for records copied from Codex memories. */
   readonly source?: string;
+  /** Set only by the trusted Hub pin/add entry points, never by Agent input. */
+  readonly preferenceApproved?: boolean;
 }
 export interface RememberInput {
   text: string;
@@ -32,6 +34,8 @@ export interface RememberInput {
   /** Any folder inside the project; the repository root is used. */
   cwd?: string;
   source?: string;
+  /** Idempotent conclusion writes from the same child task. */
+  deduplicate?: boolean;
 }
 export interface MemoryQuery {
   query?: string;
@@ -43,6 +47,7 @@ export interface MemoryQuery {
    */
   scope?: MemoryScope | "visible" | "all";
   limit?: number;
+  tag?: string;
 }
 
 export const MEMORY_LIMITS = Object.freeze({
@@ -61,6 +66,7 @@ export class MemoryError extends Error {
       | "MEMORY_TEXT_EMPTY"
       | "MEMORY_TEXT_TOO_LONG"
       | "MEMORY_TAG_INVALID"
+      | "MEMORY_PREFERENCE_HUB_ONLY"
       | "MEMORY_FULL"
       | "MEMORY_LOCKED"
       | "MEMORY_PROJECT_REQUIRED",
@@ -79,7 +85,10 @@ export function normalizeProjectKey(folder: string): string {
 }
 
 /** The repository root containing `folder` (nearest `.git`), or the folder itself. */
-export function projectRoot(folder: string, exists: (file: string) => boolean = existsSync): string {
+export function projectRoot(
+  folder: string,
+  exists: (file: string) => boolean = existsSync,
+): string {
   let current = path.resolve(folder);
   for (let depth = 0; depth < 48; depth += 1) {
     if (exists(path.join(current, ".git"))) return current;
@@ -135,11 +144,13 @@ export class MemoryStore {
     return this.#directory;
   }
 
-  async remember(input: RememberInput): Promise<MemoryRecord> {
+  async remember(input: RememberInput, hubPreference = false): Promise<MemoryRecord> {
     const raw = input.text.trim();
     if (!raw) throw new MemoryError("MEMORY_TEXT_EMPTY");
     if (raw.length > MEMORY_LIMITS.textChars) throw new MemoryError("MEMORY_TEXT_TOO_LONG");
     const tags = [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))];
+    if (tags.includes("preference") && !hubPreference)
+      throw new MemoryError("MEMORY_PREFERENCE_HUB_ONLY");
     if (tags.length > MEMORY_LIMITS.tags || tags.some((tag) => !TAG.test(tag)))
       throw new MemoryError("MEMORY_TAG_INVALID");
     if (input.scope === "project" && !input.cwd) throw new MemoryError("MEMORY_PROJECT_REQUIRED");
@@ -148,6 +159,7 @@ export class MemoryStore {
       id: randomUUID(),
       text,
       tags,
+      ...(tags.includes("preference") && hubPreference ? { preferenceApproved: true } : {}),
       agent: input.agent.slice(0, 64) || "unknown",
       ...(input.thread ? { thread: input.thread.slice(0, 128) } : {}),
       scope: input.scope,
@@ -157,17 +169,30 @@ export class MemoryStore {
       time: Date.now(),
       ...(input.source ? { source: input.source.slice(0, 32) } : {}),
     };
-    await this.#locked(async () => {
+    return this.#locked(async () => {
       const existing = await this.#read();
+      if (input.deduplicate && input.thread && input.source) {
+        const prior = existing.find(
+          (r) =>
+            r.thread === record.thread &&
+            r.source === record.source &&
+            r.text === record.text &&
+            r.project === record.project,
+        );
+        if (prior) return { ...prior, text: redactMemoryText(prior.text).text };
+      }
       if (existing.length >= MEMORY_LIMITS.records) throw new MemoryError("MEMORY_FULL");
       const line = `${JSON.stringify(record)}\n`;
-      const size = await fs.stat(this.#records).then((s) => s.size, () => 0);
+      const size = await fs.stat(this.#records).then(
+        (s) => s.size,
+        () => 0,
+      );
       if (size + Buffer.byteLength(line) > MEMORY_LIMITS.fileBytes)
         throw new MemoryError("MEMORY_FULL");
       await fs.appendFile(this.#records, line, { encoding: "utf8", mode: 0o600 });
       await this.#note("remember", record, redacted);
+      return record;
     });
-    return record;
   }
 
   /** Records visible from `cwd`: its project's and global ones, best match first. */
@@ -176,6 +201,7 @@ export class MemoryStore {
     const project = input.cwd ? normalizeProjectKey(projectRoot(input.cwd)) : undefined;
     const scope = input.scope ?? (project ? "visible" : "all");
     const visible = (await this.#read()).filter((record) => {
+      if (input.tag && !record.tags.includes(input.tag)) return false;
       if (scope === "global") return record.scope === "global";
       if (scope === "project") return record.scope === "project" && record.project === project;
       if (scope === "visible") return record.scope === "global" || record.project === project;
@@ -195,19 +221,54 @@ export class MemoryStore {
           )
           .map((entry) => entry.record)
       : [...visible].sort((a, b) => b.time - a.time);
-    return ranked.slice(0, limit).map((record) => ({ ...record, text: redactMemoryText(record.text).text }));
+    return ranked
+      .slice(0, limit)
+      .map((record) => ({ ...record, text: redactMemoryText(record.text).text }));
   }
 
   async get(id: string): Promise<MemoryRecord | null> {
     return (await this.#read()).find((record) => record.id === id) ?? null;
   }
 
+  /** Pinning keeps the record identity, attribution and other tags, under the writer lock. */
+  async setPreference(id: string, pinned: boolean, agent: string): Promise<MemoryRecord | null> {
+    if (agent !== "hub") throw new MemoryError("MEMORY_PREFERENCE_HUB_ONLY");
+    return this.#locked(async () => {
+      const records = await this.#read();
+      const target = records.find((record) => record.id === id);
+      if (!target) return null;
+      if (target.tags.includes("preference") === pinned && target.preferenceApproved === pinned)
+        return target;
+      const tags = pinned
+        ? [...new Set([...target.tags, "preference"])]
+        : target.tags.filter((tag) => tag !== "preference");
+      if (tags.length > MEMORY_LIMITS.tags) throw new MemoryError("MEMORY_TAG_INVALID");
+      const updated = { ...target, tags, preferenceApproved: pinned };
+      const temporary = `${this.#records}.${randomUUID()}.tmp`;
+      try {
+        await fs.writeFile(
+          temporary,
+          records.map((r) => JSON.stringify(r.id === id ? updated : r)).join("\n") + "\n",
+          { mode: 0o600, flag: "wx" },
+        );
+        await renameWithRetry(temporary, this.#records);
+      } finally {
+        await fs.unlink(temporary).catch(() => undefined);
+      }
+      this.#cache = null;
+      await this.#note(pinned ? "pin" : "unpin", { ...updated, agent }, false);
+      return { ...updated, text: redactMemoryText(updated.text).text };
+    });
+  }
+
   /** Removes the record's text from disk (the file is rewritten without it). */
-  async forget(id: string, agent: string): Promise<boolean> {
+  async forget(id: string, agent: string, hubPreference = false): Promise<boolean> {
     return this.#locked(async () => {
       const records = await this.#read();
       const target = records.find((record) => record.id === id);
       if (!target) return false;
+      if (target.preferenceApproved === true && !hubPreference)
+        throw new MemoryError("MEMORY_PREFERENCE_HUB_ONLY");
       const kept = records.filter((record) => record.id !== id);
       const temporary = `${this.#records}.${randomUUID()}.tmp`;
       try {
@@ -265,7 +326,10 @@ export class MemoryStore {
           typeof value.time === "number" &&
           (value.scope === "project" || value.scope === "global")
         )
-          records.push({ ...value, tags: Array.isArray(value.tags) ? value.tags : [] } as MemoryRecord);
+          records.push({
+            ...value,
+            tags: Array.isArray(value.tags) ? value.tags : [],
+          } as MemoryRecord);
       } catch {
         /* partial line */
       }
@@ -284,10 +348,16 @@ export class MemoryStore {
       ...(record.project ? { project: record.project } : {}),
       ...(redacted ? { redacted: true } : {}),
     };
-    const size = await fs.stat(this.#audit).then((s) => s.size, () => 0);
+    const size = await fs.stat(this.#audit).then(
+      (s) => s.size,
+      () => 0,
+    );
     if (size > MEMORY_LIMITS.auditBytes)
       await fs.rename(this.#audit, `${this.#audit}.1`).catch(() => undefined);
-    await fs.appendFile(this.#audit, `${JSON.stringify(entry)}\n`, { encoding: "utf8", mode: 0o600 });
+    await fs.appendFile(this.#audit, `${JSON.stringify(entry)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
   }
 
   async #locked<T>(work: () => Promise<T>): Promise<T> {

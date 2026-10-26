@@ -1,3 +1,4 @@
+import { syncNativeResourcesIfChanged } from "../src/rly0-bridge/native-resources.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,8 +7,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ANTIGRAVITY_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-antigravity";
 import { CLAUDE_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-claude-code";
 import { GROK_SHARED_CONTEXT_REQUEST, GROK_SHARED_MCP_REQUEST } from "@codexhost/adapter-grok";
-import { CURSOR_SHARED_CONTEXT_REQUEST, CURSOR_SHARED_MCP_REQUEST } from "@codexhost/adapter-cursor-cli";
-import { HERMES_SHARED_CONTEXT_REQUEST, HERMES_SHARED_SKILL_REQUEST } from "@codexhost/adapter-hermes";
+import {
+  CURSOR_SHARED_CONTEXT_REQUEST,
+  CURSOR_SHARED_MCP_REQUEST,
+} from "@codexhost/adapter-cursor-cli";
+import {
+  HERMES_SHARED_CONTEXT_REQUEST,
+  HERMES_SHARED_SKILL_REQUEST,
+} from "@codexhost/adapter-hermes";
 import { KIMI_SHARED_CONTEXT_REQUEST, KIMI_SHARED_MCP_REQUEST } from "@codexhost/adapter-kimi-code";
 import { KIRO_SHARED_CONTEXT_REQUEST, KIRO_SHARED_MCP_REQUEST } from "@codexhost/adapter-kiro-cli";
 import { OPENCODE_SHARED_RESOURCE_REQUEST } from "@codexhost/adapter-opencode";
@@ -24,7 +31,10 @@ import {
 import { sharedResourceStatus } from "../src/shared-resource-status.js";
 
 const roots: string[] = [];
+const environments: NodeJS.ProcessEnv[] = [];
 afterEach(async () => {
+  for (const env of environments.splice(0))
+    await syncNativeResourcesIfChanged(env, await sharedResourceSettings(env));
   await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
 });
 
@@ -50,10 +60,14 @@ async function fixture() {
     "project-memory-line\npassword = synthetic-password",
   );
   const env = {
+    HOME: root,
+    USERPROFILE: root,
+    RLY0_MEMORY_DIR: path.join(root, "data", "memory"),
     CODEX_HOME: codex,
     CODEXHOST_DATA_DIR: path.join(root, "data"),
     SYNTHETIC_AUTH: "synthetic-header-token",
   };
+  environments.push(env);
   return { codex, project, env, provider: sharedResourcesProvider(env) };
 }
 
@@ -72,8 +86,15 @@ describe("Codex resource sharing settings", () => {
     const f = await fixture();
     const file = path.join(f.env.CODEXHOST_DATA_DIR, "shared-resources.json");
     await fs.mkdir(f.env.CODEXHOST_DATA_DIR, { recursive: true });
-    await fs.writeFile(file, JSON.stringify({ version: 2, mcp: false, skills: true, memory: false }));
-    expect(await sharedResourceSettings(f.env)).toEqual({ mcp: false, skills: true, memory: false });
+    await fs.writeFile(
+      file,
+      JSON.stringify({ version: 2, mcp: false, skills: true, memory: false }),
+    );
+    expect(await sharedResourceSettings(f.env)).toEqual({
+      mcp: false,
+      skills: true,
+      memory: false,
+    });
     await fs.writeFile(file, JSON.stringify({ version: 2, mcp: true }));
     expect(await sharedResourceSettings(f.env)).toEqual({ mcp: true, skills: true, memory: false });
     await fs.writeFile(file, JSON.stringify({ version: 2, mcp: true, skills: true, memory: true }));
@@ -117,9 +138,9 @@ codex-group-line
     expect(turn.context).toContain("read-only digest");
     expect(turn.context).toContain("codex-group-line");
     await setSharedResourceSettings(f.env, { memory: false });
-    expect((await provider(f.project, CLAUDE_SHARED_RESOURCE_REQUEST)).mcpServers).not.toHaveProperty(
-      "rly0_memory",
-    );
+    expect(
+      (await provider(f.project, CLAUDE_SHARED_RESOURCE_REQUEST)).mcpServers,
+    ).not.toHaveProperty("rly0_memory");
   });
 
   it("returns skill folders instead of an index to agents that register skills natively", async () => {
@@ -228,10 +249,18 @@ codex-group-line
     expect(support.antigravity).toEqual(asked(ANTIGRAVITY_SHARED_RESOURCE_REQUEST));
     expect(support.opencode).toEqual(asked(OPENCODE_SHARED_RESOURCE_REQUEST));
     expect(support.pi).toEqual(asked(PI_SHARED_RESOURCE_REQUEST));
-    expect(support.hermes).toEqual(asked(HERMES_SHARED_SKILL_REQUEST, HERMES_SHARED_CONTEXT_REQUEST));
-    expect(support["cursor-cli"]).toEqual(asked(CURSOR_SHARED_MCP_REQUEST, CURSOR_SHARED_CONTEXT_REQUEST));
-    expect(support["kiro-cli"]).toEqual(asked(KIRO_SHARED_MCP_REQUEST, KIRO_SHARED_CONTEXT_REQUEST));
-    expect(support["kimi-code"]).toEqual(asked(KIMI_SHARED_MCP_REQUEST, KIMI_SHARED_CONTEXT_REQUEST));
+    expect(support.hermes).toEqual(
+      asked(HERMES_SHARED_SKILL_REQUEST, HERMES_SHARED_CONTEXT_REQUEST),
+    );
+    expect(support["cursor-cli"]).toEqual(
+      asked(CURSOR_SHARED_MCP_REQUEST, CURSOR_SHARED_CONTEXT_REQUEST),
+    );
+    expect(support["kiro-cli"]).toEqual(
+      asked(KIRO_SHARED_MCP_REQUEST, KIRO_SHARED_CONTEXT_REQUEST),
+    );
+    expect(support["kimi-code"]).toEqual(
+      asked(KIMI_SHARED_MCP_REQUEST, KIMI_SHARED_CONTEXT_REQUEST),
+    );
     // CodeBuddy / WorkBuddy ask inline (acp-client.ts) with the same ACP shape.
     expect(support.codebuddy).toEqual(asked(acp));
     expect(support.workbuddy).toEqual(asked(acp));

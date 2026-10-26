@@ -19,6 +19,11 @@ import {
 } from "../rly0-memory/launch.js";
 import { MemoryError, MEMORY_LIMITS, type MemoryRecord } from "../rly0-memory/store.js";
 import { sharedResourceSettings, sharedResourcesProvider } from "../shared-harness-resources.js";
+import {
+  syncNativePreferences,
+  syncNativeResources,
+  nativeResourceSyncError,
+} from "../rly0-bridge/native-resources.js";
 
 /**
  * 打通设置 backend: the shared memory (list / add / forget / export), Codex's own memory server
@@ -35,7 +40,8 @@ function route<S extends z.ZodTypeAny>(schema: S, run: (params: z.infer<S>) => u
     } catch (error) {
       const known =
         error instanceof MemoryError ||
-        (error instanceof Error && /^(?:GLOBAL_CONFIG_[A-Z_]+|CODEX_MEMORY_[A-Z_]+)$/u.test(error.message));
+        (error instanceof Error &&
+          /^(?:GLOBAL_CONFIG_[A-Z_]+|CODEX_MEMORY_[A-Z_]+)$/u.test(error.message));
       throw Object.assign(new Error(known ? (error as Error).message : "BRIDGE_OPERATION_FAILED"), {
         code: -32000,
       });
@@ -47,11 +53,15 @@ function route<S extends z.ZodTypeAny>(schema: S, run: (params: z.infer<S>) => u
  * The module the memory server runs from: the installed Host bundle, or the compiled source
  * build next to this file. Undefined when neither exists (then nothing is attached).
  */
-export function rly0MemoryEntryUrl(installRoot: string, here: string = import.meta.url): string | undefined {
+export function rly0MemoryEntryUrl(
+  installRoot: string,
+  here: string = import.meta.url,
+): string | undefined {
   const bundled = path.join(installRoot, "app", "host-runtime.mjs");
   if (existsSync(bundled)) return pathToFileURL(bundled).href;
   const source = fileURLToPath(new URL("../installed-harness-plugins.js", here));
-  return existsSync(source) && existsSync(path.join(path.dirname(source), "rly0-memory", "server-main.js"))
+  return existsSync(source) &&
+    existsSync(path.join(path.dirname(source), "rly0-memory", "server-main.js"))
     ? pathToFileURL(source).href
     : undefined;
 }
@@ -66,6 +76,8 @@ function view(record: MemoryRecord) {
     project: record.project ?? null,
     time: record.time,
     source: record.source ?? null,
+    thread: record.thread ?? null,
+    pinned: record.preferenceApproved === true && record.tags.includes("preference"),
   };
 }
 
@@ -79,7 +91,10 @@ export function createBridgeRoutes(options: {
   const { environment } = options;
   const store = openRly0MemoryStore(environment);
   const entryUrl = rly0MemoryEntryUrl(options.installRoot);
-  const provider = sharedResourcesProvider(environment, entryUrl ? { memoryEntryUrl: entryUrl } : {});
+  const provider = sharedResourcesProvider(
+    environment,
+    entryUrl ? { memoryEntryUrl: entryUrl } : {},
+  );
   const global = new Rly0GlobalBridge({
     environment,
     servers: async (agent) => {
@@ -95,15 +110,46 @@ export function createBridgeRoutes(options: {
     options.memoryLaunch === null
       ? undefined
       : (options.memoryLaunch ??
-        (entryUrl
-          ? rly0MemoryServerLaunch({ environment, agent: "codex", entryUrl })
-          : undefined));
+        (entryUrl ? rly0MemoryServerLaunch({ environment, agent: "codex", entryUrl }) : undefined));
 
   /** Codex gets (or loses) `[mcp_servers.rly0_memory]` to follow the memory switch. */
   async function syncCodex(): Promise<CodexMemorySync> {
     const settings = await sharedResourceSettings(environment);
     return syncCodexMemoryServer({ environment, enabled: settings.memory, launch: codexLaunch() });
   }
+  let nativeError: string | null = null;
+  const errorCode = (error: unknown) =>
+    error instanceof Error && /^GLOBAL_CONFIG_[A-Z_]+$/u.test(error.message)
+      ? error.message
+      : "GLOBAL_CONFIG_NATIVE_SYNC_FAILED";
+  const syncNative = async () => {
+    try {
+      const result = await syncNativeResources(
+        environment,
+        await sharedResourceSettings(environment),
+      );
+      nativeError = null;
+      return result;
+    } catch (error) {
+      nativeError = errorCode(error);
+      throw error;
+    }
+  };
+  // The memory write is already durable. Report an instruction-file failure without inviting
+  // the caller to repeat a successful add/forget/pin operation.
+  const syncSavedPreferences = async () => {
+    try {
+      const instructions = await syncNativePreferences(
+        environment,
+        (await sharedResourceSettings(environment)).memory,
+      );
+      nativeError = null;
+      return { instructions };
+    } catch (error) {
+      nativeError = errorCode(error);
+      return { error: nativeError };
+    }
+  };
 
   const globalAgent = z.enum(RLY0_GLOBAL_AGENTS);
   const routes = {
@@ -113,6 +159,7 @@ export function createBridgeRoutes(options: {
           query: z.string().max(200).optional(),
           scope: z.enum(["all", "global", "project"]).optional(),
           limit: z.number().int().min(1).max(500).optional(),
+          pinned: z.boolean().optional(),
         })
         .strict(),
       async (p) => {
@@ -121,8 +168,14 @@ export function createBridgeRoutes(options: {
           scope: p.scope === "global" ? "global" : "all",
           limit: p.limit ?? 200,
           ...(p.query ? { query: p.query } : {}),
+          ...(p.pinned === true ? { tag: "preference" } : {}),
         });
-        const filtered = p.scope === "project" ? records.filter((r) => r.scope === "project") : records;
+        const filtered = records.filter(
+          (r) =>
+            (p.scope !== "project" || r.scope === "project") &&
+            (p.pinned !== true || r.preferenceApproved === true) &&
+            (p.pinned !== false || r.preferenceApproved !== true),
+        );
         const projects = [...new Set(all.flatMap((r) => (r.project ? [r.project] : [])))];
         return {
           records: filtered.map(view),
@@ -146,20 +199,32 @@ export function createBridgeRoutes(options: {
       async (p) => {
         if (p.scope === "project" && (!p.project || !path.isAbsolute(p.project)))
           throw new MemoryError("MEMORY_PROJECT_REQUIRED");
-        return view(
-          await store.remember({
+        const saved = await store.remember(
+          {
             text: p.text,
             scope: p.scope,
             agent: "hub",
             ...(p.tags ? { tags: p.tags } : {}),
             ...(p.project ? { cwd: p.project } : {}),
-          }),
+          },
+          true,
         );
+        const native = await syncSavedPreferences();
+        return { ...view(saved), native };
       },
     ),
-    "memory.forget": route(z.object({ id: z.string().min(1).max(64) }).strict(), async (p) => ({
-      forgotten: await store.forget(p.id, "hub"),
-    })),
+    "memory.forget": route(z.object({ id: z.string().min(1).max(64) }).strict(), async (p) => {
+      const forgotten = await store.forget(p.id, "hub", true);
+      const native = await syncSavedPreferences();
+      return { forgotten, ...("error" in native ? { native } : {}) };
+    }),
+    "memory.pin": route(
+      z.object({ id: z.string().min(1).max(64), pinned: z.boolean() }).strict(),
+      async (p) => {
+        const updated = await store.setPreference(p.id, p.pinned, "hub");
+        return { record: updated ? view(updated) : null, native: await syncSavedPreferences() };
+      },
+    ),
     "memory.export": route(empty, async () => {
       const records = await store.all();
       const folder = path.join(store.directory, "exports");
@@ -181,6 +246,7 @@ export function createBridgeRoutes(options: {
       return {
         memoryServer: launch ? { available: true } : { available: false },
         globals,
+        nativeError: nativeError ?? nativeResourceSyncError(environment),
       };
     }),
     "bridge.globalSet": route(
@@ -188,6 +254,7 @@ export function createBridgeRoutes(options: {
       (p) => global.set(p.agent as Rly0GlobalAgent, p.enabled),
     ),
     "bridge.syncCodex": route(empty, async () => ({ codex: await syncCodex() })),
+    "bridge.syncNative": route(empty, syncNative),
   };
   return {
     routes,
@@ -195,12 +262,19 @@ export function createBridgeRoutes(options: {
     async afterSharingChange(): Promise<CodexMemorySync> {
       const result = await syncCodex();
       await global.refresh();
+      await syncNative();
       return result;
     },
     /** At Hub start: import Codex memories once and keep Codex's entry current. */
     async start(): Promise<void> {
       await importCodexMemories(store, environment).catch(() => undefined);
       await syncCodex().catch(() => undefined);
+      await syncNative().catch(() => undefined);
+    },
+    async restorePure(): Promise<void> {
+      await syncNativeResources(environment, { memory: false, skills: false });
+      await syncCodexMemoryServer({ environment, enabled: false, launch: codexLaunch() });
+      for (const agent of RLY0_GLOBAL_AGENTS) await global.set(agent, false);
     },
   };
 }
