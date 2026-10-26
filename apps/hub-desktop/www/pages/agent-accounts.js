@@ -314,15 +314,6 @@ window.registerHubAgentAccounts = ({
         signedIn: account.current && using !== "login",
         quota: cards.quotaCards(account.lastUsage, {
           live: { provider: "claude", id: account.id },
-          reset: {
-            vendor: "anthropic",
-            account,
-            refreshed: async () => {
-              quotaLive.mark("claude", account.id, "manual");
-              await call("agents.claudeAccounts.usage", { id: account.id }).catch(() => undefined);
-              if (alive()) await load();
-            },
-          },
           updated: true,
           reason: "额度未知：点右上角刷新读取",
           stale: claudeUsageError(failures.get(account.id), account.current),

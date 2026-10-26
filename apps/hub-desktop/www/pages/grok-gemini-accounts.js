@@ -235,7 +235,6 @@ window.registerHubGrokGeminiAccounts = (
         current: account.current && using === "login",
         signedIn: account.current && using !== "login",
         quota: cards.quotaCards(account.lastUsage, {
-          reset: { vendor: "xai" },
           updated: true,
           kinds: ["额度"],
           reason: "额度未知：点右上角刷新读取",
@@ -401,7 +400,6 @@ window.registerHubGrokGeminiAccounts = (
             ? cards.quotaCards(usage, {
                 updated: true,
                 stale: error || null,
-                reset: { vendor: "google" },
               })
             : cards.quotaCards(null, {
                 reason: !known

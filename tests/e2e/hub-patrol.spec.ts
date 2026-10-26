@@ -748,9 +748,9 @@ test("claude accounts: cards, add by web login, import from file", async ({ page
 // Grok (测试版, pages/mock.js): a weekly and a monthly account and one whose saved login expired;
 // adding one by `grok login` (finishes on its own, no code) and by an auth.json file.
 // Live quota (pages/quota-live.js): every quota says how fresh it is and where it came from; a
-// reply's numbers pushed by the service repaint 账号 and 首页 without a request; the Claude reset
-// card opens claude.ai's usage page in a Hub window for that account and re-reads it on close.
-test("live quota: freshness labels, pushed numbers, Claude reset window", async ({ page }) => {
+// reply's numbers pushed by the service repaint 账号 and 首页 without a request. Only Codex cards
+// carry the 额度重置卡 tile: Claude (accounts and tokens), Gemini and Grok have none.
+test("live quota: freshness labels, pushed numbers, reset tile only on Codex", async ({ page }) => {
   const dir = path.join(runDir, "live-quota");
   mkdirSync(dir, { recursive: true });
   const settled = async () => {
@@ -762,6 +762,7 @@ test("live quota: freshness labels, pushed numbers, Claude reset window", async 
   // quota.live (mock): a reply on the current account just brought its numbers.
   await expect(me.locator(".quota-fresh")).toContainText("刚刚");
   await expect(me.locator(".quota-fresh")).toContainText("随对话更新");
+  await expect(me.locator(".reset-card.cards")).toBeVisible();
   const team = page.locator(".account-card", { hasText: "团队号" });
   await expect(team.locator(".quota-fresh")).toContainText("定时刷新");
   await expect(team.locator(".quota-fresh .info-tip")).toHaveAttribute("data-tip", /每 5 分钟/u);
@@ -791,23 +792,23 @@ test("live quota: freshness labels, pushed numbers, Claude reset window", async 
   await page.click('.account-tabs button[aria-label^="Anthropic"]');
   const claude = page.locator(".account-card", { hasText: "工作号" });
   await expect(claude.locator(".quota-fresh")).toContainText("刚刚");
-  const open = claude.locator('.reset-card.cards button:has-text("打开兑换页")');
-  await expect(open).toBeVisible();
-  await open.click();
-  const opened = await page.evaluate(
-    () => (window as unknown as { __hubClaudeUsageOpened?: unknown[] }).__hubClaudeUsageOpened,
-  );
-  expect(opened).toEqual([{ accountId: "abcdefabcdef", label: "work@example.com" }]);
+  await expect(page.locator(".account-card .reset-card").first()).toBeVisible();
+  await expect(page.locator(".reset-card.cards")).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("额度重置卡");
+  await expect(page.locator("main")).not.toContainText("打开兑换页");
   await settled();
   await page.screenshot({ path: path.join(dir, "accounts-claude.png"), fullPage: true });
-  // Closing the window re-reads that account.
-  await page.evaluate(() =>
-    (window as unknown as { __hubShellMessage: (m: unknown) => void }).__hubShellMessage({
-      event: "claudeUsageClosed",
-      accountId: "abcdefabcdef",
-    }),
-  );
-  await expect(claude.locator(".quota-fresh")).toContainText("手动");
+  for (const [tab, name] of [
+    ["xAI", "grok"],
+    ["Google", "gemini"],
+  ] as const) {
+    await page.click(`.account-tabs button[aria-label^="${tab}"]`);
+    await expect(page.locator(".account-card").first()).toBeVisible();
+    await expect(page.locator(".reset-card.cards")).toHaveCount(0);
+    await expect(page.locator("main")).not.toContainText("额度重置卡");
+    await settled();
+    await page.screenshot({ path: path.join(dir, `accounts-${name}.png`), fullPage: true });
+  }
 
   await page.click('.rail button[data-page="home"]');
   const work = page.locator(".work-quota");

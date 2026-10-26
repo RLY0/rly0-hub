@@ -51,7 +51,7 @@ window.registerHubQuotaLive = ({ h, now = () => Date.now(), doc = globalThis.doc
     }
   }
 
-  /** Shell / service events: quota, balance, visibility, claudeUsageClosed. */
+  /** Shell / service events: quota, balance, visibility. */
   function onShellEvent(data) {
     if (!data || typeof data !== "object") return false;
     if (data.event === "quota" && data.params && typeof data.params === "object") {
@@ -65,10 +65,6 @@ window.registerHubQuotaLive = ({ h, now = () => Date.now(), doc = globalThis.doc
     }
     if (data.event === "balance") {
       notify({ type: "balance", balance: data.params || null });
-      return true;
-    }
-    if (data.event === "claudeUsageClosed") {
-      notify({ type: "claudeUsageClosed", accountId: data.accountId });
       return true;
     }
     return false;

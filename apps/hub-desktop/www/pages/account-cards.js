@@ -14,7 +14,7 @@ window.registerHubAccountCards = ({
   resetCardTile,
   quotaLive,
 }) => {
-  const resets = window.registerHubResetCredits({ h, call, toast, resetCardTile, quotaLive });
+  const resets = window.registerHubResetCredits({ h, call, toast, resetCardTile });
   const put = (element, ...items) =>
     element.replaceChildren(
       ...items
@@ -793,19 +793,9 @@ window.registerHubAccountCards = ({
                 updated: true,
                 live: { provider: "claude", id: info.id || id },
                 reason: keyQuota(info).reason,
-                reset: {
-                  vendor: "anthropic",
-                  account: {
-                    id: info.id || id,
-                    email: info.email,
-                    alias: info.name,
-                  },
-                  refreshed: () => load(),
-                },
               })
             : quotaCards(null, {
                 value: "不支持",
-                reset: { vendor: "api-key" },
                 reason: "普通 API Key 官方不提供额度查询，账单请到官方控制台查看。",
               }),
         notes: [
@@ -1072,7 +1062,7 @@ window.registerHubAccountCards = ({
 
   return {
     quotaCards,
-    /** The 额度重置卡 tile with its 使用 action (pages/reset-credits.js). */
+    /** The Codex 额度重置卡 tile with its 使用 action (pages/reset-credits.js); null elsewhere. */
     resetTile: resets.tile,
     accountCard,
     pageHead,

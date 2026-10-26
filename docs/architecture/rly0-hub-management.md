@@ -113,7 +113,7 @@ Host 把数字（不含凭据、请求体或其他响应头）合并写入 `quot
 
 ## 额度重置卡
 
-重置权益属于账号所属平台，不属于助手程序。账号与令牌卡使用同一个额度组件，始终显示重置卡状态：Codex 显示接口返回的张数，未知不当作零；Claude 显示“官方兑换”；Gemini/Grok 未核实到使用接口时显示“未接通”；普通 API Key 显示“不适用”。Pi、Hermes 等复用哪个平台账号，就受该账号权益范围约束，不能跨平台套用卡片。
+重置权益属于账号所属平台，不属于助手程序。只有 Codex（OpenAI 订阅登录）的重置卡能在 Hub 里使用，所以“额度重置卡”格子只出现在 账号 → OpenAI·Codex 和 首页：显示接口返回的张数，未知不当作零；还没保存的当前登录显示“待保存”。Claude 账号与订阅令牌、Gemini/Antigravity、Grok 和各家官方 API Key 卡片都不显示这个格子（0.11.17 起），额度格子按剩余数量自动铺满整行，不留空位。Pi、Hermes 等复用哪个平台账号，就受该账号权益范围约束，不能跨平台套用卡片。
 
 Codex 已保存账号的 `accounts.resetPrepare` 读取官方卡库存，用户确认后 `accounts.resetConsume` 提交明确的卡 ID 和 UUID 请求；不切账号、不刷新令牌、不改写额度为 100%。仅调用固定 ChatGPT 官方地址，不接受页面或环境覆盖消费目标，不跟随重定向、不自动重试 POST。契约依据 [官方 App Server 文档](https://learn.chatgpt.com/docs/app-server#8-earned-rate-limit-resets-chatgpt) 和 openai/codex `a6839a48` 的 backend-client 实现。只有 `reset/alreadyRedeemed/nothingToReset/noCredit` 为已知结果，未知响应保留待核实。
 
@@ -121,7 +121,7 @@ core 在账号存储目录用 DPAPI 加密保存使用账本，POST 前必须落
 
 卡片上的“使用”只在张数大于 0 时可点；0 张时按钮禁用并写明原因，张数未知时显示“核实”。点“使用”只打开确认框（不消耗），框内写明账号、消耗 1 张（现有/用后张数）、要重置的额度窗口及当前剩余，焦点默认在“取消”；确认后显示进度和结果，成功后刷新额度。首页当前账号已保存时同样提供这个入口。
 
-使用后查询真实额度；刷新失败保留提示，不能以消费接口成功替代额度到账证明。Claude 的 Code OAuth/Setup Token 不等于浏览器登录，也没有兑换接口：卡片上的“打开兑换页”由 Hub 壳（`Rly0Hub.cs` 的 `ClaudeUsageWindow`，页面经 `window.claudeUsage` 请求）打开一个小窗口，固定加载 `https://claude.ai/settings/usage`。每个已保存的 Claude 账号/令牌有自己的持久 WebView2 用户数据目录 `%LOCALAPPDATA%\rly0-hub\claude-web\<accountId>`，各自独立登录；标题写明账号，顶部一行提示“请确认右上角登录的是 … 再点 Reset”。窗口只做导航：不注入脚本、不代点、不读写 Cookie 或凭据；顶层页面只允许 claude.ai / anthropic.com（含子域、https），其他链接用系统浏览器打开。关窗后页面重新读取该账号额度。这不称为 Hub 内直接消费，也不显示未经验证的张数；账号 id 无效时退回系统浏览器打开同一地址。[Claude 官方说明](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset) 当前将重置使用限定在网页/Claude Desktop。Gemini/Grok 全部可在 Hub 直接重置仍未完成。
+使用后查询真实额度；刷新失败保留提示，不能以消费接口成功替代额度到账证明。Claude 没有可供 Hub 调用的兑换接口（[官方说明](https://support.claude.com/en/articles/17007452-what-is-a-limit-reset) 将重置限定在网页/Claude Desktop），Gemini/Grok 也未核实到使用接口，因此 Hub 不为它们提供入口。0.11.16 的 Claude 用量小窗口（`Rly0Hub.cs` 的 `ClaudeUsageWindow`、`window.claudeUsage` 请求、`claudeUsageClosed` 事件、`links.open` 的 `claudeUsage` 目标）已在 0.11.17 移除；Hub 不再创建 `%LOCALAPPDATA%\rly0-hub\claude-web\<accountId>` 目录，但也不会删除已有目录（其中是用户自己在该窗口登录 claude.ai 留下的浏览器数据），需要时可手动删除。
 
 ## 额度快用完时自动切换账号
 

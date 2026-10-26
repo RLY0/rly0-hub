@@ -1,6 +1,6 @@
 "use strict";
-// Provider-specific reset actions. Uses the existing tile/dialog/button components.
-window.registerHubResetCredits = ({ h, call, toast, resetCardTile, quotaLive }) => {
+// Codex reset-card actions (the only platform whose reset cards the Hub can use). Uses the existing tile/dialog/button components.
+window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
   const busy = new Set();
   const errors = {
     RESET_RESULT_UNKNOWN: "使用结果暂时无法确认。再次点击只会核实同一张卡，不会另用一张。",
@@ -176,45 +176,13 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile, quotaLive }) 
         label: `使用一张额度重置卡：${account.email || account.alias || "所选 Codex 账号"}`,
       });
     }
-    if (vendor === "anthropic") {
-      // Anthropic lets a subscriber redeem only on claude.ai's usage page (no API, and a
-      // setup-token has no account scope): a Hub window opens it with this account's own login.
-      const id = account && /^[a-f0-9]{12}$/u.test(account.id || "") ? account.id : null;
-      const label = (account && (account.email || account.alias)) || "所选 Claude 账号";
-      return resetCardTile(undefined, {
-        status: "官方兑换",
-        reason: `在 Hub 小窗口打开 Claude 用量页兑换（${label} 单独登录）；关窗后自动刷新额度。`,
-        action: "打开兑换页",
-        label: `打开 Claude 用量页兑换重置卡：${label}`,
-        onUse: () => openClaudeUsage(id, label, refreshed),
-      });
-    }
+    // Only Codex (OpenAI subscription) cards can be used from the Hub. A Codex login that is not
+    // saved yet says so; every other platform and API keys get no tile at all.
+    if (vendor !== "openai" || (account && account.plan === "api-key")) return null;
     return resetCardTile(undefined, {
-      status: vendor === "api-key" ? "不适用" : vendor === "openai" ? "待保存" : "未接通",
-      reason:
-        vendor === "api-key"
-          ? "API Key 按用量计费，不适用订阅额度重置卡。"
-          : vendor === "openai"
-            ? "请先保存这个登录，再核实和使用重置卡。"
-            : "尚未核实到此平台可用的重置卡接口，Hub 无法执行重置。",
+      status: "待保存",
+      reason: "请先保存这个登录，再核实和使用重置卡。",
     });
-  }
-  // One window per account; when it closes, that account's quota is read again.
-  function openClaudeUsage(id, label, refreshed) {
-    if (!id)
-      return call("links.open", { target: "claudeUsage" }).catch(() => toast("打开官方页面失败"));
-    if (quotaLive && refreshed) {
-      const stop = quotaLive.subscribe((event) => {
-        if (event.type !== "claudeUsageClosed" || event.accountId !== id) return;
-        stop();
-        Promise.resolve()
-          .then(refreshed)
-          .catch(() => undefined);
-      });
-    }
-    return call("window.claudeUsage", { accountId: id, label }).catch(() =>
-      toast("打开 Claude 用量页失败"),
-    );
   }
   return { tile };
 };

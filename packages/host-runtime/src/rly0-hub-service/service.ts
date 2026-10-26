@@ -141,7 +141,6 @@ export const RLY0_HUB_LINKS = {
   releases: RLY0_GITHUB_RELEASES_LATEST_URL,
   keys: "https://rly0.com/keys",
   codexWebGpt: "https://github.com/miuuyy/codex-chatgpt-web/releases",
-  claudeUsage: "https://claude.ai/settings/usage",
 } as const;
 
 const empty = z.object({}).strict();
@@ -156,7 +155,6 @@ const linkParams = z
       "releases",
       "keys",
       "codexWebGpt",
-      "claudeUsage",
     ]),
   })
   .strict();

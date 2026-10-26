@@ -160,13 +160,15 @@ describe("reset-credit interactions (synthetic)", () => {
     await f.tile().onUse();
     expect(f.dialogs).toHaveLength(2);
   });
-  it("exposes Claude's fixed official page, and no fake consume action for other vendors", async () => {
+  it("shows no reset tile for Claude, Gemini, Grok or API keys; only Codex has one", () => {
     const f = fixture();
-    await f.api.tile(undefined, { vendor: "anthropic" }).onUse();
-    expect(f.calls).toEqual([{ method: "links.open", params: { target: "claudeUsage" } }]);
-    for (const vendor of ["google", "xai", "api-key"]) {
-      expect(f.api.tile(undefined, { vendor }).onUse).toBeUndefined();
+    for (const vendor of ["anthropic", "google", "xai", "api-key", undefined]) {
+      expect(f.api.tile(undefined, { vendor, account })).toBeNull();
+      expect(f.api.tile(2, { vendor })).toBeNull();
     }
+    expect(f.api.tile(2, { vendor: "openai", account: { ...account, plan: "api-key" } })).toBeNull();
+    expect(f.api.tile(undefined, { vendor: "openai" }).status).toBe("待保存");
+    expect(f.calls).toEqual([]);
   });
   it("does not send a POST when the backend journal is unavailable", async () => {
     const f = fixture();

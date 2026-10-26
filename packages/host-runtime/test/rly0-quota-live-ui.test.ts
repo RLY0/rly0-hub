@@ -103,9 +103,12 @@ describe("quota freshness labels", () => {
     live.ingest({ provider: "codex", id: "x", usage: { windows: [] } });
     expect(live.onShellEvent({ event: "visibility", visible: false })).toBe(true);
     expect(live.visible()).toBe(false);
-    expect(live.onShellEvent({ event: "claudeUsageClosed", accountId: "0123456789ab" })).toBe(true);
+    // The Claude usage window is gone (0.11.17); its close event is no longer a shell event.
+    expect(live.onShellEvent({ event: "claudeUsageClosed", accountId: "0123456789ab" })).toBe(
+      false,
+    );
     expect(live.onShellEvent({ event: "navigate", page: "home" })).toBe(false);
-    expect(seen).toEqual(["quota", "visibility", "claudeUsageClosed"]);
+    expect(seen).toEqual(["quota", "visibility"]);
   });
 });
 
@@ -160,63 +163,5 @@ describe("timed quota refresh", () => {
     clock.now += 60 * 60_000;
     expect(await plan.tick()).toEqual([]);
     expect(run.mock.calls.length).toBe(calls);
-  });
-});
-
-describe("Claude reset card", () => {
-  function tile(calls: { method: string; params: Record<string, unknown> }[]) {
-    const window: Record<string, unknown> = {};
-    runInNewContext(page("reset-credits.js"), { window, Promise, Set, Number });
-    const clock = { now: 0 };
-    const live = load(clock);
-    const register = window.registerHubResetCredits as (api: unknown) => {
-      tile: (count: unknown, options: unknown) => { onUse: () => Promise<unknown>; action: string };
-    };
-    const api = register({
-      h,
-      call: async (method: string, params: Record<string, unknown>) => {
-        calls.push({ method, params });
-        return { opened: true };
-      },
-      toast: () => undefined,
-      resetCardTile: (_count: unknown, options: unknown) => options,
-      quotaLive: live,
-    });
-    return { api, live };
-  }
-
-  it("opens claude.ai's usage page in a Hub window for that account and re-reads it on close", async () => {
-    const calls: { method: string; params: Record<string, unknown> }[] = [];
-    const { api, live } = tile(calls);
-    const refreshed = vi.fn(async () => undefined);
-    const options = api.tile(undefined, {
-      vendor: "anthropic",
-      account: { id: "0a1b2c3d4e5f", email: "me@example.com" },
-      refreshed,
-    });
-    expect(options.action).toBe("打开兑换页");
-    await options.onUse();
-    expect(calls).toEqual([
-      {
-        method: "window.claudeUsage",
-        params: { accountId: "0a1b2c3d4e5f", label: "me@example.com" },
-      },
-    ]);
-    live.onShellEvent({ event: "claudeUsageClosed", accountId: "ffffffffffff" });
-    await Promise.resolve();
-    expect(refreshed).not.toHaveBeenCalled();
-    live.onShellEvent({ event: "claudeUsageClosed", accountId: "0a1b2c3d4e5f" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(refreshed).toHaveBeenCalledTimes(1);
-    live.onShellEvent({ event: "claudeUsageClosed", accountId: "0a1b2c3d4e5f" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(refreshed).toHaveBeenCalledTimes(1);
-  });
-
-  it("falls back to the browser only when the account has no usable id", async () => {
-    const calls: { method: string; params: Record<string, unknown> }[] = [];
-    const { api } = tile(calls);
-    await api.tile(undefined, { vendor: "anthropic", account: { id: "../x" } }).onUse();
-    expect(calls).toEqual([{ method: "links.open", params: { target: "claudeUsage" } }]);
   });
 });

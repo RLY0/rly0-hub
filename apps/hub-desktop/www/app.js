@@ -1067,7 +1067,10 @@
               name: live.email || "当前 Codex 登录",
               facts: [live.plan ? live.plan.toUpperCase() : "当前登录"],
               current: true,
-              quota: cards.quotaCards(null, { reason: "保存后会读取它的额度" }),
+              quota: cards.quotaCards(null, {
+                reason: "保存后会读取它的额度",
+                reset: { vendor: "openai" },
+              }),
               notes: [h("p", { class: "sub" }, "还没保存。保存后可以和其他账号一键切换。")],
               actions: [
                 h(
