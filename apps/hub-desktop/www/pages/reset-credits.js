@@ -175,7 +175,7 @@ window.registerHubResetCredits = ({ h, call, toast, resetCardTile }) => {
     if (vendor !== "openai" || (account && account.plan === "api-key")) return null;
     return resetCardTile(undefined, {
       status: "待保存",
-      reason: "请先保存这个登录，再核实和使用重置卡。",
+      reason: "保存后可用",
     });
   }
   return { tile };
