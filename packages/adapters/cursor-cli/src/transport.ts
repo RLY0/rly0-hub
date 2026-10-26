@@ -11,7 +11,6 @@ import {
   type AvailableCommand,
   type SessionConfigOption,
 } from "@agentclientprotocol/sdk";
-import { createCursorDelegationBridge } from "./delegation-bridge.js";
 import { cursorInvocation } from "./command.js";
 import { parseCursorNativeModels } from "./models.js";
 import type { HarnessExecutionPolicy } from "@codexhost/harness-adapter";
@@ -38,12 +37,13 @@ export const CURSOR_SHARED_CONTEXT_REQUEST: SharedResourceRequest = Object.freez
 
 export interface CursorTransportOptions {
   cwd: string;
-  /** Used only by real Sessions (`delegation`), never by inspection or history replay. */
+  /** Used only by real Sessions (`sharedSession`), never by inspection or history replay. */
   sharedResources?: SharedResourcesProvider;
+  /** A real (create/resume/fork) Session that receives shared MCP servers and context. */
+  sharedSession?: boolean;
   environment: NodeJS.ProcessEnv;
   command?: string;
   timeoutMs?: number;
-  delegation?: boolean;
   /** Native `--force` is requested only for delegated unattended full access. */
   executionPolicy?: HarnessExecutionPolicy;
   /** History replay needs session/load, not the account model catalog. */
@@ -75,7 +75,6 @@ export class CursorTransport {
   #opened = false;
   #preparation: Promise<void> | undefined;
   #canLoad = false;
-  #delegation: Awaited<ReturnType<typeof createCursorDelegationBridge>>;
   #fault: Error | undefined;
   #rejectFault!: (error: Error) => void;
   readonly #failed = new Promise<never>((_, reject) => {
@@ -180,15 +179,6 @@ export class CursorTransport {
       // This reuses an existing native login. The adapter never launches login or reads credentials.
       await this.#bounded(this.#connection.authenticate({ methodId: "cursor_login" }));
       if (this.#closed) throw new Error("Cursor session closed");
-      if (this.options.delegation && init.agentCapabilities?.mcpCapabilities?.http)
-        this.#delegation = await createCursorDelegationBridge(
-          this.options.cwd,
-          this.options.environment,
-        );
-      if (this.#closed) {
-        await this.#delegation?.close();
-        throw new Error("Cursor session closed");
-      }
     } catch (error) {
       await this.close();
       throw error;
@@ -203,16 +193,15 @@ export class CursorTransport {
       if (!this.#connection || this.#closed) throw new Error("Cursor session closed");
       if (sessionId && !this.#canLoad)
         throw new Error("Cursor does not support the required ACP session protocol");
+      // Outbound delegation uses the Host CLI from the native shell; only shared MCP servers
+      // (Codex MCP + rly0-memory) are attached, and only to real Sessions.
       const shared =
-        this.options.delegation && this.options.sharedResources
+        this.options.sharedSession && this.options.sharedResources
           ? await this.options
               .sharedResources(this.options.cwd, CURSOR_SHARED_MCP_REQUEST)
               .catch(() => undefined)
           : undefined;
-      const mcpServers = [
-        ...(this.#delegation ? [this.#delegation.descriptor] : []),
-        ...sharedAcpMcpServers(shared),
-      ];
+      const mcpServers = sharedAcpMcpServers(shared);
       this.sessionId = sessionId ?? "";
       const info = sessionId
         ? await this.#bounded(
@@ -270,7 +259,7 @@ export class CursorTransport {
   }
 
   async #withContext(text: string): Promise<string> {
-    if (!this.options.delegation || !this.options.sharedResources) return text;
+    if (!this.options.sharedSession || !this.options.sharedResources) return text;
     const shared = await this.options
       .sharedResources(this.options.cwd, CURSOR_SHARED_CONTEXT_REQUEST)
       .catch(() => undefined);
@@ -311,7 +300,6 @@ export class CursorTransport {
     this.#closed = true;
     this.#fault = new Error("Cursor session closed");
     this.#rejectFault(this.#fault);
-    await this.#delegation?.close();
     const child = this.#child;
     if (!child) return;
     child.stdin.end();

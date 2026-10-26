@@ -1,5 +1,6 @@
 import {
   createUsageStatisticsPage,
+  type RendererUsageStatisticsHostsProvider,
   type RendererUsageStatisticsRequest,
 } from "../console/pages/usage-statistics.js";
 import { consoleMessages } from "../console/messages.js";
@@ -734,6 +735,7 @@ export function createDefaultRendererSettingsPages(
   getAppearanceClient: () => RendererAppearanceClient | null = () => null,
   getRelayClient: () => RendererRelayClient | null = () => null,
   codexOnly = false,
+  usageStatisticsHosts?: RendererUsageStatisticsHostsProvider,
 ): readonly RendererSettingsPageDefinition[] {
   return Object.freeze([
     createDashboardSettingsPage(messages, getDashboardClient),
@@ -755,6 +757,7 @@ export function createDefaultRendererSettingsPages(
       consoleMessages(messages.locale),
       requestUsageStatistics,
       messages.locale,
+      usageStatisticsHosts,
     ),
     createAppearanceSettingsPage(messages, getLoadedSessionsClient, getAppearanceClient, codexOnly),
     updatesPage(messages, getUpdateClient),
@@ -777,6 +780,7 @@ export function createDefaultRendererSettingsRegistry(
   getMaintenanceClient?: () => RendererMaintenanceClient | null,
   getAppearanceClient?: () => RendererAppearanceClient | null,
   getRelayClient?: () => RendererRelayClient | null,
+  usageStatisticsHosts?: RendererUsageStatisticsHostsProvider,
 ): RendererSettingsPageRegistry {
   return createRendererSettingsPageRegistry(
     createDefaultRendererSettingsPages(
@@ -796,6 +800,8 @@ export function createDefaultRendererSettingsRegistry(
       getMaintenanceClient,
       getAppearanceClient,
       getRelayClient,
+      undefined,
+      usageStatisticsHosts,
     ),
   );
 }

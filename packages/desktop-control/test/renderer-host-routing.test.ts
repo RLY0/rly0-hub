@@ -6,7 +6,10 @@ import {
 } from "../src/renderer-draft-prewarm-policy.js";
 import type { RendererHostRouting as Routing } from "../src/renderer-host-routing.js";
 
-function setup(initialHostId: string, currentRegistry = false) {
+function setup(
+  initialHostId: string,
+  options: { withWaitFor?: boolean; throwingHostId?: string; currentRegistry?: boolean } = {},
+) {
   const manager = (hostId: string) => ({
     getHostId: () => hostId,
     sendRequest: vi.fn(async () => ({})),
@@ -31,13 +34,18 @@ function setup(initialHostId: string, currentRegistry = false) {
   ]);
   const registry = {
     addManager: vi.fn(),
-    getForHostId: vi.fn((hostId: string) => managers.get(hostId)),
-    ...(currentRegistry
+    getForHostId: vi.fn((hostId: string) => {
+      if (hostId === options.throwingHostId) throw new Error("host registry unavailable");
+      return managers.get(hostId);
+    }),
+    ...(options.currentRegistry
       ? {
           getImplForHostId: vi.fn((hostId: string) => managers.get(hostId)),
           addRegistryCallback: vi.fn(),
         }
-      : { waitForManagerForHostId: vi.fn() }),
+      : options.withWaitFor === false
+        ? {}
+        : { waitForManagerForHostId: vi.fn() }),
   };
   const fiber = {
     memoizedProps: { executionTargetHostId: initialHostId },
@@ -67,7 +75,7 @@ function setup(initialHostId: string, currentRegistry = false) {
 it.each(["local", "remote-ssh-discovered:linux"])(
   "installs the serialized policy with the current registry for %s",
   async (initialHostId) => {
-    const fixture = setup(initialHostId, true);
+    const fixture = setup(initialHostId, { currentRegistry: true });
     Reflect.deleteProperty(fixture.fiber.memoizedState, "next");
     await installRendererDraftPrewarmPolicyDirect(fixture.renderer);
     const routing = fixture.target.__codexhostHostRoutingV1 as Routing;
@@ -103,6 +111,37 @@ it.each(["local", "remote-ssh-discovered:linux"])(
     }
   },
 );
+
+it("resolves a remote Host from a registry without waitForManagerForHostId", async () => {
+  const fixture = setup("remote-ssh-discovered:linux", { withWaitFor: false });
+  await installRendererDraftPrewarmPolicyDirect(fixture.renderer);
+  const routing = fixture.target.__codexhostHostRoutingV1 as Routing;
+  expect(routing).toBeDefined();
+  try {
+    expect(routing.forComposer()?.manager).toBe(fixture.remote);
+    expect(routing.forHost(fixture.remote.getHostId())?.manager).toBe(fixture.remote);
+    expect(routing.forHost("local")?.manager).toBe(fixture.local);
+  } finally {
+    routing.dispose();
+  }
+});
+
+it("keeps routing closed when a registry lookup throws", async () => {
+  const fixture = setup("local", { throwingHostId: "remote-ssh-discovered:linux" });
+  await installRendererDraftPrewarmPolicyDirect(fixture.renderer);
+  const routing = fixture.target.__codexhostHostRoutingV1 as Routing;
+  expect(routing).toBeDefined();
+  try {
+    expect(routing.forComposer()?.manager).toBe(fixture.local);
+    expect(() => routing.forHost(fixture.remote.getHostId())).not.toThrow();
+    // The registry stays authoritative: a failed lookup must not revive the
+    // direct manager that is still present in discovery.managers.
+    expect(routing.forHost(fixture.remote.getHostId())).toBeNull();
+    expect(routing.forHost("local")?.manager).toBe(fixture.local);
+  } finally {
+    routing.dispose();
+  }
+});
 
 it("lists both Composer Hosts despite ambiguous routing and retains them in Settings", async () => {
   const fixture = setup("local");

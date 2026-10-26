@@ -93,9 +93,9 @@ describe("release Payload", () => {
       await createPayload(root, target);
       const paths = await validatePayload({ payloadRoot: root, target, root: "/repo/source" });
       expect(paths).toEqual(expectedPayloadPaths(target));
-      expect(paths).toHaveLength(29 + preinstalledHarnessPluginPaths().length);
+      expect(paths).toHaveLength(32 + preinstalledHarnessPluginPaths().length);
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toHaveLength(
-        31 + RLY0_HUB_WINDOWS_PAYLOAD_PATHS.length + preinstalledHarnessPluginPaths().length,
+        34 + RLY0_HUB_WINDOWS_PAYLOAD_PATHS.length + preinstalledHarnessPluginPaths().length,
       );
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toContain("bin/rly0-hub.exe");
       expect(paths).not.toContain("bin/rly0-hub.exe");

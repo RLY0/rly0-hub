@@ -120,6 +120,9 @@ describe("platform packagers", () => {
     expect(installer).toContain("DefaultDirName={localappdata}\\Programs\\rly0-hub");
     expect(installer).toContain("PrivilegesRequired=lowest");
     expect(installer).toContain("DisableProgramGroupPage=yes");
+    expect(installer.split(/\r?\n/)).toContain(
+      'Name: "{userdesktop}\\RLY0 Hub"; Filename: "{app}\\bin\\rly0-hub.exe"; WorkingDir: "{app}"; Tasks: desktopicon',
+    );
     expect(installer).toContain("ArchitecturesAllowed=x64compatible");
     expect(installer).toContain("ArchitecturesAllowed=arm64");
   });

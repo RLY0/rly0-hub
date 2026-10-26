@@ -23,7 +23,10 @@ import { createHarnessLaunchControls } from "./harness-launch-controls.js";
 import { harnessHasInstallCommands } from "./harness-installation-guides.js";
 import { createHarnessInstallationPanel } from "./harness-installation-panel.js";
 import { harnessInstallStore } from "./harness-install-store.js";
-import { createHarnessVersionPanel } from "./harness-version-panel.js";
+import { createConnectionVersions } from "./connection-versions.js";
+import { createConnectionUpdates } from "./connection-updates.js";
+import type { HarnessVersionPanel } from "./harness-version-panel.js";
+import { harnessVersionLabel } from "./harness-version-messages.js";
 import type { RendererSettingsMessages } from "./localization.js";
 
 export const CODEXHOST_GITHUB_ISSUES_NEW_URL = RLY0_GITHUB_ISSUES_NEW_URL;
@@ -91,6 +94,7 @@ interface ConnectionListItem {
   /** `install` arms RLY/0 Hub's one-click installer, which starts when the panel opens. */
   readonly rly0Install?: true;
   readonly installError?: string;
+  readonly version?: HarnessVersionPanel;
 }
 
 function connectionStatusLabel(
@@ -337,6 +341,7 @@ function createConnectionRow(
         ? messages.connectionConfigurationRequired
         : connectionStatusLabel(item.availability, messages, item.error !== null);
 
+  const version = item.version;
   const action = document.createElement("div");
   action.className = "settings-connection-row__action";
   action.setAttribute("role", "cell");
@@ -379,6 +384,30 @@ function createConnectionRow(
       select();
     });
     action.append(viewError);
+  }
+  if (version?.state?.updateAvailable && !version.updating) {
+    const available = document.createElement("span");
+    available.className = "settings-connection-version-available";
+    available.textContent = messages.harnessVersionAvailable;
+    available.title = `${messages.harnessVersionCurrent}: ${version.state.currentVersion ?? "—"}\n${messages.harnessVersionLatest}: ${harnessVersionLabel(version.state, messages.harnessVersion)}`;
+    action.append(available);
+  }
+  if (version?.state?.updateAvailable && version.state.canUpdate) {
+    const update = document.createElement("button");
+    update.type = "button";
+    update.className = "settings-connection-install-link";
+    update.dataset.connectionAction = "update";
+    update.disabled = version.updating;
+    update.title = messages.harnessVersionUpdate;
+    update.setAttribute("aria-label", `${messages.harnessVersionUpdate}: ${item.name}`);
+    update.append(createRendererSettingsIcon("download", 17));
+    update.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (update.disabled) return;
+      void version.update();
+      select();
+    });
+    action.append(update);
   }
   if (group) {
     const toggle = document.createElement("button");
@@ -805,10 +834,6 @@ export function createConnectionsSettingsPage(
       // Background availability updates must not discard a path draft or an in-flight save.
       let launchControls: { hostId: string; itemKey: string; element: HTMLElement | null } | null =
         null;
-      // Panels are owned by the page and keyed by Host + Harness, not by each
-      // diagnostic render. Keep in-flight updates and check results across row switches.
-      const versionPanels = new Map<string, HTMLElement>();
-      const updatingVersions = new Set<string>();
       const hostNames = new Map<string, string>();
       let latestSnapshot: RendererConnectionSnapshot | null = null;
       let disposeHostScroller = (): void => undefined;
@@ -841,7 +866,15 @@ export function createConnectionsSettingsPage(
       };
 
       const diagnostics = getDiagnostics();
+      const versions = createConnectionVersions(
+        document,
+        messages,
+        context.signal,
+        diagnostics,
+        scheduleRender,
+      );
       const installs = diagnostics ? harnessInstallStore(diagnostics) : null;
+      const updates = createConnectionUpdates(document, messages, context.signal, scheduleRender);
       const runRefresh = (): void => {
         if (pending || !diagnostics) return;
         pending = true;
@@ -996,12 +1029,18 @@ export function createConnectionsSettingsPage(
             const agent = item.agentSnapshot?.agent;
             if (!agent) return item;
             const state = installs?.get(selectedHost.hostId, agent);
+            const availability = state?.status ?? item.availability;
+            const version =
+              item.agentSnapshot?.availability !== "notInstalled" &&
+              availability !== "installing" &&
+              availability !== "checking"
+                ? versions.get(selectedHost.hostId, agent)
+                : undefined;
             return {
               ...item,
               ...(state ? { availability: state.status } : {}),
-              ...(updatingVersions.has(JSON.stringify([selectedHost.hostId, agent]))
-                ? { availability: "updating" as const }
-                : {}),
+              ...(version ? { version } : {}),
+              ...(version?.updating ? { availability: "updating" as const } : {}),
               ...(state?.error ? { installError: state.error } : {}),
               ...(selectedHost.hostId === "local" &&
               diagnostics?.installAgent &&
@@ -1059,36 +1098,7 @@ export function createConnectionsSettingsPage(
             context.navigate,
           );
           launchControls = { hostId: selectedHost.hostId, itemKey: item.key, element };
-          const agent = item.agentSnapshot?.agent;
-          const installation = diagnostics?.installation?.bind(diagnostics);
-          if (
-            agent &&
-            item.agentSnapshot?.availability !== "notInstalled" &&
-            item.availability !== "installing" &&
-            item.availability !== "checking" &&
-            installation
-          ) {
-            const key = JSON.stringify([selectedHost.hostId, agent]);
-            let panel = versionPanels.get(key);
-            if (!panel) {
-              const hostId = selectedHost.hostId;
-              panel = createHarnessVersionPanel(document, messages, context.signal, agent, {
-                async run(action) {
-                  if (action !== "update") return installation(hostId, agent, action);
-                  updatingVersions.add(key);
-                  if (diagnostics) render(diagnostics.snapshot());
-                  try {
-                    return await installation(hostId, agent, action);
-                  } finally {
-                    updatingVersions.delete(key);
-                    if (!context.signal.aborted && diagnostics) render(diagnostics.snapshot());
-                  }
-                },
-              });
-              versionPanels.set(key, panel);
-            }
-            inspector.append(panel);
-          }
+          if (item.version) inspector.append(item.version.element);
         };
 
         const pinnedItem = items.find((item) => item.key === "renderer-adapter");
@@ -1276,7 +1286,14 @@ export function createConnectionsSettingsPage(
 
         const selectedItem = items.find((item) => item.key === selectedItemKey) ?? items[0];
         if (selectedItem) selectItem(selectedItem);
-        list.append(hostStrip, tableHeader, rows);
+        const updateControls = updates.createControls(
+          selectedHost.hostId,
+          items.flatMap((item) => (item.version ? [item.version] : [])),
+        );
+        const hostHeader = document.createElement("div");
+        hostHeader.className = "settings-connection-host-header";
+        hostHeader.append(hostStrip, updateControls.button);
+        list.append(hostHeader, updateControls.result, tableHeader, rows);
         layout.append(list, inspector);
         content.replaceChildren(layout);
         disposeHostScroller = configureHostScroller(

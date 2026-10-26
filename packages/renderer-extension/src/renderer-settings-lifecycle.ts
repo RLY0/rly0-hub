@@ -1,5 +1,6 @@
 import { consumePendingNewChat, openNewChatWith } from "./settings/rly0-quick-start.js";
 import type { RendererUsageStatisticsRequest } from "./console/pages/usage-statistics.js";
+import type { RendererUsageStatisticsHostsProvider } from "./console/usage/usage-hosts.js";
 import type { RemoteConnectionsControl } from "./remote-connections-control.js";
 import type { LoadedSessionsClient } from "./settings/loaded-sessions-table.js";
 import { RLY0_WELCOME_DISMISSED_STORAGE_KEY } from "./settings/rly0-welcome.js";
@@ -88,6 +89,8 @@ export interface RendererSettingsLifecycleOptions {
   getRelayClient?(): RendererRelayClient | null;
   getRemoteConnections?(): RemoteConnectionsControl | null;
   requestUsageStatistics?: RendererUsageStatisticsRequest;
+  /** Machines the usage statistics page may read besides the local Host. */
+  usageStatisticsHosts?: RendererUsageStatisticsHostsProvider;
   openImportedThread?: RendererImportedThreadOpener;
   onLocaleChange?(locale: RendererSettingsLocale): void;
 }
@@ -207,6 +210,7 @@ export function installRendererSettingsLifecycle(
       options.getAppearanceClient ?? (() => null),
       options.getRelayClient ?? (() => null),
       false,
+      options.usageStatisticsHosts,
     );
     return installRendererSettingsShell(definitions, messages, ownerWindow.document, {
       onOpenChange(open) {

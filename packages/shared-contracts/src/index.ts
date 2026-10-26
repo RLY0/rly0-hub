@@ -613,6 +613,10 @@ export {
   threadThinkingSelectParamsSchema,
   threadOwnershipListParamsSchema,
   threadOwnershipListResultSchema,
+  threadSteeringInspectParamsSchema,
+  threadSteeringInspectResultSchema,
+  THREAD_STEER_DELIVERY_PARAM,
+  threadSteerDeliverySchema,
   threadOwnershipSchema,
 } from "./harness-models.js";
 export type {
@@ -637,6 +641,8 @@ export type {
   ThreadOwnership,
   ThreadOwnershipListParams,
   ThreadOwnershipListResult,
+  ThreadSteeringInspectResult,
+  ThreadSteerDelivery,
 } from "./harness-models.js";
 export {
   harnessCommandCatalogSchema,
@@ -660,6 +666,7 @@ export {
   accountCreditsSnapshotSchema,
   threadQuotaStateSchema,
   threadQuotaUnavailableReasonSchema,
+  composerIndicatorsSchema,
   threadUsageInspectionParamsSchema,
   threadUsageInspectionSchema,
   threadUsageSnapshotSchema,

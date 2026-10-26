@@ -16,8 +16,13 @@ import type { RuntimeMaintenance } from "./runtime-maintenance.js";
 import { ExternalThreadPrewarms } from "./external-thread-prewarms.js";
 import { HarnessLaunchSettingsStore } from "@codexhost/harness-plugin-files";
 import type { SharedThreadBridge } from "./shared-thread-bridge.js";
-import { HARNESS_INSTALLATION_METHOD } from "@codexhost/shared-contracts";
+import {
+  HARNESS_INSTALLATION_METHOD,
+  HARNESS_INSTALLATION_START_METHOD,
+  HARNESS_INSTALLATION_STATUS_METHOD,
+} from "@codexhost/shared-contracts";
 import { handleHarnessInstallation, HarnessInstallationError } from "./harness-installation.js";
+import { HarnessInstallationTasks } from "./harness-installation-tasks.js";
 import {
   isConsoleHostMethod,
   CONSOLE_OPEN_METHOD,
@@ -356,6 +361,8 @@ import {
   threadThinkingSelectParamsSchema,
   threadOwnershipListParamsSchema,
   threadOwnershipListResultSchema,
+  threadSteeringInspectParamsSchema,
+  threadSteeringInspectResultSchema,
   permissionModeFixedAtCreate,
   updateCheckResultSchema,
   updateEmptyParamsSchema,
@@ -393,7 +400,12 @@ import {
   type ExternalThreadResolution,
 } from "./external-thread-runtime.js";
 import { externalTurnInput, type ExternalTurnInput } from "./external-turn-input.js";
-import { ExternalSteerError, ExternalTurnSteering } from "./external-turn-steering.js";
+import {
+  ExternalSteerError,
+  ExternalTurnSteering,
+  externalSteeringDelivery,
+  insertNativeSteer,
+} from "./external-turn-steering.js";
 import {
   ExternalCommandError,
   inspectLiveCommandCatalog,
@@ -971,6 +983,7 @@ export class AppServerHost {
   #plugins: HarnessPluginRegistry | undefined;
   readonly #launchSettings: HarnessLaunchSettingsStore;
   readonly #accountInspections = new HarnessAccountInspectionCache();
+  readonly #installationTasks = new HarnessInstallationTasks();
   #externalRuntime: ExternalThreadRuntime;
   readonly #executionHosts = new WeakMap<ExternalThread, string>();
   readonly #externalPrewarms = new ExternalThreadPrewarms();
@@ -1257,7 +1270,7 @@ export class AppServerHost {
       cancelOfficial: (input) => this.#cancelOfficialDelegationThread(input),
       startOfficial: (input) => this.#startOfficialDelegation(input),
       listOfficial: (input) => this.#listDelegationThreads(input),
-      officialThreadCwd: (threadId) => this.#readOfficialThreadCwd(threadId),
+      officialThreadMetadata: (threadId) => this.#readOfficialThreadMetadata(threadId),
       readOfficialTurns: (threadId) => this.#readOfficialThreadTurns(threadId),
       activeOfficialParents: () => [...this.#activeOfficialTurns.keys()],
       externalThreadBusy: (thread) => this.#externalThreadBusy(thread),
@@ -2436,11 +2449,20 @@ export class AppServerHost {
       this.#dispatchDesktopReply(request, () => this.#inspectHarness(request));
       return;
     }
-    if (request.method === HARNESS_INSTALLATION_METHOD) {
+    if (
+      request.method === HARNESS_INSTALLATION_METHOD ||
+      request.method === HARNESS_INSTALLATION_START_METHOD ||
+      request.method === HARNESS_INSTALLATION_STATUS_METHOD
+    ) {
       this.#dispatchDesktopReply(request, async () => {
-        await this.#waitForPlugins();
         try {
-          const result = await handleHarnessInstallation(request.params, this.#externalAdapters);
+          if (request.method !== HARNESS_INSTALLATION_STATUS_METHOD) await this.#waitForPlugins();
+          const result =
+            request.method === HARNESS_INSTALLATION_START_METHOD
+              ? this.#installationTasks.start(request.params, this.#externalAdapters)
+              : request.method === HARNESS_INSTALLATION_STATUS_METHOD
+                ? this.#installationTasks.status(request.params)
+                : await handleHarnessInstallation(request.params, this.#externalAdapters);
           await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
         } catch (error) {
           await this.#writer.json(
@@ -2544,6 +2566,10 @@ export class AppServerHost {
     }
     if (request.method === "codexhost/thread/ownership/list") {
       await this.#listThreadOwnership(request);
+      return;
+    }
+    if (request.method === "codexhost/thread/steering/inspect") {
+      await this.#inspectThreadSteering(request);
       return;
     }
     if (request.method === "codexhost/thread/model/select") {
@@ -3988,12 +4014,18 @@ export class AppServerHost {
     return thread !== null || childDelegation !== null || delegation !== null;
   }
 
-  async #readOfficialThreadCwd(threadId: string): Promise<string | undefined> {
-    const response = await this.#requestOfficial("thread/read", { threadId });
-    if (isRecord(response.error)) return undefined;
+  async #readOfficialThreadMetadata(threadId: string): Promise<{ cwd?: string; title?: string }> {
+    const response = await this.#requestOfficial("thread/read", { threadId, includeTurns: false });
+    if (isRecord(response.error)) return {};
     const result = isRecord(response.result) ? response.result : null;
     const thread = result && isRecord(result.thread) ? result.thread : null;
-    return thread && typeof thread.cwd === "string" && thread.cwd.trim() ? thread.cwd : undefined;
+    if (!thread) return {};
+    const title =
+      typeof thread.name === "string" && thread.name.trim() ? thread.name : thread.preview;
+    return {
+      ...(typeof thread.cwd === "string" && thread.cwd.trim() ? { cwd: thread.cwd } : {}),
+      ...(typeof title === "string" && title.trim() ? { title } : {}),
+    };
   }
 
   async #inspectOfficialDelegationTarget(
@@ -4076,7 +4108,7 @@ export class AppServerHost {
   }
 
   async #startOfficialDelegation(
-    input: DelegationStartInput & { parentThreadId: string; cwd: string },
+    input: DelegationStartInput & { parentThreadId: string; cwd: string; title: string },
   ): Promise<DelegationStartResult> {
     let requestedModel: HarnessModelRef | undefined;
     try {
@@ -4201,6 +4233,10 @@ export class AppServerHost {
     this.#pendingOfficialDelegationThreads.add(threadId);
     let turnId: string;
     try {
+      // The title is presentation only: a failure keeps the default title and still delivers the task.
+      await this.#requestOfficial("thread/name/set", { threadId, name: input.title }).catch(
+        () => undefined,
+      );
       const turn = await this.#requestOfficial("turn/start", {
         threadId,
         input: [{ type: "text", text: input.task }],
@@ -4944,6 +4980,7 @@ export class AppServerHost {
       inspection = await adapter.inspect({
         ...(params.data.cwd ? { cwd: params.data.cwd } : {}),
         ...(params.data.refresh !== undefined ? { refresh: params.data.refresh } : {}),
+        ...(params.data.purpose ? { purpose: params.data.purpose } : {}),
       });
     } catch (error) {
       await this.#writer.json(
@@ -5237,6 +5274,35 @@ export class AppServerHost {
     }
   }
 
+  /** Read the same delivery decision that Desktop `turn/steer` will follow. */
+  async #inspectThreadSteering(request: JsonRpcRequest): Promise<void> {
+    const params = threadSteeringInspectParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      await this.#writer.json(rpcError(request, -32602, "Invalid Thread steering params"));
+      return;
+    }
+    let delivery: "official" | "activeTurn" | "newTurn";
+    try {
+      const location = await this.#locateExternalThread(params.data.threadId);
+      if (await this.#writeResolutionError(request, location)) return;
+      const thread =
+        location.kind === "external" ? this.#externalRuntime.get(params.data.threadId) : undefined;
+      delivery =
+        location.kind !== "external"
+          ? "official"
+          : thread
+            ? await externalSteeringDelivery(thread, params.data.text)
+            : "newTurn";
+    } catch {
+      await this.#writer.json(
+        rpcError(request, -32081, "Thread steering metadata could not be read"),
+      );
+      return;
+    }
+    const result = threadSteeringInspectResultSchema.parse({ delivery });
+    await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
+  }
+
   async #inspectThreadCommands(request: JsonRpcRequest): Promise<void> {
     const params = threadCommandsInspectParamsSchema.safeParse(request.params);
     if (!params.success) {
@@ -5527,6 +5593,27 @@ export class AppServerHost {
       if (!projected.effectiveModel) {
         throw new Error("Harness Session did not report an effective Model");
       }
+      // Resume and Fork read the saved selection, so keep it on the confirmed Model.
+      const transportModelId = encodeExternalTransportSelection(thread.harnessId, {
+        ...(decodeExternalTransportSelection(thread.harnessId, thread.transportModelId) ?? {}),
+        model: projected.effectiveModel,
+      });
+      thread.transportModelId = transportModelId;
+      thread.requestedModel = projected.effectiveModel;
+      try {
+        thread.record = await this.#repository.setTransportModelId(
+          thread.record.hostThreadId,
+          transportModelId,
+        );
+      } catch (error) {
+        this.#diagnose(error);
+      }
+      thread.thread = externalThreadValue({
+        record: { ...thread.record, transportModelId },
+        turns: thread.turns,
+        sessionId: thread.sessionId,
+        running: thread.running,
+      });
       await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(projected) }));
     } catch (error) {
       await this.#writer.json(
@@ -5905,8 +5992,28 @@ export class AppServerHost {
     return true;
   }
 
+  /** Refresh history before Desktop acts on native Turn boundaries. */
   #refreshExternalThread(thread: ExternalThread): Promise<ExternalThreadRpcError | null> {
     return this.#externalRuntime.refresh(thread);
+  }
+
+  #markExternalHistoryRead(thread: ExternalThread, turns: JsonObject[]): void {
+    // Live projections have not yet been realigned to the native Turn boundaries.
+    if (!thread.historyHydrated) return;
+    for (const turnId of thread.steeredTurnIds) {
+      if (
+        turnId !== thread.activeTurnId &&
+        turns.some(
+          (turn) =>
+            turn.id === turnId &&
+            (turn.status === "completed" ||
+              turn.status === "failed" ||
+              turn.status === "interrupted"),
+        )
+      ) {
+        thread.steeredTurnIds.delete(turnId);
+      }
+    }
   }
 
   #persistTerminalIdentity(
@@ -6153,17 +6260,19 @@ export class AppServerHost {
         return;
       }
     }
+    const readTurns = includeTurns ? [...this.#externalHistoryTurns(thread)] : [];
     await this.#writer.json(
       rpcEnvelope(request, {
         result: {
           thread: {
             ...thread.thread,
             ...(await this.#externalSectionFields(thread.record.hostThreadId)),
-            turns: includeTurns ? this.#externalHistoryTurns(thread) : [],
+            turns: readTurns,
           },
         },
       }),
     );
+    if (includeTurns) this.#markExternalHistoryRead(thread, readTurns);
     await this.#replayExternalUsage(thread);
   }
 
@@ -6191,6 +6300,9 @@ export class AppServerHost {
           ? listExternalTurns(turns, params)
           : listExternalItems(turns, params);
       await this.#writer.json(rpcEnvelope(request, { result }));
+      if (request.method === "thread/turns/list") {
+        this.#markExternalHistoryRead(thread, result.data);
+      }
     } catch (error) {
       await this.#writer.json(
         rpcError(
@@ -6217,7 +6329,7 @@ export class AppServerHost {
         return;
       }
     }
-    const turns = this.#externalHistoryTurns(thread);
+    const turns = [...this.#externalHistoryTurns(thread)];
     const responseThread = {
       ...(await this.#withExternalSection(thread.thread)),
       turns: params.excludeTurns === true ? [] : turns,
@@ -6263,6 +6375,8 @@ export class AppServerHost {
           },
         }),
       );
+      if (params.excludeTurns !== true) this.#markExternalHistoryRead(thread, turns);
+      else if (initialTurnsPage) this.#markExternalHistoryRead(thread, initialTurnsPage.data);
     } catch (error) {
       await this.#writer.json(
         rpcError(
@@ -6426,9 +6540,14 @@ export class AppServerHost {
               : undefined,
             requestObject(request)[THREAD_REFERENCE_SOURCE_HOST_PARAM],
           ),
+        (input) => this.#insertExternalInput(thread, input),
       );
       try {
-        await this.#writer.json(rpcEnvelope(request, { result: { turnId: started.turnId } }));
+        await this.#writer.json(
+          rpcEnvelope(request, {
+            result: { turnId: started.turnId, delivery: started.delivery },
+          }),
+        );
       } finally {
         started.gate.resolve();
       }
@@ -6445,6 +6564,38 @@ export class AppServerHost {
     } finally {
       this.#signalActiveWorkChanged();
     }
+  }
+
+  /** Native same-Turn input; `insertNativeSteer` owns the delivery and its fallback signal. */
+  async #insertExternalInput(
+    thread: ExternalThread,
+    input: { turnId: HostTurnId; text: string; clientUserMessageId?: string },
+  ): Promise<{ turnId: HostTurnId; gate: TurnProjectionGate }> {
+    await insertNativeSteer(thread, input, {
+      project: async (turnId, item, clientUserMessageId) => {
+        const projection = this.#projectedTurn(thread, turnId);
+        if (clientUserMessageId) {
+          projection.projector.bindUserMessageClientId(item.itemId, clientUserMessageId);
+        }
+        await this.#projectHarnessOutput(thread, {
+          kind: "event",
+          event: { type: "item.started", turnId, item },
+        });
+        await this.#projectHarnessOutput(thread, {
+          kind: "event",
+          event: {
+            type: "item.completed",
+            turnId,
+            snapshot: { item, outcome: { status: "succeeded" } },
+          },
+        });
+      },
+      diagnose: (error) => this.#diagnose(error),
+    });
+    return {
+      turnId: input.turnId,
+      gate: { promise: Promise.resolve(), resolve: () => undefined },
+    };
   }
 
   /** Keep command restoration and dispatch identical for start and steer submissions. */
@@ -6880,6 +7031,9 @@ export class AppServerHost {
       return;
     }
 
+    if (event.type === "turn.completed" && thread.pendingSteerProjections.size > 0) {
+      await Promise.allSettled([...thread.pendingSteerProjections]);
+    }
     const projection = this.#projectedTurn(thread, event.turnId);
     await this.#waitForTurnResponse(thread, event.turnId);
     if (
@@ -6935,6 +7089,7 @@ export class AppServerHost {
       // Detached Items (native background commands) settle on this Turn later.
       if (!projection.projector.hasOpenDetachedItems) thread.projectedTurns.delete(event.turnId);
       thread.responseGates.delete(event.turnId);
+      thread.pendingSteerProjections.clear();
       this.#signalActiveWorkChanged();
       const delegation = await this.#repository.getDelegationByChild(thread.record.hostThreadId);
       if (delegation) {

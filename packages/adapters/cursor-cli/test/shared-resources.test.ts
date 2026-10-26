@@ -28,7 +28,7 @@ const provider = vi.fn<SharedResourcesProvider>(async (_cwd, request) =>
 
 describe("Cursor shared resources", () => {
   it("attaches shared MCP to real sessions and prefixes prompts", async () => {
-    const native = new CursorTransport({ cwd: process.cwd(), environment: process.env, delegation: true, loadModelCatalog: false, sharedResources: provider });
+    const native = new CursorTransport({ cwd: process.cwd(), environment: process.env, sharedSession: true, loadModelCatalog: false, sharedResources: provider });
     transports.push(native);
     const info = await native.open();
     expect((info as { _meta?: { mcpServers: unknown } })._meta?.mcpServers).toEqual([
