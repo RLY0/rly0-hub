@@ -1,57 +1,12 @@
-import { createHash, randomUUID } from "node:crypto";
+import { recoverSkillUpdates, type ManagedSkill } from "./skill-recovery.js";
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { snapshot, type Snapshot } from "./skill-tree.js";
+import { discoverSkills, readPausedSkills, skillRoots, within } from "../rly0-skills/discovery.js";
+
 import type { NativeResourceSync } from "./native-resources.js";
-
-type ManagedSkill = { name: string; source: string; root: string; digest: string };
-type Snapshot = { digest: string; files: { name: string; bytes: Buffer }[]; directories: string[] };
-const within = (root: string, file: string) => {
-  const rel = path.relative(root, file);
-  return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
-};
-
-/** A bounded tree of real files: never follows links or copies a skill's nested Git repository. */
-async function snapshot(root: string, filterCredentials = false): Promise<Snapshot> {
-  const files: Snapshot["files"] = [],
-    directories: string[] = [];
-  let bytes = 0,
-    entries = 0;
-  async function visit(relative: string) {
-    const absolute = path.join(root, relative),
-      stat = await fs.lstat(absolute);
-    if (++entries > 1024 || stat.isSymbolicLink())
-      throw new Error("GLOBAL_CONFIG_SKILL_UNSAFE_TREE");
-    if (stat.isDirectory()) {
-      directories.push(relative);
-      for (const entry of (await fs.readdir(absolute)).sort()) {
-        if (
-          filterCredentials &&
-          /^(?:\.env(?:[.-].*)?|\.aws|\.ssh|\.npmrc|\.netrc|\.pypirc|credentials?(?:[._-].*)?|secrets?(?:[._-].*)?|tokens?(?:[._-].*)?|auth\.json|id_(?:rsa|ed25519|ecdsa)(?:\.pub)?)$|\.(?:pem|key|p12|pfx|keystore)$/iu.test(
-            entry,
-          )
-        )
-          continue;
-        if (entry === ".git") throw new Error("GLOBAL_CONFIG_SKILL_UNSAFE_TREE");
-        await visit(path.join(relative, entry));
-      }
-    } else {
-      if (!stat.isFile() || stat.nlink > 1 || (bytes += stat.size) > 16 * 1024 * 1024)
-        throw new Error("GLOBAL_CONFIG_SKILL_UNSAFE_TREE");
-      files.push({ name: relative, bytes: await fs.readFile(absolute) });
-    }
-  }
-  await visit("");
-  const hash = createHash("sha256");
-  hash.update(JSON.stringify(directories));
-  for (const file of files)
-    hash
-      .update(JSON.stringify(file.name))
-      .update(String(file.bytes.length))
-      .update(":")
-      .update(file.bytes);
-  return { digest: hash.digest("hex"), files, directories };
-}
 
 export async function syncNativeSkills(
   source: string,
@@ -59,9 +14,9 @@ export async function syncNativeSkills(
   manifestFile: string,
   enabled: boolean,
   result: NativeResourceSync,
+  environment?: NodeJS.ProcessEnv,
 ) {
   let previous: ManagedSkill[];
-  const realSource = await fs.realpath(source).catch(() => path.resolve(source));
   try {
     const parsed: unknown = JSON.parse(await fs.readFile(manifestFile, "utf8"));
     if (
@@ -71,7 +26,13 @@ export async function syncNativeSkills(
           typeof v?.name !== "string" ||
           typeof v?.source !== "string" ||
           typeof v?.root !== "string" ||
-          !/^[a-f0-9]{64}$/u.test(v?.digest),
+          !/^[a-f0-9]{64}$/u.test(v?.digest) ||
+          (v?.recovery !== undefined &&
+            (typeof v.recovery?.stage !== "string" ||
+              typeof v.recovery?.old !== "string" ||
+              !/^[a-f0-9]{64}$/u.test(v.recovery?.digest) ||
+              !/^[a-f0-9]{64}$/u.test(v.recovery?.nextDigest) ||
+              typeof v.recovery?.nextSource !== "string")),
       )
     )
       throw new Error();
@@ -85,43 +46,10 @@ export async function syncNativeSkills(
   const unavailable = new Set<string>();
   let totalBytes = 0,
     totalEntries = 0;
-  if (enabled)
-    for (const base of [source, path.join(source, ".system")]) {
-      const entries = await fs
-        .readdir(base, { withFileTypes: true })
-        .catch((error: NodeJS.ErrnoException) => {
-          if (error.code === "ENOENT") return [];
-          throw error;
-        });
-      for (const entry of entries.slice(0, 256)) {
-        if (
-          !entry.isDirectory() ||
-          entry.name.startsWith(".") ||
-          !/^[\p{L}\p{N}_.-]+$/u.test(entry.name)
-        )
-          continue;
-        const target = path.join(base, entry.name);
-        try {
-          if (!(await fs.lstat(path.join(target, "SKILL.md"))).isFile()) continue;
-          const tree = await snapshot(target, true);
-          const bytes = tree.files.reduce((sum, file) => sum + file.bytes.length, 0);
-          if (
-            totalBytes + bytes > 64 * 1024 * 1024 ||
-            totalEntries + tree.files.length + tree.directories.length > 4096
-          )
-            throw new Error("GLOBAL_CONFIG_SKILL_SYNC_LIMIT");
-          totalBytes += bytes;
-          totalEntries += tree.files.length + tree.directories.length;
-          for (const destination of destinations) {
-            const name = path.join(destination, entry.name);
-            if (!wanted.has(name)) wanted.set(name, { source: target, tree });
-          }
-        } catch {
-          unavailable.add(target);
-          result.skipped.push(target);
-        }
-      }
-    }
+  const locations = environment
+    ? skillRoots(environment).map((v) => v.root)
+    : [source, path.join(source, ".system")];
+  const allDestinations = [...new Set(environment ? [source, ...destinations] : destinations)];
   const owned: ManagedSkill[] = [...previous];
   const persist = async () => {
     const next = JSON.stringify(owned);
@@ -135,15 +63,66 @@ export async function syncNativeSkills(
       await fs.unlink(temp).catch(() => undefined);
     }
   };
+  const recoveryBlocked = await recoverSkillUpdates(owned, allDestinations, result, persist);
+  const protectedRoots = new Set<string>();
+  const realCodexRoot = await fs.realpath(source).catch(() => path.resolve(source));
+  const systemRoot = path.join(source, ".system");
+  const realSystemRoot = await fs.realpath(systemRoot).catch(() => path.resolve(systemRoot));
+  const paused = new Set(
+    environment ? (await readPausedSkills(environment)).map((v) => v.name.toLowerCase()) : [],
+  );
+  // Even paused/unavailable originals remain protected from every cleanup operation.
+  const discovered = environment
+    ? await discoverSkills(environment)
+    : await discoverSkills({
+        HOME: path.dirname(path.dirname(source)),
+        USERPROFILE: path.dirname(path.dirname(source)),
+        CODEX_HOME: path.dirname(source),
+      });
+  result.skipped.push(...discovered.skipped);
+  for (const skill of discovered.skills) protectedRoots.add(skill.realPath);
+  if (enabled)
+    for (const skill of discovered.skills) {
+      if (paused.has(skill.name.toLowerCase())) continue;
+      try {
+        const tree = await snapshot(skill.sourcePath, true);
+        const bytes = tree.files.reduce((sum, file) => sum + file.bytes.length, 0);
+        if (
+          totalBytes + bytes > 64 * 1024 * 1024 ||
+          totalEntries + tree.files.length + tree.directories.length > 4096
+        )
+          throw new Error("GLOBAL_CONFIG_SKILL_SYNC_LIMIT");
+        totalBytes += bytes;
+        totalEntries += tree.files.length + tree.directories.length;
+        for (const destination of allDestinations) {
+          const destinationRoot = await fs
+            .realpath(destination)
+            .catch(() => path.resolve(destination));
+          if (
+            path.relative(realCodexRoot, destinationRoot) === "" &&
+            (within(systemRoot, skill.sourcePath) || within(realSystemRoot, skill.realPath))
+          )
+            continue;
+          const name = path.join(destination, skill.name);
+          const real = await fs.realpath(name).catch(() => path.resolve(name));
+          if (real === skill.realPath || protectedRoots.has(real)) continue;
+          if (!wanted.has(name)) wanted.set(name, { source: skill.sourcePath, tree });
+        }
+        result.skipped.push(...skill.conflicts);
+      } catch {
+        unavailable.add(skill.sourcePath);
+        result.skipped.push(skill.sourcePath);
+      }
+    }
   // Every recursive delete below verifies the absolute path against an explicit native root.
   const remove = async (file: string) => {
     const absolute = path.resolve(file);
     const real = await fs.realpath(absolute);
     const parent = await fs.realpath(path.dirname(absolute));
     if (
-      !destinations.some((root) => path.relative(root, path.dirname(absolute)) === "") ||
+      !allDestinations.some((root) => path.relative(root, path.dirname(absolute)) === "") ||
       path.relative(parent, path.dirname(real)) !== "" ||
-      within(realSource, real) ||
+      [...protectedRoots].some((root) => within(root, real)) ||
       !(await fs.lstat(absolute)).isDirectory() ||
       (await fs.lstat(absolute)).isSymbolicLink()
     )
@@ -152,7 +131,14 @@ export async function syncNativeSkills(
   };
   for (const entry of previous) {
     const index = owned.indexOf(entry);
-    if (!destinations.includes(path.dirname(entry.name)) || !within(source, entry.source)) {
+    if (entry.recovery) {
+      result.skipped.push(entry.name);
+      continue;
+    }
+    if (
+      !allDestinations.includes(path.dirname(entry.name)) ||
+      !locations.some((root) => within(root, entry.source))
+    ) {
       owned.splice(index, 1);
       continue;
     }
@@ -160,7 +146,7 @@ export async function syncNativeSkills(
     if (
       !currentRoot ||
       path.relative(currentRoot, entry.root) !== "" ||
-      within(realSource, currentRoot)
+      protectedRoots.has(currentRoot)
     ) {
       result.skipped.push(entry.name);
       owned.splice(index, 1);
@@ -190,6 +176,15 @@ export async function syncNativeSkills(
         await materialize(stage, next.tree);
         if ((await snapshot(entry.name)).digest !== entry.digest)
           throw new Error("GLOBAL_CONFIG_SKILL_CHANGED");
+        const recovery = {
+          stage,
+          old,
+          digest: entry.digest,
+          nextDigest: next.tree.digest,
+          nextSource: next.source,
+        };
+        owned[index] = { ...entry, recovery };
+        await persist(); // Proof must survive a crash between the two directory renames.
         await fs.rename(entry.name, old);
         try {
           await fs.rename(stage, entry.name);
@@ -202,10 +197,14 @@ export async function syncNativeSkills(
           source: next.source,
           root: currentRoot,
           digest: next.tree.digest,
+          recovery,
         };
         await persist();
-        if ((await snapshot(old)).digest === entry.digest) await remove(old);
-        else result.skipped.push(old);
+        if ((await snapshot(old)).digest === entry.digest) {
+          await remove(old);
+          delete owned[index]?.recovery;
+          await persist();
+        } else result.skipped.push(old);
         result.synced.push(entry.name);
       } finally {
         if (await fs.lstat(stage).catch(() => null)) await remove(stage);
@@ -217,7 +216,7 @@ export async function syncNativeSkills(
     if (owned.some((v) => v.name === name)) continue;
     await fs.mkdir(path.dirname(name), { recursive: true });
     const realRoot = await fs.realpath(path.dirname(name));
-    if (within(realSource, realRoot)) {
+    if (protectedRoots.has(realRoot)) {
       result.skipped.push(name);
       continue;
     }
@@ -248,6 +247,7 @@ export async function syncNativeSkills(
       if (await fs.lstat(stage).catch(() => null)) await remove(stage);
     }
   }
+  return recoveryBlocked;
 }
 
 async function materialize(root: string, tree: Snapshot) {

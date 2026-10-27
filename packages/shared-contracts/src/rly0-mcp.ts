@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /**
  * Contracts for the MCP server manager page. It reads and edits the `[mcp_servers.*]` tables in
- * `${CODEX_HOME:-~/.codex}/config.toml`. Secret-shaped values (environment variable values,
+ * `${CODEX_HOME:-~/.codex}/config.toml` and discovers supported external user-level maps. Secret-shaped values (environment variable values,
  * header/token values) never cross this boundary — only their key names do.
  */
 
@@ -24,6 +24,9 @@ export const rly0McpServerSchema = z
     name: rly0McpNameSchema,
     type: rly0McpServerTypeSchema,
     enabled: z.boolean(),
+    source: z.string().max(64).optional(),
+    sourcePath: z.string().max(4096).optional(),
+    external: z.boolean().optional(),
     command: z.string().max(4096).optional(),
     args: z.array(z.string().max(1024)).max(64).optional(),
     url: z.string().max(2048).optional(),
@@ -56,7 +59,15 @@ export const rly0McpSetEnabledParamsSchema = z
   .strict();
 export type Rly0McpSetEnabledParams = z.infer<typeof rly0McpSetEnabledParamsSchema>;
 
-export const rly0McpMutationResultSchema = z.object({ ok: z.boolean() }).strict();
+export const rly0McpMutationResultSchema = z
+  .object({
+    ok: z.boolean(),
+    native: z
+      .object({ error: z.string().max(128) })
+      .strict()
+      .optional(),
+  })
+  .strict();
 export type Rly0McpMutationResult = z.infer<typeof rly0McpMutationResultSchema>;
 
 export const rly0McpRemoveParamsSchema = z.object({ name: rly0McpNameSchema }).strict();

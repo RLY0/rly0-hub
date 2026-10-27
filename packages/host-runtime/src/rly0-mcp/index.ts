@@ -1,3 +1,13 @@
+import { readMcpOwnership, matchesMcpOwnership } from "./ownership.js";
+import { syncNativeResources } from "../rly0-bridge/native-resources.js";
+import { sharedResourceSettings } from "../shared-harness-resources.js";
+import {
+  controlExternalMcp,
+  externalMcp,
+  externalMcpDisplay,
+  externalMcpLocations,
+  readCodexMcp,
+} from "./discovery.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -52,17 +62,33 @@ export class Rly0McpManager {
   async list(): Promise<Rly0McpListResult> {
     const configPath = this.configPath();
     const content = await readConfig(configPath);
+    const external = (await externalMcp(this.#environment)).map(externalMcpDisplay);
     if (content === null) {
       return {
         configPath,
         configExists: false,
-        totalCount: 0,
-        enabledCount: 0,
-        servers: [],
+        totalCount: external.length,
+        enabledCount: external.filter((v) => v.enabled).length,
+        servers: external,
       };
     }
     try {
-      const servers = parseMcpServersForDisplay(content);
+      const ownership = await readMcpOwnership(this.#environment);
+      const raw = await readCodexMcp(this.#environment);
+      const native = parseMcpServersForDisplay(content).map((view) => {
+        const owner = ownership[view.name];
+        const source =
+          owner && !owner.disposed && matchesMcpOwnership(owner, raw[view.name])
+            ? externalMcpLocations(this.#environment).find(
+                ([, file]) => file === owner.sourcePath,
+              )?.[0]
+            : undefined;
+        return source ? { ...view, source, sourcePath: owner?.sourcePath, external: true } : view;
+      });
+      const servers = [
+        ...native,
+        ...external.filter((v) => !native.some((n) => n.name === v.name)),
+      ];
       return {
         configPath,
         configExists: true,
@@ -84,6 +110,9 @@ export class Rly0McpManager {
 
   async setEnabled(name: string, enabled: boolean): Promise<Rly0McpMutationResult> {
     assertSafeName(name);
+    if (await controlExternalMcp(this.#environment, name, enabled ? "enabled" : "disabled")) {
+      return this.#syncExternal();
+    }
     const configPath = this.configPath();
     const content = await readConfig(configPath);
     if (content === null) throw new Error("MCP_CONFIG_NOT_FOUND");
@@ -94,12 +123,24 @@ export class Rly0McpManager {
 
   async remove(name: string): Promise<Rly0McpMutationResult> {
     assertSafeName(name);
+    if (await controlExternalMcp(this.#environment, name, "removed")) {
+      return this.#syncExternal();
+    }
     const configPath = this.configPath();
     const content = await readConfig(configPath);
     if (content === null) throw new Error("MCP_CONFIG_NOT_FOUND");
     const next = removeMcpServer(content, name);
     await backupAndWriteAtomic(configPath, next);
     return { ok: true };
+  }
+
+  async #syncExternal(): Promise<Rly0McpMutationResult> {
+    try {
+      await syncNativeResources(this.#environment, await sharedResourceSettings(this.#environment));
+      return { ok: true };
+    } catch {
+      return { ok: true, native: { error: "GLOBAL_CONFIG_NATIVE_SYNC_FAILED" } };
+    }
   }
 
   /** Changes how a server connects; its other settings stay. */

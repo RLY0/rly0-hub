@@ -1,10 +1,49 @@
 "use strict";
 // Browser preview only. The real bridge never calls this function.
 window.hubManagementMock = (() => {
-  let servers = [{ name: "docs", type: "http", url: "https://docs.example/mcp", enabled: true }];
-  let installed = [{ name: "review", title: "代码审查", description: "检查改动中的问题" }];
+  let servers = [
+    { name: "docs", type: "http", url: "https://docs.example/mcp", enabled: true, source: "codex" },
+    {
+      name: "figma",
+      type: "stdio",
+      command: "npx figma-mcp",
+      enabled: true,
+      source: "claude",
+      sourcePath: "C:\Users\me\.claude.json",
+      external: true,
+    },
+  ];
+  // Mixed origins: a Hub-owned skill, one a third-party installer put in Claude's folder (with a
+  // link in the shared folder), and one whose name also exists elsewhere.
+  let installed = [
+    { name: "review", title: "代码审查", description: "检查改动中的问题", source: "codex" },
+    {
+      name: "oil-ui-pro",
+      description: "设计、改进和评审网站、App、后台与组件的 UI/UX",
+      source: "claude",
+      sourcePath: "C:\Users\me\.claude\skills\oil-ui-pro",
+      distributionOnly: true,
+    },
+    {
+      name: "pdf",
+      description: "读取、生成和合并 PDF",
+      source: "agents",
+      sourcePath: "C:\Users\me\.agents\skills\pdf",
+      realPath: "D:\tools\skills\pdf",
+      isLink: true,
+      conflicts: ["C:\Users\me\.claude\skills\pdf"],
+      distributionOnly: true,
+    },
+  ];
   let backups = [
     { name: "writer", title: "写作助手", backupId: "writer-20261016", backedUpAt: "2026-10-16" },
+    {
+      name: "slides",
+      title: "幻灯片",
+      backupId: "slides-20261026",
+      backedUpAt: "2026-10-26",
+      distributionOnly: true,
+    },
   ];
   const sample = {
     relPath: "2026/10/16/rollout-preview.jsonl",

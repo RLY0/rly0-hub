@@ -62,7 +62,17 @@ describe("Rly0SkillsManager", () => {
     expect(result.rootExists).toBe(true);
     expect(result.installedCount).toBe(1);
     expect(result.installed).toEqual([
-      { name: "pdf-tools", title: "PDF Tools", description: "Work with PDFs" },
+      {
+        name: "pdf-tools",
+        title: "PDF Tools",
+        description: "Work with PDFs",
+        source: "codex",
+        sourcePath: path.join(skillsRoot, "pdf-tools"),
+        realPath: await fs.realpath(path.join(skillsRoot, "pdf-tools")),
+        isLink: false,
+        conflicts: [],
+        distributionOnly: false,
+      },
     ]);
   });
 

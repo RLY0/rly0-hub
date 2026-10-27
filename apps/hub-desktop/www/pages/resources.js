@@ -23,6 +23,43 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
     );
   const field = (label, input) => h("label", { class: "field" }, h("span", null, label), input);
   const input = (placeholder) => h("input", { class: "input", placeholder });
+  // Where an item came from. Third-party installers put things in many places; the Hub picks
+  // them up and shares them, so the card says whose folder holds the original.
+  const SOURCE_LABELS = {
+    codex: "Codex",
+    claude: "Claude",
+    agents: "共用目录",
+    cursor: "Cursor",
+    gemini: "Gemini",
+    antigravity: "Antigravity",
+    external: "外部安装",
+  };
+  const sourceTags = (item) => {
+    const tags = [];
+    if (item.source)
+      tags.push(
+        h(
+          "span",
+          { class: "tag soft", title: item.sourcePath || "" },
+          `来自 ${SOURCE_LABELS[item.source] || item.source}`,
+        ),
+      );
+    if (item.isLink)
+      tags.push(h("span", { class: "tag soft", title: item.realPath || "" }, "快捷方式"));
+    if (item.conflicts?.length)
+      tags.push(
+        h(
+          "span",
+          { class: "tag warn", title: item.conflicts.join("\n") },
+          `另有 ${item.conflicts.length} 处同名`,
+        ),
+      );
+    return tags.length ? [h("div", { class: "src-tags" }, ...tags)] : [];
+  };
+  // The list still works when copying to other assistants fails; say so instead of hiding it.
+  const nativeWarn = (result) => {
+    if (result?.native?.error) toast("同步给其他助手时出了问题，下次刷新会再试");
+  };
   function confirmButton(text, action) {
     let confirmTap = () => true;
     const el = button(text, async () => {
@@ -82,7 +119,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
     });
     root.append(
       h("div", { class: "row section-title" }, h("h2", null, "MCP 服务"), button("刷新", load)),
-      h("p", { class: "sub page-note" }, "所有助手共用，保存在 Codex 配置里"),
+      h("p", { class: "sub page-note" }, "所有助手共用；其他助手里配好的服务也会收进来"),
       list,
       formTitle,
       h(
@@ -135,28 +172,62 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
                     "div",
                     { class: "row" },
                     h("b", null, server.name),
-                    h("span", { class: "tag" }, server.enabled ? "已启用" : "已停用"),
+                    h(
+                      "span",
+                      { class: "tag" },
+                      server.external
+                        ? server.enabled
+                          ? "共享中"
+                          : "已停止共享"
+                        : server.enabled
+                          ? "已启用"
+                          : "已停用",
+                    ),
                   ),
+                  ...sourceTags(server),
                   h(
                     "p",
                     { class: "sub wrap" },
                     server.type === "stdio" ? server.command : server.url,
                   ),
-                  h(
-                    "div",
-                    { class: "row" },
-                    button("修改", async () => edit(server)),
-                    button(server.enabled ? "停用" : "启用", async () => {
-                      await call("mcp.setEnabled", { name: server.name, enabled: !server.enabled });
-                      await load();
-                      await applyToCodex("backend", server.enabled ? "已停用" : "已启用");
-                    }),
-                    confirmButton("移除", async () => {
-                      await call("mcp.remove", { name: server.name });
-                      await load();
-                      await applyToCodex("backend", "已移除");
-                    }),
-                  ),
+                  // External servers live in another assistant's config file; the Hub only
+                  // decides whether to share them, so editing and removing stay with that app.
+                  server.external
+                    ? h(
+                        "div",
+                        { class: "row" },
+                        button(server.enabled ? "停止共享" : "恢复共享", async () => {
+                          nativeWarn(
+                            await call("mcp.setEnabled", {
+                              name: server.name,
+                              enabled: !server.enabled,
+                            }),
+                          );
+                          await load();
+                          await applyToCodex(
+                            "backend",
+                            server.enabled ? "已停止共享" : "已恢复共享",
+                          );
+                        }),
+                      )
+                    : h(
+                        "div",
+                        { class: "row" },
+                        button("修改", async () => edit(server)),
+                        button(server.enabled ? "停用" : "启用", async () => {
+                          await call("mcp.setEnabled", {
+                            name: server.name,
+                            enabled: !server.enabled,
+                          });
+                          await load();
+                          await applyToCodex("backend", server.enabled ? "已停用" : "已启用");
+                        }),
+                        confirmButton("移除", async () => {
+                          await call("mcp.remove", { name: server.name });
+                          await load();
+                          await applyToCodex("backend", "已移除");
+                        }),
+                      ),
                 ),
               )),
         );
@@ -189,7 +260,7 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
           button("刷新", load),
         ),
       ),
-      h("p", { class: "sub page-note" }, "所有助手共用，停用后可以恢复"),
+      h("p", { class: "sub page-note" }, "各助手装的技能都会收进来，所有助手共用；停用后可以恢复"),
       installed,
       h("h2", { class: "section-title" }, "从本地导入"),
       h(
@@ -216,18 +287,25 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
       try {
         const result = await call("skills.list");
         if (!alive()) return;
+        nativeWarn(result);
         installed.replaceChildren(
           ...result.installed.map((skill) =>
             h(
               "section",
               { class: "m span-3" },
               h("b", null, skill.title || skill.name),
+              ...sourceTags(skill),
               h("p", { class: "sub wrap" }, skill.description || skill.name),
+              // Installed by another tool: moving its folder would break that tool's updates,
+              // so the Hub can only stop sharing it.
+              skill.distributionOnly
+                ? h("p", { class: "sub note" }, "由安装它的程序管理，这里只能停止共享")
+                : null,
               h(
                 "div",
                 { class: "row" },
                 button("打开文件夹", () => call("skills.openFolder", { name: skill.name })),
-                confirmButton("停用", async () => {
+                confirmButton(skill.distributionOnly ? "停止共享" : "停用", async () => {
                   await call("skills.deactivate", { name: skill.name });
                   await load();
                 }),
@@ -241,11 +319,17 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
               "section",
               { class: "m span-3" },
               h("b", null, skill.title || skill.name),
-              h("p", { class: "sub" }, skill.backedUpAt || "已备份"),
+              h(
+                "p",
+                { class: "sub" },
+                skill.distributionOnly
+                  ? `已停止共享${skill.backedUpAt ? " · " + skill.backedUpAt : ""}`
+                  : skill.backedUpAt || "已备份",
+              ),
               h(
                 "div",
                 { class: "row" },
-                button("恢复", async () => {
+                button(skill.distributionOnly ? "恢复共享" : "恢复", async () => {
                   await call("skills.restore", { backupId: skill.backupId });
                   await load();
                 }),

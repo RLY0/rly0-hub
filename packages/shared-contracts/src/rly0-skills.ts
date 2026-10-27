@@ -1,10 +1,7 @@
 import { z } from "zod";
 
-/**
- * Contracts for the Skills manager page. It reads `SKILL.md` front matter under
- * `${CODEX_HOME:-~/.codex}/skills/` and can move skill directories to (and restore them from) a
- * backup folder under `~/.rly0-hub/skills-backup/`. Deletion is never permanent from this page —
- * "deactivate" only moves a skill to the backup folder.
+/** User-level skill discovery and reversible local distribution controls.
+ * Codex-owned directories can be backed up; external/link sources only pause distribution.
  */
 
 export const RLY0_SKILLS_LIST_METHOD = "codexhost/rly0/skills/list";
@@ -25,6 +22,12 @@ export const rly0SkillEntrySchema = z
     name: rly0SkillNameSchema,
     title: z.string().max(200).optional(),
     description: z.string().max(2000).optional(),
+    source: z.enum(["codex", "claude", "agents", "external"]).optional(),
+    sourcePath: z.string().max(4096).optional(),
+    realPath: z.string().max(4096).optional(),
+    isLink: z.boolean().optional(),
+    conflicts: z.array(z.string().max(4096)).max(256).optional(),
+    distributionOnly: z.boolean().optional(),
   })
   .strict();
 export type Rly0SkillEntry = z.infer<typeof rly0SkillEntrySchema>;
@@ -35,6 +38,8 @@ export const rly0SkillBackupEntrySchema = z
     name: rly0SkillNameSchema,
     title: z.string().max(200).optional(),
     description: z.string().max(2000).optional(),
+    sourcePath: z.string().max(4096).optional(),
+    distributionOnly: z.boolean().optional(),
     backedUpAt: z.string().max(64).optional(),
   })
   .strict();
@@ -50,6 +55,10 @@ export const rly0SkillsListResultSchema = z
     installedCount: z.number().int().nonnegative(),
     installed: z.array(rly0SkillEntrySchema).max(512),
     backups: z.array(rly0SkillBackupEntrySchema).max(512),
+    native: z
+      .object({ error: z.string().max(128) })
+      .strict()
+      .optional(),
   })
   .strict();
 export type Rly0SkillsListResult = z.infer<typeof rly0SkillsListResultSchema>;

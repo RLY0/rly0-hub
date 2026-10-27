@@ -1,3 +1,5 @@
+import { sharedMcpEntries } from "./rly0-mcp/discovery.js";
+import { discoverSkills, readPausedSkills } from "./rly0-skills/discovery.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -243,8 +245,18 @@ export function sharedResourcesProvider(
     if (wants.mcp)
       try {
         const config: unknown = parse(
-          await bounded(await within(codex, path.join(codex, "config.toml")), 512 * 1024),
+          await within(codex, path.join(codex, "config.toml"))
+            .then((file) => bounded(file, 512 * 1024))
+            .catch((error: NodeJS.ErrnoException) => {
+              if (error.code === "ENOENT") return "";
+              throw error;
+            }),
         );
+        const native = record(config) && record(config.mcp_servers) ? config.mcp_servers : {};
+        const combined = await sharedMcpEntries(env, native, request?.harnessId);
+        if (record(config)) {
+          config.mcp_servers = combined;
+        }
         if (record(config) && record(config.mcp_servers)) {
           if (Object.keys(config.mcp_servers).length > 64) truncated = true;
           for (const [name, v] of Object.entries(config.mcp_servers).slice(0, 64)) {
@@ -304,32 +316,30 @@ export function sharedResourcesProvider(
         notices.push("Codex MCP configuration unavailable; existing native settings are retained");
       }
     const skills: { name: string; path: string; description?: string }[] = [];
-    const skillsRoot = path.join(codex, "skills");
-    for (const base of wants.skills ? [skillsRoot, path.join(skillsRoot, ".system")] : []) {
-      const dir = await fs.opendir(base).catch(() => null);
-      if (!dir) continue;
-      let scanned = 0;
-      for await (const entry of dir) {
-        if (++scanned > 256 || skills.length >= 64) {
+    if (wants.skills) {
+      const discovered = await discoverSkills(env);
+      const paused = new Set((await readPausedSkills(env)).map((v) => v.name.toLowerCase()));
+      for (const skill of discovered.skills) {
+        if (paused.has(skill.name.toLowerCase())) continue;
+        if (skills.length >= 64) {
           truncated = true;
           break;
         }
-        if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
         try {
-          const file = await within(skillsRoot, path.join(base, entry.name, "SKILL.md"));
+          const file = path.join(skill.realPath, "SKILL.md");
           const meta = parseSkillFrontMatter(await bounded(file, 64 * 1024));
-          const metadataText = [meta.name ?? entry.name, meta.description ?? "", file].join("\n");
+          const metadataText = [meta.name ?? skill.name, meta.description ?? "", file].join("\n");
           if (safeMemory(metadataText) !== metadataText) {
             notices.push("Potentially sensitive skill metadata skipped");
             continue;
           }
           skills.push({
-            name: meta.name ?? entry.name,
+            name: meta.name ?? skill.name,
             path: file,
             ...(meta.description ? { description: meta.description.slice(0, 250) } : {}),
           });
         } catch {
-          /* Unsupported/out-of-scope skill is not advertised. */
+          /* Unavailable metadata is not advertised. */
         }
       }
     }

@@ -1,6 +1,8 @@
+import { externalMcpLocations, syncExternalMcp } from "../rly0-mcp/discovery.js";
 import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
+import { discoverSkills, skillRoots, within } from "../rly0-skills/discovery.js";
 import { syncNativeSkills } from "./native-skills.js";
 import os from "node:os";
 import path from "node:path";
@@ -166,7 +168,7 @@ async function instructions(env: NodeJS.ProcessEnv, enabled: boolean): Promise<s
 /** Serialized per data directory, with the caller's isolated environment passed throughout. */
 export async function syncNativeResources(
   env: NodeJS.ProcessEnv,
-  settings: { memory: boolean; skills: boolean },
+  settings: { memory: boolean; skills: boolean; mcp?: boolean },
 ): Promise<NativeResourceSync> {
   const key = resolveRly0DataDir(env);
   const completed = await serialized(env, async () => {
@@ -176,7 +178,8 @@ export async function syncNativeResources(
       skipped: [],
       removed: [],
     };
-    await syncNativeSkills(
+    if (settings.mcp !== undefined) await syncExternalMcp(env, settings.mcp);
+    const recoveryBlocked = await syncNativeSkills(
       path.join(codexHome(env), "skills"),
       [
         path.join(env.CLAUDE_CONFIG_DIR ?? path.join(home(env), ".claude"), "skills"),
@@ -185,7 +188,16 @@ export async function syncNativeResources(
       path.join(key, "bridge", "native-skills.json"),
       settings.skills,
       result,
+      env,
     );
+    result.skipped = [...new Set(result.skipped)];
+    if (recoveryBlocked) {
+      const checkKey = nativeCheckKey(env);
+      const state = nativeChecks.get(checkKey) ?? {};
+      state.error = "GLOBAL_CONFIG_SKILL_RECOVERY_BLOCKED";
+      nativeChecks.set(checkKey, state);
+      throw new Error(state.error);
+    }
     return result;
   });
   const state = nativeChecks.get(nativeCheckKey(env));
@@ -206,13 +218,17 @@ const nativeCheckKey = (env: NodeJS.ProcessEnv) =>
 export function nativeResourceSyncError(env: NodeJS.ProcessEnv): string | null {
   return nativeChecks.get(nativeCheckKey(env))?.error ?? null;
 }
-/** Metadata-only scan; large skill file contents are read only when the source changes. */
+/** Metadata-only scan of originals; owned-copy contents are checked when synchronization runs. */
 async function sourceFingerprint(
   env: NodeJS.ProcessEnv,
-  settings: { memory: boolean; skills: boolean },
+  settings: { memory: boolean; skills: boolean; mcp?: boolean },
 ) {
   const parts: unknown[] = [settings, codexHome(env), home(env), env.CLAUDE_CONFIG_DIR];
   let count = 0;
+  const seen = new Set<string>();
+  const allowed = await Promise.all(
+    skillRoots(env).map((v) => fs.realpath(v.root).catch(() => path.resolve(v.root))),
+  );
   async function visit(file: string, depth: number): Promise<void> {
     if (++count > 8192 || depth > 32) throw new Error("GLOBAL_CONFIG_SKILL_SYNC_LIMIT");
     const stat = await fs.lstat(file).catch((error: NodeJS.ErrnoException) => {
@@ -223,12 +239,35 @@ async function sourceFingerprint(
       parts.push([file, null]);
       return;
     }
-    parts.push([file, stat.size, stat.mtimeMs, stat.ctimeMs, stat.ino]);
-    if (stat.isDirectory() && !stat.isSymbolicLink())
-      for (const name of (await fs.readdir(file)).sort())
-        await visit(path.join(file, name), depth + 1);
+    const real = await fs.realpath(file);
+    const target = await fs.stat(real);
+    parts.push([file, real, target.size, target.mtimeMs, target.ctimeMs, target.ino]);
+    if (seen.has(real)) return;
+    seen.add(real);
+    if (
+      target.isDirectory() &&
+      (!stat.isSymbolicLink() || allowed.some((root) => within(root, real)))
+    )
+      for (const name of (await fs.readdir(file)).sort()) {
+        if (name === ".git") continue;
+        await visit(path.join(file, name), depth + 1).catch((error: NodeJS.ErrnoException) => {
+          if (["ENOENT", "ELOOP"].includes(error.code ?? "")) {
+            parts.push([file, name, "unavailable"]);
+            return;
+          }
+          throw error;
+        });
+      }
   }
-  if (settings.skills) await visit(path.join(codexHome(env), "skills"), 0);
+  if (settings.skills) {
+    for (const skill of (await discoverSkills(env, false)).skills) await visit(skill.realPath, 0);
+    await visit(path.join(resolveRly0DataDir(env), "bridge", "paused-skills.json"), 0);
+  }
+  if (settings.mcp) {
+    for (const [, file] of externalMcpLocations(env)) await visit(file, 0);
+    await visit(path.join(resolveRly0DataDir(env), "bridge", "external-mcp-controls.json"), 0);
+    await visit(path.join(codexHome(env), "config.toml"), 0);
+  }
   if (settings.memory)
     await visit(path.join(openRly0MemoryStore(env).directory, "records.jsonl"), 0);
   return JSON.stringify(parts);
@@ -236,7 +275,7 @@ async function sourceFingerprint(
 /** The session path schedules this without awaiting it; Hub mutations still synchronize explicitly. */
 export function syncNativeResourcesIfChanged(
   env: NodeJS.ProcessEnv,
-  settings: { memory: boolean; skills: boolean },
+  settings: { memory: boolean; skills: boolean; mcp?: boolean },
 ): Promise<void> {
   const key = nativeCheckKey(env);
   const state = nativeChecks.get(key) ?? {};

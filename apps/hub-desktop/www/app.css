@@ -5343,3 +5343,19 @@ select.input,
 .top-switch > p {
   display: none;
 }
+/* 打通 → 技能 / MCP: where each item's original lives. Quiet tags under the title; the
+   warning tag only appears when two installs share a name. */
+.src-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+.src-tags .tag {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.m .sub.note {
+  color: var(--muted-dark);
+  font-size: 12px;
+}

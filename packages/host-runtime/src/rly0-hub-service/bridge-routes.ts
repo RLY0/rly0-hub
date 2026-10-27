@@ -272,7 +272,7 @@ export function createBridgeRoutes(options: {
       await syncNative().catch(() => undefined);
     },
     async restorePure(): Promise<void> {
-      await syncNativeResources(environment, { memory: false, skills: false });
+      await syncNativeResources(environment, { memory: false, skills: false, mcp: false });
       await syncCodexMemoryServer({ environment, enabled: false, launch: codexLaunch() });
       for (const agent of RLY0_GLOBAL_AGENTS) await global.set(agent, false);
     },

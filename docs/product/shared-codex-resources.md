@@ -7,8 +7,8 @@ RLY/0 Hub 左侧「打通」（打通设置）一处管理：概览、MCP、技�
 
 | 开关 | 默认 | 说明 |
 | --- | --- | --- |
-| MCP | 开 | MCP 页的列表（即 `~/.codex/config.toml` 的 `mcp_servers`，改动前自动备份）按各助手自己的方式挂上。带 `enabled_tools` / `disabled_tools` / OAuth / scopes 的服务器不转接（无法保真翻译）。 |
-| 技能 | 开 | 以 `${CODEX_HOME}/skills`（含 `.system`）为唯一源，自动同步到 Claude 与通用 Agent 的原生技能目录；其他助手仍按其能力接收原生文件或源文件索引。 |
+| MCP | 开 | MCP 页合并 Codex 与支持的用户级外部配置；不带凭据的外部条目同步进 Codex（改动前自动备份），其余支持的条目按各助手自己的方式挂上。带 `enabled_tools` / `disabled_tools` / OAuth / scopes 的服务器不转接（无法保真翻译）。 |
+| 技能 | 开 | 自动发现 Codex（含 `.system`）、Claude、通用 Agent 和已支持助手的用户技能目录，保留原安装位置，向 Codex、Claude、通用 Agent 分发受管副本；其他助手按能力接收原生文件或源文件索引。 |
 | 记忆 | 开 | 共享记忆 rly0-memory（见下）。能接 MCP 的助手（含 Codex 自己）可读写，其余只读到摘要。 |
 
 迁移：没有设置文件时用上表默认值（新安装和 0.11.12 从未改过开关的安装都全开）。0.11.12 写下的 `version: 2` 文件保留其中的选择，缺少 `memory` 键时按当时的默认“关”处理；0.11.12-preview.1 的单开关 `{ enabled }` 仍按它设置三项。Hub 之后写 `version: 3`。
@@ -54,9 +54,27 @@ Antigravity 和 Hermes 只从全局文件读取 MCP。概览底部每个一枚�
 
 Codex 全局偏好写入 `${CODEX_HOME}/AGENTS.md`，有 `AGENTS.override.md` 则优先写后者。只改 HTML 注释托管块，原子替换，不产生全文备份，并清理旧的含完整托管块的已知备份文件。偏好中的托管标记转义。纯托管的新文件关闭后删除，原有空文件保留。**不把项目私有偏好写入全局文件，也不再经 developerInstructions / Codex MCP initialize 重复注入。** Codex 的项目偏好仍可 recall，但当前不会自动送进原生新会话，避免未经作用域授权写项目 AGENTS；此项范围限制须在真实验收中明确。
 
-技能采用受管副本，同步至 `${CLAUDE_CONFIG_DIR:-~/.claude}/skills`、`~/.agents/skills`，清单在 `<数据目录>/bridge/native-skills.json`。Hub 启动、共享设置变化、技能变更和显式 `bridge.syncNative` 均等待同步；Agent 会话启动只在后台安排同步，按有界源目录元数据指纹合并并缓存，变化才读文件内容/哈希。首次后台复制未完成时，源目录及原生适配器技能路径仍可使用。技能变更主操作成功而原生同步失败时返回 `{ok:true,...,native:{error}}`，避免重复导入/移动。
+技能从 `${CODEX_HOME:-~/.codex}/skills`（含 `.system`）、`${CLAUDE_CONFIG_DIR:-~/.claude}/skills`、默认 `~/.claude/skills`、`~/.agents/skills`、`~/.grok/skills`、`~/.pi/agent/skills`、`${HERMES_HOME:-~/.hermes}/skills` 发现。分发使用受管副本，目标为 Codex、当前 Claude 配置和通用 Agent 的技能目录，清单在 `<数据目录>/bridge/native-skills.json`。Hub 启动、共享设置变化、技能变更、技能/MCP 页面刷新和显式 `bridge.syncNative` 均安排或等待同步；Agent 会话启动只在后台安排同步，按有界源目录元数据指纹合并并缓存，变化才读文件内容/哈希。首次后台复制未完成时，源目录及原生适配器技能路径仍可使用。技能变更主操作成功而原生同步失败时返回 `{ok:true,...,native:{error}}`，避免重复导入/移动。
 
-复制跳过 `.env`/环境变体、credentials/secret/token/auth 样式文件或目录、`.ssh`/`.aws`/包管理凭据、私钥和证书文件。单技能上限 1024 条/16 MiB；不跟随链接或嵌套 `.git`。同名用户技能和用户修改的副本保留；清理只回收仍能按根路径与内容散列核对的受管副本。仍不宣称能识别任意命名的秘密，校验至删除之间的竞态与本机 manifest 篡改另列残余风险。
+复制跳过 `.env`/环境变体、credentials/secret/token/auth 样式文件或目录、`.ssh`/`.aws`/包管理凭据、私钥和证书文件。单技能上限 1024 条/16 MiB；入口链接/junction 经 realpath 解析、去重，只接受已知用户技能根范围内的目标；根本身不能指向 HOME 或盘根。技能内部链接只可指向本技能树，按祖先 realpath 防环；源技能中的 `.git` 目录、worktree 指针文件或链接均直接排除，不读取其内容；副本中用户新加的 Git 元数据仍视为用户改动，不由 Hub 自动删除。同名用户技能和用户修改的副本保留；清理只回收仍能按根路径与内容散列核对的受管副本。仍不宣称能识别任意命名的秘密，校验至删除之间的竞态与本机 manifest 篡改另列残余风险。
+
+### 外部安装与来源字段（HUB-52）
+
+来源按 Codex → Codex `.system` → 自定义 Claude → 默认 Claude → agents → 其他受支持目录的顺序选择；同 realpath 只列一次，同名不同目录选择一个分发来源并在 `conflicts` 报出其他路径。来源文件和第三方入口链接均不删除或覆盖。`.system` 技能仅向其他助手分发，不回拷到 Codex 顶层；旧版误生成且仍能核对所有权的顶层副本会回收。同名用户安装和改过的副本原样保留；受管副本不会反过来成为安装来源。安装器更新原位置后，下次同步检查会跟随更新；不会持续重读未变化的源文件字节。当前不是全盘搜索，也没有新增定时扫描器；Hub 页面刷新、会话技能请求、启动和既有变更入口触发发现。
+
+`skills.list.installed[]` 新增兼容性可选字段（本实现全部提供）：`source: codex|claude|agents|external`、`sourcePath`（入口路径）、`realPath`、`isLink`、`conflicts:string[]`、`distributionOnly:boolean`。`skills.openFolder({name})` 打开所选来源入口。刷新同步失败时 Hub `skills.list` 仍返回发现结果，另带 `native.error`，不能将列表可见视为分发成功。
+
+外部来源、链接及系统技能的停用仅暂停该名字的 Hub 分发，并回收内容仍匹配的 Hub 副本；原安装仍然存在，助手可能照自己的规则继续发现它。停用信息存于 `bridge/paused-skills.json`，通过既有 `backups[]`/`backupId` 恢复；这类备份条目带 `sourcePath`、`distributionOnly:true`，不是一份搬走的目录。恢复后从原安装位置取最新版重新分发。普通 Codex 自有真实目录仍搬到备份区，同时暂停该名字的全部 Hub 分发，避免同名外部来源补位；恢复原目录后再解除暂停。对旧版已产生的补位，仅在能核对为未修改的 Hub 副本时回收后恢复，真正的用户冲突仍保留并报告。旧备份恢复失败时，只回滚本次临时建立的暂停记录，并恢复受影响的派生副本；原有合法暂停记录不撤销。
+
+若用户手动删除了 Codex 备份目录，该名字的暂停记录不会在列表中消失：继续列入 `backups[]`，沿用原 `backupId/name/backedUpAt/sourcePath`，设置 `distributionOnly:true`。既有 `restore({backupId})` 对此条目只解除暂停、再从仍存在的来源分发；不声称能还原已经手动删除的原备份。列表读取不自动恢复共享，不新增字段或 RPC；只有明确 ENOENT 才判定为备份缺失，权限错误不能伪装成丢失。Claude 可在现有恢复按钮上接“解除暂停”说明。
+
+MCP 原来同样只读 Codex。现在发现用户级 `~/.claude.json`、`${CLAUDE_CONFIG_DIR:-~/.claude}/.claude.json`、`~/.cursor/mcp.json`、`~/.gemini/settings.json`、`~/.gemini/config/mcp_config.json` 的顶层 `mcpServers`；不读 Claude 的项目私有 MCP，不读账号/OAuth 凭据库。外部列表项以及仍属于 Hub 的 Codex 导入副本均有 `source`、`sourcePath`、`external:true`，沿用停止/恢复共享入口。共享时按目标助手过滤来源，Codex 中的导入副本也保留来源：Claude、Cursor、Antigravity 不再收到自己已有配置的 `codex_*` 副本，Antigravity 全局桥也不会把原服务以 `rly0-*` 写回来源文件。JSON 中无法保真转换的策略、OAuth 和未知字段不转接；Hermes 任意 YAML、OpenCode 的独有配置结构及第三方自定义目录尚不导入，不能称所有安装器/格式均已支持。
+
+只将没有非空 `env`/`headers`、且未命中保守凭据检查的配置写入 Codex 的独立受管 MCP 表（空对象不视为凭据）。检查复用共享记忆的令牌形状脱敏规则，覆盖 GitHub 等令牌、凭据字段/命令标记、URL 查询/fragment、敏感或疑似不透明的路径片段；疑似条目只允许进程内传递，可选全局桥也执行相同检查。这是有界检测，不证明任意 argv/URL 均不含秘密；保守误判时不会持久导入。所有权清单 `bridge/external-mcp.json` 保存来源路径、SHA-256 和内部摘要版本。新版指纹稳定排序对象键、忽略空 env/headers，保留 argv 顺序；TOML 子表重排不视为用户处置。旧指纹仅在原始散列可通过已知空表位置变化核实时升级，不忽略任何实际值变化；已经 disposed 的记录仍需明确恢复共享，不自动重新取得所有权。命名冲突与用户改动优先保留；安装器更新可更新仍属于 Hub 的表。用户手改或删除导入的 MCP 表后，清单保留 `disposed` 状态，后续扫描和安装器更新不会自动重新添加；列表按停止共享显示，明确恢复共享才解除该状态。原配置一字不改。带凭据条目仅进入支持助手的进程选项，不持久复制到 Codex，不进入模型可见上下文；因此这类外部 MCP 在原生 Codex 上自动接通仍有限制。停用/移除外部条目写本地分发控制（`external-mcp-controls.json`），不编辑安装器文件，防止自动同步重新启用或加回。旧 `removed` 状态保留兼容，但不再隐藏外部条目，按停止共享显示，可用既有 `mcp.setEnabled` 恢复，不需要新的移除/恢复界面或 RPC；恢复纯净会回收仍未被用户改动的 MCP 副本。
+
+Claude 已接入来源标记及停止/恢复共享；本轮新增的孤儿暂停条目复用现有字段，解除暂停说明由 Claude 接。修后独立复核、真机 Hub 更新与新会话工具可用性均须另验。未改认证、消息协议、路由、调度锁或原始数据库。既有同用户 manifest 篡改与校验后文件替换竞态边界继续适用；原子改名和前后内容检查不等于抵抗恶意同用户进程。
+
+技能更新在第一次目录改名前把 stage/old 的路径、前后内容散列及来源写入现有所有权清单的恢复记录。下一次同步（包括 Hub 启动）先恢复中断的改名或回收可核验的旧树，再做发现；恢复过程沿用原生资源现有锁，不增加调度锁。目标根/父目录 realpath、非链接属性、目录名和内容散列全部通过才递归清理。被用户修改、替换成 junction 的目录保留并列入 skipped；没有恢复记录的历史 `.rly0-sync-*-old` 仅报告，不能只凭名字删除。有恢复记录但路径/内容校验失败时，仍保留记录和文件，其他安全条目继续同步；本次同步通过既有错误通道报告 `GLOBAL_CONFIG_SKILL_RECOVERY_BLOCKED`，`bridge.status.nativeError` 保持该状态，单独成功的记忆/指令操作不能将它清掉。证据修正后可通过现有 `bridge.syncNative` 重试，完整同步成功才清除错误。
 
 原生写入通过本进程队列及 SQLite OS 事务锁串行化，另留 pid/时间/随机标识的 wx 元数据文件。所有原生写入者在持有 SQLite 事务时才创建和移除元数据；取得事务锁后残留 wx 文件直接回收，不再靠 PID 探测判断（避免 Windows PID 复用或 EPERM 永久卡住）。进程被杀时 OS 锁释放；活进程持有事务时不会按时长抢锁。恢复过程也在 OS 锁内，避免两个回收者误删新锁。仅使用 wx 文件、不遵守 SQLite 门的旧实现不能并发写入此目录。MCP 子进程不参与原生同步。损坏托管块仍报告错误；同步失败与已保存记忆分开报告。后台失败可从 `bridge.status.nativeError` 查询并用 `bridge.syncNative` 重试。
 

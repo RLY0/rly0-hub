@@ -146,6 +146,68 @@ describe("independent Hub management", () => {
     ).rejects.toThrow("SKILL_SOURCE_INVALID");
   });
 
+  it("automatically discovers and shares an external installer skill when the page refreshes", async () => {
+    const { service, codexHome } = await fixture();
+    const original = path.join(root, ".claude", "skills", "synthetic-external");
+    await fs.mkdir(original, { recursive: true });
+    await fs.writeFile(
+      path.join(original, "SKILL.md"),
+      "---\nname: Synthetic External\n---\nversion1",
+    );
+    expect(await service.handle("skills.list", {})).toMatchObject({
+      installedCount: 1,
+      installed: [
+        {
+          name: "synthetic-external",
+          source: "claude",
+          sourcePath: original,
+          distributionOnly: true,
+        },
+      ],
+    });
+    const mirror = path.join(codexHome, "skills", "synthetic-external", "SKILL.md");
+    expect(await fs.readFile(mirror, "utf8")).toContain("version1");
+    await fs.writeFile(
+      path.join(original, "SKILL.md"),
+      "---\nname: Synthetic External\n---\nversion2",
+    );
+    await service.handle("skills.list", {});
+    expect(await fs.readFile(mirror, "utf8")).toContain("version2");
+    const paused = (await service.handle("skills.deactivate", { name: "synthetic-external" })) as {
+      backupId: string;
+    };
+    await expect(fs.stat(mirror)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readFile(path.join(original, "SKILL.md"), "utf8")).toContain("version2");
+    await service.handle("skills.restore", { backupId: paused.backupId });
+    expect(await fs.readFile(mirror, "utf8")).toContain("version2");
+  });
+
+  it("MCP page discovers external sources and its remove action pauses import without editing the installer file", async () => {
+    const { service, codexHome } = await fixture();
+    const source = path.join(root, ".claude.json");
+    const original = JSON.stringify({
+      mcpServers: { external: { command: "synthetic-external" } },
+    });
+    await fs.writeFile(source, original);
+    expect(await service.handle("mcp.list", {})).toMatchObject({ servers: [{ name: "external" }] });
+    expect(await fs.readFile(path.join(codexHome, "config.toml"), "utf8")).toContain(
+      "synthetic-external",
+    );
+    await service.handle("mcp.setEnabled", { name: "external", enabled: false });
+    expect(await service.handle("mcp.list", {})).toMatchObject({ enabledCount: 0 });
+    await service.handle("mcp.setEnabled", { name: "external", enabled: true });
+    expect(await service.handle("mcp.list", {})).toMatchObject({ enabledCount: 1 });
+    await service.handle("mcp.remove", { name: "external" });
+    expect(await service.handle("mcp.list", {})).toMatchObject({
+      totalCount: 1,
+      enabledCount: 0,
+      servers: [{ name: "external", external: true, enabled: false }],
+    });
+    await service.handle("mcp.setEnabled", { name: "external", enabled: true });
+    expect(await service.handle("mcp.list", {})).toMatchObject({ enabledCount: 1 });
+    expect(await fs.readFile(source, "utf8")).toBe(original);
+  });
+
   it("lists and reversibly moves session files and reports partial failure", async () => {
     const { service, codexHome } = await fixture();
     const sessions = path.join(codexHome, "sessions");

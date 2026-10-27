@@ -1,3 +1,4 @@
+import { suspectedMcpCredentials } from "../rly0-mcp/discovery.js";
 import type { SharedMcpServer } from "@codexhost/harness-adapter/plugin";
 
 /**
@@ -50,7 +51,14 @@ export function renderHermesMcpLines(servers: Record<string, SharedMcpServer>): 
 
 /** A server with credentials in its options never goes into a global file. */
 export function carriesCredentials(server: SharedMcpServer): boolean {
-  return server.type === "stdio"
-    ? Object.keys(server.env).some((key) => !key.startsWith("RLY0_MEMORY_"))
-    : Object.keys(server.headers).length > 0;
+  return suspectedMcpCredentials(
+    server.type === "stdio"
+      ? {
+          ...server,
+          env: Object.fromEntries(
+            Object.entries(server.env).filter(([key]) => !key.startsWith("RLY0_MEMORY_")),
+          ),
+        }
+      : { ...server },
+  );
 }

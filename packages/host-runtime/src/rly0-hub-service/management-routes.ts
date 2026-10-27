@@ -1,3 +1,5 @@
+import { syncNativeResourcesIfChanged } from "../rly0-bridge/native-resources.js";
+import { sharedResourceSettings } from "../shared-harness-resources.js";
 import {
   rly0MaintenanceExportFeedbackParamsSchema,
   rly0MaintenanceFeedbackFolderSchema,
@@ -116,6 +118,10 @@ export function createHubManagementRoutes(options: {
     "mcp.list": route(
       empty,
       async () => {
+        await syncNativeResourcesIfChanged(
+          environment,
+          await sharedResourceSettings(environment),
+        ).catch(() => undefined);
         const result = await mcp.list();
         // TOML parser errors may quote config content; expose a code only.
         return { ...result, ...(result.parseError ? { parseError: "MCP_CONFIG_INVALID" } : {}) };
@@ -130,13 +136,41 @@ export function createHubManagementRoutes(options: {
       rly0McpRpcError,
     ),
     "mcp.remove": route(rly0McpRemoveParamsSchema, (p) => mcp.remove(p.name), rly0McpRpcError),
-    "skills.list": route(empty, () => skills.list(), rly0SkillsRpcError),
+    "skills.list": route(
+      empty,
+      async () => {
+        // A page refresh also discovers installers that ran after Hub startup.
+        let native: { error: string } | undefined;
+        try {
+          await syncNativeResourcesIfChanged(
+            environment,
+            await sharedResourceSettings(environment),
+          );
+        } catch {
+          native = { error: "GLOBAL_CONFIG_NATIVE_SYNC_FAILED" };
+        }
+        return { ...(await skills.list()), ...(native ? { native } : {}) };
+      },
+      rly0SkillsRpcError,
+    ),
     "skills.openFolder": route(
-      z.object({ name: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/u).optional() }).strict(),
+      z
+        .object({
+          name: z
+            .string()
+            .regex(/^[A-Za-z0-9._-]{1,128}$/u)
+            .optional(),
+        })
+        .strict(),
       async (p) => {
         const root = skills.skillsRoot();
-        const target = p.name ? path.join(root, p.name) : root;
-        if (!(await fs.stat(target).then((stat) => stat.isDirectory(), () => false)))
+        const target = p.name ? await skills.skillPath(p.name) : root;
+        if (
+          !(await fs.stat(target).then(
+            (stat) => stat.isDirectory(),
+            () => false,
+          ))
+        )
           throw new Error("SKILL_NOT_FOUND");
         openFolder(target);
         return { ok: true };
