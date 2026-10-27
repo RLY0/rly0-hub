@@ -80,6 +80,10 @@ export async function syncNativeSkills(
         CODEX_HOME: path.dirname(source),
       });
   result.skipped.push(...discovered.skipped);
+  if (discovered.unavailableRoots.length)
+    (result.errors ??= []).push("GLOBAL_CONFIG_SKILL_ROOT_UNAVAILABLE");
+  const unreadable = (file: string) =>
+    discovered.unavailableRoots.some((root) => within(root, file));
   for (const skill of discovered.skills) protectedRoots.add(skill.realPath);
   if (enabled)
     for (const skill of discovered.skills) {
@@ -95,6 +99,7 @@ export async function syncNativeSkills(
         totalBytes += bytes;
         totalEntries += tree.files.length + tree.directories.length;
         for (const destination of allDestinations) {
+          if (unreadable(destination)) continue;
           const destinationRoot = await fs
             .realpath(destination)
             .catch(() => path.resolve(destination));
@@ -140,6 +145,17 @@ export async function syncNativeSkills(
       !locations.some((root) => within(root, entry.source))
     ) {
       owned.splice(index, 1);
+      continue;
+    }
+    // A failed scan is not evidence of removal. Retain both copies and ownership so a later
+    // successful scan can update them; do not adopt a same-name alternative in the meantime.
+    if (
+      unreadable(entry.name) ||
+      (enabled &&
+        unreadable(entry.source) &&
+        !paused.has(path.basename(entry.source).toLowerCase()))
+    ) {
+      result.skipped.push(entry.name);
       continue;
     }
     const currentRoot = await fs.realpath(path.dirname(entry.name)).catch(() => "");

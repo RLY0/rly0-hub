@@ -62,6 +62,7 @@ describe("external installer skills (synthetic, isolated home)", () => {
     expect((await manager.list()).installed).toEqual([
       {
         name: "oil-ui-pro",
+        addedAt: expect.any(Number),
         title: "Oil UI Pro",
         description: "synthetic installer fixture",
         source: "claude",

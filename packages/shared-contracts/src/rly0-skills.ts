@@ -20,6 +20,8 @@ export type Rly0SkillBackupId = z.infer<typeof rly0SkillBackupIdSchema>;
 export const rly0SkillEntrySchema = z
   .object({
     name: rly0SkillNameSchema,
+    /** First observation, initialized from source directory birthtime (mtime fallback), in ms. */
+    addedAt: z.number().int().nonnegative().optional(),
     title: z.string().max(200).optional(),
     description: z.string().max(2000).optional(),
     source: z.enum(["codex", "claude", "agents", "external"]).optional(),
@@ -35,6 +37,8 @@ export type Rly0SkillEntry = z.infer<typeof rly0SkillEntrySchema>;
 export const rly0SkillBackupEntrySchema = z
   .object({
     backupId: rly0SkillBackupIdSchema,
+    /** Deactivation time in milliseconds since the Unix epoch. */
+    addedAt: z.number().int().nonnegative().optional(),
     name: rly0SkillNameSchema,
     title: z.string().max(200).optional(),
     description: z.string().max(2000).optional(),

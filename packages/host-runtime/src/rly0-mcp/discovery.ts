@@ -88,6 +88,7 @@ export async function controlExternalMcp(
 export async function externalMcp(
   env: NodeJS.ProcessEnv,
   ignoreDisposition = false,
+  unavailable: string[] = [],
 ): Promise<ExternalMcp[]> {
   const controls = await readControls(env);
   const ownership = await readMcpOwnership(env);
@@ -163,8 +164,9 @@ export async function externalMcp(
         seen.add(name);
         result.push({ name, source, sourcePath, raw: normalized });
       }
-    } catch {
+    } catch (error) {
       /* Missing/malformed third-party files remain untouched and unavailable. */
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") unavailable.push(sourcePath);
     }
   }
   return result;
@@ -258,11 +260,15 @@ export async function sharedMcpEntries(
 }
 
 /** Credential-bearing configurations are process-only; persist only credential-free copies. */
-export async function syncExternalMcp(env: NodeJS.ProcessEnv, enabled: boolean): Promise<void> {
+export async function syncExternalMcp(
+  env: NodeJS.ProcessEnv,
+  enabled: boolean,
+  unavailable: string[] = [],
+): Promise<void> {
   const file = path.join(resolveCodexHome(env), "config.toml");
   const old = await readMcpOwnership(env);
   const controls = await readControls(env);
-  const external = enabled ? await externalMcp(env) : [];
+  const external = enabled ? await externalMcp(env, false, unavailable) : [];
   if (!external.length && !Object.keys(old).length) return;
   const targetStat = await fs.lstat(file).catch(() => null);
   if (
@@ -292,6 +298,12 @@ export async function syncExternalMcp(env: NodeJS.ProcessEnv, enabled: boolean):
   );
   const next: Record<string, McpOwnership> = Object.create(null);
   for (const [name, value] of Object.entries(old)) {
+    if (enabled && unavailable.includes(value.sourcePath)) {
+      // Keep the last known copy and its disposition until the original can be read again.
+      next[name] = value;
+      wanted.delete(name);
+      continue;
+    }
     if (value.disposed || !matchesMcpOwnership(value, current[name])) {
       // Keep a tombstone across scans: missing/edited is an explicit user disposition.
       next[name] = { ...value, disposed: true };

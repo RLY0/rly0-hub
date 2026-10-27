@@ -467,5 +467,141 @@ window.HubUI = (() => {
     return long ? info(briefOf(text), text) : text;
   }
 
-  return { menuButton, enhanceSelect, closeLayer, dialog, armable, info, explainLine };
+  /**
+   * The bar above a 打通 list: search on the left, an optional segment (e.g. 已安装 / 已停用) and
+   * an optional add button on the right. The add button opens `panel` right under the bar, so
+   * adding happens where the list starts instead of after it.
+   *   onSearch(query): called 150ms after typing stops; Esc clears.
+   *   segments: [[id, label]], current, onSegment(id); setCounts({ id: n }) relabels them.
+   */
+  function listBar({ placeholder, onSearch, segments, current, onSegment, addLabel, panel }) {
+    let timer = null;
+    const search = make("input", {
+      class: "input list-search",
+      type: "search",
+      placeholder,
+      "aria-label": placeholder,
+      oninput: () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => onSearch(search.value.trim()), 150);
+      },
+      onkeydown: (event) => {
+        if (event.key !== "Escape" || !search.value) return;
+        search.value = "";
+        onSearch("");
+      },
+    });
+    let active = current;
+    const counts = {};
+    const seg = segments ? make("div", { class: "segment", role: "tablist" }) : null;
+    const drawSeg = () =>
+      seg?.replaceChildren(
+        ...segments.map(([id, label]) =>
+          make(
+            "button",
+            {
+              type: "button",
+              role: "tab",
+              class: id === active ? "on" : "",
+              "aria-selected": id === active ? "true" : "false",
+              onclick: () => {
+                if (id === active) return;
+                active = id;
+                drawSeg();
+                onSegment(id);
+              },
+            },
+            label,
+            counts[id] === undefined ? null : make("span", { class: "seg-count" }, counts[id]),
+          ),
+        ),
+      );
+    drawSeg();
+    const add = addLabel
+      ? make(
+          "button",
+          {
+            class: "btn sm paper list-add",
+            type: "button",
+            "aria-expanded": "false",
+            onclick: () => setOpen(panel.hidden),
+          },
+          addLabel,
+        )
+      : null;
+    if (panel) {
+      panel.hidden = true;
+      panel.classList.add("list-panel");
+    }
+    function setOpen(open) {
+      if (!panel) return;
+      panel.hidden = !open;
+      add?.setAttribute("aria-expanded", String(open));
+      add?.classList.toggle("on", open);
+      if (open) panel.querySelector("input:not([disabled]), textarea, select")?.focus();
+    }
+    const bar = make(
+      "div",
+      { class: "list-bar" },
+      search,
+      seg || add ? make("div", { class: "list-bar-end" }, seg, add) : null,
+    );
+    return {
+      bar,
+      setOpen,
+      setSegment(id) {
+        active = id;
+        drawSeg();
+      },
+      setCounts(next) {
+        Object.assign(counts, next);
+        drawSeg();
+      },
+    };
+  }
+
+  /** Newest first by `key` (ms or date text); items without it keep their order, after the rest. */
+  function newestFirst(items, key = "addedAt") {
+    const time = (item) => {
+      const value = item[key];
+      const ms = typeof value === "number" ? value : Date.parse(value ?? "");
+      return Number.isFinite(ms) ? ms : null;
+    };
+    return items
+      .map((item, index) => ({ item, index, ms: time(item) }))
+      .sort((a, b) =>
+        a.ms !== null && b.ms !== null
+          ? b.ms - a.ms
+          : a.ms !== null
+            ? -1
+            : b.ms !== null
+              ? 1
+              : a.index - b.index,
+      )
+      .map((entry) => entry.item);
+  }
+
+  /** Case-insensitive match of `query` against any of the item's text fields. */
+  function matches(item, query, fields) {
+    if (!query) return true;
+    const needle = query.toLowerCase();
+    return fields.some((field) =>
+      String(item[field] ?? "")
+        .toLowerCase()
+        .includes(needle),
+    );
+  }
+
+  return {
+    menuButton,
+    enhanceSelect,
+    closeLayer,
+    dialog,
+    armable,
+    info,
+    explainLine,
+    listBar,
+    newestFirst,
+    matches,
+  };
 })();

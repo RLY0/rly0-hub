@@ -1350,6 +1350,8 @@ for (const width of WIDTHS) {
     await expect(items).toHaveCount(0);
     await expect(pinned).toHaveCount(1);
     await page.locator('.memory-filter button[role="tab"]', { hasText: "全部" }).click();
+    // 添加 opens its form under the title instead of at the bottom.
+    await page.locator(".memory-actions .list-add").click();
     await page.locator('textarea[aria-label="记忆内容"]').fill("所有助手都用 pnpm");
     await page.locator("button", { hasText: "记住" }).click();
     await expect(items).toHaveCount(3);
@@ -1370,14 +1372,28 @@ for (const width of WIDTHS) {
     // MCP: edit keeps the list in one place.
     await page.locator(".bridge-tabs button", { hasText: "MCP" }).click();
     await expect(page.locator("#title")).toHaveText("打通设置");
-    const first = page.locator(".grid.compact section.m").first();
-    await first.locator("button", { hasText: "修改" }).click();
-    await expect(page.locator("h2.section-title", { hasText: "修改" })).toBeVisible();
-    await page.locator("button", { hasText: "取消修改" }).click();
+    const docs = page.locator(".grid.compact section.m", { hasText: "docs" });
+    await docs.locator("button", { hasText: "修改" }).click();
+    await expect(page.locator(".list-panel-title")).toHaveText("修改 docs");
+    await page.locator(".list-panel button", { hasText: "取消" }).click();
+    await expect(page.locator(".list-panel")).toBeHidden();
+    // Newest first, and the search narrows the cards.
+    const mcpCards = page.locator(".bridge-content .grid.compact section.m b");
+    await expect(mcpCards.first()).toHaveText("figma");
+    await page.locator(".list-search").fill("docs");
+    await expect(mcpCards).toHaveCount(1);
+    await page.locator(".list-search").fill("");
     await page.locator(".bridge-tabs button", { hasText: "技能" }).click();
-    await expect(page.locator("button", { hasText: "打开文件夹" })).toBeVisible();
+    const skillCards = page.locator(".bridge-content .grid.compact section.m > b");
+    await expect(skillCards.first()).toHaveText("oil-ui-pro");
+    await page.locator(".list-search").fill("pdf");
+    await expect(skillCards).toHaveCount(1);
+    await page.locator(".list-search").fill("");
+    await page.locator('.list-bar button[role="tab"]', { hasText: "已停用" }).click();
+    await expect(page.locator(".bridge-content .grid.compact")).toContainText("写作助手");
     await page.locator(".bridge-tabs button", { hasText: "线程" }).click();
     await expect(page.locator(".bridge-tabs button.on")).toHaveText("线程");
+    await expect(page.locator(".list-search")).toBeVisible();
     await noOverflow();
 
     // AI 助手 points here instead of holding the switches.

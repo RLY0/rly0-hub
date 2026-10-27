@@ -14,6 +14,7 @@ import { discoverSkills, readPausedSkills, writePausedSkills, userHome } from ".
 import { parseSkillFrontMatter } from "./frontmatter.js";
 import { syncNativeResources } from "../rly0-bridge/native-resources.js";
 import { sharedResourceSettings } from "../shared-harness-resources.js";
+import { backupAddedAt, resourceAddedAt } from "../resource-added-at.js";
 
 function resolveCodexHome(environment: NodeJS.ProcessEnv): string {
   return path.resolve(environment.CODEX_HOME ?? path.join(userHome(environment), ".codex"));
@@ -74,12 +75,19 @@ export class Rly0SkillsManager {
 
   async list(): Promise<Rly0SkillsListResult> {
     const skillsRoot = this.skillsRoot();
-    const installed = await this.#listInstalled();
+    const { installed, unavailable } = await this.#listInstalled();
     const backups = await this.#listBackups();
     for (const entry of await readPausedSkills(this.#environment)) {
       if (!entry.directoryBackup || (await this.#backupMissing(entry.backupId))) {
         const { name, backupId, backedUpAt, sourcePath } = entry;
-        backups.push({ name, backupId, backedUpAt, sourcePath, distributionOnly: true });
+        backups.push({
+          name,
+          backupId,
+          backedUpAt,
+          sourcePath,
+          distributionOnly: true,
+          ...backupAddedAt(backedUpAt),
+        });
       }
     }
     let rootExists = true;
@@ -94,10 +102,11 @@ export class Rly0SkillsManager {
       installedCount: installed.length,
       installed,
       backups,
+      ...(unavailable ? { native: { error: "GLOBAL_CONFIG_SKILL_ROOT_UNAVAILABLE" } } : {}),
     };
   }
 
-  async #listInstalled(): Promise<Rly0SkillEntry[]> {
+  async #listInstalled(): Promise<{ installed: Rly0SkillEntry[]; unavailable: boolean }> {
     const discovered = await discoverSkills(this.#environment);
     const paused = new Set(
       (await readPausedSkills(this.#environment)).map((v) => v.name.toLowerCase()),
@@ -107,8 +116,15 @@ export class Rly0SkillsManager {
       if (paused.has(skill.name.toLowerCase())) continue;
       const frontMatter = await this.#readFrontMatter(path.join(skill.realPath, "SKILL.md"));
       if (!frontMatter) continue;
+      const addedAt = await resourceAddedAt(
+        this.#environment,
+        "skill",
+        skill.name,
+        skill.sourcePath,
+      );
       skills.push({
         ...skill,
+        ...(addedAt !== undefined ? { addedAt } : {}),
         distributionOnly:
           skill.source !== "codex" ||
           skill.isLink ||
@@ -118,7 +134,7 @@ export class Rly0SkillsManager {
       });
     }
     skills.sort((left, right) => left.name.localeCompare(right.name));
-    return skills;
+    return { installed: skills, unavailable: discovered.unavailableRoots.length > 0 };
   }
 
   async skillPath(name: string): Promise<string> {
@@ -148,6 +164,7 @@ export class Rly0SkillsManager {
         backupId,
         name: parsed.name,
         backedUpAt: parsed.backedUpAt,
+        ...backupAddedAt(parsed.backedUpAt),
         ...(frontMatter?.name ? { title: frontMatter.name } : {}),
         ...(frontMatter?.description ? { description: frontMatter.description } : {}),
       });

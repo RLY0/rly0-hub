@@ -180,6 +180,66 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
         label,
       );
     }
+    // 添加 opens right under the title, so a new memory is written where the page starts.
+    const addPanel = h(
+      "section",
+      { class: "m" },
+      h("h3", { class: "list-panel-title" }, "添加记忆"),
+      h(
+        "div",
+        { class: "form" },
+        h("label", { class: "field" }, h("span", null, "内容"), text),
+        h("label", { class: "field" }, h("span", null, "范围"), kind),
+        projectField,
+        h(
+          "label",
+          { class: "row pin-check" },
+          pinNew,
+          h("span", null, "设为常驻偏好（所有助手新对话都会遵守）"),
+        ),
+      ),
+      h(
+        "div",
+        { class: "row" },
+        action("记住", async () => {
+          const result = await call("memory.add", {
+            text: text.value.trim(),
+            scope: kind.value,
+            ...(kind.value === "project" ? { project: project.value.trim() } : {}),
+            ...(pinNew.checked ? { tags: ["preference"] } : {}),
+          });
+          text.value = "";
+          if (afterNative(result))
+            toast(pinNew.checked ? "已记住，所有助手新对话都会遵守" : "已记住，所有助手都能用");
+          pinNew.checked = false;
+          setAddOpen(false);
+          await load();
+        }),
+        h(
+          "button",
+          { class: "btn sm quiet", type: "button", onclick: () => setAddOpen(false) },
+          "取消",
+        ),
+      ),
+    );
+    addPanel.classList.add("list-panel");
+    addPanel.hidden = true;
+    const addButton = h(
+      "button",
+      {
+        class: "btn sm paper list-add",
+        type: "button",
+        "aria-expanded": "false",
+        onclick: () => setAddOpen(addPanel.hidden),
+      },
+      "+ 添加",
+    );
+    function setAddOpen(open) {
+      addPanel.hidden = !open;
+      addButton.setAttribute("aria-expanded", String(open));
+      addButton.classList.toggle("on", open);
+      if (open) text.focus();
+    }
     root.append(
       h(
         "div",
@@ -193,9 +253,11 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
             toast(`已导出 ${result.count} 条到 ${result.file}`);
           }),
           action("打开文件夹", () => call("memory.openFolder")),
+          addButton,
         ),
       ),
       h("p", { class: "sub page-note" }, "所有助手共用，谁记下的都能看到"),
+      addPanel,
       h(
         "section",
         { class: "m pinned-card", "aria-label": "常驻偏好" },
@@ -216,41 +278,6 @@ window.registerHubBridge = ({ pages, h, call, toast, failed, go, resourceSharing
       h("div", { class: "row memory-filter" }, search, scopes),
       summary,
       list,
-      h("h2", { class: "section-title" }, "添加记忆"),
-      h(
-        "section",
-        { class: "m" },
-        h(
-          "div",
-          { class: "form" },
-          h("label", { class: "field" }, h("span", null, "内容"), text),
-          h("label", { class: "field" }, h("span", null, "范围"), kind),
-          projectField,
-          h(
-            "label",
-            { class: "row pin-check" },
-            pinNew,
-            h("span", null, "设为常驻偏好（所有助手新对话都会遵守）"),
-          ),
-        ),
-        h(
-          "div",
-          { class: "row" },
-          action("记住", async () => {
-            const result = await call("memory.add", {
-              text: text.value.trim(),
-              scope: kind.value,
-              ...(kind.value === "project" ? { project: project.value.trim() } : {}),
-              ...(pinNew.checked ? { tags: ["preference"] } : {}),
-            });
-            text.value = "";
-            if (afterNative(result))
-              toast(pinNew.checked ? "已记住，所有助手新对话都会遵守" : "已记住，所有助手都能用");
-            pinNew.checked = false;
-            await load();
-          }),
-        ),
-      ),
     );
     function item(record) {
       const remove = h("button", { class: "btn sm", type: "button" }, "删除");

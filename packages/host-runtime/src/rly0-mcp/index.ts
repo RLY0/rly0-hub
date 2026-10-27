@@ -1,6 +1,7 @@
 import { readMcpOwnership, matchesMcpOwnership } from "./ownership.js";
 import { syncNativeResources } from "../rly0-bridge/native-resources.js";
 import { sharedResourceSettings } from "../shared-harness-resources.js";
+import { resourceAddedAt } from "../resource-added-at.js";
 import {
   controlExternalMcp,
   externalMcp,
@@ -15,6 +16,7 @@ import type {
   Rly0McpAddParams,
   Rly0McpListResult,
   Rly0McpMutationResult,
+  Rly0McpServer,
 } from "@codexhost/shared-contracts";
 import { rly0McpNameSchema } from "@codexhost/shared-contracts";
 
@@ -59,17 +61,38 @@ export class Rly0McpManager {
     return path.join(resolveCodexHome(this.#environment), "config.toml");
   }
 
+  async #withAddedAt(servers: Rly0McpServer[]): Promise<Rly0McpServer[]> {
+    return Promise.all(
+      servers.map(async (server) => {
+        const addedAt = await resourceAddedAt(
+          this.#environment,
+          "mcp",
+          server.name,
+          server.sourcePath ?? this.configPath(),
+        );
+        return { ...server, ...(addedAt !== undefined ? { addedAt } : {}) };
+      }),
+    );
+  }
+
   async list(): Promise<Rly0McpListResult> {
     const configPath = this.configPath();
     const content = await readConfig(configPath);
-    const external = (await externalMcp(this.#environment)).map(externalMcpDisplay);
+    const unavailable: string[] = [];
+    const external = (await externalMcp(this.#environment, false, unavailable)).map(
+      externalMcpDisplay,
+    );
+    const warning = unavailable.length
+      ? { native: { error: "GLOBAL_CONFIG_MCP_SOURCE_UNAVAILABLE" } }
+      : {};
     if (content === null) {
       return {
         configPath,
         configExists: false,
         totalCount: external.length,
         enabledCount: external.filter((v) => v.enabled).length,
-        servers: external,
+        servers: await this.#withAddedAt(external),
+        ...warning,
       };
     }
     try {
@@ -94,7 +117,8 @@ export class Rly0McpManager {
         configExists: true,
         totalCount: servers.length,
         enabledCount: servers.filter((server) => server.enabled).length,
-        servers,
+        servers: await this.#withAddedAt(servers),
+        ...warning,
       };
     } catch (error) {
       return {
@@ -104,6 +128,7 @@ export class Rly0McpManager {
         enabledCount: 0,
         servers: [],
         parseError: error instanceof Error ? error.message.slice(0, 300) : "TOML_PARSE_ERROR",
+        ...warning,
       };
     }
   }

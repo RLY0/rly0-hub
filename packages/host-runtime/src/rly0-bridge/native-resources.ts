@@ -80,6 +80,8 @@ export interface NativeResourceSync {
   synced: string[];
   skipped: string[];
   removed: string[];
+  /** Partial source failures: healthy sources still synchronize. Codes only, no raw errors. */
+  errors?: string[];
 }
 
 const home = (env: NodeJS.ProcessEnv) => env.USERPROFILE ?? env.HOME ?? os.homedir();
@@ -178,7 +180,14 @@ export async function syncNativeResources(
       skipped: [],
       removed: [],
     };
-    if (settings.mcp !== undefined) await syncExternalMcp(env, settings.mcp);
+    if (settings.mcp !== undefined) {
+      const unavailable: string[] = [];
+      await syncExternalMcp(env, settings.mcp, unavailable);
+      if (unavailable.length) {
+        result.skipped.push(...unavailable);
+        (result.errors ??= []).push("GLOBAL_CONFIG_MCP_SOURCE_UNAVAILABLE");
+      }
+    }
     const recoveryBlocked = await syncNativeSkills(
       path.join(codexHome(env), "skills"),
       [
@@ -201,7 +210,12 @@ export async function syncNativeResources(
     return result;
   });
   const state = nativeChecks.get(nativeCheckKey(env));
-  if (state) delete state.error;
+  const warning = completed.errors?.[0];
+  if (warning) {
+    const next = state ?? {};
+    next.error = warning;
+    nativeChecks.set(nativeCheckKey(env), next);
+  } else if (state) delete state.error;
   return completed;
 }
 
@@ -260,11 +274,15 @@ async function sourceFingerprint(
       }
   }
   if (settings.skills) {
-    for (const skill of (await discoverSkills(env, false)).skills) await visit(skill.realPath, 0);
+    const discovered = await discoverSkills(env, false);
+    parts.push(["unavailable-skill-roots", discovered.unavailableRoots]);
+    for (const skill of discovered.skills)
+      await visit(skill.realPath, 0).catch(() => parts.push([skill.sourcePath, "unavailable"]));
     await visit(path.join(resolveRly0DataDir(env), "bridge", "paused-skills.json"), 0);
   }
   if (settings.mcp) {
-    for (const [, file] of externalMcpLocations(env)) await visit(file, 0);
+    for (const [, file] of externalMcpLocations(env))
+      await visit(file, 0).catch(() => parts.push([file, "unavailable"]));
     await visit(path.join(resolveRly0DataDir(env), "bridge", "external-mcp-controls.json"), 0);
     await visit(path.join(codexHome(env), "config.toml"), 0);
   }
@@ -283,10 +301,9 @@ export function syncNativeResourcesIfChanged(
   if (state.pending) return state.pending;
   const pending = (async () => {
     const fingerprint = await sourceFingerprint(env, settings);
-    if (state.fingerprint === fingerprint) return;
+    if (state.fingerprint === fingerprint && !state.error) return;
     await syncNativeResources(env, settings);
     state.fingerprint = fingerprint;
-    delete state.error;
   })().catch((error: unknown) => {
     state.error =
       error instanceof Error && /^GLOBAL_CONFIG_[A-Z_]+$/u.test(error.message)

@@ -64,6 +64,7 @@ describe("Rly0SkillsManager", () => {
     expect(result.installed).toEqual([
       {
         name: "pdf-tools",
+        addedAt: expect.any(Number),
         title: "PDF Tools",
         description: "Work with PDFs",
         source: "codex",

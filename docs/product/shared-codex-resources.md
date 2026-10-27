@@ -90,6 +90,20 @@ Claude 已接入来源标记及停止/恢复共享；本轮新增的孤儿暂停
 `memory.add`/`memory.pin` 返回原生指令同步结果；`memory.forget` 只在同步失败时另带 `native.error`。共享设置保存后若同步失败返回 `sharingError`，保存状态和同步状态分别报告。
 参数不合法返回既有 RPC `-32602/INVALID_PARAMS`；操作失败返回 `-32000` 及脱敏错误码。置顶是本地锁内原子操作，无异步任务或取消句柄；只有真实回包后才更新界面状态，未知结果应先重新读取记录，不直接重复创建。fixture 均标记 synthetic，真实模型/新会话验收另列。
 
+## 列表安装时间
+
+`skills.list.installed[]`、`skills.list.backups[]` 和 `mcp.list.servers[]` 可选返回 `addedAt`（非负整数，Unix 毫秒）。技能按名称和来源目录区分，在 Hub 首次列出时以目录 birthtime 初始化，无有效 birthtime 则用 mtime；MCP 按名称和来源文件区分，以配置文件 mtime 初始化。已有 Codex MCP 升级后首次列出时共用 `config.toml` 的 mtime；外部 MCP（含 Hub 在 Codex 中的受管副本）使用外部来源文件。普通文件更新、重新打开页面或重启管理器不会改变已记录时间；仅当技能目录 birthtime 晚于记录时识别为同路径重装，原子更新为新的 birthtime。没有 birthtime 时不靠 mtime 推断重装。
+
+时间独立保存在 Hub 数据目录 `resource-added-at/{skill,mcp}/`，不写入技能、来源配置或原始会话库。每项以名称和规范化绝对来源路径的散列定位，完整写入后才以硬链接原子发布；重装时用原子改名替换记录。元数据不可使用时省略可选字段，来源暂时不可读时沿用已有有效记录，列表继续可用；前端缺字段时保留原顺序。停用技能的 `addedAt` 使用现有 `backedUpAt`；恢复后安装时间沿用原记录。`threads.list` 已有 `mtimeMs`，本次不变。前端排序由界面实现，后台列表原顺序保持不变。
+
+记录本轮不自动清理：现有格式只保存散列和时间，没有可回查的来源路径；不可读也不能当作已删除。每个历史身份只保留一份数字记录，长期来源频繁变化仍会累积，保留为低风险限制。
+
+## 单个来源读取失败
+
+技能根目录的 ENOENT 表示尚未安装，正常忽略；其他读取异常把该根加入发现与同步的 skipped 列表，并用 `skills.list.native.error=GLOBAL_CONFIG_SKILL_ROOT_UNAVAILABLE` 报告。正常根继续列出和同步；不可读根作为来源或目的地时保留现有副本及所有权，不因扫描失败删除，也不将同名替代来源覆盖上去。明确关闭共享或停用仍按原控制状态处理。
+
+外部 MCP 配置按文件隔离读取/解析失败；正常文件继续发现和同步，受影响文件的旧副本和所有权保留，`mcp.list.native.error=GLOBAL_CONFIG_MCP_SOURCE_UNAVAILABLE` 上报。ENOENT 仍沿用已有的来源移除规则。源元数据指纹扫描失败不阻断其他来源。同步结果新增可选 `errors`（脱敏错误码数组），失败来源路径列在原有 `skipped`；`bridge.status.nativeError` 保持警告，后续刷新重试，完整成功后清除。Hub 自身损坏的控制/所有权文件、Codex 目标配置写入错误和未完成更新恢复仍沿用原有保护，不被当成正常空配置。
+
 ## 委派与模型默认值
 
 `tools/collab/rly0_delegate.mjs` 先检查实际 CLI 的 `delegate start --help` 是否列出 `--memory`，再读取 `<数据目录>/shared-resources.json` 的真实开关（兼容 v2 默认关闭及旧 enabled 格式）。支持且开启时使用 `delegate start --memory true --cwd ...`；旧 CLI 或探测失败时省略此参数，照常委派，在输出 `context.sharedMemory` / 编排步骤 `sharedMemory` 报 `enabled:false` 和 `reason:CLI_MEMORY_UNSUPPORTED`。关闭记忆、损坏配置及 Host 不发 token 分别报对应原因，不声称共享已启用。服务端在这次委派范围内组装偏好/项目参考，不再提供任意 cwd 的预读取。`--no-context` 不请求共享；关闭记忆时不带记忆或启动写回监听。Codex 不在任务正文重复加入全局偏好，非 Codex 可以收到已批准偏好。

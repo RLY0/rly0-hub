@@ -5359,3 +5359,82 @@ select.input,
   color: var(--muted-dark);
   font-size: 12px;
 }
+/* 打通 lists (MCP / 技能 / 线程, and 记忆's add): one bar right under the page note — search
+   on the left, the view switch and the add button on the right — and the add form opens
+   directly beneath it instead of waiting at the bottom of a long list. */
+.list-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0 12px;
+}
+.list-bar .list-search {
+  flex: 1 1 240px;
+  min-width: 0;
+  min-height: 40px;
+}
+.list-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.list-bar-end .segment button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.seg-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  opacity: 0.7;
+}
+.list-add {
+  min-height: 40px;
+}
+.list-add.on {
+  background: var(--ink-600);
+  color: var(--paper-100);
+}
+.list-panel {
+  margin-bottom: 16px;
+  animation: list-panel-in 240ms cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+.list-panel-title {
+  font-size: 16px;
+  font-weight: 650;
+  margin-bottom: 12px;
+}
+.list-summary:empty {
+  display: none;
+}
+.list-summary {
+  margin: 0 0 8px;
+}
+@keyframes list-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .list-panel {
+    animation: none;
+  }
+}
+@media (max-width: 700px) {
+  .list-bar-end {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+.list-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.list-warn[hidden] {
+  display: none;
+}

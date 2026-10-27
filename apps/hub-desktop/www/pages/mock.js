@@ -2,7 +2,14 @@
 // Browser preview only. The real bridge never calls this function.
 window.hubManagementMock = (() => {
   let servers = [
-    { name: "docs", type: "http", url: "https://docs.example/mcp", enabled: true, source: "codex" },
+    {
+      name: "docs",
+      type: "http",
+      url: "https://docs.example/mcp",
+      enabled: true,
+      source: "codex",
+      addedAt: Date.now() - 9 * 864e5,
+    },
     {
       name: "figma",
       type: "stdio",
@@ -11,18 +18,34 @@ window.hubManagementMock = (() => {
       source: "claude",
       sourcePath: "C:\Users\me\.claude.json",
       external: true,
+      addedAt: Date.now() - 864e5,
+    },
+    {
+      name: "github",
+      type: "stdio",
+      command: "npx @modelcontextprotocol/server-github",
+      enabled: false,
+      source: "codex",
+      addedAt: Date.now() - 20 * 864e5,
     },
   ];
   // Mixed origins: a Hub-owned skill, one a third-party installer put in Claude's folder (with a
   // link in the shared folder), and one whose name also exists elsewhere.
   let installed = [
-    { name: "review", title: "代码审查", description: "检查改动中的问题", source: "codex" },
+    {
+      name: "review",
+      title: "代码审查",
+      description: "检查改动中的问题",
+      source: "codex",
+      addedAt: Date.now() - 12 * 864e5,
+    },
     {
       name: "oil-ui-pro",
       description: "设计、改进和评审网站、App、后台与组件的 UI/UX",
       source: "claude",
       sourcePath: "C:\Users\me\.claude\skills\oil-ui-pro",
       distributionOnly: true,
+      addedAt: Date.now() - 36e5,
     },
     {
       name: "pdf",
@@ -33,6 +56,7 @@ window.hubManagementMock = (() => {
       isLink: true,
       conflicts: ["C:\Users\me\.claude\skills\pdf"],
       distributionOnly: true,
+      addedAt: Date.now() - 3 * 864e5,
     },
   ];
   let backups = [
@@ -434,7 +458,7 @@ window.hubManagementMock = (() => {
           enabledCount: servers.filter((s) => s.enabled).length,
         };
       case "mcp.add":
-        servers.push({ ...p, enabled: true });
+        servers.push({ ...p, enabled: true, source: "codex", addedAt: Date.now() });
         return { ok: true };
       case "mcp.remove":
         servers = servers.filter((s) => s.name !== p.name);
@@ -483,7 +507,12 @@ window.hubManagementMock = (() => {
       case "skills.list":
         return { installed, backups };
       case "skills.import":
-        installed.push({ name: p.name || "imported", title: p.name || "导入的 Skill" });
+        installed.push({
+          name: p.name || "imported",
+          title: p.name || "导入的 Skill",
+          source: "codex",
+          addedAt: Date.now(),
+        });
         return { ok: true };
       case "skills.deactivate": {
         const skill = installed.find((s) => s.name === p.name);

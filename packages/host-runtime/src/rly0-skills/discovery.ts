@@ -94,7 +94,7 @@ export async function writePausedSkills(env: NodeJS.ProcessEnv, entries: PausedS
 export async function discoverSkills(
   env: NodeJS.ProcessEnv,
   verifyMirrors = true,
-): Promise<{ skills: DiscoveredSkill[]; skipped: string[] }> {
+): Promise<{ skills: DiscoveredSkill[]; skipped: string[]; unavailableRoots: string[] }> {
   const roots = skillRoots(env);
   const allowed = await Promise.all(
     roots.map((v) => fs.realpath(v.root).catch(() => path.resolve(v.root))),
@@ -117,6 +117,7 @@ export async function discoverSkills(
   const skills = new Map<string, DiscoveredSkill>();
   const seen = new Set<string>();
   const skipped: string[] = [];
+  const unavailableRoots: string[] = [];
   for (let i = 0; i < roots.length; i++) {
     const location = roots[i];
     const canonical = allowed[i];
@@ -126,8 +127,11 @@ export async function discoverSkills(
       continue;
     }
     const entries = await fs.readdir(location.root).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return [];
-      throw error;
+      if (error.code !== "ENOENT") {
+        skipped.push(location.root);
+        unavailableRoots.push(location.root);
+      }
+      return [];
     });
     for (const name of entries.sort().slice(0, 256)) {
       if (name.startsWith(".") || !/^[A-Za-z0-9._-]{1,64}$/u.test(name)) continue;
@@ -174,5 +178,5 @@ export async function discoverSkills(
       }
     }
   }
-  return { skills: [...skills.values()], skipped };
+  return { skills: [...skills.values()], skipped, unavailableRoots };
 }

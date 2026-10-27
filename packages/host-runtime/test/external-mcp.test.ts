@@ -48,6 +48,7 @@ describe("external MCP discovery (synthetic)", () => {
     expect(listed.servers).toEqual([
       {
         name: "docs",
+        addedAt: expect.any(Number),
         type: "stdio",
         enabled: true,
         command: raw.command,

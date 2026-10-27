@@ -57,8 +57,11 @@ window.registerHubSystem = ({
     }, failed);
   };
   pages.threads = (root, alive) => {
+    const { listBar, newestFirst, matches } = window.HubUI;
     let trash = false;
+    let all = [];
     let entries = [];
+    let query = "";
     const selected = new Set();
     const list = h("div", { class: "grid compact" });
     const info = h("p", { class: "sub page-note" });
@@ -90,22 +93,26 @@ window.registerHubSystem = ({
           await load();
         }),
       );
-    const tabs = h(
-      "div",
-      { class: "row section-title" },
-      button("本机线程", () => {
-        trash = false;
-        return load();
-      }),
-      button("回收站", () => {
-        trash = true;
-        return load();
-      }),
-      button("刷新", load),
-    );
+    const tools = listBar({
+      placeholder: "搜索线程标题或项目文件夹",
+      onSearch: (value) => {
+        query = value;
+        filter();
+      },
+      segments: [
+        ["local", "本机线程"],
+        ["trash", "回收站"],
+      ],
+      current: "local",
+      onSegment: (id) => {
+        trash = id === "trash";
+        void load();
+      },
+    });
     root.append(
-      tabs,
+      h("div", { class: "row section-title" }, h("h2", null, "线程"), button("刷新", load)),
       info,
+      tools.bar,
       h(
         "div",
         { class: "row page-note" },
@@ -141,22 +148,36 @@ window.registerHubSystem = ({
         ),
       );
       if (!entries.length)
-        list.append(h("p", { class: "empty span-6" }, trash ? "回收站是空的" : "还没有线程"));
+        list.append(
+          h(
+            "p",
+            { class: "empty span-6" },
+            query ? `没有找到“${query}”` : trash ? "回收站是空的" : "还没有线程",
+          ),
+        );
     }
     async function load() {
       try {
         const mode = trash;
         const result = await call(mode ? "threads.listTrash" : "threads.list");
         if (!alive() || mode !== trash) return;
-        entries = result.threads;
+        all = newestFirst(result.threads, "mtimeMs");
         selected.clear();
         selectAll.checked = false;
         drawMove();
         info.textContent = `${mode ? "回收站" : "本机线程"} · 共 ${mode ? result.totalCount : result.stats.totalThreads} 个${result.truncated ? "，当前显示最新 500 个" : ""}。移入回收站后可恢复。操作前请结束相关会话。`;
-        draw();
+        filter();
       } catch (error) {
         if (alive()) failed(error);
       }
+    }
+    // Searching narrows the list; 全选 then only picks what is shown.
+    function filter() {
+      entries = all.filter((entry) => matches(entry, query, ["title", "cwd", "fileName"]));
+      for (const path of [...selected])
+        if (!entries.some((entry) => entry.relPath === path)) selected.delete(path);
+      selectAll.checked = entries.length > 0 && selected.size === entries.length;
+      draw();
     }
     void load();
   };

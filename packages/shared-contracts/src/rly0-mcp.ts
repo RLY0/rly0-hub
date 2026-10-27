@@ -22,6 +22,8 @@ export type Rly0McpServerType = z.infer<typeof rly0McpServerTypeSchema>;
 export const rly0McpServerSchema = z
   .object({
     name: rly0McpNameSchema,
+    /** First observation, initialized from the source config file mtime, in milliseconds. */
+    addedAt: z.number().int().nonnegative().optional(),
     type: rly0McpServerTypeSchema,
     enabled: z.boolean(),
     source: z.string().max(64).optional(),
@@ -48,6 +50,11 @@ export const rly0McpListResultSchema = z
     totalCount: z.number().int().nonnegative(),
     enabledCount: z.number().int().nonnegative(),
     servers: z.array(rly0McpServerSchema).max(256),
+    /** Partial external-source discovery failure; usable servers remain available. */
+    native: z
+      .object({ error: z.string().max(128) })
+      .strict()
+      .optional(),
     /** Set when `config.toml` exists but failed to parse; `servers` is empty in that case. */
     parseError: z.string().max(300).optional(),
   })
