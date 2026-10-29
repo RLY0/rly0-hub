@@ -56,7 +56,10 @@ describe("Native Composer control reconciliation stability", () => {
     model.setAttribute("data-composer-navigation-target", "reasoning");
     model.hidden = baseline.hidden;
     if (baseline.ariaHidden !== null) model.setAttribute("aria-hidden", baseline.ariaHidden);
+    // No native request surface (CodexHost 0.15.0 suspends controls while one is open).
     const composer = {
+      closest: () => null,
+      querySelector: () => null,
       querySelectorAll: (selector: string) =>
         selector === 'button[aria-haspopup="menu"]' ? [model] : [],
     } as unknown as Element;

@@ -235,7 +235,7 @@ test("mounts through the real binding probe outside the chat Composer and follow
     platform: "browser",
     format: "iife",
     write: false,
-    loader: { ".css": "text", ".png": "dataurl", ".svg": "dataurl" },
+    loader: { ".css": "text", ".jpg": "dataurl", ".png": "dataurl", ".svg": "dataurl" },
   });
   await page.evaluate(() => Reflect.get(window, "controller").dispose());
   await page.setContent(
