@@ -3152,8 +3152,9 @@ select.input,
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(5, 5, 4, 0.62);
-  backdrop-filter: blur(6px);
+  /* No backdrop-filter: a full-window blur over the blurred cards renders only a corner of the
+     page on some GPUs (the rest black). A deeper tint keeps the dialog in focus instead. */
+  background: rgba(5, 5, 4, 0.78);
   opacity: 0;
   transition: opacity 0.18s ease;
 }
