@@ -60,11 +60,11 @@ describe("Renderer settings localization", () => {
     expect(chinese.updateStarLink).toBe("GitHub");
     expect(chinese.pageLabels.about).toBe("关于");
     expect(chinese.pageLabels["session-import"]).toBe("会话导入");
-    expect(chinese.sessionImportAvailabilityNote).toContain("可选 Harness 来自本地 Host");
+    expect(chinese.sessionImportAvailabilityNote).toContain("可选 Harness 来自当前 Host");
     expect(chinese.sessionImportAvailabilityNote).toContain("先在原生客户端关闭该会话再导入");
     expect(chinese.sessionImportAvailabilityNote).toContain("避免同时写入");
     expect(english.sessionImportAvailabilityNote).toContain(
-      "Available Harnesses come from the local Host",
+      "Available Harnesses come from the selected Host",
     );
     expect(english.sessionImportAvailabilityNote).toContain(
       "close the session in its native client before importing",

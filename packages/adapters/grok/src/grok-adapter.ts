@@ -90,6 +90,11 @@ import {
   type GrokTransportEvent,
 } from "./acp-transport.js";
 import { GrokSessionImport } from "./session-import.js";
+import {
+  GrokQuestions,
+  type GrokQuestionRequest,
+  type GrokQuestionResponse,
+} from "./grok-questions.js";
 import { grokMediaResolveRoots, rewriteLocalMediaMarkdown } from "./local-media-markdown.js";
 import { GrokSubagentLifecycle } from "./grok-subagent-lifecycle.js";
 import {
@@ -178,6 +183,7 @@ export interface GrokAcpTransportLike {
     text: string,
     onEvent: (event: GrokTransportEvent) => void,
     onPermission: (request: GrokPermissionRequest) => Promise<RequestPermissionResponse>,
+    onQuestion: (request: GrokQuestionRequest) => Promise<GrokQuestionResponse>,
   ): Promise<PromptResponse>;
   compact(
     userContext: string | undefined,
@@ -218,6 +224,7 @@ interface ActiveTurn {
   subagents: GrokSubagentLifecycle;
   completedItems: HostItemSnapshot[];
   approvals: Map<HostInteractionId, ActiveApproval>;
+  questions: GrokQuestions;
   cancellationRequested: boolean;
   beforeNativeTurnKeys: Set<string>;
   completion: Promise<void>;
@@ -519,6 +526,9 @@ class GrokHarnessSession implements HarnessSession {
     });
     const active: ActiveTurn = {
       command,
+      questions: new GrokQuestions(command.turnId, this.#randomUUID, (output) =>
+        this.#channel.emit(output),
+      ),
       usage: new GrokTurnUsage(this.#usage, this.#snapshot.turns.length === 0),
       agent: null,
       agentMessageId: null,
@@ -547,7 +557,12 @@ class GrokHarnessSession implements HarnessSession {
         text,
         (event) => this.#handleEvent(active, event),
         (request) => this.#requestPermission(active, request),
+        (request) =>
+          this.#active === active && this.#phase === "open" && !active.cancellationRequested
+            ? active.questions.ask(request)
+            : Promise.resolve({ outcome: "cancelled" }),
       )
+      .finally(() => active.questions.cancel())
       .then(
         (response) =>
           this.#settleFromHistory(
@@ -641,6 +656,9 @@ class GrokHarnessSession implements HarnessSession {
     });
     const active: ActiveTurn = {
       command: { type: "turn.start", turnId: command.turnId, input: [] },
+      questions: new GrokQuestions(command.turnId, this.#randomUUID, (output) =>
+        this.#channel.emit(output),
+      ),
       agent: null,
       agentMessageId: null,
       rawAgentText: "",
@@ -882,6 +900,7 @@ class GrokHarnessSession implements HarnessSession {
     }
     if (active.cancellationRequested) return { ok: true, value: { cancellationRequested: true } };
     active.cancellationRequested = true;
+    active.questions.cancel();
     for (const approval of active.approvals.values()) {
       approval.resolve({ outcome: { outcome: "cancelled" } });
     }
@@ -897,9 +916,10 @@ class GrokHarnessSession implements HarnessSession {
     command: InteractionRespondCommand,
   ): Promise<HarnessResult<InteractionRespondAccepted>> {
     const active = this.#active;
+    if (active?.questions.has(command.interactionId)) return active.questions.respond(command);
     const pending = active?.approvals.get(command.interactionId);
     if (!active || !pending)
-      return { ok: false, error: invalidState("Grok Approval is not pending") };
+      return { ok: false, error: invalidState("Grok Interaction is not pending") };
     if (command.response.type !== "approval") {
       return {
         ok: false,
@@ -963,6 +983,10 @@ class GrokHarnessSession implements HarnessSession {
 
   #handleEvent(active: ActiveTurn, event: GrokTransportEvent): void {
     if (this.#active !== active || this.#phase !== "open") return;
+    if (event.type === "interaction.resolved") {
+      active.questions.withdraw(event.toolCallId);
+      return;
+    }
     const requestUsage = active.usage?.observe(event);
     if (requestUsage) {
       this.#publishUsage(requestUsage, active.command.turnId, true);
@@ -1452,6 +1476,7 @@ class GrokHarnessSession implements HarnessSession {
     nativeTurnRef?: NativeTurnRef,
   ): void {
     if (this.#active !== active) return;
+    active.questions.cancel();
     const itemOutcome: HostItemOutcome = outcome;
     this.#completeReasoning(active, itemOutcome);
     this.#completeAgent(active, itemOutcome);
@@ -1511,6 +1536,7 @@ class GrokHarnessSession implements HarnessSession {
     const active = this.#active;
     if (active) {
       active.cancellationRequested = true;
+      active.questions.cancel();
       for (const approval of active.approvals.values())
         approval.resolve({ outcome: { outcome: "cancelled" } });
       await this.#transport.cancel().catch(() => undefined);

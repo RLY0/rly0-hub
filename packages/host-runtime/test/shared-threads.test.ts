@@ -167,6 +167,51 @@ describe("shared external Threads", () => {
     session(adapter).succeedTurn();
   });
 
+  it("routes multi-select cards through the shared owner and accepts only one GUI answer", async () => {
+    const { front, adapter } = setup();
+    const ssh = front(true);
+    const desktop = front(false);
+    const threadId = await startPiThread(ssh);
+    const turnId = await startPiTurn(ssh, threadId);
+    const interactionId = session(adapter).askQuestion({
+      id: "pick",
+      type: "choice",
+      prompt: "Pick",
+      multiple: true,
+      optional: false,
+      allowOther: false,
+      options: [
+        { value: "a", label: "Alpha" },
+        { value: "b", label: "Beta" },
+      ],
+    });
+    let id = 100;
+    for (const viewer of [ssh, desktop]) {
+      await vi.waitFor(async () =>
+        expect(
+          await rpc(viewer, id++, "codexhost/thread/questions/list", { threadId }),
+        ).toMatchObject({
+          result: { questions: [{ interactionId, turnId }] },
+        }),
+      );
+      expect(viewer.collector.messages.some((m) => m.method === "item/tool/requestUserInput")).toBe(
+        false,
+      );
+    }
+    const params = { threadId, turnId, interactionId, answers: { pick: ["a", "b"] } };
+    expect(await rpc(desktop, id++, "codexhost/thread/question/respond", params)).toMatchObject({
+      result: { accepted: true },
+    });
+    expect(await rpc(ssh, id++, "codexhost/thread/question/respond", params)).toHaveProperty(
+      "error",
+    );
+    expect(session(adapter).interactionResponses).toHaveLength(1);
+    expect(await rpc(ssh, id++, "codexhost/thread/questions/list", { threadId })).toMatchObject({
+      result: { questions: [] },
+    });
+    session(adapter).succeedTurn();
+  });
+
   it("shows one approval on both GUIs and accepts only one answer", async () => {
     const { front, adapter } = setup();
     const ssh = front(true);

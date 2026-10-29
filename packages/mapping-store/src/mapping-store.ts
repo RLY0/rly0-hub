@@ -246,15 +246,27 @@ function processIdentity(pid: number): ProcessIdentity | null {
       const startedAt = Date.parse(result);
       return { executablePath: null, startedAt: Number.isFinite(startedAt) ? startedAt : null };
     }
+    // CIM can expose CreationDate for a reused system PID even when Get-Process cannot
+    // read its Path/StartTime. Serialize UTC explicitly: Windows PowerShell's default
+    // DateTime JSON representation is not an ISO timestamp that Date.parse can read.
     const query = [
       "$ErrorActionPreference = 'Stop'",
-      `$process = Get-Process -Id ${pid}`,
-      "$process | Select-Object Path, StartTime | ConvertTo-Json -Compress",
+      `$process = Get-CimInstance -ClassName Win32_Process -Filter 'ProcessId = ${pid}'`,
+      "if ($null -ne $process) { [pscustomobject]@{ " +
+        "Path = $process.ExecutablePath; " +
+        "StartTime = $(if ($null -ne $process.CreationDate) { " +
+        "$process.CreationDate.ToUniversalTime().ToString('o', [Globalization.CultureInfo]::InvariantCulture) " +
+        "} else { $null }) } | ConvertTo-Json -Compress }",
     ].join("; ");
     const result = execFileSync(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", query],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+        timeout: 5_000,
+      },
     ).trim();
     if (!result) return { executablePath: null, startedAt: null };
     const parsed = JSON.parse(result) as { Path?: unknown; StartTime?: unknown };

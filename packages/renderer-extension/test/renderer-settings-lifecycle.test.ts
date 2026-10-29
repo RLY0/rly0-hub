@@ -242,9 +242,17 @@ describe("Renderer Settings lifecycle", () => {
     if (!getClient || !open) throw new Error("Session Import settings seams were not installed");
 
     expect(getClient()).toBe(client);
-    await open(hostThreadIdSchema.parse("imported-thread"), new AbortController().signal);
+    await open(
+      hostThreadIdSchema.parse("imported-thread"),
+      new AbortController().signal,
+      "remote-1",
+    );
 
-    expect(openImportedThread).toHaveBeenCalledWith("imported-thread", expect.any(AbortSignal));
+    expect(openImportedThread).toHaveBeenCalledWith(
+      "imported-thread",
+      expect.any(AbortSignal),
+      "remote-1",
+    );
     expect(events).toEqual(["opened", "closed"]);
     lifecycle.dispose();
   });
