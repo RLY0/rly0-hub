@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import type { DesktopCompatibility } from "@codexhost/shared-contracts";
 import { resolveRly0DiagnosticsDir } from "./paths.js";
+import { sanitizeDiagnosticsText } from "./sanitize.js";
 
 const version = z.string().regex(/^\d[\w.+-]{0,95}$/u);
 const timestamp = z.number().finite().nonnegative();
@@ -34,6 +35,7 @@ const controllerSchema = z.object({
   renderer: z.object({
     state: z.enum(["installed", "installing", "unavailable"]),
     error: z.string().max(1000).nullable(),
+    lastError: z.string().max(1000).nullable().optional(),
     updatedAt: timestamp,
   }),
 });
@@ -255,6 +257,13 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     }
     const renderer = status.renderer;
     result.checks.interfaceConnected = renderer.state === "installed";
+    if (renderer.state !== "installed") {
+      // So a saved diagnostics file says why, without asking the user for the Controller's file.
+      // Redacted here, not only on export: this result also reaches the page.
+      const raw = (renderer.error || renderer.lastError || "").replace(/\s+/gu, " ").trim();
+      const reason = sanitizeDiagnosticsText(raw, os.homedir()).slice(0, 500);
+      result.rendererError = reason || null;
+    }
     if (renderer.state === "installed") {
       if (
         this.#saved.lastCompatibleVersion !== desktop.version ||

@@ -111,12 +111,34 @@ it("classifies the observed new-version manager failure and exports no raw error
     "utf8",
   );
   expect(JSON.stringify({ result, notice, saved })).not.toMatch(/synthetic-secret|person@example/);
+  // The reason itself is kept, redacted, so a saved diagnostics file explains the failure.
+  expect(result.rendererError).toBe(
+    "Renderer Host request manager is unavailable: token=<redacted> <email>",
+  );
   // Recovery clears the notice and establishes the actual new baseline.
   f.controller.renderer.state = "installed";
   f.controller.renderer.error = null;
   await f.save();
   expect((await f.monitor.check()).state).toBe("ready");
   expect((await f.monitor.check()).previousCompatibleVersion).toBe("26.1022.1");
+  expect((await f.monitor.check()).rendererError).toBeUndefined();
+});
+
+it("keeps a CDP failure's reason, home folder removed, falling back to the last error", async () => {
+  const f = await fixture();
+  f.controller.renderer.state = "unavailable";
+  f.controller.renderer.error = `connect ECONNREFUSED 127.0.0.1:9229
+  at ${os.homedir()}/app.js`;
+  await f.save();
+  const result = await f.monitor.check();
+  expect(result.issue).toBe("CDP_UNAVAILABLE");
+  expect(result.rendererError).toBe("connect ECONNREFUSED 127.0.0.1:9229 at <home>/app.js");
+  expect(desktopCompatibilitySchema.parse(result).rendererError).toBe(result.rendererError);
+  // The Controller clears `error` between attempts; the last one still explains it.
+  f.controller.renderer.error = "";
+  Object.assign(f.controller.renderer, { lastError: "CDP target closed" });
+  await f.save();
+  expect((await f.monitor.check()).rendererError).toBe("CDP target closed");
 });
 
 it("does not reject a version change when the actual interface is connected", async () => {

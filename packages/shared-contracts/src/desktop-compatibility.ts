@@ -27,6 +27,8 @@ export const desktopCompatibilitySchema = z
       "INTEGRATION_UNAVAILABLE",
     ]),
     message: z.string().max(500),
+    /** The Controller's own error text when the interface did not connect; sanitized on export. */
+    rendererError: z.string().max(500).nullable().optional(),
     checks: z
       .object({
         managedRuntime: z.boolean().nullable(),
