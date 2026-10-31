@@ -34,6 +34,8 @@ export interface RendererHostRoutePolicy {
     creationModes?: readonly Record<string, unknown>[],
   ): boolean;
   clear(): Promise<void>;
+  /** Main-process RPC routing only: admit one unbound creation that names this carrier. */
+  allowExplicitCreation?(model: string): () => void;
   dispose(): void;
 }
 

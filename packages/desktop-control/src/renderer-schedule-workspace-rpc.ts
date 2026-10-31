@@ -148,16 +148,23 @@ export async function createRpcScheduleWorkspaceThread(
     if (signal.aborted || failed) discardAfterDismissal();
   };
   try {
-    const output = await createThread({
-      scope: scope.handle,
-      target: { type: "project", projectId: input.workspace.id, environment: { type: "local" } },
-      model: input.model,
-      title: input.title,
-      prompt: "",
-      startWithoutFirstTurn: true,
-      assertRequestCurrent: assertCurrent,
-      onSettled: remember,
-    });
+    // RLY/0 refuses unbound external carriers from Composers; this creation names its own.
+    const release = route.policy.allowExplicitCreation?.(input.model);
+    let output: unknown;
+    try {
+      output = await createThread({
+        scope: scope.handle,
+        target: { type: "project", projectId: input.workspace.id, environment: { type: "local" } },
+        model: input.model,
+        title: input.title,
+        prompt: "",
+        startWithoutFirstTurn: true,
+        assertRequestCurrent: assertCurrent,
+        onSettled: remember,
+      });
+    } finally {
+      release?.();
+    }
     const result = record(output) && output.kind === "creation" ? output.result : null;
     remember(result);
     assertCurrent();

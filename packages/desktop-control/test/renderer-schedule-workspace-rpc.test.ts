@@ -87,7 +87,13 @@ function fixture() {
     __reactFiber$fixture: { memoizedProps: { projectByKey: catalog } },
   };
   const root = { querySelectorAll: (selector: string) => (selector === "main" ? [main] : [row]) };
-  const policy = { scopedCreation: true, select: vi.fn(), clear: vi.fn() };
+  const release = vi.fn();
+  const policy = {
+    scopedCreation: true,
+    select: vi.fn(),
+    clear: vi.fn(),
+    allowExplicitCreation: vi.fn(() => release),
+  };
   const manager = { kind: "main-process-rpc", getHostId: () => "local", sendRequest };
   let current: unknown = manager;
   const routing = {
@@ -131,6 +137,7 @@ function fixture() {
     catalog,
     rpc,
     policy,
+    release,
     sendRequest,
     archived,
     settle,
@@ -174,6 +181,15 @@ describe("main-process workspace schedule creation", () => {
     });
     expect(f.policy.select).not.toHaveBeenCalled();
     expect(f.policy.clear).not.toHaveBeenCalled();
+    // The explicit carrier is admitted only around this one native creation.
+    expect(f.policy.allowExplicitCreation).toHaveBeenCalledExactlyOnceWith(model);
+    expect(f.release).toHaveBeenCalledOnce();
+    expect(f.policy.allowExplicitCreation.mock.invocationCallOrder[0]).toBeLessThan(
+      f.create.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(f.release.mock.invocationCallOrder[0]).toBeGreaterThan(
+      f.rpc.startConversation.mock.invocationCallOrder[0] ?? Infinity,
+    );
     thread.retain();
     f.controller.abort();
     await thread.discard?.();

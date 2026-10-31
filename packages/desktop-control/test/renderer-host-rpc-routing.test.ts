@@ -589,6 +589,37 @@ it("does not guess a route for an unbound external carrier", async () => {
   }
 });
 
+it("admits one explicitly named carrier creation, such as a scheduled task's chat", async () => {
+  const fixture = setup();
+  const routing = await install(fixture);
+  try {
+    const policy = policyOf(routing.forHost("local"));
+    const client = fixture.registry.forHost("local");
+    const explicit = { collaborationMode: { settings: { model: carrier } } };
+    const release = policy.allowExplicitCreation?.(carrier);
+    expect(release).toBeTypeOf("function");
+    // Another carrier and another creation entry are still refused.
+    expect(() =>
+      client.startConversation({ collaborationMode: { settings: { model: "codexhost/pi" } } }, {}),
+    ).toThrow("originating draft binding");
+    expect(() => client.prewarmConversation(explicit, {})).toThrow("originating draft binding");
+    expect(fixture.sent).toEqual([]);
+
+    client.startConversation(explicit, {});
+    expect(fixture.sent).toHaveLength(1);
+    // The permit is spent: a second unbound creation fails closed again.
+    expect(() => client.startConversation(explicit, {})).toThrow("originating draft binding");
+    release?.();
+
+    const unused = policy.allowExplicitCreation?.(carrier);
+    unused?.();
+    expect(() => client.startConversation(explicit, {})).toThrow("originating draft binding");
+    expect(fixture.sent).toHaveLength(1);
+  } finally {
+    routing.dispose();
+  }
+});
+
 it.each(["scope", "family"])(
   "rejects a delayed caller when the app %s is replaced",
   async (change) => {

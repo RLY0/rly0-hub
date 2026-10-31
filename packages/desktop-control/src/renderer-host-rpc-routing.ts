@@ -77,6 +77,9 @@ export function installRendererHostRpcRouting(
     current(): boolean;
   }
   const externalDrafts = new Map<string, DraftRoute>();
+  // One-shot permits for creations that name their carrier explicitly (a
+  // scheduled task's workspace chat), keyed by the Host route that issued them.
+  const explicitCreations = new Map<RendererHostRoutePolicy, string[]>();
   // Keep only provenance and tombstones across Controller replacement. A
   // background shallow copy from a retired installation must fail closed when
   // it reaches a new registry wrapper; it must not become an official draft.
@@ -210,8 +213,15 @@ export function installRendererHostRpcRouting(
       isRecord(mode.settings) &&
       typeof mode.settings.model === "string" &&
       mode.settings.model.startsWith("codexhost/")
-    )
-      throw new Error("External draft creation is missing its originating draft binding");
+    ) {
+      // The carrier is already the caller's explicit choice; nothing is rewritten.
+      const policy = method === "startConversation" ? routeFor(hostId)?.policy : undefined;
+      const pending = policy ? explicitCreations.get(policy) : undefined;
+      const index = pending?.indexOf(mode.settings.model) ?? -1;
+      if (!pending || index < 0)
+        throw new Error("External draft creation is missing its originating draft binding");
+      pending.splice(index, 1);
+    }
     const cleanMode = mode ? { ...mode } : null;
     if (cleanMode) Reflect.deleteProperty(cleanMode, wireField);
     const model = draft?.model;
@@ -547,10 +557,23 @@ export function installRendererHostRpcRouting(
         return true;
       },
       clear,
+      allowExplicitCreation(model: string): () => void {
+        if (!isCurrent()) throw new Error("Renderer request manager is retired");
+        if (typeof model !== "string" || !model.startsWith("codexhost/"))
+          throw new Error("Explicit creation Model must be a codexhost transport carrier");
+        const pending = explicitCreations.get(policy) ?? [];
+        explicitCreations.set(policy, pending);
+        pending.push(model);
+        return () => {
+          const index = pending.indexOf(model);
+          if (index >= 0) pending.splice(index, 1);
+        };
+      },
       dispose() {
         if (retired) return;
         retired = true;
         clearDrafts(true);
+        explicitCreations.delete(policy);
         selectedModel = null;
       },
     });
