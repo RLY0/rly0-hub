@@ -3,6 +3,8 @@ import { isOrbitComposer, orbitComposerKind } from "./renderer-composer-kind.js"
 import { getSharedAgentGroupPreferenceStore } from "./agent-group-preference.js";
 import {
   committedReactAncestors,
+  createScopedDraftModelWriter,
+  findScopedDraftModelBinding,
   REACT_FIBER_WALK_LIMIT_EVENT,
   type RendererHostRoute,
   type RendererHostRouting,
@@ -141,7 +143,11 @@ export interface RendererDraftPrewarmPolicy {
   state: "ready";
   hostId: string;
   readonly requestTarget?: () => unknown;
-  select(model: string | null): boolean;
+  select(
+    model: string | null,
+    draftId?: string,
+    creationModes?: readonly Record<string, unknown>[],
+  ): boolean;
   clear(): Promise<void>;
 }
 
@@ -1055,6 +1061,7 @@ export function installCurrentRendererAdapter(): {
   });
 
   const selectedPolicies = new Map<string, RendererDraftPrewarmPolicy>();
+  const draftModels = createScopedDraftModelWriter();
   const handleRoutingPolicyChange = (): void => {
     currentRequestRoute();
   };
@@ -1082,7 +1089,32 @@ export function installCurrentRendererAdapter(): {
     const route = window.__codexhostHostRoutingV1?.forComposer(composer);
     if (!route) return false;
     try {
-      if (route.policy.select(carrier ?? null)) {
+      if (!route.policy.scopedCreation) {
+        if (route.policy.select(carrier ?? null)) {
+          modelUpdates += 1;
+          liveStatus.modelUpdates = modelUpdates;
+        }
+        return true;
+      }
+      const target = composer ? findComposerModelTarget(composer) : null;
+      if (target?.[0] === "conversation") return true;
+      if (target?.[0] !== "default" || typeof target[1] !== "string" || !composer)
+        return agent === "codex";
+      const binding = findScopedDraftModelBinding(composer, target[1]);
+      const draftKey = target[1];
+      if (!binding || !route.policy.scopedCreation)
+        return agent === "codex" && !draftModels.has(draftKey);
+      if (
+        agent !== "codex" &&
+        "kind" in route.manager &&
+        route.manager.kind === "main-process-rpc" &&
+        !binding.creationModes?.length
+      ) {
+        updateStatus("installing", "draft-routing-policy-unavailable", null);
+        return false;
+      }
+      draftModels.apply(draftKey, binding, carrier ?? null);
+      if (route.policy.select(carrier ?? null, draftKey, binding.creationModes)) {
         modelUpdates += 1;
         liveStatus.modelUpdates = modelUpdates;
       }
@@ -1100,6 +1132,7 @@ export function installCurrentRendererAdapter(): {
     dispose() {
       if (disposed) return;
       disposed = true;
+      draftModels.dispose();
       window.removeEventListener(
         "codexhost:draft-prewarm-policy-changed",
         handleRoutingPolicyChange,

@@ -1155,6 +1155,70 @@ describe("Renderer draft prewarm policy", () => {
     }
   });
 
+  it("rejects a bare Desktop 26.1027 RPC scope without a verified native creation registry", async () => {
+    // Synthetic state with the live Desktop's scope/signal-family API; no user data.
+    const rpc = {
+      sendRequest: vi.fn(async () => ({ synthetic: true })),
+      clearPrewarmedThreads: vi.fn(async () => undefined),
+    };
+    const node = {
+      familyBindings: new Map([
+        [
+          { kind: "signal-family" },
+          new Map([
+            [
+              "local",
+              { value: { get: () => ({ status: "ready", client: { hostId: "local", rpc } }) } },
+            ],
+          ]),
+        ],
+      ]),
+    };
+    const scope = { node, chain: [], scope: {}, get() {}, set() {}, watch() {} };
+    const fiber = {
+      memoizedProps: { executionTargetHostId: "local" },
+      memoizedState: { memoizedState: { current: scope }, next: null },
+      return: null,
+    };
+    const editor = { __reactFiber$synthetic: fiber, parentElement: null };
+    const document = {
+      querySelectorAll: () => [editor],
+      getElementById: () => ({ __reactContainer$synthetic: fiber }),
+    };
+    const target: DraftPrewarmPolicyTarget = {};
+    class SyntheticMessagePort {
+      postMessage() {}
+    }
+    let source = "";
+    await installRendererDraftPrewarmPolicyDirect({
+      async evaluate<T>(expression: string): Promise<T> {
+        source = expression;
+        return { state: "ready", reason: "owned-request-bridge" } as T;
+      },
+    });
+    try {
+      // A ready raw RPC is no longer sufficient evidence for safe creation:
+      // this fixture has no already-bound native registry or loaded-module
+      // catalog. In particular it cannot retain background draft provenance.
+      await expect(
+        runInNewContext(source, {
+          document,
+          window: target,
+          MessagePort: SyntheticMessagePort,
+          TextDecoder,
+          TextEncoder,
+          setTimeout,
+          clearTimeout,
+        }),
+      ).rejects.toThrow("Renderer Host request manager is unavailable");
+      expect(target.__codexhostHostRoutingV1).toBeUndefined();
+      expect(rpc.sendRequest).not.toHaveBeenCalled();
+      expect(rpc.clearPrewarmedThreads).not.toHaveBeenCalled();
+    } finally {
+      (target.__codexhostHostRoutingV1 as { dispose(): void } | undefined)?.dispose();
+    }
+  });
+
   it("installs the owned request bridge through direct Renderer evaluation", async () => {
     const evaluate = vi.fn(async (expression: string): Promise<unknown> => {
       void expression;

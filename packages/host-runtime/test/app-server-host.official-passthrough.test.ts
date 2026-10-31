@@ -1,9 +1,12 @@
 import { FakeHarnessAdapter } from "@codexhost/harness-adapter/testing";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { harnessIdSchema, type JsonObject } from "@codexhost/shared-contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  createFixture,
+  createFixture as createHostFixture,
   readJsonLine,
   requestId,
   requiredMessageId,
@@ -13,6 +16,18 @@ import {
 } from "./app-server-host-fixture.js";
 
 type Fixture = ReturnType<typeof createFixture>;
+
+function createFixture(options: Parameters<typeof createHostFixture>[0] = {}) {
+  // Pin native passthrough before Host startup can cache its routing mode.
+  // RLY/0's unified provider transform has its own synthetic routing suite.
+  const mappingStoreDirectory =
+    options.mappingStoreDirectory ?? mkdtempSync(path.join(tmpdir(), "codexhost-native-test-"));
+  writeFileSync(
+    path.join(mappingStoreDirectory, "unified-channel.json"),
+    '{"version":1,"enabled":false}',
+  );
+  return createHostFixture({ ...options, mappingStoreDirectory });
+}
 
 async function initialize(fixture: Fixture): Promise<void> {
   await fixture.ready;

@@ -410,6 +410,7 @@ import {
   type ExternalThreadResolution,
 } from "./external-thread-runtime.js";
 import { externalTurnInput, type ExternalTurnInput } from "./external-turn-input.js";
+import { ExternalQueueError, ExternalThreadQueue } from "./external-thread-queue.js";
 import {
   ExternalSteerError,
   ExternalTurnSteering,
@@ -860,6 +861,24 @@ function requestObject(request: JsonRpcRequest): JsonObject {
   return request.params as JsonObject;
 }
 
+/** Turn rejected before any input leaves the Host: it reached a Thread owned by another route. */
+const DRAFT_ROUTE_MISMATCH_MESSAGE =
+  "这个对话属于另一个助手，消息没有发出。请新建对话后重新选择助手再发送。 (DRAFT_ROUTE_MISMATCH)";
+
+/**
+ * Harness a `turn/start` names (collaboration mode first, as Desktop sends it), `null` when it
+ * names no Model, or `undefined` for a carrier that cannot be decoded.
+ */
+function turnRequestHarness(id: JsonRpcId, params: JsonObject): string | null | undefined {
+  const model = turnRequestModel(params);
+  if (model === undefined) return null;
+  try {
+    return decodeCreateRoute({ id, method: "thread/start", params: { model } })?.harnessId ?? null;
+  } catch {
+    return undefined;
+  }
+}
+
 function sandboxResult(params: JsonObject): JsonObject {
   const sandbox = params.sandbox;
   if (sandbox === "read-only") return { type: "readOnly", networkAccess: false };
@@ -1000,6 +1019,11 @@ export class AppServerHost {
   readonly #executionHosts = new WeakMap<ExternalThread, string>();
   readonly #externalPrewarms = new ExternalThreadPrewarms();
   readonly #externalSteering = new ExternalTurnSteering();
+  readonly #externalQueue = new ExternalThreadQueue({
+    notifyChanged: (threadId) =>
+      this.#writer.json({ method: "thread/queue/changed", params: { threadId } }),
+  });
+  readonly #queuedTurns = new Map<string, string>();
   readonly #liveCommandCache = new LiveCommandCatalogCache();
   readonly #modelPrices: ModelPriceCatalog;
   readonly #observedSessionUsage: ObservedSessionUsage;
@@ -2875,6 +2899,14 @@ export class AppServerHost {
         return;
       }
       if (typeof threadId === "string") {
+        // An official Thread (e.g. a native prewarm another draft adopted) never runs an
+        // External Harness carrier; forwarding it would send that draft's input to Codex.
+        const harnessId = turnRequestHarness(request.id, params);
+        const model = turnRequestModel(params);
+        if (model?.startsWith("codexhost/") && harnessId !== "codex") {
+          await this.#writer.json(rpcError(request, -32602, DRAFT_ROUTE_MISMATCH_MESSAGE));
+          return;
+        }
         this.#pendingOfficialTurnStarts.set(request.id, threadId);
       }
     }
@@ -2989,6 +3021,22 @@ export class AppServerHost {
         } else {
           await this.#deleteExternalThread(request, location);
         }
+        return;
+      }
+    }
+    if (
+      request.method.startsWith("thread/queue/") &&
+      isRecord(request.params) &&
+      typeof request.params.threadId === "string"
+    ) {
+      const location = await this.#locateExternalThread(request.params.threadId);
+      if (await this.#writeResolutionError(request, location)) return;
+      if (location.kind === "external") {
+        this.#dispatchDesktopReply(
+          request,
+          () => this.#handleExternalQueueRequest(request, location.record.hostThreadId),
+          location.record.hostThreadId,
+        );
         return;
       }
     }
@@ -5937,6 +5985,8 @@ export class AppServerHost {
     }
     const params = requestObject(request);
     const route = decodeCreateRoute(request);
+    // Renderer-side prewarms mark the request; main-process prewarms can mark only the Model.
+    const prewarm = params[EXTERNAL_THREAD_PREWARM_PARAM] === true || route?.prewarm === true;
     const requestedModel = route && route.harnessId !== "codex" ? route.model : undefined;
     const requestedThinkingOptionId =
       route && route.harnessId !== "codex" ? route.thinkingOptionId : undefined;
@@ -5992,7 +6042,7 @@ export class AppServerHost {
     const session = sessionResult.value;
     await this.#externalRuntime.idleRelease.runOperation(record.hostThreadId, async () => {
       try {
-        if (session.initialState.nativeRef && params[EXTERNAL_THREAD_PREWARM_PARAM] !== true) {
+        if (session.initialState.nativeRef && !prewarm) {
           record = await this.#repository.commitNative(
             record.hostThreadId,
             session.initialState.nativeRef,
@@ -6006,7 +6056,7 @@ export class AppServerHost {
         const externalThread = this.#registerExternalThread({
           record,
           session,
-          unsubmittedPrewarm: params[EXTERNAL_THREAD_PREWARM_PARAM] === true,
+          unsubmittedPrewarm: prewarm,
           sessionId: record.hostThreadId,
           thread,
           turns: [],
@@ -6014,7 +6064,7 @@ export class AppServerHost {
           ...(requestedThinkingOptionId ? { requestedThinkingOptionId } : {}),
           ...(requestedPermissionModeId ? { requestedPermissionModeId } : {}),
         });
-        if (params[EXTERNAL_THREAD_PREWARM_PARAM] === true) {
+        if (prewarm) {
           this.#externalPrewarms.register(externalThread);
         }
         this.#routeObservationTracker.bindCreatedThread(request.id, externalThread.id);
@@ -6298,6 +6348,8 @@ export class AppServerHost {
     }
     this.#externalRuntime.remove(location.record.hostThreadId);
     this.#routeObservationTracker.forgetThread(location.record.hostThreadId);
+    this.#externalQueue.forget(location.record.hostThreadId);
+    this.#queuedTurns.delete(location.record.hostThreadId);
     if (!thread) {
       await this.#writer.json(rpcEnvelope(request, { result: {} }));
       return;
@@ -6588,6 +6640,22 @@ export class AppServerHost {
         return;
       }
     }
+    // Desktop 26.1027 keeps prewarms in a main-process pool keyed by workspace, not Model, so a
+    // draft that selected another Agent can adopt this one. Official names are no evidence:
+    // the Composer keeps its native Model while the legacy path routes only `thread/start`.
+    if (thread.unsubmittedPrewarm) {
+      const harnessId = turnRequestHarness(request.id, params);
+      if (
+        turnRequestModel(params)?.startsWith("codexhost/") &&
+        harnessId !== "codex" &&
+        harnessId !== thread.harnessId
+      ) {
+        // The adopting request removed the discard lease; nothing was submitted, so restore it.
+        this.#externalPrewarms.register(thread);
+        await this.#writer.json(rpcError(request, -32602, DRAFT_ROUTE_MISMATCH_MESSAGE));
+        return;
+      }
+    }
     let input: ExternalTurnInput;
     try {
       input = await externalTurnInput(params);
@@ -6619,6 +6687,153 @@ export class AppServerHost {
           errorMessage(error),
         ),
       );
+    }
+  }
+
+  async #handleExternalQueueRequest(request: JsonRpcRequest, threadId: string): Promise<void> {
+    const queue = this.#externalQueue;
+    try {
+      const params = requestObject(request);
+      const input = (): JsonValue[] => {
+        if (!Array.isArray(params.input) || params.input.length === 0)
+          throw new ExternalQueueError(-32602, "Queued input must be a nonempty array");
+        return params.input as JsonValue[];
+      };
+      const submissionId = (): string => {
+        if (typeof params.queuedSubmissionId !== "string")
+          throw new ExternalQueueError(-32602, "queuedSubmissionId must be a string");
+        return params.queuedSubmissionId;
+      };
+      let result: JsonObject;
+      switch (request.method) {
+        case "thread/queue/list":
+          result = queue.list(threadId, params);
+          break;
+        case "thread/queue/add": {
+          if (typeof params.clientUserMessageId !== "string" || !params.clientUserMessageId)
+            throw new ExternalQueueError(-32602, "clientUserMessageId must be a string");
+          const sourceHostId = params[THREAD_REFERENCE_SOURCE_HOST_PARAM];
+          const submission = await queue.add(
+            threadId,
+            input(),
+            params.clientUserMessageId,
+            typeof sourceHostId === "string" ? sourceHostId : undefined,
+          );
+          result = { queuedSubmission: submission as unknown as JsonObject };
+          break;
+        }
+        case "thread/queue/update": {
+          const submission = await queue.update(threadId, submissionId(), input());
+          result = { queuedSubmission: submission as unknown as JsonObject };
+          break;
+        }
+        case "thread/queue/delete":
+          result = { deleted: await queue.delete(threadId, submissionId()) };
+          break;
+        case "thread/queue/reorder": {
+          const ids = params.queuedSubmissionIds;
+          if (!Array.isArray(ids) || !ids.every((id) => typeof id === "string"))
+            throw new ExternalQueueError(-32602, "queuedSubmissionIds must be strings");
+          await queue.reorder(threadId, ids as string[]);
+          result = {};
+          break;
+        }
+        case "thread/queue/start": {
+          const resolution = await this.#resolveExternalThread(threadId);
+          if (await this.#writeResolutionError(request, resolution)) return;
+          if (resolution.kind !== "external")
+            throw new ExternalQueueError(-32073, "External Thread is no longer available");
+          const started = await this.#startQueuedSubmission(
+            resolution.thread,
+            params.queuedSubmissionId == null ? null : submissionId(),
+          );
+          try {
+            await this.#writer.json(rpcEnvelope(request, { result: { turn: started.turn } }));
+          } finally {
+            started.gate.resolve();
+          }
+          return;
+        }
+        default:
+          throw new ExternalQueueError(
+            -32076,
+            `External Thread does not support ${request.method}`,
+          );
+      }
+      await this.#writer.json(rpcEnvelope(request, { result }));
+      if (request.method === "thread/queue/add") {
+        const thread = this.#externalRuntime.get(threadId);
+        const lastTurn = thread?.turns.at(-1);
+        // The completion handler may have checked an empty queue before this add arrived.
+        // Use only a terminal Turn published here, not restored history or a failed start.
+        if (
+          thread &&
+          thread.projectedTerminalTurnId === lastTurn?.id &&
+          lastTurn?.status === "completed" &&
+          isRecord(thread.thread.status) &&
+          thread.thread.status.type === "idle"
+        ) {
+          void this.#drainExternalQueue(thread);
+        }
+      }
+    } catch (error) {
+      await this.#writer.json(
+        rpcError(
+          request,
+          error instanceof ExternalQueueError ||
+            error instanceof ExternalSteerError ||
+            error instanceof ExternalCommandError
+            ? error.code
+            : -32602,
+          errorMessage(error),
+        ),
+      );
+    }
+  }
+
+  /** Starts a queued follow-up as a Turn; it returns to its place when the start fails. */
+  async #startQueuedSubmission(
+    thread: ExternalThread,
+    submissionId?: string | null,
+  ): Promise<{ turnId: HostTurnId; turn: JsonObject; gate: TurnProjectionGate }> {
+    if (this.#externalThreadBusy(thread) || this.#pendingExternalCommandRequests.has(thread.id))
+      throw new ExternalSteerError(-32072, "External Thread already has an active Turn");
+    const taken = this.#externalQueue.take(thread.id, submissionId);
+    try {
+      const input = await externalTurnInput({ input: taken.submission.input });
+      if (!input.visible)
+        throw new ExternalQueueError(-32602, "Queued input must include user content");
+      const started = await this.#beginExternalInputTurn(
+        thread,
+        input.text,
+        undefined,
+        taken.submission.clientUserMessageId,
+        taken.sourceHostId,
+        input.visible,
+        true,
+      );
+      this.#queuedTurns.set(thread.id, started.turnId);
+      await this.#externalQueue.notifyChanged(thread.id);
+      return started;
+    } catch (error) {
+      this.#externalQueue.restore(thread.id, taken);
+      await this.#externalQueue.notifyChanged(thread.id);
+      throw error;
+    }
+  }
+
+  /** Desktop leaves queued follow-ups to the app-server once a Turn completes normally. */
+  async #drainExternalQueue(thread: ExternalThread): Promise<void> {
+    if (
+      !this.#externalQueue.has(thread.id) ||
+      this.#externalThreadBusy(thread) ||
+      this.#pendingExternalCommandRequests.has(thread.id)
+    )
+      return;
+    try {
+      (await this.#startQueuedSubmission(thread)).gate.resolve();
+    } catch (error) {
+      this.#diagnose(error);
     }
   }
 
@@ -6703,6 +6918,7 @@ export class AppServerHost {
     clientUserMessageId?: string,
     sourceHostId?: unknown,
     visible = true,
+    projectInput = false,
   ): Promise<{ turnId: HostTurnId; turn: JsonObject; gate: TurnProjectionGate }> {
     if (!visible) {
       // The continue prompt is neither typed by the person nor a command.
@@ -6713,7 +6929,14 @@ export class AppServerHost {
     const commands = thread.session.commands;
     if (!commands || !isExternalCommandCandidate(text)) {
       assertActive?.();
-      return this.#beginExternalTurn(thread, text, clientUserMessageId, sourceHostId);
+      return this.#beginExternalTurn(
+        thread,
+        text,
+        clientUserMessageId,
+        sourceHostId,
+        true,
+        projectInput,
+      );
     }
     this.#pendingExternalCommandRequests.add(thread.id);
     try {
@@ -6726,7 +6949,14 @@ export class AppServerHost {
       assertActive?.();
       if (!command) {
         this.#pendingExternalCommandRequests.delete(thread.id);
-        return await this.#beginExternalTurn(thread, text, clientUserMessageId, sourceHostId);
+        return await this.#beginExternalTurn(
+          thread,
+          text,
+          clientUserMessageId,
+          sourceHostId,
+          true,
+          projectInput,
+        );
       }
       return await this.#beginExternalCommand(
         thread,
@@ -6772,6 +7002,7 @@ export class AppServerHost {
     clientUserMessageId?: string,
     sourceHostId?: unknown,
     visible = true,
+    projectInput = false,
   ): Promise<{
     turnId: HostTurnId;
     turn: JsonObject;
@@ -6795,7 +7026,7 @@ export class AppServerHost {
         turnId,
         cwd: thread.cwd,
         startedAtMs,
-        ...(this.#options.externalOnly
+        ...(this.#options.externalOnly || projectInput
           ? {
               initialInput: visible ? [{ type: "text" as const, text }] : [],
               ...(clientUserMessageId ? { clientUserMessageId } : {}),
@@ -7242,6 +7473,16 @@ export class AppServerHost {
           : { type: "idle" },
       );
       this.#externalSteering.terminal(thread.id, event.turnId, event.outcome);
+      const queuedTurn = this.#queuedTurns.get(thread.id) === event.turnId;
+      if (queuedTurn) this.#queuedTurns.delete(thread.id);
+      // Interrupted and failed Turns pause the queue until Desktop starts it again.
+      if (
+        (!ephemeralTurn || queuedTurn) &&
+        result.completedTurn?.status === "completed" &&
+        this.#externalQueue.has(thread.id)
+      ) {
+        void this.#drainExternalQueue(thread);
+      }
     }
   }
 
