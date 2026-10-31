@@ -4,6 +4,7 @@ import type { RendererUsageStatisticsHostsProvider } from "./console/usage/usage
 import type { RemoteConnectionsControl } from "./remote-connections-control.js";
 import type { LoadedSessionsClient } from "./settings/loaded-sessions-table.js";
 import { RLY0_WELCOME_DISMISSED_STORAGE_KEY } from "./settings/rly0-welcome.js";
+import type { HarnessSchedulesPageOptions } from "./settings/harness-schedules-page.js";
 import { readCodexLocaleSettings, type CodexLocaleSettings } from "./codex-locale-adapter.js";
 import {
   applyRendererAccentColor,
@@ -75,6 +76,7 @@ interface HubRouteHandle {
 
 export interface RendererSettingsLifecycleOptions {
   getHubClient?(): RendererHubClient | null;
+  harnessSchedules?: HarnessSchedulesPageOptions;
   getUpdateClient?(): RendererUpdateClient | null;
   getConnectionDiagnostics?(): RendererConnectionDiagnostics | null;
   getAccountClient?(): RendererCodexAccountClient | null;
@@ -186,6 +188,7 @@ export function installRendererSettingsLifecycle(
   const mountCodexSettings = (
     messages: ReturnType<typeof rendererSettingsMessages>,
   ): RendererSettingsShell | null => {
+    const schedules = options.harnessSchedules;
     const definitions = createDefaultRendererSettingsPages(
       messages,
       options.getUpdateClient ?? (() => null),
@@ -211,6 +214,18 @@ export function installRendererSettingsLifecycle(
       options.getRelayClient ?? (() => null),
       false,
       options.usageStatisticsHosts,
+      // Only pass the schedules page when it exists, so the Host list provider
+      // stays the last argument for callers without schedules.
+      ...(schedules
+        ? [
+            {
+              openSchedules: async (signal: AbortSignal) => {
+                await schedules.openSchedules(signal);
+                if (!disposed && !signal.aborted) shell?.close();
+              },
+            },
+          ]
+        : []),
     );
     return installRendererSettingsShell(definitions, messages, ownerWindow.document, {
       onOpenChange(open) {

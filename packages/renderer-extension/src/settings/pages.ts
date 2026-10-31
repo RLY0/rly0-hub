@@ -51,6 +51,10 @@ import {
   type RendererMaintenanceClient,
 } from "./maintenance-page.js";
 import { createSponsorEntry } from "./sponsor-dialog.js";
+import {
+  createHarnessSchedulesPage,
+  type HarnessSchedulesPageOptions,
+} from "./harness-schedules-page.js";
 
 export type {
   RendererConnectionAgentSnapshot,
@@ -435,13 +439,12 @@ function updatesPage(
       const setManualFallback = (fallback: boolean): void => {
         // While automatic update works, manual download is a one-line escape hatch;
         // once it fails, the section returns at full weight.
-        controls.className =
-          !fallback && !windows ? "settings-update-controls is-quiet" : "settings-update-controls";
-        manualNpmDescription.textContent = windows
-          ? messages.updateWindowsNpmDescription
-          : fallback
-            ? messages.updateManualFallbackDescription
-            : messages.updateManualNpmDescription;
+        controls.className = fallback
+          ? "settings-update-controls"
+          : "settings-update-controls is-quiet";
+        manualNpmDescription.textContent = fallback
+          ? messages.updateManualFallbackDescription
+          : messages.updateManualNpmDescription;
         manualNpmDescription.className = fallback
           ? "settings-update-manual-description is-fallback"
           : "settings-update-manual-description";
@@ -628,8 +631,7 @@ function updatesPage(
         panel.replaceChildren();
         setManualFallback(Boolean(resultError) || actionableStatus !== null);
         // Every state gets a status line; a bare button in an empty card reads as unfinished.
-        const inlineUpdate =
-          !resultError && !windows && !actionableStatus && result.updateAvailable;
+        const inlineUpdate = !resultError && !actionableStatus && result.updateAvailable;
         if (inlineUpdate) panel.dataset.inline = "";
         else delete panel.dataset.inline;
         panel.append(
@@ -641,9 +643,7 @@ function updatesPage(
               : resultError
                 ? messages.updateFailed
                 : result.updateAvailable
-                  ? windows
-                    ? messages.updateWindowsManualRequired
-                    : messages.updateAvailable
+                  ? messages.updateAvailable
                   : noRelease
                     ? messages.updateNoRelease
                     : messages.updateUpToDate,
@@ -662,7 +662,7 @@ function updatesPage(
           panel.append(error);
         }
         const buttons: HTMLElement[] = [];
-        if (!windows && result.updateAvailable && result.installationAvailable) {
+        if (result.updateAvailable && result.installationAvailable) {
           const update = document.createElement("button");
           update.type = "button";
           update.className = "settings-command-button";
@@ -736,6 +736,7 @@ export function createDefaultRendererSettingsPages(
   getRelayClient: () => RendererRelayClient | null = () => null,
   codexOnly = false,
   usageStatisticsHosts?: RendererUsageStatisticsHostsProvider,
+  harnessSchedules?: HarnessSchedulesPageOptions,
 ): readonly RendererSettingsPageDefinition[] {
   return Object.freeze([
     createDashboardSettingsPage(messages, getDashboardClient),
@@ -743,6 +744,7 @@ export function createDefaultRendererSettingsPages(
     createRemoteConnectionsPage(messages, getRemoteConnections),
     createAccountsSettingsPage(messages, getAccountClient, codexOnly),
     createRelaySettingsPage(messages, getRelayClient),
+    ...(harnessSchedules ? [createHarnessSchedulesPage(messages, harnessSchedules)] : []),
     createSessionImportSettingsPage(
       messages,
       getSessionImportClient,

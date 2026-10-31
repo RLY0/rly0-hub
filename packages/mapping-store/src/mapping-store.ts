@@ -986,12 +986,18 @@ export class MappingStore {
   }
 
   async #remove(hostThreadId: HostThreadId): Promise<void> {
-    if (!this.#records.has(hostThreadId)) return;
-    await Promise.all([
-      rm(this.#recordPath(hostThreadId), { force: true }),
-      rm(this.#backupPath(hostThreadId), { force: true }),
-      rm(this.#metadataPath(hostThreadId), { force: true }),
-    ]);
+    const current = this.#records.get(hostThreadId);
+    if (!current) return;
+    await rm(this.#recordPath(hostThreadId), { force: true });
+    try {
+      await rm(this.#backupPath(hostThreadId), { force: true });
+      // Metadata is removed last so any failed unlink leaves it intact.
+      await rm(this.#metadataPath(hostThreadId), { force: true });
+    } catch (error) {
+      // Startup discovers Threads by their primary record, not by orphan auxiliary files.
+      await this.#replaceFile(this.#recordPath(hostThreadId), current, false);
+      throw error;
+    }
     this.#records.delete(hostThreadId);
     this.#rebuildIndexes();
   }

@@ -282,7 +282,7 @@ export interface ClaudeTurnTransport {
    */
   stopTasks(taskIds: readonly string[]): Promise<void>;
   start(): Promise<void>;
-  getContextUsage(): Promise<ClaudeTransportContextUsage | null>;
+  getContextUsage(detail?: "summary" | "full"): Promise<ClaudeTransportContextUsage | null>;
   /** Plan windows from the native `/usage` read, without a model request. */
   readPlanUsage?(): Promise<ClaudePlanUsageRead | null>;
   /** Live slash commands of the started native Session, when known. */

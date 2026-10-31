@@ -1,15 +1,23 @@
 ---
-enabled: false
-title: 版本兼容性提醒（示例）
-type: warning
+enabled: true
+title: Codex Desktop 新版兼容性提醒
+type: danger
 ---
 
-这是一条公告样例，当前已关闭，不会显示在 Web 控制台中。发布前请替换标题和正文，并将 `enabled` 改为 `true`。
+**Codex Desktop 10 月 30 日的更新调整了内部架构，当前 codexhost 暂时无法兼容。Codex Desktop 本身不受影响。**
 
-如果某个 Codex Desktop 版本出现兼容性问题，可在这里说明：
+我们正在尝试新的适配方案，争取今天或本周末发布修复版本，请耐心等待更新。
 
-- 受影响的版本和具体症状。
-- 用户需要采取的临时措施。
-- 修复进度或预计恢复时间。
+欢迎加入微信群交流，添加微信 **a28417416**，我拉你入群。
 
-[查看项目发布记录](https://github.com/BytePioneer-AI/codex-host/releases)
+[关注 codexhost 后续发布](https://github.com/BytePioneer-AI/codex-host/releases)
+
+## English
+
+**The October 30 update changed Codex Desktop’s internal architecture, making it temporarily incompatible with the current version of codexhost. Codex Desktop itself is unaffected.**
+
+We are trying a new integration approach and aim to release a fix today or over the weekend. Thank you for your patience.
+
+To join our WeChat group, add me on WeChat at **a28417416**, and I’ll invite you.
+
+[Follow upcoming codexhost releases](https://github.com/BytePioneer-AI/codex-host/releases)

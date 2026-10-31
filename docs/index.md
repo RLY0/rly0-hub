@@ -22,7 +22,7 @@
 | [`architecture/harness-session-import.md`](architecture/harness-session-import.md) | 原生会话的本地/远程 Host 导入契约、Broker 转发和恢复边界；扩展导入能力时阅读。 |
 | [`architecture/harness-questions.md`](architecture/harness-questions.md) | 外部 Harness 多选提问卡片、原生单选分流、回答归属与生命周期；修改提问交互时阅读。 |
 | [`architecture/external-thread-steering.md`](architecture/external-thread-steering.md) | 外部 Thread 按 Session 能力选择原生同轮插入或停止后重发；修改 steering 时阅读。 |
-| [`architecture/external-thread-queue.md`](architecture/external-thread-queue.md) | 新版 Desktop 外部 Thread 待发消息的归属、顺序和失败恢复；修改队列时阅读。 |
+| [`architecture/external-thread-queue.md`](architecture/external-thread-queue.md) | 外部 Thread 跟进消息的 Host 原生 `thread/queue/*`、自动推进与中断暂停；修改排队或 Turn 启动时阅读。 |
 | [`architecture/delegation-titles.md`](architecture/delegation-titles.md) | 委派子会话标题、子任务显示名、创建快照与重试边界。 |
 | [`architecture/thread-watch.md`](architecture/thread-watch.md) | 一次性 Thread 停下通知（`thread watch`）的模型、结果、送达与边界；修改委派跟进或通知时阅读。 |
 | [`architecture/official-traffic-ownership.md`](architecture/official-traffic-ownership.md) | Host 只截获自身流量、其余原样转发官方的归属判别与例外；修改请求路由或参数校验时阅读。 |
@@ -118,6 +118,8 @@
 | --- | --- |
 | [`product/agent-handoff.md`](product/agent-handoff.md) | 已开始的对话「换个助手接着聊」：为何不能原地切换 Harness、Handoff 新建关联 Thread、带过去的内容与预算、切回原 Agent；修改 Composer Agent 按钮或 `codexhost/thread/handoff` 时阅读。 |
 | [`product/shared-codex-resources.md`](product/shared-codex-resources.md) | 打通设置：常驻偏好原文/置顶接口、原生技能同步与回收、共享 MCP/记忆、委派背景/结论写回和账号匹配默认模型；修改共享资源或 Adapter 注入时阅读。 |
+| [`product/multi-agent-delegation.md`](product/multi-agent-delegation.md) | 输入框 `#` 委派、跨会话引用与完成通知的使用介绍和截图；介绍多 Agent 协作用法时阅读。 |
+| [`product/harness-schedules.md`](product/harness-schedules.md) | 设置侧栏直达官方任务页，原生弹窗选择 Harness 与可选本地工作区，会话侧栏显示归属图标；复用 Desktop 本地固定聊天调度。 |
 | [`product/codex-accounts.md`](product/codex-accounts.md) | 设置页中的原生账号与额度布局、外部 Harness 不受 Codex 额度门限制、手动导入 Pi 及导入记录管理；修改账号 UI、发送额度门、查询或凭证导入链路时阅读。 |
 | [`product/usage-metering.md`](product/usage-metering.md) | 外部 Harness 与官方 Codex 的会话用量、插件可选能力、实时刷新、费用、缓存命中、首字延迟及速度限制；修改计量、价格表或 `pricing.json` 时阅读。 |
 | [`product/usage-statistics.md`](product/usage-statistics.md) | 控制台与 Desktop 内置设置的全局用量统计：独立 Codex 统计插件、各 Harness 原生会话去重、按模型 ID 读时计价与缓存；新增读取器或修改统计口径时阅读。 |
@@ -127,7 +129,7 @@
 | [`../apps/hub-desktop/macos/validation/README.md`](../apps/hub-desktop/macos/validation/README.md) | Hub与私有Core的Mac组合验证包、环境检查、源码校验及结果边界；仅本地开发交接。 |
 | [`architecture/claude-isolation.md`](architecture/claude-isolation.md) | Claude 的 Docker 隔离设置、项目授权、CodexHost 执行、登录与网络保护边界。 |
 | [`architecture/renderer-settings-styling.md`](architecture/renderer-settings-styling.md) | 设置页 Tailwind CSS 使用边界、构建方式与编写规则；新增或改版设置页界面时阅读。 |
-| [`operations/codex-desktop-upgrade-diagnosis-playbook.md`](operations/codex-desktop-upgrade-diagnosis-playbook.md) | Hub 自动兼容检查与本地反馈、Desktop 更新后 Renderer、Bridge、Agent、Model、语言设置异常及输入性能的诊断流程；兼容性与交互性能回归时阅读。 |
+| [`operations/codex-desktop-upgrade-diagnosis-playbook.md`](operations/codex-desktop-upgrade-diagnosis-playbook.md) | Hub 自动兼容检查与本地反馈、Desktop 更新后 Renderer、Bridge、Agent、Model、语言设置异常及输入性能的诊断流程，含 26.1027 主进程 Manager 路由；兼容性与交互性能回归时阅读。 |
 
 ## 平台、进程与远程运行
 

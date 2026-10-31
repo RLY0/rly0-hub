@@ -1,16 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { isNativeProjectThreadCreator } from "@codexhost/desktop-control/renderer-bindings";
 import { loadCodexNativeServices } from "../src/codex-native-services.js";
-
-// The generic loader's fixture does not depend on the upstream scheduler feature.
-function isNativeProjectThreadCreator(value: unknown): value is typeof creator {
-  if (typeof value !== "function") return false;
-  try {
-    const source = Function.prototype.toString.call(value);
-    return source.includes("createThread config is not supported for delegated thread creation");
-  } catch {
-    return false;
-  }
-}
 
 async function creator({
   startWithoutFirstTurn: empty,

@@ -43,6 +43,10 @@ Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Files]
 Source: "stop-install-processes.ps1"; Flags: dontcopy
+#ifndef SandboxTest
+; Extract the new helper before touching an existing installation, including older versions.
+Source: "{#PayloadRoot}\libexec\codexhost-updater.exe"; DestName: "codexhost-install-helper.exe"; Flags: dontcopy
+#endif
 Source: "{#PayloadRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 #ifndef SandboxTest
@@ -111,7 +115,8 @@ end;
 // close the windowless helpers Codex starts from libexec. So before any file is copied, every
 // process running from {app} is ended; Codex Desktop is closed too, with consent, when it uses
 // this install, and opened again afterwards. If something still holds a file, nothing is installed.
-function PrepareToInstall(var NeedsRestart: Boolean): String;
+// RLY/0: exits the Hub, asks before closing Codex, then ends everything running from {app}.
+function StopInstalledProcesses: String;
 var
   Code, Attempt: Integer;
   CloseCodex: Boolean;
@@ -157,4 +162,39 @@ begin
   end;
   Result := '安装未进行，没有做任何更改：仍有程序占用 RLY/0 Hub 的文件，无法替换。' +
     '请关闭 Codex 和 RLY/0 Hub 后重试；仍不行时重启电脑再安装。';
+end;
+
+#ifndef SandboxTest
+// Upstream: the bundled updater closes this installation's own executables by exact path.
+function RunInstallHelper: String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  try
+    ExtractTemporaryFile('codexhost-install-helper.exe');
+    { PrepareToInstall runs after Install is clicked, before the file-in-use check.
+      Append a dot so even a drive-root destination has no trailing argument backslash. }
+    if not ExecAndLogOutput(
+      ExpandConstant('{tmp}\codexhost-install-helper.exe'),
+      'prepare-install --install-root ' + AddQuotes(AddBackslash(ExpandConstant('{app}')) + '.'),
+      ExpandConstant('{tmp}'), SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode, nil) then
+      Result := 'Could not start codexhost installation preparation: ' + SysErrorMessage(ResultCode)
+    else if ResultCode <> 0 then begin
+      Log(Format('codexhost installation preparation failed with exit code %d', [ResultCode]));
+      Result := 'Could not close the running codexhost installation. Close Codex and RLY/0 Hub and try again.';
+    end;
+  except
+    Result := 'Could not prepare codexhost installation: ' + GetExceptionMessage;
+  end;
+end;
+#endif
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := StopInstalledProcesses;
+#ifndef SandboxTest
+  if Result = '' then
+    Result := RunInstallHelper;
+#endif
 end;
