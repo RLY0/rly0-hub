@@ -1,7 +1,10 @@
 import { expect, it, vi } from "vitest";
 import { loadRendererHostRpcRegistry } from "../src/renderer-host-rpc-registry.js";
 
-function fixture() {
+const DESKTOP_3384 = { file: "app-initial-4267e52fe5b0.js", exportName: "mpr" };
+const DESKTOP_6604 = { file: "app-initial-fb51ee65d20a.js", exportName: "vpr" };
+
+function fixture(build: { file: string; exportName: string } = DESKTOP_3384) {
   const token = {};
   const definition = { cache: "signal", scope: token, resolve: vi.fn() };
   const atom = {};
@@ -22,10 +25,13 @@ function fixture() {
       owner: "synthetic-controller",
       complete: true,
       documentUrl: "app://-/index.html",
-      urls: ["app://-/assets/app-initial-4267e52fe5b0.js"],
+      urls: [`app://-/assets/${build.file}`],
     },
   };
-  const importModule = vi.fn(async () => ({ mpr: definition, unrelated: { resolve: vi.fn() } }));
+  const importModule = vi.fn(async (): Promise<Record<string, unknown>> => ({
+    [build.exportName]: definition,
+    unrelated: { resolve: vi.fn() },
+  }));
   return { definition, atom, registry, store, target, importModule };
 }
 
@@ -42,6 +48,35 @@ it("reads only the reviewed already-bound native registry signal", async () => {
   expect(f.registry.forHost).not.toHaveBeenCalled();
   f.store.store.get.mockReturnValue({ ...f.registry });
   expect(binding?.isCurrent()).toBe(false);
+});
+
+it("reads the reviewed registry signal of Desktop 26.1027.6604.0", async () => {
+  const f = fixture(DESKTOP_6604);
+  const binding = await loadRendererHostRpcRegistry(f.store, f.target, f.importModule);
+  expect(binding?.registry).toBe(f.registry);
+  expect(binding?.isCurrent()).toBe(true);
+  expect(f.importModule).toHaveBeenCalledExactlyOnceWith(
+    "app://-/assets/app-initial-fb51ee65d20a.js",
+  );
+  expect(f.definition.resolve).not.toHaveBeenCalled();
+  expect(f.registry.forHost).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["26.1027.3384.0", DESKTOP_3384, DESKTOP_6604.exportName],
+  ["26.1027.6604.0", DESKTOP_6604, DESKTOP_3384.exportName],
+])("does not read another build's export from the %s bundle", async (_version, build, other) => {
+  const f = fixture(build);
+  f.importModule.mockImplementation(async () => ({ [other]: f.definition }));
+  expect(await loadRendererHostRpcRegistry(f.store, f.target, f.importModule)).toBeNull();
+  expect(f.store.store.get).not.toHaveBeenCalled();
+});
+
+it("does not import modules when two reviewed builds are loaded", async () => {
+  const f = fixture();
+  f.target.__codexhostLoadedModulesV1.urls.push(`app://-/assets/${DESKTOP_6604.file}`);
+  expect(await loadRendererHostRpcRegistry(f.store, f.target, f.importModule)).toBeNull();
+  expect(f.importModule).not.toHaveBeenCalled();
 });
 
 it.each(["missing", "incomplete", "unknown-build", "other-origin", "ambiguous"])(

@@ -14,8 +14,8 @@ export interface RendererHostRpcRegistryBinding {
 
 /** Read one reviewed, already bound signal. Never resolve arbitrary atoms or
  * initialize an unloaded Desktop module while looking for a writable registry.
- * The filename/export pair is the pinned 26.1027 native contract, not a version
- * comparison. Unknown contracts remain unavailable for external draft creation.
+ * Each filename/export pair is a pinned, reviewed 26.1027 native contract, not a
+ * version comparison. Unknown contracts remain unavailable for external draft creation.
  * Self-contained because the Controller embeds this loader in the Renderer.
  */
 export async function loadRendererHostRpcRegistry(
@@ -41,7 +41,12 @@ export async function loadRendererHostRpcRegistry(
     typeof store.store.get !== "function"
   )
     return null;
-  const urls = new Set<string>();
+  // Each captured bundle exports the same root registry signal under its own name.
+  const contracts = new Map([
+    ["app-initial-4267e52fe5b0.js", "mpr"], // Desktop 26.1027.3384.0
+    ["app-initial-fb51ee65d20a.js", "vpr"], // Desktop 26.1027.6604.0
+  ]);
+  const urls = new Map<string, string>();
   const pageUrl = new URL(page);
   for (const source of catalog.urls) {
     if (typeof source !== "string") return null;
@@ -51,20 +56,21 @@ export async function loadRendererHostRpcRegistry(
     } catch {
       continue;
     }
+    const contract = contracts.get(url.pathname.slice(url.pathname.lastIndexOf("/") + 1));
     if (
       url.protocol === pageUrl.protocol &&
       url.host === pageUrl.host &&
-      url.pathname.endsWith("/app-initial-4267e52fe5b0.js") &&
+      contract !== undefined &&
       !url.search &&
       !url.hash
     )
-      urls.add(url.href);
+      urls.set(url.href, contract);
   }
   if (urls.size !== 1) return null;
-  const module = await importModule([...urls][0] as string);
+  const [[moduleUrl, exportName]] = [...urls] as [[string, string]];
+  const module = await importModule(moduleUrl);
   if (target.__codexhostLoadedModulesV1 !== catalog) return null;
-  // The captured bundle exports its root registry signal as `mpr`.
-  const definition = module.mpr;
+  const definition = module[exportName];
   if (
     !record(definition) ||
     definition.cache !== "signal" ||
@@ -95,7 +101,7 @@ export async function loadRendererHostRpcRegistry(
         current.complete === true &&
         current.documentUrl === page &&
         Array.isArray(current.urls) &&
-        current.urls.includes([...urls][0]) &&
+        current.urls.includes(moduleUrl) &&
         signals.get(definition) === atom &&
         values.get(atom) === registry
       );
