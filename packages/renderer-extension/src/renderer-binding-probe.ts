@@ -92,7 +92,10 @@ import {
   type RendererQuotaView,
 } from "./renderer-quota-refresh.js";
 import { thinkingOptionsForModel } from "./renderer-model-picker.js";
-import { readClaudePermissionModePreference } from "./renderer-permission-mode-preference.js";
+import {
+  claudeNewThreadPermissionMode,
+  readClaudePermissionModePreference,
+} from "./renderer-permission-mode-preference.js";
 import { isPermissionModeControlReady } from "./renderer-permission-mode-picker.js";
 import {
   readNewThreadAgentPreference,
@@ -1821,6 +1824,9 @@ export function installRendererBindingProbe(
               )
             : undefined;
         const preferredPermissionModeId =
+          (current.phase === "draft"
+            ? claudeNewThreadPermissionMode(agent, mounted.hostId, permissionModes)
+            : undefined) ??
           preferredConfiguration?.permissionModeId ??
           (agent === "claude-code" && mounted.hostId === "local"
             ? readClaudePermissionModePreference(permissionModes)

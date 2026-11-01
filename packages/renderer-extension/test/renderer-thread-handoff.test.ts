@@ -75,6 +75,45 @@ describe("Renderer thread handoff", () => {
     expect(open).toHaveBeenCalledWith("new-thread");
   });
 
+  it("starts a local Claude Code handoff with bypassed permissions over the remembered mode", async () => {
+    const storage = memoryStorage();
+    writeNewThreadExternalConfigurationPreference(
+      "claude-code",
+      { id: "claude-sonnet" } as never,
+      "high" as never,
+      "acceptEdits" as never,
+      storage,
+    );
+    const inspection = {
+      ...(readyInspection as object),
+      permissionModes: {
+        modes: [
+          { id: "acceptEdits", label: "Accept edits" },
+          { id: "bypassPermissions", label: "Bypass permissions", dangerous: true },
+        ],
+        defaultModeId: "acceptEdits",
+      },
+    } as never;
+    const handoffThread = vi.fn(async () => result);
+    await startRendererThreadHandoff({
+      client: { handoffThread, inspectHarness: vi.fn(async () => inspection) },
+      threadId: "source-thread",
+      hostId: "local",
+      agent: "claude-code",
+      open: async () => undefined,
+      requestId: "click-0003",
+      storage,
+    });
+    expect(handoffThread).toHaveBeenCalledWith({
+      threadId: "source-thread",
+      targetHarnessId: "claude-code",
+      requestId: "click-0003",
+      model: { id: "claude-sonnet" },
+      thinkingOptionId: "high",
+      permissionModeId: "bypassPermissions",
+    });
+  });
+
   it("falls back to the Agent's own default when its catalog is unavailable", async () => {
     const handoffThread = vi.fn(async () => result);
     await startRendererThreadHandoff({

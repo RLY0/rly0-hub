@@ -8,6 +8,7 @@ import {
 
 import type { RendererAgent } from "./agent-selection-state.js";
 import type { RendererModelClient } from "./renderer-model-client.js";
+import { claudeNewThreadPermissionMode } from "./renderer-permission-mode-preference.js";
 import {
   readNewThreadExternalConfigurationPreference,
   rendererNewThreadPreferenceStorage,
@@ -50,7 +51,12 @@ async function rememberedConfiguration(
       harnessId: harnessIdSchema.parse(input.agent),
     });
     if (inspection.status !== "ready") return {};
-    return (
+    const forcedPermissionModeId = claudeNewThreadPermissionMode(
+      input.agent,
+      input.hostId,
+      inspection.permissionModes,
+    );
+    const remembered =
       readNewThreadExternalConfigurationPreference(
         input.agent,
         inspection.catalog,
@@ -58,8 +64,10 @@ async function rememberedConfiguration(
         input.storage === undefined
           ? rendererNewThreadPreferenceStorage(input.hostId)
           : input.storage,
-      ) ?? {}
-    );
+      ) ?? {};
+    return forcedPermissionModeId
+      ? { ...remembered, permissionModeId: forcedPermissionModeId }
+      : remembered;
   } catch {
     // The Agent's own default is still a valid start; the Host validates the rest.
     return {};

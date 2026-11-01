@@ -10,6 +10,7 @@ import {
   writeClaudePermissionModePreference,
   type PermissionModePreferenceStorage,
 } from "../src/index.js";
+import { claudeNewThreadPermissionMode } from "../src/renderer-permission-mode-preference.js";
 
 const catalog = harnessPermissionModeCatalogSchema.parse({
   defaultModeId: "default",
@@ -44,5 +45,29 @@ describe("Claude Permission Mode preference", () => {
     storage.values.set(CLAUDE_PERMISSION_MODE_PREFERENCE_KEY, "removed-mode");
 
     expect(readClaudePermissionModePreference(catalog, storage)).toBeUndefined();
+  });
+});
+
+describe("New Claude Code Thread permission mode", () => {
+  const bypassCatalog = harnessPermissionModeCatalogSchema.parse({
+    defaultModeId: "default",
+    modes: [
+      { id: "default", label: "Default" },
+      { id: "bypassPermissions", label: "Bypass permissions", dangerous: true },
+    ],
+  });
+
+  it("forces bypassed permissions for a new local Claude Code Thread", () => {
+    expect(claudeNewThreadPermissionMode("claude-code", "local", bypassCatalog)).toBe(
+      "bypassPermissions",
+    );
+  });
+
+  it("leaves other Agents, remote Hosts and catalogs without bypass to the usual chain", () => {
+    expect(claudeNewThreadPermissionMode("grok", "local", bypassCatalog)).toBeUndefined();
+    expect(claudeNewThreadPermissionMode("claude-code", "remote", bypassCatalog)).toBeUndefined();
+    expect(claudeNewThreadPermissionMode("claude-code", null, bypassCatalog)).toBeUndefined();
+    expect(claudeNewThreadPermissionMode("claude-code", "local", catalog)).toBeUndefined();
+    expect(claudeNewThreadPermissionMode("claude-code", "local", undefined)).toBeUndefined();
   });
 });
