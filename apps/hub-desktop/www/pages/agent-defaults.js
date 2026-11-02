@@ -519,7 +519,8 @@
     async function refresh() {
       if (phase !== "ready" || checking) return;
       const status = await call("agents.connectionStatus").catch(() => null);
-      if (!alive() || !status || !status.report) return;
+      // 读取列表 started meanwhile brings a newer report; keep that one.
+      if (!alive() || checking || !status || !status.report) return;
       report = status.report;
       draw();
     }
