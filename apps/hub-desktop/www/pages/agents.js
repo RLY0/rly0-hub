@@ -333,16 +333,6 @@ window.registerHubAgents = ({
       h("section", { class: "agent-section official" }, officialHead, official),
       h("section", { class: "agent-section community" }, communityHead, community),
       h("details", { class: "agent-section more", "data-agent-more": "" }, moreHead, more),
-      // New-Thread permission / Model / thinking defaults per agent (pages/agent-defaults.js).
-      h(
-        "section",
-        { class: "agent-section defaults" },
-        h(
-          "div",
-          { class: "grid compact" },
-          window.renderAgentDefaults({ h, call, toast, failed, explain, alive }),
-        ),
-      ),
       h(
         "section",
         { class: "agent-section sharing" },
@@ -545,6 +535,20 @@ window.registerHubAgents = ({
         renderAccess(agent, access);
         access.prepend(connectionLine(agent));
       } else renderLocked(agent, access, element);
+      // New-Thread permission / Model / thinking defaults, right where the agent is (agent-defaults.js).
+      if (agent.installed)
+        body.append(
+          window.renderAgentDefaults({
+            h,
+            call,
+            toast,
+            failed,
+            explain,
+            alive,
+            agentId: agent.id,
+            agentName: agent.name,
+          }),
+        );
       if (agent.launchPath) body.append(launchPathEditor(agent));
       return element;
     }

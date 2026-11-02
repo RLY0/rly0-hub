@@ -118,6 +118,8 @@ interface Options {
   prefsFails?: boolean;
   status?: unknown;
   saveFails?: boolean;
+  agentId?: string;
+  agentName?: string;
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -152,6 +154,8 @@ async function mount(options: Options = {}) {
   };
   runInNewContext(source, { window });
   const card = window.renderAgentDefaults({
+    agentId: options.agentId ?? "claude-code",
+    agentName: options.agentName ?? "Claude Code",
     h,
     alive: () => true,
     toast: (text: string) => toasts.push(text),
@@ -205,7 +209,10 @@ async function mount(options: Options = {}) {
     expect(calls.some((c) => c.method.startsWith("prefs.codex"))).toBe(false);
     return calls.filter((c) => c.method === "prefs.agentDefaultsSet");
   };
-  return { card, calls, saves, toasts, dialogs, selectNamed, button, choose };
+  const otherCardSaves = async (agents: unknown) => {
+    saved = { version: 1, updatedAt: 3, agents };
+  };
+  return { card, calls, saves, toasts, dialogs, selectNamed, button, choose, otherCardSaves };
 }
 
 describe("Hub 新对话默认设置", () => {
@@ -214,9 +221,10 @@ describe("Hub 新对话默认设置", () => {
     expect(ui.card.text).toContain("没设置，沿用 RLY/0 默认：绕过权限");
     expect(ui.selectNamed("默认权限").text).toContain("不指定");
     expect(ui.selectNamed("默认权限").value).toBe("");
-    // The agent list skips agents that are neither installed nor reachable.
-    expect(ui.selectNamed("助手").text).toContain("OpenCode");
-    expect(ui.selectNamed("助手").text).not.toContain("Grok");
+    // The panel lives in the agent's own card: no agent picker, a one-line summary instead.
+    expect(() => ui.selectNamed("助手")).toThrow();
+    expect(ui.card.tag).toBe("details");
+    expect(ui.card.text).toContain("新对话默认 · 绕过权限（RLY/0 默认）");
   });
 
   it("saves a safe choice right away and keeps the other agents' defaults", async () => {
@@ -325,11 +333,11 @@ describe("Hub 新对话默认设置", () => {
     expect(none.card.text).toContain("还没读到 Claude Code 的模型和权限列表");
     expect(none.selectNamed("默认权限").disabled).toBe(true);
 
-    const ui = await mount();
-    await ui.choose("助手", "hermes");
-    expect(ui.card.text).toContain("Hermes 现在用不了（还没有可用的模型来源）");
-    await ui.choose("助手", "opencode");
-    expect(ui.card.text).toContain("不支持");
+    const hermes = await mount({ agentId: "hermes", agentName: "Hermes" });
+    expect(hermes.card.text).toContain("Hermes 现在用不了（还没有可用的模型来源）");
+    expect(hermes.card.text).toContain("新对话默认 · 未设置");
+    const opencode = await mount({ agentId: "opencode", agentName: "OpenCode" });
+    expect(opencode.card.text).toContain("不支持");
   });
 
   it("shows a read failure with a retry, and a save failure without losing the edit", async () => {
@@ -342,5 +350,33 @@ describe("Hub 新对话默认设置", () => {
     await ui.button("保存").fire("click");
     expect(ui.card.text).toContain("没保存上：设置没写进去");
     expect(ui.selectNamed("默认权限").value).toBe("plan");
+  });
+
+  it("summarises the saved values in the collapsed line and marks stale ones", async () => {
+    const ui = await mount({
+      prefs: {
+        updatedAt: 1,
+        agentDefaults: {
+          "claude-code": { permissionModeId: "plan", model: { id: "retired-model" } },
+        },
+      },
+    });
+    expect(ui.card.text).toContain("新对话默认 · 规划模式 · retired-model（已失效）");
+  });
+
+  it("saves on top of what another agent's card saved meanwhile", async () => {
+    const ui = await mount();
+    // Another card (OpenCode) saved after this one loaded.
+    await ui.otherCardSaves({ opencode: { model: { id: "gpt-5.5" } } });
+    await ui.choose("默认权限", "plan");
+    await ui.button("保存").fire("click");
+    expect(ui.saves().map((c) => c.params)).toEqual([
+      {
+        agents: {
+          opencode: { model: { id: "gpt-5.5" } },
+          "claude-code": { permissionModeId: "plan" },
+        },
+      },
+    ]);
   });
 });

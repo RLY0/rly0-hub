@@ -1,12 +1,16 @@
 "use strict";
-// AI 助手 → "新对话默认设置": the permission mode, Model and thinking level each new Thread of an
-// external agent starts with. The choices are the agent's own catalog, which the Codex side
+// AI 助手 → each installed agent's card → "新对话默认": the permission mode, Model and thinking
+// level each new Thread of that agent starts with. The choices are the agent's own catalog, which the Codex side
 // reports with its connection check (agents.connectionStatus / agents.checkConnections); the
 // values are saved in their own file (prefs.agentDefaultsSet → agent-defaults.json, never in
 // codex-preferences.json), and Codex copies them the next time its window gets focus
 // (renderer-agent-defaults.ts). Threads already started keep their own settings.
-window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
-  const card = h("section", { class: "m span-6 codex-prefs agent-defaults" });
+// One collapsed panel per agent card; the summary line shows what a new Thread will use.
+window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive, agentId, agentName }) => {
+  const card = h("details", { class: "isolation-panel agent-defaults" });
+  const summary = h("summary");
+  const body = h("div", { class: "agent-defaults-body" });
+  card.append(summary, body);
   const put = (element, ...items) =>
     element.replaceChildren(
       ...items
@@ -17,10 +21,9 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
   // Claude Code without a Hub default keeps the RLY/0 behaviour since 0.11.26 (no prompts).
   const CLAUDE_UNSET_PERMISSION = "bypassPermissions";
 
-  let agents = []; // [{ id, name }]
   let report = null; // last connection check from the Codex side
   let saved = {}; // agentId → { permissionModeId?, model?: { id }, thinkingOptionId? }
-  let current = "claude-code";
+  const current = agentId;
   let draft = {}; // edits for `current`, same shape as one saved entry
   let phase = "loading"; // loading | loadError | ready
   let saving = false;
@@ -34,7 +37,7 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
     const entry = report && report.agents && report.agents[id];
     return entry && entry.status === "ready" ? entry.configuration || null : null;
   };
-  const nameOf = (id) => (agents.find((agent) => agent.id === id) || { name: id }).name;
+  const nameOf = () => agentName || agentId;
   const thinkingFor = (catalog, modelId) => {
     const model = catalog.models.find(
       (m) => m.ref.id === modelId || (m.fastModel || {}).id === modelId,
@@ -247,14 +250,60 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
     return `${name} 现在用不了（${why}），拿不到它的列表。登录或修好后点“读取列表”。`;
   }
 
+  // Collapsed line: the values a new Thread starts with, or 未设置.
+  function summaryText() {
+    const configuration = configurationOf(current);
+    const entry = saved[current] || {};
+    const parts = [];
+    const modes = configuration && configuration.permissionModes;
+    const mode =
+      modes && entry.permissionModeId && modes.modes.find((m) => m.id === entry.permissionModeId);
+    if (entry.permissionModeId)
+      parts.push(
+        mode || !modes
+          ? mode
+            ? modeLabel(mode)
+            : entry.permissionModeId
+          : `${entry.permissionModeId}（已失效）`,
+      );
+    else if (current === "claude-code") parts.push("绕过权限（RLY/0 默认）");
+    const catalog = configuration && configuration.catalog;
+    if (entry.model) {
+      const model =
+        catalog &&
+        catalog.models.find(
+          (m) => m.ref.id === entry.model.id || (m.fastModel || {}).id === entry.model.id,
+        );
+      parts.push(model ? model.label : catalog ? `${entry.model.id}（已失效）` : entry.model.id);
+    }
+    if (entry.thinkingOptionId) {
+      const option =
+        catalog && catalog.thinkingOptions.find((o) => o.id === entry.thinkingOptionId);
+      parts.push(
+        option
+          ? option.label
+          : catalog
+            ? `${entry.thinkingOptionId}（已失效）`
+            : entry.thinkingOptionId,
+      );
+    }
+    return parts.length ? parts.join(" · ") : "未设置";
+  }
+
   function draw() {
+    summary.replaceChildren(
+      phase === "loading"
+        ? "新对话默认 · 读取中…"
+        : phase === "loadError"
+          ? "新对话默认 · 读取失败"
+          : `新对话默认 · ${summaryText()}`,
+    );
     const head = h(
       "div",
       { class: "row defaults-head" },
       h(
         "div",
         { class: "mod-title" },
-        h("b", null, "新对话默认设置"),
         h("span", null, "新开的对话按这里预选；已开的对话不变，对话里仍可临时改"),
       ),
       h("span", { class: "spacer" }),
@@ -270,12 +319,12 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
       ),
     );
     if (phase === "loading") {
-      put(card, head, h("p", { class: "sub", role: "status" }, "正在读取默认设置…"));
+      put(body, head, h("p", { class: "sub", role: "status" }, "正在读取默认设置…"));
       return;
     }
     if (phase === "loadError") {
       put(
-        card,
+        body,
         head,
         h(
           "div",
@@ -287,22 +336,10 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
       return;
     }
     const configuration = configurationOf(current);
-    const choices = agents.map((agent) => [agent.id, agent.name]);
     const changed = dirty();
     put(
-      card,
+      body,
       head,
-      row(
-        "助手",
-        "要设置哪个助手",
-        "每个助手有自己的权限、模型和思考等级",
-        select("助手", current, choices, (v) => {
-          current = v;
-          draft = clean(saved[current] || {});
-          saveError = "";
-          draw();
-        }),
-      ),
       configuration
         ? null
         : h("p", { class: "sub defaults-problem", role: "status" }, unavailableNote()),
@@ -393,7 +430,11 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
       if (!(await confirmDangerous(mode))) return;
       if (!alive()) return;
     }
-    const next = { ...saved };
+    // Other agent cards save to the same file; start from what is on disk now.
+    const latest = await call("prefs.agentDefaultsGet").catch(() => null);
+    if (!alive()) return;
+    const base = (latest && latest.agentDefaults && latest.agentDefaults.agents) || saved;
+    const next = { ...base };
     if (Object.keys(entry).length) next[current] = entry;
     else delete next[current];
     saving = true;
@@ -433,12 +474,11 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
   async function load() {
     phase = "loading";
     draw();
-    const [prefs, list, status] = await Promise.all([
+    const [prefs, status] = await Promise.all([
       call("prefs.agentDefaultsGet").then(
         (value) => ({ value }),
         () => null,
       ),
-      call("agents.list").catch(() => null),
       call("agents.connectionStatus").catch(() => null),
     ]);
     if (!alive()) return;
@@ -449,27 +489,6 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
     }
     saved = (prefs.value && prefs.value.agentDefaults && prefs.value.agentDefaults.agents) || {};
     report = (status && status.report) || null;
-    // Claude Code first; then installed agents, agents Codex reached, and agents with a saved value.
-    const listed = ((list && list.agents) || []).filter(
-      (agent) =>
-        agent.id === "claude-code" ||
-        agent.installed ||
-        configurationOf(agent.id) ||
-        saved[agent.id],
-    );
-    const ids = new Set(listed.map((agent) => agent.id));
-    agents = [
-      { id: "claude-code", name: "Claude Code" },
-      ...listed
-        .filter((agent) => agent.id !== "claude-code")
-        .map((a) => ({ id: a.id, name: a.name })),
-      ...Object.keys(saved)
-        .filter((id) => id !== "claude-code" && !ids.has(id))
-        .map((id) => ({ id, name: id })),
-    ];
-    const claude = listed.find((agent) => agent.id === "claude-code");
-    if (claude) agents[0].name = claude.name;
-    if (!agents.some((agent) => agent.id === current)) current = "claude-code";
     draft = clean(saved[current] || {});
     phase = "ready";
     draw();
