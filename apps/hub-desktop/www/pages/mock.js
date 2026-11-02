@@ -164,14 +164,19 @@ window.hubManagementMock = (() => {
   let trash = [];
   const launchPaths = {};
   // 设置 → 通用 → Codex 里: soft wrap on, the rest as Codex's defaults.
-  // 演示数据 (preview only). Kept in sessionStorage so a page reload in the preview shows what
-  // was saved; the opencode default names a retired Model to show the 已失效 state.
-  const PREFS_KEY = "rly0-hub-mock.codex-prefs";
   let codexPrefs = { updatedAt: 1, reasoningSoftWrap: true };
-  codexPrefs.agentDefaults = { opencode: { model: { id: "gpt-4.1-retired" } } };
+  // AI 助手 → 新对话默认设置, 演示数据 (preview only; agent-defaults.json in the real service).
+  // Kept in sessionStorage so a page reload in the preview shows what was saved; the opencode
+  // default names a retired Model to show the 已失效 state.
+  const AGENT_DEFAULTS_KEY = "rly0-hub-mock.agent-defaults";
+  let agentDefaults = {
+    version: 1,
+    updatedAt: 1,
+    agents: { opencode: { model: { id: "gpt-4.1-retired" } } },
+  };
   try {
-    const kept = JSON.parse(sessionStorage.getItem(PREFS_KEY) || "null");
-    if (kept && typeof kept === "object") codexPrefs = kept;
+    const kept = JSON.parse(sessionStorage.getItem(AGENT_DEFAULTS_KEY) || "null");
+    if (kept && typeof kept === "object") agentDefaults = kept;
   } catch {
     // Preview without storage: start from the fixture.
   }
@@ -581,21 +586,22 @@ window.hubManagementMock = (() => {
         launchPaths[p.agent] = p.path;
         return { path: p.path, restartRequired: true };
       case "prefs.codexGet":
-        if (defaultsCase === "loadError") return { __error: "HUB_ERROR" };
-        return { preferences: codexPrefs, __delay: defaultsCase === "slow" ? 4000 : undefined };
+        return { preferences: codexPrefs };
       case "prefs.codexSet":
-        if (defaultsCase === "saveError" && p.agentDefaults)
-          return { __error: "CODEX_PREFERENCES_FAILED" };
         codexPrefs = { ...(codexPrefs || {}), ...p, updatedAt: Date.now() };
+        return { preferences: codexPrefs };
+      case "prefs.agentDefaultsGet":
+        if (defaultsCase === "loadError") return { __error: "HUB_ERROR" };
+        return { agentDefaults, __delay: defaultsCase === "slow" ? 4000 : undefined };
+      case "prefs.agentDefaultsSet":
+        if (defaultsCase === "saveError") return { __error: "CODEX_PREFERENCES_FAILED" };
+        agentDefaults = { version: 1, updatedAt: Date.now(), agents: p.agents };
         try {
-          sessionStorage.setItem(PREFS_KEY, JSON.stringify(codexPrefs));
+          sessionStorage.setItem(AGENT_DEFAULTS_KEY, JSON.stringify(agentDefaults));
         } catch {
           // Preview without storage keeps the value until reload.
         }
-        return {
-          preferences: codexPrefs,
-          __delay: p.agentDefaults ? 700 : undefined,
-        };
+        return { agentDefaults, __delay: 700 };
       case "agents.connectionStatus":
         return { report: defaultsCase === "noCatalog" ? null : agentReport() };
       case "agents.checkConnections":

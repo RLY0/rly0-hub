@@ -4,7 +4,6 @@ import {
   CODEX_PREFERENCES_APPLIED_STORAGE_KEY,
   applyCodexPreferences,
 } from "../src/renderer-codex-preferences.js";
-import { RLY0_AGENT_DEFAULTS_STORAGE_KEY } from "../src/renderer-agent-defaults.js";
 
 function owner() {
   const store = new Map<string, string>();
@@ -57,29 +56,5 @@ describe("Codex preferences set in the Hub window", () => {
     expect(f.store.get("codexhost.rly0-accent.v1")).toBe("rose");
     expect(f.store.get("codexhost.rly0-quota-refresh.v1")).toBe("30s");
     expect(applyCodexPreferences(f.window, null)).toBe(false);
-  });
-
-  it("copies the Hub's new-Thread defaults whole, so a cleared Agent disappears", () => {
-    const f = owner();
-    const first = {
-      updatedAt: 20,
-      agentDefaults: {
-        "claude-code": { permissionModeId: "plan", model: { id: "opus" } },
-        opencode: { model: { id: "gpt-5.5" } },
-      },
-    } as never;
-    expect(applyCodexPreferences(f.window, first)).toBe(true);
-    expect(JSON.parse(f.store.get(RLY0_AGENT_DEFAULTS_STORAGE_KEY) ?? "null")).toEqual({
-      "claude-code": { permissionModeId: "plan", model: { id: "opus" } },
-      opencode: { model: { id: "gpt-5.5" } },
-    });
-    const cleared = { updatedAt: 21, agentDefaults: { opencode: { model: { id: "gpt-5.5" } } } };
-    expect(applyCodexPreferences(f.window, cleared as never)).toBe(true);
-    expect(JSON.parse(f.store.get(RLY0_AGENT_DEFAULTS_STORAGE_KEY) ?? "null")).toEqual({
-      opencode: { model: { id: "gpt-5.5" } },
-    });
-    // A later change without agentDefaults leaves them as they are.
-    expect(applyCodexPreferences(f.window, { updatedAt: 22, quotaRefresh: "1m" })).toBe(true);
-    expect(f.store.get(RLY0_AGENT_DEFAULTS_STORAGE_KEY)).toContain("opencode");
   });
 });

@@ -183,7 +183,7 @@ import { Rly0McpManager, rly0McpRpcError } from "./rly0-mcp/index.js";
 import { Rly0SkillsManager, rly0SkillsRpcError } from "./rly0-skills/index.js";
 import { Rly0ThreadsManager, rly0ThreadsRpcError } from "./rly0-threads/index.js";
 import { Rly0DashboardManager, rly0DashboardRpcError } from "./rly0-dashboard/index.js";
-import { readCodexPreferences } from "./rly0-appearance/codex-preferences.js";
+import { codexPreferencesGetResult } from "./rly0-appearance/agent-defaults.js";
 import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "./rly0-maintenance/index.js";
 import { Rly0AppearanceManager, rly0AppearanceRpcError } from "./rly0-appearance/index.js";
 import {
@@ -2379,14 +2379,17 @@ export class AppServerHost {
     if (request.method === RLY0_CODEX_PREFERENCES_GET_METHOD) {
       // Codex-side preferences set in the Hub window (设置 → 通用); read-only here.
       this.#dispatchDesktopRequest(async () => {
-        if (!rly0CodexPreferencesGetParamsSchema.safeParse(request.params ?? {}).success) {
+        const params = rly0CodexPreferencesGetParamsSchema.safeParse(request.params ?? {});
+        if (!params.success) {
           await this.#writer.json(rpcError(request, -32602, "Invalid preferences params"));
           return;
         }
-        const preferences = await readCodexPreferences(this.#options.environment ?? process.env);
-        await this.#writer.json(
-          rpcEnvelope(request, { result: jsonValueSchema.parse({ preferences }) }),
+        // New-Thread defaults ride along only for a renderer that asks (agent-defaults.ts).
+        const result = await codexPreferencesGetResult(
+          this.#options.environment ?? process.env,
+          params.data,
         );
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(result) }));
       });
       return;
     }

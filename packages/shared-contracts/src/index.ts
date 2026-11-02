@@ -820,8 +820,11 @@ export {
   RLY0_CODEX_PREFERENCES_FILE,
   RLY0_CODEX_ACCENT_COLORS,
   RLY0_CODEX_QUOTA_REFRESH,
+  RLY0_AGENT_DEFAULTS_FILE,
   RLY0_AGENT_DEFAULTS_MAX_AGENTS,
+  rly0AgentDefaultsFileSchema,
   rly0AgentDefaultsSchema,
+  rly0AgentDefaultsSetParamsSchema,
   rly0AgentNewThreadDefaultsSchema,
   rly0CodexPreferenceValuesSchema,
   rly0CodexPreferencesSchema,
@@ -830,7 +833,9 @@ export {
 } from "./rly0-codex-preferences.js";
 export type {
   Rly0AgentDefaults,
+  Rly0AgentDefaultsFile,
   Rly0AgentNewThreadDefaults,
+  Rly0CodexPreferencesGetParams,
   Rly0CodexPreferenceValues,
   Rly0CodexPreferences,
   Rly0CodexPreferencesGetResult,

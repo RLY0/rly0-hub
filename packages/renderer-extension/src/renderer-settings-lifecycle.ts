@@ -38,7 +38,12 @@ import {
   showHubUnavailableNotice,
   type HubUnavailableNotice,
 } from "./settings/hub-routing.js";
-import type { Rly0CodexPreferences, Rly0HubPage } from "@codexhost/shared-contracts";
+import type {
+  Rly0AgentDefaultsFile,
+  Rly0CodexPreferences,
+  Rly0HubPage,
+} from "@codexhost/shared-contracts";
+import { applyHubAgentDefaults } from "./renderer-agent-defaults.js";
 import { applyCodexPreferences } from "./renderer-codex-preferences.js";
 import {
   installRendererSettingsRailTrigger,
@@ -51,7 +56,10 @@ export const RLY0_WELCOME_STORAGE_KEY = "rly0-hub:welcome-shown";
 
 export interface RendererHubClient {
   rly0HubStatus?(): Promise<{ available: boolean }>;
-  rly0CodexPreferences?(): Promise<{ preferences: Rly0CodexPreferences | null }>;
+  rly0CodexPreferences?(): Promise<{
+    preferences: Rly0CodexPreferences | null;
+    agentDefaults?: Rly0AgentDefaultsFile | null | undefined;
+  }>;
   rly0OpenHub?(params?: { page?: Rly0HubPage }): Promise<{ available: boolean; ok: boolean }>;
 }
 
@@ -287,7 +295,9 @@ export function installRendererSettingsLifecycle(
     const request = client
       .rly0CodexPreferences()
       .then((result) => {
-        if (!disposed) applyCodexPreferences(ownerWindow, result.preferences);
+        if (disposed) return;
+        applyCodexPreferences(ownerWindow, result.preferences);
+        applyHubAgentDefaults(ownerWindow, result.agentDefaults);
       })
       .catch(() => undefined)
       .finally(() => {

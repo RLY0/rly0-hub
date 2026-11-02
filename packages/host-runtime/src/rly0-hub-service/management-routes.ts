@@ -11,6 +11,7 @@ import {
   rly0SkillsRestoreParamsSchema,
   rly0ThreadsListParamsSchema,
   rly0ThreadsMoveParamsSchema,
+  rly0AgentDefaultsSetParamsSchema,
   rly0CodexPreferenceValuesSchema,
 } from "@codexhost/shared-contracts";
 import { spawn } from "node:child_process";
@@ -35,6 +36,7 @@ import {
   readCodexPreferences,
   writeCodexPreferences,
 } from "../rly0-appearance/codex-preferences.js";
+import { readAgentDefaults, writeAgentDefaults } from "../rly0-appearance/agent-defaults.js";
 import type { HostUpdateCoordinator } from "../update-coordinator.js";
 import { checkHubUpdate } from "./update-check.js";
 import type { Rly0CodexControl } from "./codex-control.js";
@@ -206,6 +208,17 @@ export function createHubManagementRoutes(options: {
     "prefs.codexSet": route(
       rly0CodexPreferenceValuesSchema,
       async (p) => ({ preferences: await writeCodexPreferences(environment, p) }),
+      codexPrefsRpcError,
+    ),
+    // AI 助手 → 新对话默认设置: its own file, so codex-preferences.json keeps the old format.
+    "prefs.agentDefaultsGet": route(
+      empty,
+      async () => ({ agentDefaults: await readAgentDefaults(environment) }),
+      codexPrefsRpcError,
+    ),
+    "prefs.agentDefaultsSet": route(
+      rly0AgentDefaultsSetParamsSchema,
+      async (p) => ({ agentDefaults: await writeAgentDefaults(environment, p.agents) }),
       codexPrefsRpcError,
     ),
     // 首页 → Codex 概况 (the former in-Codex 仪表盘): session totals and the 12-week activity.

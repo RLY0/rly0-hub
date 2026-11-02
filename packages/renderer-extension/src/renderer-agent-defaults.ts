@@ -8,6 +8,7 @@ import {
   type HarnessPermissionModeId,
   type HarnessThinkingOptionId,
   type Rly0AgentDefaults,
+  type Rly0AgentDefaultsFile,
   type Rly0AgentNewThreadDefaults,
 } from "@codexhost/shared-contracts";
 
@@ -16,9 +17,10 @@ import { thinkingOptionsForModel } from "./renderer-model-picker.js";
 import { claudeNewThreadPermissionMode } from "./renderer-permission-mode-preference.js";
 
 /**
- * New-Thread defaults set in the RLY/0 Hub window (AI 助手 → 新对话默认设置). The Hub saves them
- * with its Codex preferences; `applyCodexPreferences` copies them here, and every new local Thread
- * of that Agent starts with them. Started Threads keep their own configuration.
+ * New-Thread defaults set in the RLY/0 Hub window (AI 助手 → 新对话默认设置). The Hub saves them in
+ * `agent-defaults.json`; the Host hands them over with the Codex preferences and
+ * `applyHubAgentDefaults` copies them here, so every new local Thread of that Agent starts with
+ * them. Started Threads keep their own configuration.
  */
 export const RLY0_AGENT_DEFAULTS_STORAGE_KEY = "codexhost.rly0-agent-defaults.v1";
 
@@ -45,6 +47,24 @@ export function writeHubAgentDefaults(
   } catch {
     // The renderer keeps its remembered choices when storage is unavailable.
   }
+}
+
+/**
+ * Mirrors what the Host reported: null (no file, or unreadable) clears the copy, undefined (a Host
+ * that does not report them) leaves it alone.
+ */
+export function applyHubAgentDefaults(
+  owner: Window,
+  file: Rly0AgentDefaultsFile | null | undefined,
+): void {
+  if (file === undefined) return;
+  let storage: AgentDefaultsStorage | null;
+  try {
+    storage = owner.localStorage;
+  } catch {
+    return;
+  }
+  writeHubAgentDefaults(storage, file?.agents ?? {});
 }
 
 /** The Hub defaults for one Agent. Only local Threads use them: the Hub configures this computer. */

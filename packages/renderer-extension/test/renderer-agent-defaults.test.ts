@@ -5,15 +5,17 @@ import {
   type HarnessPermissionModeId,
   type HarnessThinkingOptionId,
 } from "@codexhost/shared-contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   RLY0_AGENT_DEFAULTS_STORAGE_KEY,
+  applyHubAgentDefaults,
   newThreadPermissionModeDefault,
   readHubAgentDefaults,
   withHubModelDefaults,
   writeHubAgentDefaults,
 } from "../src/renderer-agent-defaults.js";
+import { createRendererModelClient } from "../src/renderer-model-client.js";
 
 const catalog = harnessModelCatalogSchema.parse({
   models: [
@@ -196,5 +198,59 @@ describe("Hub new-Thread defaults in the renderer", () => {
         permissionModeId: mode("plan"),
       }),
     ).toBeUndefined();
+  });
+
+  it("mirrors the Host's report: whole map, cleared on null, untouched by an older Host", () => {
+    const storage = memoryStorage();
+    const owner = { localStorage: storage } as unknown as Window;
+    applyHubAgentDefaults(owner, {
+      version: 1,
+      updatedAt: 5,
+      agents: {
+        "claude-code": { permissionModeId: mode("plan") },
+        opencode: { model: model("gpt-5.5") },
+      },
+    });
+    expect(readHubAgentDefaults("claude-code", "local", storage)).toEqual({
+      permissionModeId: "plan",
+    });
+    applyHubAgentDefaults(owner, {
+      version: 1,
+      updatedAt: 6,
+      agents: { opencode: { model: model("gpt-5.5") } },
+    });
+    expect(readHubAgentDefaults("claude-code", "local", storage)).toBeUndefined();
+    expect(readHubAgentDefaults("opencode", "local", storage)).toEqual({
+      model: { id: "gpt-5.5" },
+    });
+    // A Host that does not report defaults leaves the last copy alone.
+    applyHubAgentDefaults(owner, undefined);
+    expect(readHubAgentDefaults("opencode", "local", storage)).toBeDefined();
+    // No file (or an unreadable one) on the Hub side means nothing is set.
+    applyHubAgentDefaults(owner, null);
+    expect(JSON.parse(storage.values.get(RLY0_AGENT_DEFAULTS_STORAGE_KEY) ?? "null")).toEqual({});
+    expect(readHubAgentDefaults("opencode", "local", storage)).toBeUndefined();
+  });
+
+  it("asks the Host for the defaults and falls back to the plain request on an older Host", async () => {
+    const preferences = { updatedAt: 3, reasoningSoftWrap: true };
+    const agentDefaults = { version: 1, updatedAt: 4, agents: {} };
+    const sendRequest = vi.fn().mockResolvedValue({ preferences, agentDefaults });
+    const client = createRendererModelClient([{ sendRequest }]);
+    await expect(client?.rly0CodexPreferences?.()).resolves.toEqual({
+      preferences,
+      agentDefaults,
+    });
+    expect(sendRequest).toHaveBeenCalledExactlyOnceWith("codexhost/rly0/codexPreferences/get", {
+      agentDefaults: true,
+    });
+
+    const older = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Invalid preferences params"))
+      .mockResolvedValueOnce({ preferences });
+    const olderClient = createRendererModelClient([{ sendRequest: older }]);
+    await expect(olderClient?.rly0CodexPreferences?.()).resolves.toEqual({ preferences });
+    expect(older).toHaveBeenLastCalledWith("codexhost/rly0/codexPreferences/get", {});
   });
 });

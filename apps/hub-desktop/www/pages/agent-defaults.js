@@ -2,9 +2,9 @@
 // AI 助手 → "新对话默认设置": the permission mode, Model and thinking level each new Thread of an
 // external agent starts with. The choices are the agent's own catalog, which the Codex side
 // reports with its connection check (agents.connectionStatus / agents.checkConnections); the
-// values are saved with the Codex preferences (prefs.codexSet → agentDefaults), and Codex copies
-// them the next time its window gets focus (renderer-codex-preferences.ts). Threads already
-// started keep their own settings.
+// values are saved in their own file (prefs.agentDefaultsSet → agent-defaults.json, never in
+// codex-preferences.json), and Codex copies them the next time its window gets focus
+// (renderer-agent-defaults.ts). Threads already started keep their own settings.
 window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
   const card = h("section", { class: "m span-6 codex-prefs agent-defaults" });
   const put = (element, ...items) =>
@@ -136,7 +136,12 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
         "这个助手没有可选的模型",
         h("span", { class: "sub" }, "不支持"),
       );
-    const listed = catalog && value && catalog.models.find((m) => m.ref.id === value);
+    // Same match as Codex (catalogModelForRef): a Model's fast variant id also counts.
+    const listed =
+      catalog &&
+      value &&
+      catalog.models.find((m) => m.ref.id === value || (m.fastModel || {}).id === value);
+    const fast = listed && listed.ref.id !== value;
     const fallback =
       catalog &&
       catalog.defaultModel &&
@@ -145,7 +150,7 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
     let note = null;
     if (catalog)
       note = listed
-        ? effective(`新对话用：${listed.label}`)
+        ? effective(`新对话用：${listed.label}${fast ? "（Fast）" : ""}`)
         : value
           ? effective(
               `列表里已没有「${value}」，新对话改用上次的选择，没有就用${fallbackText}`,
@@ -154,6 +159,7 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
           : effective(`没设置，沿用上次的选择，没有就用${fallbackText}`);
     const options = [["", "不指定"]];
     if (catalog) options.push(...catalog.models.map((m) => [m.ref.id, m.label]));
+    if (fast) options.push([value, `${listed.label}（Fast）`]);
     if (value && !listed) options.push([value, `${value}（已失效）`]);
     return row(
       "默认模型",
@@ -394,9 +400,9 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
     saveError = "";
     draw();
     try {
-      const result = await call("prefs.codexSet", { agentDefaults: next });
+      const result = await call("prefs.agentDefaultsSet", { agents: next });
       if (!alive()) return;
-      saved = (result && result.preferences && result.preferences.agentDefaults) || next;
+      saved = (result && result.agentDefaults && result.agentDefaults.agents) || next;
       draft = clean(saved[current] || {});
       toast("已保存，回到 Codex 后新开的对话生效");
     } catch (error) {
@@ -428,7 +434,7 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
     phase = "loading";
     draw();
     const [prefs, list, status] = await Promise.all([
-      call("prefs.codexGet").then(
+      call("prefs.agentDefaultsGet").then(
         (value) => ({ value }),
         () => null,
       ),
@@ -441,7 +447,7 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive }) => {
       draw();
       return;
     }
-    saved = (prefs.value && prefs.value.preferences && prefs.value.preferences.agentDefaults) || {};
+    saved = (prefs.value && prefs.value.agentDefaults && prefs.value.agentDefaults.agents) || {};
     report = (status && status.report) || null;
     // Claude Code first; then installed agents, agents Codex reached, and agents with a saved value.
     const listed = ((list && list.agents) || []).filter(

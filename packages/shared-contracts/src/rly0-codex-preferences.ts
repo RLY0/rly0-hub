@@ -24,10 +24,14 @@ export const RLY0_CODEX_ACCENT_COLORS = [
 export const RLY0_CODEX_QUOTA_REFRESH = ["30s", "1m", "3m", "5m"] as const;
 
 /**
- * What a new Thread of one external Agent starts with (设置 → AI 助手 → 新对话默认设置). Values are
- * that Agent's own catalog ids; an id the current catalog no longer lists is ignored by the
- * renderer, which then keeps its remembered choice or the Agent's own default.
+ * What a new Thread of one external Agent starts with (AI 助手 → 新对话默认设置). Values are that
+ * Agent's own catalog ids; an id the current catalog no longer lists is ignored by the renderer,
+ * which then keeps its remembered choice or the Agent's own default. They live in their own file
+ * (`agent-defaults.json`), never in `codex-preferences.json`, whose strict format older builds
+ * still read.
  */
+export const RLY0_AGENT_DEFAULTS_FILE = "agent-defaults.json";
+
 export const rly0AgentNewThreadDefaultsSchema = z
   .object({
     permissionModeId: harnessPermissionModeIdSchema.optional(),
@@ -51,6 +55,20 @@ export const rly0AgentDefaultsSchema = z
   });
 export type Rly0AgentDefaults = z.infer<typeof rly0AgentDefaultsSchema>;
 
+export const rly0AgentDefaultsFileSchema = z
+  .object({
+    version: z.literal(1),
+    updatedAt: z.number().int().nonnegative(),
+    agents: rly0AgentDefaultsSchema,
+  })
+  .strict();
+export type Rly0AgentDefaultsFile = z.infer<typeof rly0AgentDefaultsFileSchema>;
+
+/** Hub → service: the whole map replaces the saved one, so a cleared Agent disappears. */
+export const rly0AgentDefaultsSetParamsSchema = z
+  .object({ agents: rly0AgentDefaultsSchema })
+  .strict();
+
 export const rly0CodexPreferenceValuesSchema = z
   .object({
     /** Wrap long reasoning lines in Codex transcripts. */
@@ -66,8 +84,6 @@ export const rly0CodexPreferenceValuesSchema = z
       .optional(),
     /** Release idle external agent processes. */
     idleRelease: idleReleaseSettingsSchema.optional(),
-    /** New-Thread defaults per external Agent; saved whole, so a cleared Agent disappears. */
-    agentDefaults: rly0AgentDefaultsSchema.optional(),
   })
   .strict();
 export type Rly0CodexPreferenceValues = z.infer<typeof rly0CodexPreferenceValuesSchema>;
@@ -77,8 +93,19 @@ export const rly0CodexPreferencesSchema = rly0CodexPreferenceValuesSchema
   .strict();
 export type Rly0CodexPreferences = z.infer<typeof rly0CodexPreferencesSchema>;
 
-export const rly0CodexPreferencesGetParamsSchema = z.object({}).strict();
+/**
+ * `agentDefaults: true` asks for the new-Thread defaults as a sibling field. Renderers before
+ * 0.11.28 send `{}` and parse the result strictly, so they only ever receive `preferences`.
+ */
+export const rly0CodexPreferencesGetParamsSchema = z
+  .object({ agentDefaults: z.literal(true).optional() })
+  .strict();
+export type Rly0CodexPreferencesGetParams = z.infer<typeof rly0CodexPreferencesGetParamsSchema>;
 export const rly0CodexPreferencesGetResultSchema = z
-  .object({ preferences: rly0CodexPreferencesSchema.nullable() })
+  .object({
+    preferences: rly0CodexPreferencesSchema.nullable(),
+    /** Present only when asked for; null when none were set or the file is unreadable. */
+    agentDefaults: rly0AgentDefaultsFileSchema.nullable().optional(),
+  })
   .strict();
 export type Rly0CodexPreferencesGetResult = z.infer<typeof rly0CodexPreferencesGetResultSchema>;

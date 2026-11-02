@@ -1149,9 +1149,17 @@ export function createRendererModelClient(
     },
 
     async rly0CodexPreferences(): Promise<Rly0CodexPreferencesGetResult> {
-      return rly0CodexPreferencesGetResultSchema.parse(
-        await manager.sendRequest(RLY0_CODEX_PREFERENCES_GET_METHOD, {}),
-      );
+      // Ask for the new-Thread defaults too; a Host before 0.11.28 rejects the parameter, and
+      // then the plain request still brings the Codex preferences.
+      let raw: unknown;
+      try {
+        raw = await manager.sendRequest(RLY0_CODEX_PREFERENCES_GET_METHOD, {
+          agentDefaults: true,
+        });
+      } catch {
+        raw = await manager.sendRequest(RLY0_CODEX_PREFERENCES_GET_METHOD, {});
+      }
+      return rly0CodexPreferencesGetResultSchema.parse(raw);
     },
     async rly0OpenHub(params: Rly0HubOpenParams = {}): Promise<Rly0HubOpenResult> {
       return rly0HubOpenResultSchema.parse(

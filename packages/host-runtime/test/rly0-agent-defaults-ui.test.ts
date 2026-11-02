@@ -126,7 +126,12 @@ async function mount(options: Options = {}) {
   const calls: { method: string; params: unknown }[] = [];
   const toasts: string[] = [];
   const dialogs: { body: Element; foot: Element; close: () => void; title: string }[] = [];
-  let saved = (options.prefs ?? { updatedAt: 1 }) as Record<string, unknown>;
+  // `prefs` keeps the old fixture shape ({ agentDefaults }); the service file is { agents }.
+  const initial = (options.prefs ?? {}) as { agentDefaults?: unknown };
+  let saved: unknown =
+    initial.agentDefaults === undefined
+      ? null
+      : { version: 1, updatedAt: 1, agents: initial.agentDefaults };
   const h = (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) =>
     new Element(tag, props ?? {}, children);
   const window = {
@@ -155,14 +160,14 @@ async function mount(options: Options = {}) {
       code === "CODEX_PREFERENCES_FAILED" ? "设置没写进去" : "操作没有成功",
     call: async (method: string, params: unknown) => {
       calls.push({ method, params: structuredClone(params) });
-      if (method === "prefs.codexGet") {
+      if (method === "prefs.agentDefaultsGet") {
         if (options.prefsFails) throw new Error("HUB_ERROR");
-        return { preferences: saved };
+        return { agentDefaults: saved };
       }
-      if (method === "prefs.codexSet") {
+      if (method === "prefs.agentDefaultsSet") {
         if (options.saveFails) throw new Error("CODEX_PREFERENCES_FAILED");
-        saved = { ...saved, ...(params as object), updatedAt: 2 };
-        return { preferences: saved };
+        saved = { version: 1, updatedAt: 2, agents: (params as { agents: unknown }).agents };
+        return { agentDefaults: saved };
       }
       if (method === "agents.list")
         return {
@@ -195,7 +200,11 @@ async function mount(options: Options = {}) {
     element.value = value;
     await element.fire("change");
   };
-  const saves = () => calls.filter((c) => c.method === "prefs.codexSet");
+  const saves = () => {
+    // The card never rewrites codex-preferences.json.
+    expect(calls.some((c) => c.method.startsWith("prefs.codex"))).toBe(false);
+    return calls.filter((c) => c.method === "prefs.agentDefaultsSet");
+  };
   return { card, calls, saves, toasts, dialogs, selectNamed, button, choose };
 }
 
@@ -222,7 +231,7 @@ describe("Hub 新对话默认设置", () => {
     expect(ui.dialogs).toHaveLength(0);
     expect(ui.saves().map((c) => c.params)).toEqual([
       {
-        agentDefaults: {
+        agents: {
           opencode: { model: { id: "gpt-5.5" } },
           "claude-code": {
             permissionModeId: "plan",
@@ -261,7 +270,7 @@ describe("Hub 新对话默认设置", () => {
     await ui.button("确认并保存", ui.dialogs[1]?.foot).fire("click");
     await confirmed;
     expect(ui.saves().map((c) => c.params)).toEqual([
-      { agentDefaults: { "claude-code": { permissionModeId: "bypassPermissions" } } },
+      { agents: { "claude-code": { permissionModeId: "bypassPermissions" } } },
     ]);
   });
 
@@ -291,6 +300,24 @@ describe("Hub 新对话默认设置", () => {
     expect(ui.card.text).toContain("列表里已没有「retired-model」");
     expect(ui.card.text).toContain("列表里已没有「retired-mode」");
     expect(ui.selectNamed("默认模型").text).toContain("retired-model（已失效）");
+  });
+
+  it("accepts a saved fast-model id the way Codex does, not as 已失效", async () => {
+    const original = claudeConfiguration.catalog.models[0];
+    claudeConfiguration.catalog.models[0] = {
+      ...original,
+      fastModel: { id: "opus-fast" },
+    } as never;
+    try {
+      const ui = await mount({
+        prefs: { updatedAt: 1, agentDefaults: { "claude-code": { model: { id: "opus-fast" } } } },
+      });
+      expect(ui.card.text).not.toContain("已失效");
+      expect(ui.card.text).toContain("新对话用：Opus（Fast）");
+      expect(ui.selectNamed("默认模型").value).toBe("opus-fast");
+    } finally {
+      claudeConfiguration.catalog.models[0] = original as never;
+    }
   });
 
   it("explains agents without a catalog: not read yet, or not usable", async () => {
