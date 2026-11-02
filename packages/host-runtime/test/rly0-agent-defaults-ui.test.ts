@@ -155,6 +155,10 @@ async function mount(options: Options = {}) {
     },
   };
   runInNewContext(source, { window });
+  let status: unknown = options.status === undefined ? report : options.status;
+  const setStatus = (next: unknown) => {
+    status = next;
+  };
   const alive = () => true;
   const render = (agentId: string) =>
     window.renderAgentDefaults({
@@ -198,8 +202,7 @@ async function mount(options: Options = {}) {
             { id: "grok", name: "Grok", installed: false },
           ],
         };
-      if (method === "agents.connectionStatus")
-        return { report: options.status === undefined ? report : options.status };
+      if (method === "agents.connectionStatus") return { report: status };
       throw new Error(`unexpected ${method}`);
     },
   });
@@ -239,6 +242,7 @@ async function mount(options: Options = {}) {
     choose,
     otherCardSaves,
     render,
+    setStatus,
   };
 }
 
@@ -410,10 +414,11 @@ describe("Hub 新对话默认设置", () => {
   it("keeps the same panel, draft and open state when the page rebuilds the card", async () => {
     const ui = await mount();
     await ui.choose("默认权限", "plan");
-    const reads = ui.calls.length;
+    const reads = ui.calls.filter((c) => c.method === "prefs.agentDefaultsGet").length;
     // agents.js rebuilds every card on reload and asks for the panel again.
     expect(ui.render("claude-code")).toBe(ui.card);
-    expect(ui.calls.length).toBe(reads);
+    await tick();
+    expect(ui.calls.filter((c) => c.method === "prefs.agentDefaultsGet").length).toBe(reads);
     expect(ui.selectNamed("默认权限").value).toBe("plan");
     expect(ui.card.text).toContain("有改动还没保存");
     expect(ui.render("opencode")).not.toBe(ui.card);
@@ -445,5 +450,19 @@ describe("Hub 新对话默认设置", () => {
     } finally {
       claudeConfiguration.catalog.models[0] = original as never;
     }
+  });
+
+  it("takes the newest connection report when the page rebuilds the card", async () => {
+    const ui = await mount({ status: null });
+    expect(ui.card.text).toContain("还没读到 Claude Code 的模型和权限列表");
+    expect(ui.selectNamed("默认权限").disabled).toBe(true);
+    ui.selectNamed("默认权限").value = "plan";
+    // 检测连接 on the page reloads the cards; the panel now gets the catalog.
+    ui.setStatus(report);
+    ui.render("claude-code");
+    await tick();
+    await tick();
+    expect(ui.card.text).not.toContain("还没读到");
+    expect(ui.selectNamed("默认权限").disabled).toBe(false);
   });
 });
