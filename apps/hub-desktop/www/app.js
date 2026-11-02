@@ -159,6 +159,7 @@
     SKILL_NOT_FOUND: "这个 Skill 已不存在，请刷新",
     THREAD_OPERATION_FAILED: "线程操作失败，请稍后重试",
     MAINTENANCE_OPERATION_FAILED: "维护操作失败，请检查文件权限",
+    CODEX_PREFERENCES_FAILED: "设置没写进去，请检查 Hub 数据文件夹的权限",
     UPDATE_CHECK_FAILED: "检查更新失败，请稍后重试",
     UPDATE_RATE_LIMITED: "GitHub 暂时限制了查询次数，几分钟后再试",
     UPDATE_NETWORK: "连不上 GitHub，检查网络或在 设置→网络代理 配置代理",

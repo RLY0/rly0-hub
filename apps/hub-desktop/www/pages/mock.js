@@ -164,7 +164,116 @@ window.hubManagementMock = (() => {
   let trash = [];
   const launchPaths = {};
   // 设置 → 通用 → Codex 里: soft wrap on, the rest as Codex's defaults.
+  // 演示数据 (preview only). Kept in sessionStorage so a page reload in the preview shows what
+  // was saved; the opencode default names a retired Model to show the 已失效 state.
+  const PREFS_KEY = "rly0-hub-mock.codex-prefs";
   let codexPrefs = { updatedAt: 1, reasoningSoftWrap: true };
+  codexPrefs.agentDefaults = { opencode: { model: { id: "gpt-4.1-retired" } } };
+  try {
+    const kept = JSON.parse(sessionStorage.getItem(PREFS_KEY) || "null");
+    if (kept && typeof kept === "object") codexPrefs = kept;
+  } catch {
+    // Preview without storage: start from the fixture.
+  }
+  // ?mock-agent-defaults=loadError | saveError | noCatalog | slow exercises those states.
+  const defaultsCase = (() => {
+    try {
+      return new URLSearchParams(location.search).get("mock-agent-defaults") || "";
+    } catch {
+      return "";
+    }
+  })();
+  const zhMode = (id, label, zh, description, dangerous) => ({
+    id,
+    label,
+    description,
+    ...(dangerous ? { dangerous: true } : {}),
+    localizations: { "zh-CN": { label: zh, description } },
+  });
+  const claudeThinking = [
+    ["off", "Off"],
+    ["auto", "Auto"],
+    ["low", "Low"],
+    ["medium", "Medium"],
+    ["high", "High"],
+    ["xhigh", "Extra High"],
+    ["max", "Max"],
+  ].map(([id, label]) => ({ id, label }));
+  const agentReport = () => ({
+    requestId: null,
+    checkedAt: Date.now() - 6e5,
+    agents: {
+      "claude-code": {
+        status: "ready",
+        configuration: {
+          selectModel: true,
+          selectThinkingOption: true,
+          selectPermissionMode: true,
+          catalog: {
+            models: [
+              {
+                ref: { id: "opus" },
+                label: "Opus",
+                supportedThinkingOptionIds: claudeThinking.map((o) => o.id),
+              },
+              {
+                ref: { id: "sonnet" },
+                label: "Sonnet",
+                supportedThinkingOptionIds: claudeThinking.map((o) => o.id),
+              },
+              { ref: { id: "haiku" }, label: "Haiku", supportedThinkingOptionIds: ["off", "auto"] },
+            ],
+            defaultModel: { id: "opus" },
+            thinkingOptions: claudeThinking,
+            defaultThinkingOptionId: "auto",
+          },
+          permissionModes: {
+            defaultModeId: "default",
+            modes: [
+              zhMode("plan", "Plan mode", "规划模式", "探索并制定计划"),
+              zhMode("default", "Default", "默认", "编辑和其他受保护操作前询问。"),
+              zhMode(
+                "acceptEdits",
+                "Accept edits",
+                "接受编辑",
+                "允许文件编辑；其他受保护操作前询问。",
+              ),
+              zhMode("auto", "Auto mode", "自动模式", "由 Claude 判断权限请求。"),
+              zhMode(
+                "bypassPermissions",
+                "Bypass permissions",
+                "绕过权限",
+                "跳过 Claude Code 权限检查。",
+                true,
+              ),
+            ],
+          },
+        },
+      },
+      opencode: {
+        status: "ready",
+        configuration: {
+          selectModel: true,
+          selectThinkingOption: false,
+          selectPermissionMode: false,
+          catalog: {
+            models: [
+              { ref: { id: "gpt-5.5" }, label: "GPT-5.5" },
+              { ref: { id: "deepseek-v4" }, label: "DeepSeek V4" },
+            ],
+            defaultModel: { id: "gpt-5.5" },
+            thinkingOptions: [],
+          },
+        },
+      },
+      hermes: {
+        status: "unavailable",
+        code: "auth_required",
+        message: "No API key configured",
+        hint: "还没有可用的模型来源：接入方式选零号中转或其他中转，或者登录官方账号",
+      },
+    },
+  });
   let recoveredHistory = false;
   const filters = { imageTool: false, webSearchTool: false };
   const zoomSteps = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
@@ -472,10 +581,31 @@ window.hubManagementMock = (() => {
         launchPaths[p.agent] = p.path;
         return { path: p.path, restartRequired: true };
       case "prefs.codexGet":
-        return { preferences: codexPrefs };
+        if (defaultsCase === "loadError") return { __error: "HUB_ERROR" };
+        return { preferences: codexPrefs, __delay: defaultsCase === "slow" ? 4000 : undefined };
       case "prefs.codexSet":
+        if (defaultsCase === "saveError" && p.agentDefaults)
+          return { __error: "CODEX_PREFERENCES_FAILED" };
         codexPrefs = { ...(codexPrefs || {}), ...p, updatedAt: Date.now() };
-        return { preferences: codexPrefs };
+        try {
+          sessionStorage.setItem(PREFS_KEY, JSON.stringify(codexPrefs));
+        } catch {
+          // Preview without storage keeps the value until reload.
+        }
+        return {
+          preferences: codexPrefs,
+          __delay: p.agentDefaults ? 700 : undefined,
+        };
+      case "agents.connectionStatus":
+        return { report: defaultsCase === "noCatalog" ? null : agentReport() };
+      case "agents.checkConnections":
+        return defaultsCase === "noCatalog"
+          ? { report: null, codexRunning: false }
+          : {
+              report: { ...agentReport(), checkedAt: Date.now() },
+              codexRunning: true,
+              __delay: 900,
+            };
       case "dashboard.threadStats": {
         // 84 days, busier on weekdays, so the heat map shows every level.
         const activity = Array.from({ length: 84 }, (_, index) => {

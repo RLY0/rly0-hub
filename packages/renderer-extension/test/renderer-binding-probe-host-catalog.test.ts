@@ -1507,6 +1507,193 @@ describe("Renderer binding Host-scoped Claude catalogs", () => {
     expect(hostA.inspectHarness).toHaveBeenCalledWith({ harnessId: "claude-code" });
   });
 
+  const hubDefaultsInspection = () => {
+    const opus = harnessModelRefSchema.parse({ id: "claude-opus" });
+    const sonnet = harnessModelRefSchema.parse({ id: "claude-sonnet" });
+    return {
+      status: "ready" as const,
+      catalog: {
+        models: [
+          { ref: opus, label: "Opus", supportedThinkingOptionIds: ["auto", "high"] },
+          { ref: sonnet, label: "Sonnet", supportedThinkingOptionIds: ["auto", "high"] },
+        ],
+        defaultModel: opus,
+        thinkingOptions: [
+          { id: "auto", label: "Auto" },
+          { id: "high", label: "High" },
+        ],
+        defaultThinkingOptionId: "auto",
+      },
+      permissionModes: {
+        modes: [
+          { id: "plan", label: "Plan" },
+          { id: "default", label: "Default" },
+          { id: "bypassPermissions", label: "Bypass permissions", dangerous: true },
+        ],
+        defaultModeId: "default",
+      },
+      capabilities: {
+        configuration: {
+          selectModel: true,
+          selectThinkingOption: true,
+          selectPermissionMode: true,
+          permissionModeScope: "live" as const,
+        },
+        history: { fork: true, forkAcrossCwd: false, rollbackLastTurn: true },
+      },
+    };
+  };
+  const installHubDefaults = (value: unknown) => {
+    const values = new Map<string, string>([
+      ["codexhost.rly0-agent-defaults.v1", JSON.stringify(value)],
+    ]);
+    (window as unknown as { localStorage: Storage }).localStorage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, item: string) => void values.set(key, item),
+    } as Storage;
+  };
+
+  it("preselects the Hub's new-Thread defaults for a local Claude Code draft", async () => {
+    installFakeBrowser();
+    installHubDefaults({
+      "claude-code": {
+        permissionModeId: "plan",
+        model: { id: "claude-sonnet" },
+        thinkingOptionId: "high",
+      },
+    });
+    testState.modelTarget = ["default"];
+    const local = {
+      listHarnessPlugins,
+      inspectHarness: vi.fn(async () => hubDefaultsInspection()),
+    };
+    const applyAgent = vi.fn(() => true);
+    const { installRendererBindingProbe } = await import("../src/renderer-binding-probe.js");
+    const probe = installRendererBindingProbe({
+      enabledAgents: ["codex", "claude-code"],
+      defaultAgent: "claude-code",
+    });
+    probe.setAdapter(
+      { state: "ready", reason: "ready", modelUpdates: 0, hook: "request-bridge" },
+      undefined,
+      applyAgent,
+      {
+        currentHostId: () => "local",
+        clientForHost: () => local,
+        subscribeThreadUsage: () => () => undefined,
+      } as never,
+    );
+    await vi.waitFor(() =>
+      expect(testState.renderedModelViews.at(-1)).toMatchObject({
+        status: "ready",
+        selected: { id: "claude-sonnet" },
+        selectedThinkingOptionId: "high",
+      }),
+    );
+    expect(applyAgent).toHaveBeenLastCalledWith(
+      "claude-code",
+      { id: "claude-sonnet" },
+      "high",
+      "plan",
+      testState.composer,
+    );
+  });
+
+  it("keeps bypassed permissions for a local Claude Code draft without a Hub permission", async () => {
+    installFakeBrowser();
+    installHubDefaults({ "claude-code": { model: { id: "claude-retired" } } });
+    testState.modelTarget = ["default"];
+    const local = {
+      listHarnessPlugins,
+      inspectHarness: vi.fn(async () => hubDefaultsInspection()),
+    };
+    const applyAgent = vi.fn(() => true);
+    const { installRendererBindingProbe } = await import("../src/renderer-binding-probe.js");
+    const probe = installRendererBindingProbe({
+      enabledAgents: ["codex", "claude-code"],
+      defaultAgent: "claude-code",
+    });
+    probe.setAdapter(
+      { state: "ready", reason: "ready", modelUpdates: 0, hook: "request-bridge" },
+      undefined,
+      applyAgent,
+      {
+        currentHostId: () => "local",
+        clientForHost: () => local,
+        subscribeThreadUsage: () => () => undefined,
+      } as never,
+    );
+    // The retired Hub Model falls back to the Agent's default without an error.
+    await vi.waitFor(() =>
+      expect(testState.renderedModelViews.at(-1)).toMatchObject({
+        status: "ready",
+        selected: { id: "claude-opus" },
+      }),
+    );
+    expect(applyAgent).toHaveBeenLastCalledWith(
+      "claude-code",
+      { id: "claude-opus" },
+      "auto",
+      "bypassPermissions",
+      testState.composer,
+    );
+  });
+
+  it("leaves a locked Claude Code Thread on its own configuration despite Hub defaults", async () => {
+    installFakeBrowser();
+    installHubDefaults({
+      "claude-code": {
+        permissionModeId: "plan",
+        model: { id: "claude-sonnet" },
+        thinkingOptionId: "high",
+      },
+    });
+    const host = {
+      listHarnessPlugins,
+      inspectHarness: vi.fn(async () => hubDefaultsInspection()),
+      inspectThread: vi.fn(async () => ({
+        owner: "external" as const,
+        harnessId: "claude-code",
+        transportModelId: "codexhost/claude-code-native@claude-opus@bypassPermissions@auto",
+        effectiveModel: harnessModelRefSchema.parse({ id: "claude-opus" }),
+        history: { fork: true, forkAcrossCwd: false, rollbackLastTurn: true },
+        locked: true,
+      })),
+      inspectThreadCommands: vi.fn(async () => ({ commands: [] })),
+      inspectThreadUsage: vi.fn(async () => ({
+        threadId: "thread-a",
+        usage: null,
+        accountCredits: null,
+      })),
+      subscribeThreadUsage: () => () => undefined,
+    };
+    const applyAgent = vi.fn(() => true);
+    const { installRendererBindingProbe } = await import("../src/renderer-binding-probe.js");
+    const probe = installRendererBindingProbe({
+      enabledAgents: ["codex", "claude-code"],
+      defaultAgent: "codex",
+    });
+    probe.setAdapter(
+      { state: "ready", reason: "ready", modelUpdates: 0, hook: "request-bridge" },
+      undefined,
+      applyAgent,
+      { ...host, currentHostId: () => "local", clientForHost: () => host } as never,
+    );
+    await vi.waitFor(() =>
+      expect(testState.renderedModelViews.at(-1)).toMatchObject({
+        status: "ready",
+        selected: { id: "claude-opus" },
+      }),
+    );
+    expect(probe.lockedSelection()).toMatchObject({
+      agent: "claude-code",
+      model: { id: "claude-opus" },
+      permissionModeId: "bypassPermissions",
+    });
+    expect(probe.lockedSelection()?.thinkingOptionId).not.toBe("high");
+    expect(applyAgent).not.toHaveBeenCalled();
+  });
+
   it("reloads a ready draft catalog when the Composer changes Hosts", async () => {
     installFakeBrowser();
     testState.modelTarget = ["default"];

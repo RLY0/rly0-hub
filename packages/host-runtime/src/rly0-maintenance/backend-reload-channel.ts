@@ -2,6 +2,13 @@ import { randomBytes } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import {
+  harnessModelCatalogSchema,
+  harnessPermissionModeCatalogSchema,
+  type HarnessModelCatalog,
+  type HarnessPermissionModeCatalog,
+} from "@codexhost/shared-contracts";
+
 /**
  * How the standalone RLY/0 Hub asks the Codex side (this Host) for things only it can do:
  * - reload Codex's official backend after an account switch, without restarting the window;
@@ -54,10 +61,37 @@ export async function codexHeartbeatBusy(
 
 export type BackendReloadStatus = "reloaded" | "deferred" | "failed";
 
+/**
+ * What a ready Agent lets a new Thread choose, from the same inspection: the Hub's
+ * 新对话默认设置 offers exactly these ids (the Agent's own catalog, not a Hub copy).
+ */
+export interface AgentNewThreadConfiguration {
+  readonly selectModel: boolean;
+  readonly selectThinkingOption: boolean;
+  readonly selectPermissionMode: boolean;
+  readonly catalog?: HarnessModelCatalog;
+  readonly permissionModes?: HarnessPermissionModeCatalog;
+}
+
 export interface AgentConnectionStatus {
   readonly status: "ready" | "notInstalled" | "unavailable" | "error";
   readonly code?: string;
   readonly message?: string;
+  readonly configuration?: AgentNewThreadConfiguration;
+}
+
+function cleanConfiguration(value: unknown): AgentNewThreadConfiguration | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const entry = value as Record<string, unknown>;
+  const catalog = harnessModelCatalogSchema.safeParse(entry.catalog);
+  const permissionModes = harnessPermissionModeCatalogSchema.safeParse(entry.permissionModes);
+  return {
+    selectModel: entry.selectModel === true && catalog.success,
+    selectThinkingOption: entry.selectThinkingOption === true && catalog.success,
+    selectPermissionMode: entry.selectPermissionMode === true && permissionModes.success,
+    ...(catalog.success ? { catalog: catalog.data } : {}),
+    ...(permissionModes.success ? { permissionModes: permissionModes.data } : {}),
+  };
 }
 
 export interface AgentStatusReport {
@@ -133,10 +167,12 @@ function cleanReport(value: Record<string, unknown> | null): AgentStatusReport |
       status !== "error"
     )
       continue;
+    const configuration = status === "ready" ? cleanConfiguration(entry.configuration) : undefined;
     agents[id] = {
       status,
       ...(typeof entry.code === "string" ? { code: entry.code.slice(0, 80) } : {}),
       ...(typeof entry.message === "string" ? { message: entry.message.slice(0, 600) } : {}),
+      ...(configuration ? { configuration } : {}),
     };
   }
   return {

@@ -5124,6 +5124,50 @@ select.input,
   }
 }
 
+/* AI 助手 → 新对话默认设置 (pages/agent-defaults.js): the same rows as 设置 → Codex 里, plus one
+   line under each title saying what a new Thread will actually use. */
+.agent-defaults .defaults-head {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.agent-defaults .pref-row .compact-select,
+.agent-defaults .pref-row .pick {
+  flex: 0 1 240px;
+  width: 240px;
+  max-width: 100%;
+}
+.agent-defaults .who .defaults-effective {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+.agent-defaults .who .defaults-effective .tag.warn {
+  color: var(--warn);
+  font-size: 12px;
+}
+.agent-defaults .defaults-problem {
+  padding: 10px 0;
+  border-top: 1px solid rgba(233, 233, 227, 0.07);
+}
+.agent-defaults .defaults-foot {
+  padding-top: 10px;
+  border-top: 1px solid rgba(233, 233, 227, 0.07);
+}
+.agent-defaults .defaults-error {
+  color: var(--warn);
+}
+@media (max-width: 720px) {
+  .agent-defaults .pref-row .compact-select,
+  .agent-defaults .pref-row .pick {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+
 /* 打通设置 (pages/bridge.js, pages/resource-sharing.js). */
 .bridge-tabs {
   margin-bottom: 14px;

@@ -93,9 +93,11 @@ import {
 } from "./renderer-quota-refresh.js";
 import { thinkingOptionsForModel } from "./renderer-model-picker.js";
 import {
-  claudeNewThreadPermissionMode,
-  readClaudePermissionModePreference,
-} from "./renderer-permission-mode-preference.js";
+  newThreadPermissionModeDefault,
+  readHubAgentDefaults,
+  withHubModelDefaults,
+} from "./renderer-agent-defaults.js";
+import { readClaudePermissionModePreference } from "./renderer-permission-mode-preference.js";
 import { isPermissionModeControlReady } from "./renderer-permission-mode-picker.js";
 import {
   readNewThreadAgentPreference,
@@ -1784,13 +1786,20 @@ export function installRendererBindingProbe(
       const previousModelAvailable =
         previousModel !== undefined &&
         catalogModelForRef(inspection.catalog, previousModel) !== undefined;
+      // Hub defaults (AI 助手 → 新对话默认设置) only shape a draft; a locked Thread keeps its own.
+      const hubDefaults =
+        current.phase === "draft" ? readHubAgentDefaults(agent, mounted.hostId) : undefined;
       const preferredConfiguration =
         current.phase === "draft" && !previousModelAvailable
-          ? readNewThreadExternalConfigurationPreference(
-              agent,
+          ? withHubModelDefaults(
               inspection.catalog,
-              inspection.permissionModes,
-              rendererNewThreadPreferenceStorage(mounted.hostId),
+              hubDefaults,
+              readNewThreadExternalConfigurationPreference(
+                agent,
+                inspection.catalog,
+                inspection.permissionModes,
+                rendererNewThreadPreferenceStorage(mounted.hostId),
+              ),
             )
           : undefined;
       const previousPermissionModeId = controller.permissionModeForAgent(mounted.composer, agent);
@@ -1825,7 +1834,7 @@ export function installRendererBindingProbe(
             : undefined;
         const preferredPermissionModeId =
           (current.phase === "draft"
-            ? claudeNewThreadPermissionMode(agent, mounted.hostId, permissionModes)
+            ? newThreadPermissionModeDefault(agent, mounted.hostId, permissionModes, hubDefaults)
             : undefined) ??
           preferredConfiguration?.permissionModeId ??
           (agent === "claude-code" && mounted.hostId === "local"

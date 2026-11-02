@@ -333,6 +333,16 @@ window.registerHubAgents = ({
       h("section", { class: "agent-section official" }, officialHead, official),
       h("section", { class: "agent-section community" }, communityHead, community),
       h("details", { class: "agent-section more", "data-agent-more": "" }, moreHead, more),
+      // New-Thread permission / Model / thinking defaults per agent (pages/agent-defaults.js).
+      h(
+        "section",
+        { class: "agent-section defaults" },
+        h(
+          "div",
+          { class: "grid compact" },
+          window.renderAgentDefaults({ h, call, toast, failed, explain, alive }),
+        ),
+      ),
       h(
         "section",
         { class: "agent-section sharing" },

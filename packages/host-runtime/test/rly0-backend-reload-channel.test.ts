@@ -75,6 +75,76 @@ describe("Hub → Codex backend reload channel", () => {
   });
 });
 
+describe("Agent catalogs for the Hub's new-Thread defaults", () => {
+  it("keeps a ready agent's valid catalogs and drops anything malformed", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-catalog-"));
+    const catalog = {
+      models: [{ ref: { id: "opus" }, label: "Opus", supportedThinkingOptionIds: ["auto"] }],
+      defaultModel: { id: "opus" },
+      thinkingOptions: [{ id: "auto", label: "Auto" }],
+      defaultThinkingOptionId: "auto",
+    };
+    const permissionModes = {
+      modes: [
+        { id: "default", label: "Default" },
+        { id: "bypassPermissions", label: "Bypass permissions", dangerous: true },
+      ],
+      defaultModeId: "default",
+    };
+    await writeJsonFile(path.join(directory, AGENT_STATUS_FILE), {
+      requestId: null,
+      checkedAt: 2,
+      agents: {
+        "claude-code": {
+          status: "ready",
+          configuration: {
+            selectModel: true,
+            selectThinkingOption: true,
+            selectPermissionMode: true,
+            catalog,
+            permissionModes,
+          },
+        },
+        // A broken permission catalog is dropped; the Model catalog stays usable.
+        opencode: {
+          status: "ready",
+          configuration: {
+            selectModel: true,
+            selectThinkingOption: false,
+            selectPermissionMode: true,
+            catalog,
+            permissionModes: { modes: [], defaultModeId: "x" },
+          },
+        },
+        // A failed agent never carries choices.
+        hermes: { status: "error", message: "boom", configuration: { catalog } },
+      },
+    });
+    const report = await readAgentStatus(directory);
+    expect(report?.agents["claude-code"]).toEqual({
+      status: "ready",
+      configuration: {
+        selectModel: true,
+        selectThinkingOption: true,
+        selectPermissionMode: true,
+        catalog,
+        permissionModes,
+      },
+    });
+    expect(report?.agents.opencode).toEqual({
+      status: "ready",
+      configuration: {
+        selectModel: true,
+        selectThinkingOption: false,
+        selectPermissionMode: false,
+        catalog,
+      },
+    });
+    expect(report?.agents.hermes).toEqual({ status: "error", message: "boom" });
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+});
+
 describe("Codex heartbeat busy flag", () => {
   it("reads busy only from a fresh heartbeat of a live process", async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-beat-"));

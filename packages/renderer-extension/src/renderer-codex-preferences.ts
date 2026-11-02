@@ -7,6 +7,7 @@ import {
   setRendererQuotaAlertThresholdPercent,
   setRendererQuotaRefreshFrequency,
 } from "./renderer-appearance-preferences.js";
+import { writeHubAgentDefaults } from "./renderer-agent-defaults.js";
 import { writeIdleReleasePreference } from "./renderer-idle-release-preference.js";
 import { setReasoningTranscriptSoftWrap } from "./renderer-transcript-dom.js";
 
@@ -39,6 +40,8 @@ export function applyCodexPreferences(
     }
     if (preferences.idleRelease !== undefined)
       writeIdleReleasePreference(owner, preferences.idleRelease);
+    if (preferences.agentDefaults !== undefined)
+      writeHubAgentDefaults(owner.localStorage, preferences.agentDefaults);
     owner.localStorage.setItem(
       CODEX_PREFERENCES_APPLIED_STORAGE_KEY,
       String(preferences.updatedAt),

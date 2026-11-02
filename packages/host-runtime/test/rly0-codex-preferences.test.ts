@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { rly0CodexPreferenceValuesSchema } from "@codexhost/shared-contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -28,5 +29,47 @@ describe("Codex preferences file shared by the Hub and the Host", () => {
     expect(await readCodexPreferences(environment)).toEqual(second);
     await fs.writeFile(path.join(root, "codex-preferences.json"), "{ not json", "utf8");
     expect(await readCodexPreferences(environment)).toBeNull();
+  });
+
+  it("saves the new-Thread defaults whole and rejects ids no catalog could hold", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "codex-prefs-"));
+    roots.push(root);
+    const environment = { CODEXHOST_DATA_DIR: root };
+    await writeCodexPreferences(environment, { reasoningSoftWrap: true }, () => 5);
+    const saved = await writeCodexPreferences(
+      environment,
+      rly0CodexPreferenceValuesSchema.parse({
+        agentDefaults: {
+          "claude-code": { permissionModeId: "plan", model: { id: "opus" } },
+          opencode: { model: { id: "gpt-5.5" } },
+        },
+      }),
+      () => 6,
+    );
+    expect(saved.agentDefaults).toEqual({
+      "claude-code": { permissionModeId: "plan", model: { id: "opus" } },
+      opencode: { model: { id: "gpt-5.5" } },
+    });
+    // The Hub sends the whole map: a cleared agent is gone, other preferences stay.
+    const cleared = await writeCodexPreferences(
+      environment,
+      rly0CodexPreferenceValuesSchema.parse({
+        agentDefaults: { opencode: { model: { id: "gpt-5.5" } } },
+      }),
+      () => 7,
+    );
+    expect(cleared).toEqual({
+      reasoningSoftWrap: true,
+      agentDefaults: { opencode: { model: { id: "gpt-5.5" } } },
+      updatedAt: 7,
+    });
+    expect(await readCodexPreferences(environment)).toEqual(cleared);
+    for (const bad of [
+      { "claude-code": { model: { id: "has spaces" } } },
+      { "../escape": {} },
+      { "claude-code": { permissionModeId: "plan", extra: true } },
+    ]) {
+      expect(rly0CodexPreferenceValuesSchema.safeParse({ agentDefaults: bad }).success).toBe(false);
+    }
   });
 });

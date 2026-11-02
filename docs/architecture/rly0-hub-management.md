@@ -133,3 +133,13 @@ core 在账号存储目录用 DPAPI 加密保存使用账本，POST 前必须落
   - Grok（测试版）：已保存的 Grok 账号，当前登录即正在用的；一个额度窗口（`weekly` / `monthly` / `credits`）按“每周 / 每月额度”阈值判断，切换用 `agents.grokAccounts.switch`。
   - Gemini（Antigravity）：登录只有系统钥匙串里与桌面版共用的一份，卡片保持关闭并写明原因。
 - 规则：平时只读正在用的凭据的额度；低于阈值时再刷新全部候选，只在本次读到额度的候选中挑选，读不到或失败的从不切换过去。目标在每个窗口都要比阈值多 10 个百分点（防止两个账号来回切），同一账号/窗口/重置时间只提醒或切换一次，自动切换后 30 分钟内只提醒不再自动切。切换不重启任何程序，只影响之后的请求；Codex 心跳 `busy` 为真（有回复、工具调用或智能体任务在跑）时等它结束再切（最多 30 分钟），切换前重新读取额度。点托盘提醒（`action: "switch"` 且带 `agent`）由 C# 壳调用 `agents.autoSwitch.apply`。
+
+## 新对话默认设置
+
+AI 助手页的“新对话默认设置”（`www/pages/agent-defaults.js`）给每个外部助手设一个固定的默认权限模式、默认模型和默认思考等级，新开的该助手对话按它预选；不做“自动记住最后一次选择”。
+
+- **目录**：可选项就是助手自己的目录，不在 Hub 里另抄一份。Codex 侧在“检测连接”（`agents.checkConnections`，Host 的 `#writeAgentStatus`）时把每个就绪助手的 `catalog`、`permissionModes` 和三项选择能力写进 `agent-status.json` 的 `configuration`；Hub 端 `readAgentStatus` 用 shared-contracts 的 schema 逐项校验，坏的目录丢弃。页面读上次的结果（`agents.connectionStatus`），“读取列表”按钮重新检测。Codex 没开、助手未安装或未登录时页面说明拿不到列表，选择框禁用。凡是检测时就绪且报告了目录的助手都能设置，不限于 Claude Code。
+- **保存与下发**：值存进 Codex 偏好文件 `codex-preferences.json` 的 `agentDefaults`（`{ [agentId]: { permissionModeId?, model?: { id }, thinkingOptionId? } }`，`prefs.codexSet` 整份替换这一项，清空的助手随之消失）。Host 通过已有的 `codexhost/rly0/codexPreferences/get` 交给 Renderer，`applyCodexPreferences` 在 Codex 窗口获得焦点时把它写进本地 `codexhost.rly0-agent-defaults.v1`。
+- **生效规则**（`renderer-agent-defaults.ts`）：只用于本机（`hostId === "local"`）的草稿和“换个助手接着聊”的新对话；已锁定的对话不读它，对话里临时改的选择照旧优先。每一项单独判断：Hub 值在当前目录里就用；没设置或已不在目录里（模型下线、root 下没有绕过权限等）时沿用原逻辑——先用记住的选择，再用助手默认。思考等级必须是所选模型支持的档位。Claude Code 没设默认权限时保持 0.11.26 起的“新对话绕过权限”；设了但已失效时不回到绕过权限，而是走记住的选择。
+- **页面状态**：加载中、读取失败（可重试）、拿不到目录、值已失效（标“已失效”并说明会改用什么）、保存中、保存失败；每行下方写明新对话实际会用的值，Claude Code 未设置时显示“沿用 RLY/0 默认：绕过权限”。保存一个 `dangerous` 权限模式（如绕过权限）且与已保存值不同时，先弹确认框，用户确认后才保存。
+- **未覆盖**：目录只在检测连接时更新，从未检测过的电脑需要先点一次“读取列表”；Codex 窗口里不另外提示 Hub 值已失效（静默回退）。

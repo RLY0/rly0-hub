@@ -6,9 +6,11 @@ import {
 
 export const CLAUDE_PERMISSION_MODE_PREFERENCE_KEY = "codexhost.claude-code.permission-mode.v1";
 
-// RLY/0 (user decision 2026-11-01): every new local Claude Code Thread starts with permission
-// checks bypassed, overriding remembered choices. Null when the catalog omits bypass (e.g. root
-// without IS_SANDBOX), so the usual preference chain and Harness default still apply.
+// RLY/0 (user decision 2026-11-01): a new local Claude Code Thread starts with permission checks
+// bypassed, overriding remembered choices, until the person sets a default permission in the Hub
+// (renderer-agent-defaults.ts, which calls this only when no Hub default is set). Undefined when
+// the catalog omits bypass (e.g. root without IS_SANDBOX), so the usual preference chain and
+// Harness default still apply.
 export const CLAUDE_NEW_THREAD_PERMISSION_MODE_ID = "bypassPermissions";
 
 export function claudeNewThreadPermissionMode(

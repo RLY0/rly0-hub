@@ -8,6 +8,7 @@ import {
   RENDERER_NEW_THREAD_PREFERENCE_KEY,
   writeNewThreadExternalConfigurationPreference,
 } from "../src/renderer-new-thread-preference.js";
+import { writeHubAgentDefaults } from "../src/renderer-agent-defaults.js";
 
 function memoryStorage() {
   const values = new Map<string, string>();
@@ -111,6 +112,93 @@ describe("Renderer thread handoff", () => {
       model: { id: "claude-sonnet" },
       thinkingOptionId: "high",
       permissionModeId: "bypassPermissions",
+    });
+  });
+
+  it("starts a local handoff with the Hub's new-Thread defaults over remembered choices", async () => {
+    const storage = memoryStorage();
+    writeNewThreadExternalConfigurationPreference(
+      "claude-code",
+      { id: "claude-sonnet" } as never,
+      "high" as never,
+      "acceptEdits" as never,
+      storage,
+    );
+    const inspection = {
+      ...(readyInspection as object),
+      catalog: {
+        models: [
+          { ref: { id: "claude-sonnet" }, label: "Sonnet", supportedThinkingOptionIds: ["high"] },
+          {
+            ref: { id: "claude-opus" },
+            label: "Opus",
+            supportedThinkingOptionIds: ["low", "high"],
+          },
+        ],
+        defaultModel: { id: "claude-sonnet" },
+        thinkingOptions: [
+          { id: "low", label: "Low" },
+          { id: "high", label: "High" },
+        ],
+      },
+      permissionModes: {
+        modes: [
+          { id: "acceptEdits", label: "Accept edits" },
+          { id: "plan", label: "Plan" },
+          { id: "bypassPermissions", label: "Bypass permissions", dangerous: true },
+        ],
+        defaultModeId: "acceptEdits",
+      },
+    } as never;
+    const agentDefaultsStorage = memoryStorage();
+    writeHubAgentDefaults(agentDefaultsStorage, {
+      "claude-code": {
+        permissionModeId: "plan",
+        model: { id: "claude-opus" },
+        thinkingOptionId: "low",
+      },
+    } as never);
+    const handoffThread = vi.fn(async () => result);
+    await startRendererThreadHandoff({
+      client: { handoffThread, inspectHarness: vi.fn(async () => inspection) },
+      threadId: "source-thread",
+      hostId: "local",
+      agent: "claude-code",
+      open: async () => undefined,
+      requestId: "click-0004",
+      storage,
+      agentDefaultsStorage,
+    });
+    expect(handoffThread).toHaveBeenCalledWith({
+      threadId: "source-thread",
+      targetHarnessId: "claude-code",
+      requestId: "click-0004",
+      model: { id: "claude-opus" },
+      thinkingOptionId: "low",
+      permissionModeId: "plan",
+    });
+
+    // A Hub permission the catalog lacks falls back to the remembered mode, not to bypass.
+    writeHubAgentDefaults(agentDefaultsStorage, {
+      "claude-code": { permissionModeId: "retired-mode" },
+    } as never);
+    await startRendererThreadHandoff({
+      client: { handoffThread, inspectHarness: vi.fn(async () => inspection) },
+      threadId: "source-thread",
+      hostId: "local",
+      agent: "claude-code",
+      open: async () => undefined,
+      requestId: "click-0005",
+      storage,
+      agentDefaultsStorage,
+    });
+    expect(handoffThread).toHaveBeenLastCalledWith({
+      threadId: "source-thread",
+      targetHarnessId: "claude-code",
+      requestId: "click-0005",
+      model: { id: "claude-sonnet" },
+      thinkingOptionId: "high",
+      permissionModeId: "acceptEdits",
     });
   });
 

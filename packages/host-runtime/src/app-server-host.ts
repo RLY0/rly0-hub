@@ -1500,7 +1500,8 @@ export class AppServerHost {
 
   /**
    * Checks every agent the Hub lists (the same inspection Codex's agent picker uses) and writes
-   * the outcome for the Hub's AI 助手 page. Messages are the adapters' own diagnostics.
+   * the outcome for the Hub's AI 助手 page. Messages are the adapters' own diagnostics; a ready
+   * agent also carries its Model / Thinking / Permission Mode catalog for 新对话默认设置.
    */
   async #writeAgentStatus(requestId: string | null): Promise<void> {
     await this.#waitForPlugins();
@@ -1520,7 +1521,20 @@ export class AppServerHost {
             if (!parsed.success) {
               agents[id] = { status: "error", message: "Invalid inspection result" };
             } else if (parsed.data.status === "ready") {
-              agents[id] = { status: "ready" };
+              // The catalog lets the Hub offer this Agent's own new-Thread choices.
+              const { configuration } = parsed.data.capabilities;
+              agents[id] = {
+                status: "ready",
+                configuration: {
+                  selectModel: configuration.selectModel,
+                  selectThinkingOption: configuration.selectThinkingOption,
+                  selectPermissionMode: configuration.selectPermissionMode,
+                  catalog: parsed.data.catalog,
+                  ...(parsed.data.permissionModes
+                    ? { permissionModes: parsed.data.permissionModes }
+                    : {}),
+                },
+              };
             } else {
               agents[id] = {
                 status: parsed.data.status,
