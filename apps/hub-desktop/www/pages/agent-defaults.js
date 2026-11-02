@@ -6,7 +6,16 @@
 // codex-preferences.json), and Codex copies them the next time its window gets focus
 // (renderer-agent-defaults.ts). Threads already started keep their own settings.
 // One collapsed panel per agent card; the summary line shows what a new Thread will use.
-window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive, agentId, agentName }) => {
+// The AI 助手 page rebuilds its cards on every reload (检测连接, relay switch, isolation polling);
+// one panel per agent and page visit moves into the new card, keeping its draft and open state.
+const agentDefaultsPanels = new WeakMap(); // alive → Map(agentId → panel)
+window.renderAgentDefaults = (options) => {
+  const panels = agentDefaultsPanels.get(options.alive) || new Map();
+  agentDefaultsPanels.set(options.alive, panels);
+  if (!panels.has(options.agentId)) panels.set(options.agentId, createAgentDefaultsPanel(options));
+  return panels.get(options.agentId);
+};
+function createAgentDefaultsPanel({ h, call, toast, failed, explain, alive, agentId, agentName }) {
   const card = h("details", { class: "isolation-panel agent-defaults" });
   const summary = h("summary");
   const body = h("div", { class: "agent-defaults-body" });
@@ -255,18 +264,19 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive, agentId,
     const configuration = configurationOf(current);
     const entry = saved[current] || {};
     const parts = [];
+    const stale = (id) => `${id}（已失效）`;
     const modes = configuration && configuration.permissionModes;
     const mode =
       modes && entry.permissionModeId && modes.modes.find((m) => m.id === entry.permissionModeId);
     if (entry.permissionModeId)
       parts.push(
-        mode || !modes
-          ? mode
-            ? modeLabel(mode)
-            : entry.permissionModeId
-          : `${entry.permissionModeId}（已失效）`,
+        mode ? modeLabel(mode) : modes ? stale(entry.permissionModeId) : entry.permissionModeId,
       );
-    else if (current === "claude-code") parts.push("绕过权限（RLY/0 默认）");
+    else if (
+      current === "claude-code" &&
+      (!modes || modes.modes.some((m) => m.id === CLAUDE_UNSET_PERMISSION))
+    )
+      parts.push("绕过权限（RLY/0 默认）");
     const catalog = configuration && configuration.catalog;
     if (entry.model) {
       const model =
@@ -274,17 +284,18 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive, agentId,
         catalog.models.find(
           (m) => m.ref.id === entry.model.id || (m.fastModel || {}).id === entry.model.id,
         );
-      parts.push(model ? model.label : catalog ? `${entry.model.id}（已失效）` : entry.model.id);
+      const fast = model && model.ref.id !== entry.model.id ? "（Fast）" : "";
+      parts.push(model ? model.label + fast : catalog ? stale(entry.model.id) : entry.model.id);
     }
     if (entry.thinkingOptionId) {
+      // Same check as the row: the levels the chosen (or the agent's default) Model offers.
+      const modelId =
+        (entry.model && entry.model.id) ||
+        (catalog && catalog.defaultModel && catalog.defaultModel.id);
       const option =
-        catalog && catalog.thinkingOptions.find((o) => o.id === entry.thinkingOptionId);
+        catalog && thinkingFor(catalog, modelId).find((o) => o.id === entry.thinkingOptionId);
       parts.push(
-        option
-          ? option.label
-          : catalog
-            ? `${entry.thinkingOptionId}（已失效）`
-            : entry.thinkingOptionId,
+        option ? option.label : catalog ? stale(entry.thinkingOptionId) : entry.thinkingOptionId,
       );
     }
     return parts.length ? parts.join(" · ") : "未设置";
@@ -422,6 +433,7 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive, agentId,
   }
 
   async function save() {
+    if (saving) return;
     const entry = clean(draft);
     const catalog = (configurationOf(current) || {}).permissionModes;
     const mode = catalog && catalog.modes.find((m) => m.id === entry.permissionModeId);
@@ -430,17 +442,17 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive, agentId,
       if (!(await confirmDangerous(mode))) return;
       if (!alive()) return;
     }
-    // Other agent cards save to the same file; start from what is on disk now.
-    const latest = await call("prefs.agentDefaultsGet").catch(() => null);
-    if (!alive()) return;
-    const base = (latest && latest.agentDefaults && latest.agentDefaults.agents) || saved;
-    const next = { ...base };
-    if (Object.keys(entry).length) next[current] = entry;
-    else delete next[current];
     saving = true;
     saveError = "";
     draw();
     try {
+      // Other agent cards save to the same file; start from what is on disk now. If it cannot be
+      // read, do not write this card's older copy over another card's newer save.
+      const latest = await call("prefs.agentDefaultsGet");
+      if (!alive()) return;
+      const next = { ...((latest && latest.agentDefaults && latest.agentDefaults.agents) || {}) };
+      if (Object.keys(entry).length) next[current] = entry;
+      else delete next[current];
       const result = await call("prefs.agentDefaultsSet", { agents: next });
       if (!alive()) return;
       saved = (result && result.agentDefaults && result.agentDefaults.agents) || next;
@@ -496,4 +508,4 @@ window.renderAgentDefaults = ({ h, call, toast, failed, explain, alive, agentId,
 
   load();
   return card;
-};
+}

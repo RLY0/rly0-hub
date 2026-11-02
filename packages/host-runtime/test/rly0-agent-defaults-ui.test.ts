@@ -116,6 +116,8 @@ const report = {
 interface Options {
   prefs?: unknown;
   prefsFails?: boolean;
+  /** Fail only the reads after the first (the read before saving). */
+  rereadFails?: boolean;
   status?: unknown;
   saveFails?: boolean;
   agentId?: string;
@@ -153,11 +155,23 @@ async function mount(options: Options = {}) {
     },
   };
   runInNewContext(source, { window });
+  const alive = () => true;
+  const render = (agentId: string) =>
+    window.renderAgentDefaults({
+      agentId,
+      agentName: agentId,
+      h,
+      alive,
+      toast: () => undefined,
+      failed: () => undefined,
+      explain: () => "",
+      call: async () => ({}),
+    });
   const card = window.renderAgentDefaults({
     agentId: options.agentId ?? "claude-code",
     agentName: options.agentName ?? "Claude Code",
     h,
-    alive: () => true,
+    alive,
     toast: (text: string) => toasts.push(text),
     failed: () => toasts.push("failed"),
     explain: (code: string) =>
@@ -166,6 +180,8 @@ async function mount(options: Options = {}) {
       calls.push({ method, params: structuredClone(params) });
       if (method === "prefs.agentDefaultsGet") {
         if (options.prefsFails) throw new Error("HUB_ERROR");
+        if (options.rereadFails && calls.filter((c) => c.method === method).length > 1)
+          throw new Error("HUB_ERROR");
         return { agentDefaults: saved };
       }
       if (method === "prefs.agentDefaultsSet") {
@@ -212,7 +228,18 @@ async function mount(options: Options = {}) {
   const otherCardSaves = async (agents: unknown) => {
     saved = { version: 1, updatedAt: 3, agents };
   };
-  return { card, calls, saves, toasts, dialogs, selectNamed, button, choose, otherCardSaves };
+  return {
+    card,
+    calls,
+    saves,
+    toasts,
+    dialogs,
+    selectNamed,
+    button,
+    choose,
+    otherCardSaves,
+    render,
+  };
 }
 
 describe("Hub 新对话默认设置", () => {
@@ -378,5 +405,45 @@ describe("Hub 新对话默认设置", () => {
         },
       },
     ]);
+  });
+
+  it("keeps the same panel, draft and open state when the page rebuilds the card", async () => {
+    const ui = await mount();
+    await ui.choose("默认权限", "plan");
+    const reads = ui.calls.length;
+    // agents.js rebuilds every card on reload and asks for the panel again.
+    expect(ui.render("claude-code")).toBe(ui.card);
+    expect(ui.calls.length).toBe(reads);
+    expect(ui.selectNamed("默认权限").value).toBe("plan");
+    expect(ui.card.text).toContain("有改动还没保存");
+    expect(ui.render("opencode")).not.toBe(ui.card);
+  });
+
+  it("does not write when the file cannot be read right before saving", async () => {
+    const ui = await mount({
+      rereadFails: true,
+      prefs: { updatedAt: 1, agentDefaults: { opencode: { model: { id: "gpt-5.5" } } } },
+    });
+    await ui.choose("默认权限", "plan");
+    await ui.button("保存").fire("click");
+    expect(ui.saves()).toHaveLength(0);
+    expect(ui.card.text).toContain("没保存上");
+    expect(ui.selectNamed("默认权限").value).toBe("plan");
+  });
+
+  it("shows a saved fast Model with (Fast) in the collapsed line", async () => {
+    const original = claudeConfiguration.catalog.models[0];
+    claudeConfiguration.catalog.models[0] = {
+      ...original,
+      fastModel: { id: "opus-fast" },
+    } as never;
+    try {
+      const ui = await mount({
+        prefs: { updatedAt: 1, agentDefaults: { "claude-code": { model: { id: "opus-fast" } } } },
+      });
+      expect(ui.card.text).toContain("新对话默认 · 绕过权限（RLY/0 默认） · Opus（Fast）");
+    } finally {
+      claudeConfiguration.catalog.models[0] = original as never;
+    }
   });
 });
