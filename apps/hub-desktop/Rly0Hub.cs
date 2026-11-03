@@ -1078,6 +1078,9 @@ internal sealed class PanelWindow : Form {
             var info = new FileInfo(log);
             if (info.Exists && info.Length > 64 * 1024) File.Delete(log);
             string message = error == null ? "" : Regex.Replace(error.Message ?? "", @"\s+", " ");
+            string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (!string.IsNullOrEmpty(profile))
+                message = message.Replace(profile, "%USERPROFILE%");
             if (message.Length > 300) message = message.Substring(0, 300);
             File.AppendAllText(log, string.Format(CultureInfo.InvariantCulture, "{0:o} attempt={1} {2} 0x{3:X8} {4}\r\n",
                 DateTime.Now, attempt, error == null ? "-" : error.GetType().Name, error == null ? 0 : error.HResult, message), Encoding.UTF8);
