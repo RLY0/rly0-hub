@@ -898,7 +898,8 @@ internal static class HubMenu {
 }
 
 internal sealed class PanelWindow : Form {
-    private readonly WebView2 browser = new WebView2();
+    // Replaced when a start attempt fails: a control whose initialization failed is not reused.
+    private WebView2 browser = NewBrowser();
     private readonly string webviewData, www;
     private readonly HubContext owner;
     [DllImport("dwmapi.dll")] private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
@@ -928,11 +929,13 @@ internal sealed class PanelWindow : Form {
         zoom = DefaultZoom;
         Bounds = new Rectangle(work.Left + (work.Width - size.Width) / 2, work.Top + (work.Height - size.Height) / 2, size.Width, size.Height);
         BackColor = Color.FromArgb(13, 13, 11);
-        browser.DefaultBackgroundColor = Color.FromArgb(13, 13, 11);
-        browser.Dock = DockStyle.Fill;
         Controls.Add(browser);
         Load += Initialize;
         FormClosed += delegate { browser.Dispose(); };
+    }
+
+    private static WebView2 NewBrowser() {
+        return new WebView2 { DefaultBackgroundColor = Color.FromArgb(13, 13, 11), Dock = DockStyle.Fill };
     }
 
     /// <summary>The interface size every start opens at: 110% ("大").</summary>
@@ -1015,55 +1018,116 @@ internal sealed class PanelWindow : Form {
         try { browser.CoreWebView2.PostWebMessageAsJson(json); } catch { }
     }
 
+    // WebView2 can fail to start once, e.g. right after an update while the previous window's
+    // browser processes still hold the data folder. Retry with a fresh control before telling the
+    // user anything, and only ask for an install when the runtime is really missing.
+    private const int StartAttempts = 3;
+
     private async void Initialize(object sender, EventArgs args) {
-        try {
-            var environment = await CoreWebView2Environment.CreateAsync(null, webviewData);
+        int simulated; // test hook: fail the first N attempts
+        int.TryParse(Environment.GetEnvironmentVariable("RLY0_HUB_TEST_WEBVIEW_FAIL"), out simulated);
+        Exception last = null;
+        for (int attempt = 1; attempt <= StartAttempts; attempt++) {
             if (IsDisposed) return;
-            await browser.EnsureCoreWebView2Async(environment);
+            try {
+                if (attempt <= simulated) throw new InvalidOperationException("Simulated WebView2 start failure");
+                await Start();
+                return;
+            } catch (WebView2RuntimeNotFoundException error) {
+                last = error;
+                break;
+            } catch (Exception error) {
+                last = error;
+            }
+            // C# 5 (the Windows .NET Framework compiler) cannot await inside catch.
             if (IsDisposed) return;
-            var core = browser.CoreWebView2;
-            core.Settings.AreDevToolsEnabled = false;
-            core.Settings.AreHostObjectsAllowed = false;
-            core.Settings.IsStatusBarEnabled = false;
-            core.Settings.IsPasswordAutosaveEnabled = false;
-            core.Settings.IsGeneralAutofillEnabled = false;
-            core.Settings.AreDefaultContextMenusEnabled = false;
-            // A fixed interface scale: no Ctrl + wheel / Ctrl +/- / pinch zoom drifting it.
-            // "界面大小" in Settings is the only way to change it.
-            core.Settings.IsZoomControlEnabled = false;
-            try { core.Settings.IsPinchZoomEnabled = false; } catch { }
-            browser.ZoomFactor = zoom;
-            core.SetVirtualHostNameToFolderMapping(Program.PageHost, www, CoreWebView2HostResourceAccessKind.DenyCors);
-            core.NewWindowRequested += delegate (object s, CoreWebView2NewWindowRequestedEventArgs e) { e.Handled = true; };
-            core.PermissionRequested += delegate (object s, CoreWebView2PermissionRequestedEventArgs e) { e.State = CoreWebView2PermissionState.Deny; };
-            core.DownloadStarting += delegate (object s, CoreWebView2DownloadStartingEventArgs e) { e.Cancel = true; };
-            core.NavigationStarting += delegate (object s, CoreWebView2NavigationStartingEventArgs e) {
-                if (!e.Uri.StartsWith(Program.PageUrl, StringComparison.Ordinal)) e.Cancel = true;
-            };
-            core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
-            core.WebResourceRequested += delegate (object s, CoreWebView2WebResourceRequestedEventArgs e) {
-                Uri uri;
-                bool allowed = Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out uri) && uri.Scheme == "https" &&
-                    uri.Host == Program.PageHost && e.Request.Method == "GET";
-                if (!allowed) e.Response = environment.CreateWebResourceResponse(new MemoryStream(new byte[0]), 403, "Local resources only", "");
-            };
-            core.WebMessageReceived += delegate (object s, CoreWebView2WebMessageReceivedEventArgs e) {
-                if (!e.Source.StartsWith(Program.PageUrl, StringComparison.Ordinal)) return;
-                if (HandleWindowMessage(e.WebMessageAsJson)) return;
-                owner.FromPage(e.WebMessageAsJson);
-            };
-            core.NavigationCompleted += delegate (object s, CoreWebView2NavigationCompletedEventArgs e) {
-                if (!e.IsSuccess) return;
-                Loaded = true;
-                string navigate = owner.TakePendingPage();
-                if (navigate != null) Post(navigate);
-                if (owner.Ready) Post("{\"event\":\"ready\"}");
-            };
-            core.Navigate(Program.PageUrl);
-        } catch {
-            MessageBox.Show("界面组件 WebView2 不可用。请安装 Microsoft Edge WebView2 运行时后再打开。", "RLY/0 Hub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            Close();
+            LogStartFailure(attempt, last);
+            if (attempt == StartAttempts) break;
+            ReplaceBrowser();
+            await System.Threading.Tasks.Task.Delay(attempt * 1500);
         }
+        if (IsDisposed) return;
+        bool missing = last is WebView2RuntimeNotFoundException || !RuntimeInstalled();
+        if (missing) LogStartFailure(0, last);
+        MessageBox.Show(
+            missing
+                ? "界面组件 WebView2 不可用。请安装 Microsoft Edge WebView2 运行时后再打开。"
+                : "RLY/0 Hub 的界面这次没能启动。请关掉 Hub 再打开；还不行就重启电脑。",
+            "RLY/0 Hub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        Close();
+    }
+
+    private static bool RuntimeInstalled() {
+        try { return !string.IsNullOrEmpty(CoreWebView2Environment.GetAvailableBrowserVersionString()); }
+        catch { return false; }
+    }
+
+    private void ReplaceBrowser() {
+        var failed = browser;
+        browser = NewBrowser();
+        Controls.Remove(failed);
+        try { failed.Dispose(); } catch { }
+        Controls.Add(browser);
+    }
+
+    // %LOCALAPPDATA%\rly0-hub\hub-webview-start.log: one line per failed attempt (0 = gave up,
+    // runtime missing), kept small. Never contains page content or credentials.
+    private void LogStartFailure(int attempt, Exception error) {
+        try {
+            var log = Path.Combine(Path.GetDirectoryName(webviewData), "hub-webview-start.log");
+            var info = new FileInfo(log);
+            if (info.Exists && info.Length > 64 * 1024) File.Delete(log);
+            string message = error == null ? "" : Regex.Replace(error.Message ?? "", @"\s+", " ");
+            if (message.Length > 300) message = message.Substring(0, 300);
+            File.AppendAllText(log, string.Format(CultureInfo.InvariantCulture, "{0:o} attempt={1} {2} 0x{3:X8} {4}\r\n",
+                DateTime.Now, attempt, error == null ? "-" : error.GetType().Name, error == null ? 0 : error.HResult, message), Encoding.UTF8);
+        } catch { }
+    }
+
+    private async System.Threading.Tasks.Task Start() {
+        var environment = await CoreWebView2Environment.CreateAsync(null, webviewData);
+        if (IsDisposed) return;
+        await browser.EnsureCoreWebView2Async(environment);
+        if (IsDisposed) return;
+        var core = browser.CoreWebView2;
+        core.Settings.AreDevToolsEnabled = false;
+        core.Settings.AreHostObjectsAllowed = false;
+        core.Settings.IsStatusBarEnabled = false;
+        core.Settings.IsPasswordAutosaveEnabled = false;
+        core.Settings.IsGeneralAutofillEnabled = false;
+        core.Settings.AreDefaultContextMenusEnabled = false;
+        // A fixed interface scale: no Ctrl + wheel / Ctrl +/- / pinch zoom drifting it.
+        // "界面大小" in Settings is the only way to change it.
+        core.Settings.IsZoomControlEnabled = false;
+        try { core.Settings.IsPinchZoomEnabled = false; } catch { }
+        browser.ZoomFactor = zoom;
+        core.SetVirtualHostNameToFolderMapping(Program.PageHost, www, CoreWebView2HostResourceAccessKind.DenyCors);
+        core.NewWindowRequested += delegate (object s, CoreWebView2NewWindowRequestedEventArgs e) { e.Handled = true; };
+        core.PermissionRequested += delegate (object s, CoreWebView2PermissionRequestedEventArgs e) { e.State = CoreWebView2PermissionState.Deny; };
+        core.DownloadStarting += delegate (object s, CoreWebView2DownloadStartingEventArgs e) { e.Cancel = true; };
+        core.NavigationStarting += delegate (object s, CoreWebView2NavigationStartingEventArgs e) {
+            if (!e.Uri.StartsWith(Program.PageUrl, StringComparison.Ordinal)) e.Cancel = true;
+        };
+        core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+        core.WebResourceRequested += delegate (object s, CoreWebView2WebResourceRequestedEventArgs e) {
+            Uri uri;
+            bool allowed = Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out uri) && uri.Scheme == "https" &&
+                uri.Host == Program.PageHost && e.Request.Method == "GET";
+            if (!allowed) e.Response = environment.CreateWebResourceResponse(new MemoryStream(new byte[0]), 403, "Local resources only", "");
+        };
+        core.WebMessageReceived += delegate (object s, CoreWebView2WebMessageReceivedEventArgs e) {
+            if (!e.Source.StartsWith(Program.PageUrl, StringComparison.Ordinal)) return;
+            if (HandleWindowMessage(e.WebMessageAsJson)) return;
+            owner.FromPage(e.WebMessageAsJson);
+        };
+        core.NavigationCompleted += delegate (object s, CoreWebView2NavigationCompletedEventArgs e) {
+            if (!e.IsSuccess) return;
+            Loaded = true;
+            string navigate = owner.TakePendingPage();
+            if (navigate != null) Post(navigate);
+            if (owner.Ready) Post("{\"event\":\"ready\"}");
+        };
+        core.Navigate(Program.PageUrl);
     }
 }
 
