@@ -243,7 +243,9 @@ it("does not depend on Rspack module ids", async () => {
 it("fails closed when the registry chunk is not loaded yet", async () => {
   const f = rspackFixture();
   Reflect.deleteProperty(f.cache, "Dgwo");
-  expect(await loadRendererHostRpcRegistry(f.store, f.target, f.importModule)).toBeNull();
+  expect(
+    await loadRendererHostRpcRegistry(f.store, f.target, f.importModule, { timeoutMs: 0 }),
+  ).toBeNull();
   expect(f.webpackRequire).not.toHaveBeenCalled();
 });
 
@@ -261,7 +263,9 @@ it("fails closed when two signals resolve to a registry", async () => {
 it("does not use an unbound signal or a registry-shaped value of another scope", async () => {
   const f = rspackFixture();
   f.store.signalBindings.delete(f.definition);
-  expect(await loadRendererHostRpcRegistry(f.store, f.target, f.importModule)).toBeNull();
+  expect(
+    await loadRendererHostRpcRegistry(f.store, f.target, f.importModule, { timeoutMs: 0 }),
+  ).toBeNull();
   expect(f.definition.resolve).not.toHaveBeenCalled();
 });
 
@@ -306,4 +310,125 @@ it("rejects catalog replacement while importing the Rspack runtime", async () =>
 it("matches the shipped 26.1029.7803.0 file names and entry export", () => {
   expect(RSPACK_ENTRY).toMatch(/^\d+\.[0-9a-f]{8,}\.js$/);
   for (const file of RSPACK_PRELOADED) expect(file).toMatch(/^\d+\.[0-9a-f]{8,}\.js$/);
+});
+
+// Desktop 26.1029 lazy-loads async chunk 24191 (ComposerLayoutRoot, which holds the registry)
+// only after the main composer renders; the entry's installed-chunk table is just {348410:0}.
+function fakeClock() {
+  let time = 0;
+  const sleeps: number[] = [];
+  const hooks: Array<(time: number) => void> = [];
+  return {
+    sleeps,
+    onTick: (hook: (time: number) => void) => hooks.push(hook),
+    now: () => time,
+    sleep: vi.fn(async (ms: number) => {
+      sleeps.push(ms);
+      time += ms;
+      for (const hook of hooks) hook(time);
+    }),
+  };
+}
+
+it("waits for the lazily loaded Rspack registry chunk", async () => {
+  const f = rspackFixture();
+  const registryModule = f.cache.Dgwo;
+  Reflect.deleteProperty(f.cache, "Dgwo");
+  const clock = fakeClock();
+  clock.onTick((time) => {
+    if (time < 1000 || f.cache.Dgwo) return;
+    f.cache.Dgwo = registryModule;
+    // Loading an async chunk replaces the catalog with a same-owner superset.
+    f.target.__codexhostLoadedModulesV1 = {
+      ...f.target.__codexhostLoadedModulesV1,
+      urls: [
+        ...f.target.__codexhostLoadedModulesV1.urls,
+        "app://-/assets/async/24191.589dcc9878.js",
+      ],
+    };
+  });
+  const onUnavailable = vi.fn();
+  const binding = await loadRendererHostRpcRegistry(f.store, f.target, f.importModule, {
+    sleep: clock.sleep,
+    now: clock.now,
+    onUnavailable,
+  });
+  expect(binding?.registry).toBe(f.registry);
+  expect(binding?.isCurrent()).toBe(true);
+  expect(clock.sleeps).toEqual([250, 250, 250, 250]);
+  expect(onUnavailable).not.toHaveBeenCalled();
+  expect(f.webpackRequire).not.toHaveBeenCalled();
+  expect(f.definition.resolve).not.toHaveBeenCalled();
+});
+
+it("times out with a clear reason when the Rspack registry never loads", async () => {
+  const f = rspackFixture();
+  Reflect.deleteProperty(f.cache, "Dgwo");
+  const clock = fakeClock();
+  const onUnavailable = vi.fn();
+  expect(
+    await loadRendererHostRpcRegistry(f.store, f.target, f.importModule, {
+      timeoutMs: 2000,
+      intervalMs: 500,
+      sleep: clock.sleep,
+      now: clock.now,
+      onUnavailable,
+    }),
+  ).toBeNull();
+  expect(clock.sleeps).toEqual([500, 500, 500, 500]);
+  expect(onUnavailable).toHaveBeenCalledExactlyOnceWith(
+    "renderer host RPC registry was not loaded within 2000ms (Rspack module cache)",
+  );
+  expect(f.webpackRequire).not.toHaveBeenCalled();
+});
+
+it("uses the default 10s budget with real timers", async () => {
+  vi.useFakeTimers();
+  try {
+    const f = rspackFixture();
+    Reflect.deleteProperty(f.cache, "Dgwo");
+    const pending = loadRendererHostRpcRegistry(f.store, f.target, f.importModule);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await pending).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("stops waiting when another controller replaces the catalog", async () => {
+  const f = rspackFixture();
+  Reflect.deleteProperty(f.cache, "Dgwo");
+  const clock = fakeClock();
+  clock.onTick(() => {
+    f.target.__codexhostLoadedModulesV1 = {
+      ...f.target.__codexhostLoadedModulesV1,
+      owner: "replacement-controller",
+    };
+  });
+  const onUnavailable = vi.fn();
+  expect(
+    await loadRendererHostRpcRegistry(f.store, f.target, f.importModule, {
+      sleep: clock.sleep,
+      now: clock.now,
+      onUnavailable,
+    }),
+  ).toBeNull();
+  expect(clock.sleeps).toHaveLength(1);
+  expect(onUnavailable).toHaveBeenCalledWith("renderer module catalog changed while waiting");
+});
+
+it.each([
+  ["26.1027.3384.0", DESKTOP_3384],
+  ["26.1027.6604.0", DESKTOP_6604],
+])("keeps the %s Vite path immediate and without waiting", async (_version, build) => {
+  const f = fixture(build);
+  const sleep = vi.fn(async () => {});
+  const binding = await loadRendererHostRpcRegistry(f.store, f.target, f.importModule, { sleep });
+  expect(binding?.registry).toBe(f.registry);
+  expect(sleep).not.toHaveBeenCalled();
+  f.store.signalBindings.delete(f.definition);
+  expect(
+    await loadRendererHostRpcRegistry(f.store, f.target, f.importModule, { sleep }),
+  ).toBeNull();
+  expect(sleep).not.toHaveBeenCalled();
 });

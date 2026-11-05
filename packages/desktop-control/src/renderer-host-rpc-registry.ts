@@ -23,6 +23,16 @@ export async function loadRendererHostRpcRegistry(
   store: unknown,
   target: { location?: { href: string }; [key: string]: unknown },
   importModule: (url: string) => Promise<Record<string, unknown>> = (url) => import(url),
+  options: {
+    /** Rspack only: how long to wait for the lazily loaded registry chunk. */
+    timeoutMs?: number;
+    /** Rspack only: module-cache poll interval. */
+    intervalMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+    /** Receives a short reason whenever the loader fails closed. */
+    onUnavailable?: (reason: string) => void;
+  } = {},
 ): Promise<RendererHostRpcRegistryBinding | null> {
   const record = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null;
@@ -115,25 +125,68 @@ export async function loadRendererHostRpcRegistry(
     const [{ url: runtimeUrl, cache }] = runtimes as [
       { url: string; cache: Record<string, unknown> },
     ];
-    const found = new Set<Record<string, unknown>>();
-    for (const id of Object.keys(cache)) {
-      const entry = cache[id];
-      if (!record(entry) || entry.error !== undefined || !record(entry.exports)) continue;
-      const exports = entry.exports;
-      for (const key of Object.keys(exports)) {
-        let candidate: unknown;
-        try {
-          candidate = exports[key];
-        } catch {
-          continue;
-        }
-        if (!isDefinition(candidate) || found.has(candidate)) continue;
-        const bound = signals.get(candidate);
-        if (record(bound) && isRegistry(values.get(bound))) found.add(candidate);
+    // Desktop 26.1029 lazy-loads the chunk that defines the registry (ComposerLayoutRoot)
+    // after the main composer renders, so poll the module cache for a bounded time. Never
+    // trigger chunk loads ourselves: that would initialize unloaded Desktop modules.
+    const timeoutMs = Math.max(0, Math.min(options.timeoutMs ?? 10_000, 60_000));
+    const intervalMs = Math.max(10, options.intervalMs ?? 250);
+    const sleep =
+      options.sleep ??
+      ((ms: number) => new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms)));
+    const now = options.now ?? (() => Date.now());
+    const fail = (reason: string) => {
+      try {
+        options.onUnavailable?.(reason);
+      } catch {
+        // diagnostics must never change the outcome
       }
-      if (found.size > 1) return null;
+      return null;
+    };
+    // Lazy chunk loads replace the catalog; accept only same-owner, same-page updates.
+    const sameCatalog = () => {
+      const current = target.__codexhostLoadedModulesV1;
+      return (
+        record(current) &&
+        current.owner === catalog.owner &&
+        current.complete === true &&
+        current.documentUrl === page &&
+        Array.isArray(current.urls) &&
+        current.urls.includes(runtimeUrl)
+      );
+    };
+    const scan = (): Set<Record<string, unknown>> | null => {
+      const found = new Set<Record<string, unknown>>();
+      for (const id of Object.keys(cache)) {
+        const entry = cache[id];
+        if (!record(entry) || entry.error !== undefined || !record(entry.exports)) continue;
+        const exports = entry.exports;
+        for (const key of Object.keys(exports)) {
+          let candidate: unknown;
+          try {
+            candidate = exports[key];
+          } catch {
+            continue;
+          }
+          if (!isDefinition(candidate) || found.has(candidate)) continue;
+          const bound = signals.get(candidate);
+          if (record(bound) && isRegistry(values.get(bound))) found.add(candidate);
+        }
+        if (found.size > 1) return null;
+      }
+      return found;
+    };
+    const deadline = now() + timeoutMs;
+    let found = scan();
+    while (found !== null && found.size === 0 && now() < deadline) {
+      await sleep(Math.min(intervalMs, Math.max(0, deadline - now())));
+      if (!sameCatalog()) return fail("renderer module catalog changed while waiting");
+      found = scan();
     }
-    if (found.size !== 1) return null;
+    if (found === null) return fail("more than one renderer host RPC registry signal is bound");
+    if (found.size !== 1)
+      return fail(
+        `renderer host RPC registry was not loaded within ${timeoutMs}ms (Rspack module cache)`,
+      );
     moduleUrl = runtimeUrl;
     [definition] = [...found] as [Record<string, unknown>];
   } else return null;
