@@ -745,6 +745,7 @@ fn desktop_launch_mode() -> DesktopLaunchMode {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn supervise_desktop(
     installation: &DesktopInstallation,
     options: &ResolvedLaunchOptions,
