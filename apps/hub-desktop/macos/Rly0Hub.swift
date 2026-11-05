@@ -111,7 +111,37 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                         keyEquivalent: "q")
         item.submenu = appMenu
         menu.addItem(item)
+        // 「前往」: same as the Windows tray's page shortcuts (shell "navigate" event).
+        let goItem = NSMenuItem()
+        let goMenu = NSMenu(title: "前往")
+        for (index, entry) in navPages.enumerated() {
+            let page = goMenu.addItem(withTitle: entry.1, action: #selector(navigateFromMenu(_:)),
+                                      keyEquivalent: index < 9 ? String(index + 1) : "")
+            page.target = self
+            page.representedObject = entry.0
+        }
+        goItem.submenu = goMenu
+        menu.addItem(goItem)
+        // Local automation (screenshots/tests): only whitelisted page names, nothing else.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.rly0.hub.navigate"), object: nil, queue: .main) { note in
+            if let page = note.object as? String { self.navigate(page) }
+        }
         NSApp.mainMenu = menu
+    }
+
+    let navPages = [("home", "首页"), ("accounts", "账号"), ("relays", "中转站"),
+                    ("agents", "AI 助手"), ("bridge", "打通设置"), ("maintenance", "维护工具"),
+                    ("settings", "设置")]
+
+    @objc func navigateFromMenu(_ sender: NSMenuItem) {
+        if let page = sender.representedObject as? String { navigate(page) }
+    }
+
+    func navigate(_ page: String) {
+        guard navPages.contains(where: { $0.0 == page }) else { return }
+        showWindow()
+        post(["event": "navigate", "page": page])
     }
 
     func makeWindow() throws {
