@@ -15,7 +15,8 @@ export interface RendererHostRpcRegistryBinding {
 /** Read one reviewed, already bound signal. Never resolve arbitrary atoms or
  * initialize an unloaded Desktop module while looking for a writable registry.
  * Each filename/export pair is a pinned, reviewed 26.1027 native contract, not a
- * version comparison. Unknown contracts remain unavailable for external draft creation.
+ * version comparison. Rspack builds (26.1029+) are found by capability detection in
+ * the already-populated webpack module cache instead of by name. Unknown contracts remain unavailable for external draft creation.
  * Self-contained because the Controller embeds this loader in the Renderer.
  */
 export async function loadRendererHostRpcRegistry(
@@ -41,12 +42,29 @@ export async function loadRendererHostRpcRegistry(
     typeof store.store.get !== "function"
   )
     return null;
-  // Each captured bundle exports the same root registry signal under its own name.
+  const isRegistry = (value: unknown): boolean =>
+    record(value) &&
+    typeof value.forHost === "function" &&
+    typeof value.collectAppStateSnapshot === "function" &&
+    typeof value.getReviewPaneSnapshotMetrics === "function" &&
+    typeof value.dispose === "function";
+  const isDefinition = (value: unknown): value is Record<string, unknown> =>
+    record(value) &&
+    value.cache === "signal" &&
+    value.scope === store.token &&
+    typeof value.resolve === "function";
+  const signals = store.signalBindings as { get(key: object): unknown };
+  const values = store.store as { get(key: object): unknown };
+  // Each captured Vite bundle exports the same root registry signal under its own name.
   const contracts = new Map([
     ["app-initial-4267e52fe5b0.js", "mpr"], // Desktop 26.1027.3384.0
     ["app-initial-fb51ee65d20a.js", "vpr"], // Desktop 26.1027.6604.0
   ]);
+  // Rspack builds (Desktop 26.1029+) name chunks `<numeric id>.<hash>.js` and the
+  // entry/runtime chunk exports `__webpack_require__`, whose `.c` is the module cache.
+  const rspackChunk = /^\d+\.[0-9a-f]{8,}\.js$/;
   const urls = new Map<string, string>();
+  const rspackUrls: string[] = [];
   const pageUrl = new URL(page);
   for (const source of catalog.urls) {
     if (typeof source !== "string") return null;
@@ -56,41 +74,73 @@ export async function loadRendererHostRpcRegistry(
     } catch {
       continue;
     }
-    const contract = contracts.get(url.pathname.slice(url.pathname.lastIndexOf("/") + 1));
-    if (
-      url.protocol === pageUrl.protocol &&
-      url.host === pageUrl.host &&
-      contract !== undefined &&
-      !url.search &&
-      !url.hash
-    )
-      urls.set(url.href, contract);
+    if (url.protocol !== pageUrl.protocol || url.host !== pageUrl.host || url.search || url.hash)
+      continue;
+    const file = url.pathname.slice(url.pathname.lastIndexOf("/") + 1);
+    const contract = contracts.get(file);
+    if (contract !== undefined) urls.set(url.href, contract);
+    else if (rspackChunk.test(file) && !url.pathname.includes("/async/")) rspackUrls.push(url.href);
   }
-  if (urls.size !== 1) return null;
-  const [[moduleUrl, exportName]] = [...urls] as [[string, string]];
-  const module = await importModule(moduleUrl);
-  if (target.__codexhostLoadedModulesV1 !== catalog) return null;
-  const definition = module[exportName];
-  if (
-    !record(definition) ||
-    definition.cache !== "signal" ||
-    definition.scope !== store.token ||
-    typeof definition.resolve !== "function"
-  )
-    return null;
-  const signals = store.signalBindings as { get(key: object): unknown };
+  let moduleUrl: string;
+  let definition: Record<string, unknown>;
+  if (urls.size === 1) {
+    // Reviewed Vite contract (Desktop 26.1027 and earlier).
+    const [[legacyUrl, exportName]] = [...urls] as [[string, string]];
+    const module = await importModule(legacyUrl);
+    if (target.__codexhostLoadedModulesV1 !== catalog) return null;
+    const legacy = module[exportName];
+    if (!isDefinition(legacy)) return null;
+    moduleUrl = legacyUrl;
+    definition = legacy;
+  } else if (urls.size === 0 && rspackUrls.length > 0 && rspackUrls.length <= 64) {
+    // Capability detection: only already-loaded entry chunks are imported (same
+    // instance as the page's module scripts) and only already-evaluated modules in the
+    // webpack module cache are inspected. A definition qualifies only when it passes the
+    // signal contract, is already bound, and its bound value has the registry shape.
+    // Fail closed unless exactly one entry chunk and exactly one definition qualify.
+    const runtimes: Array<{ url: string; cache: Record<string, unknown> }> = [];
+    for (const url of rspackUrls) {
+      let module: Record<string, unknown>;
+      try {
+        module = await importModule(url);
+      } catch {
+        continue;
+      }
+      if (target.__codexhostLoadedModulesV1 !== catalog) return null;
+      const runtime = module.__webpack_require__;
+      if (typeof runtime === "function" && record((runtime as { c?: unknown }).c))
+        runtimes.push({ url, cache: (runtime as unknown as { c: Record<string, unknown> }).c });
+    }
+    if (runtimes.length !== 1) return null;
+    const [{ url: runtimeUrl, cache }] = runtimes as [
+      { url: string; cache: Record<string, unknown> },
+    ];
+    const found = new Set<Record<string, unknown>>();
+    for (const id of Object.keys(cache)) {
+      const entry = cache[id];
+      if (!record(entry) || entry.error !== undefined || !record(entry.exports)) continue;
+      const exports = entry.exports;
+      for (const key of Object.keys(exports)) {
+        let candidate: unknown;
+        try {
+          candidate = exports[key];
+        } catch {
+          continue;
+        }
+        if (!isDefinition(candidate) || found.has(candidate)) continue;
+        const bound = signals.get(candidate);
+        if (record(bound) && isRegistry(values.get(bound))) found.add(candidate);
+      }
+      if (found.size > 1) return null;
+    }
+    if (found.size !== 1) return null;
+    moduleUrl = runtimeUrl;
+    [definition] = [...found] as [Record<string, unknown>];
+  } else return null;
   const atom = signals.get(definition);
   if (!record(atom)) return null;
-  const values = store.store as { get(key: object): unknown };
   const registry = values.get(atom);
-  if (
-    !record(registry) ||
-    typeof registry.forHost !== "function" ||
-    typeof registry.collectAppStateSnapshot !== "function" ||
-    typeof registry.getReviewPaneSnapshotMetrics !== "function" ||
-    typeof registry.dispose !== "function"
-  )
-    return null;
+  if (!isRegistry(registry)) return null;
   return {
     registry: registry as unknown as RendererHostRpcRegistry,
     isCurrent() {
