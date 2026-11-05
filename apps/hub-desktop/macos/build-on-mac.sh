@@ -36,7 +36,7 @@ if [[ -e "$APP_PATH" || -e "$ZIP_PATH" ]]; then
 fi
 /usr/bin/xcrun --find swiftc >/dev/null
 /usr/bin/plutil -lint "$KIT_ROOT/sources/Info.plist" >/dev/null
-for required in sources/Rly0Hub.swift sources/bridge.js kit-manifest.json \
+for required in sources/Rly0Hub.swift sources/bridge.js sources/codexhost-launch.sh kit-manifest.json \
   payload/app/hub-service.mjs payload/app/hub-ui/index.html; do
   test -s "$KIT_ROOT/$required" || { echo "Incomplete development kit: $required" >&2; exit 1; }
 done
@@ -55,6 +55,9 @@ cp -R "$KIT_ROOT/payload/app" "$RESOURCES/app"
 cp "$KIT_ROOT/sources/bridge.js" "$RESOURCES/mac-bridge.js"
 cp "$KIT_ROOT/sources/Info.plist" "$CONTENTS/Info.plist"
 cp "$NODE_PATH_FOR_BUILD" "$RESOURCES/runtime/node"
+mkdir -p "$RESOURCES/bin"
+cp "$KIT_ROOT/sources/codexhost-launch.sh" "$RESOURCES/bin/codexhost"
+chmod 755 "$RESOURCES/bin/codexhost"
 chmod 755 "$RESOURCES/runtime/node"
 /usr/bin/xcrun swiftc -swift-version 5 -O -target "$SWIFT_ARCH-apple-macos12.0" \
   -framework AppKit -framework WebKit \

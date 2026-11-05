@@ -80,7 +80,7 @@ export async function prepareMacHubKit({ outputDirectory, root = repositoryRoot,
   await mkdir(output);
   await copyTree(path.join(root, "apps/hub-desktop/www"), path.join(output, "payload/app/hub-ui"));
   await mkdir(path.join(output, "sources"));
-  for (const file of ["Rly0Hub.swift", "bridge.js", "Info.plist"]) {
+  for (const file of ["Rly0Hub.swift", "bridge.js", "Info.plist", "codexhost-launch.sh"]) {
     await copyTree(path.join(root, nativeSource, file), path.join(output, "sources", file));
   }
   for (const file of ["build-on-mac.sh", "README.md"]) {

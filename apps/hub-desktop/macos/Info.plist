@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key><string>rly0-hub</string>
-  <key>CFBundleIdentifier</key><string>com.rly0.hub.macos-dev</string>
+  <key>CFBundleIdentifier</key><string>com.rly0.hub.macos</string>
   <key>CFBundleName</key><string>RLY0 Hub</string>
-  <key>CFBundleDisplayName</key><string>RLY/0 Hub 开发版</string>
+  <key>CFBundleDisplayName</key><string>RLY/0 Hub</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleShortVersionString</key><string>0.0.1</string>
+  <key>CFBundleShortVersionString</key><string>0.11.32</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>12.0</string>
   <key>NSHighResolutionCapable</key><true/>

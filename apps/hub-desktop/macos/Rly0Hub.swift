@@ -62,29 +62,39 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var pending = Set<String>()
     var zoom = 1.1
     var lockDescriptor: Int32 = -1
+    var devMode = false
     let steps = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6]
-    let readQueue = DispatchQueue(label: "com.rly0.hub.macos-dev.stdout")
+    let readQueue = DispatchQueue(label: "com.rly0.hub.macos.stdout")
     var buffer = Data()
     let resources = Bundle.main.resourceURL!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
-            let devHome = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".rly0-hub-macos-dev", isDirectory: true)
-            try FileManager.default.createDirectory(at: devHome, withIntermediateDirectories: true,
-                                                     attributes: [.posixPermissions: 0o700])
-            lockDescriptor = open(devHome.appendingPathComponent("shell.lock").path,
+            // Default: the real HOME (~/.codex, ~/.rly0-hub), like the Windows Hub.
+            // RLY0_HUB_MACOS_DEV_HOME=1 keeps the old isolated development HOME.
+            let fm = FileManager.default
+            let realHome = fm.homeDirectoryForCurrentUser
+            devMode = ProcessInfo.processInfo.environment["RLY0_HUB_MACOS_DEV_HOME"] == "1"
+            // The lock lives on the internal disk: ~/.rly0-hub may be a symlink to an external
+            // volume, and touching it from the main thread would block on the macOS
+            // removable-volume permission prompt before the window exists.
+            let devHome = realHome.appendingPathComponent(".rly0-hub-macos-dev", isDirectory: true)
+            let lockDir = devMode ? devHome
+                : realHome.appendingPathComponent("Library/Application Support/RLY0 Hub", isDirectory: true)
+            try fm.createDirectory(at: lockDir, withIntermediateDirectories: true,
+                                   attributes: [.posixPermissions: 0o700])
+            lockDescriptor = open(lockDir.appendingPathComponent("hub-shell-macos.lock").path,
                                   O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
             guard lockDescriptor >= 0, flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0 else {
                 throw NSError(domain: "HUB_ALREADY_RUNNING", code: 1)
             }
             makeMenu()
             try makeWindow()
-            try startWorker(home: devHome)
+            try startWorker(home: devMode ? devHome : realHome)
         } catch {
             let alert = NSAlert()
-            alert.messageText = "RLY/0 Hub 开发版未能启动"
-            alert.informativeText = "请检查开发包是否完整，并确认没有重复打开。"
+            alert.messageText = "RLY/0 Hub 未能启动"
+            alert.informativeText = "可能已经打开了一个 RLY/0 Hub（看 Dock），或安装包不完整。"
             alert.runModal()
             NSApp.terminate(nil)
         }
@@ -124,7 +134,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 820),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
-        window.title = "RLY/0 Hub · macOS 开发版"
+        window.title = devMode ? "RLY/0 Hub · macOS 开发版" : "RLY/0 Hub"
         window.minSize = NSSize(width: 760, height: 560)
         window.contentView = webview
         window.delegate = self
@@ -151,18 +161,30 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         process.executableURL = resources.appendingPathComponent("runtime/node")
         process.arguments = [resources.appendingPathComponent("app/hub-service.mjs").path]
         process.currentDirectoryURL = resources
-        process.environment = [
+        let inherited = ProcessInfo.processInfo.environment
+        var env: [String: String] = [
             "HOME": home.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin",
+            "USER": NSUserName(),
+            "PATH": "/Volumes/RLY0Dev/Dev/Cache/node-v24/bin:/Volumes/RLY0Dev/Dev/Cache/npm-global/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin",
             "LANG": "en_US.UTF-8",
             "TMPDIR": NSTemporaryDirectory(),
-            "CODEX_HOME": home.appendingPathComponent("codex").path,
-            "CLAUDE_CONFIG_DIR": home.appendingPathComponent("claude").path,
-            "CODEXHOST_DATA_DIR": home.appendingPathComponent("data").path,
-            "RLY0_CORE_DATA": home.appendingPathComponent("core").path,
             "RLY0_HUB_INSTALL_ROOT": resources.path,
             "RLY0_SKIP_LEGACY_IMPORT": "1",
         ]
+        if devMode {
+            env["CODEX_HOME"] = home.appendingPathComponent("codex").path
+            env["CLAUDE_CONFIG_DIR"] = home.appendingPathComponent("claude").path
+            env["CODEXHOST_DATA_DIR"] = home.appendingPathComponent("data").path
+            env["RLY0_CORE_DATA"] = home.appendingPathComponent("core").path
+        } else {
+            // Real data: ~/.codex and ~/.rly0-hub (both symlinked to RLY0Dev). Pass through
+            // explicit overrides the user set, e.g. a Mac rly0-core build via RLY0_CORE_PATH.
+            for key in ["CODEX_HOME", "CODEXHOST_DATA_DIR", "RLY0_CORE_PATH", "CODEXHOST_PKG",
+                        "CODEXHOST_NODE", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"] {
+                if let value = inherited[key], !value.isEmpty { env[key] = value }
+            }
+        }
+        process.environment = env
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
         process.standardError = FileHandle.nullDevice
