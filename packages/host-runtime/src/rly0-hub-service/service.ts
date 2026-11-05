@@ -111,7 +111,10 @@ import {
   createHubHostRequest,
   type HubHostRequest,
 } from "./host-console-routes.js";
-import { Rly0RelayCodexConfigManager } from "../rly0-relay/codex-config.js";
+import {
+  pickDefaultRly0CodexModel,
+  Rly0RelayCodexConfigManager,
+} from "../rly0-relay/codex-config.js";
 import { readUnifiedChannel, writeUnifiedChannel } from "../rly0-relay/unified-channel.js";
 import { Rly0HubStateStore, type Rly0HubState } from "./hub-state.js";
 import { Rly0HubAddLogin } from "./add-login.js";
@@ -432,6 +435,8 @@ export class Rly0HubService {
     }
     await this.#backup.ensure().catch(() => false);
     await this.#ensureProxyForRelays().catch(() => undefined);
+    // Make Codex default to the RLY/0 local provider (config.toml), idempotent + backed up.
+    await this.#ensureCodexDefaultProvider().catch(() => undefined);
     // Local metadata only: no model request and no change to the running client.
     await this.#compatibility.check().catch(() => undefined);
     // Shared memory: import Codex memories once; Codex's rly0_memory entry follows the switch.
@@ -824,6 +829,33 @@ export class Rly0HubService {
     this.#grokAdd.close();
     await this.#addLogin.close().catch(() => undefined);
     await this.#core.dispose();
+  }
+
+  /**
+   * At Hub startup: ensure ~/.codex/config.toml (Win %USERPROFILE%/.codex, Mac ~) has
+   * model_provider = "rly0", a model = "rly0/...", and [model_providers.rly0] from the
+   * existing generator. Idempotent; backs up before writes; never prints secrets.
+   */
+  async #ensureCodexDefaultProvider(): Promise<void> {
+    const baseUrl = await this.#router.ensureProxy();
+    const status = await this.#codexConfig.status();
+    const currentOk =
+      typeof status.model === "string" && status.model.startsWith("rly0/");
+    let model = currentOk ? status.model : undefined;
+    if (!model) {
+      const listed = await this.#core.listRelays();
+      model = listed.available
+        ? pickDefaultRly0CodexModel(listed.relays)
+        : undefined;
+    }
+    if (!model) {
+      // No relay model to advertise yet — still ensure the provider table exists.
+      if (!status.providerPresent || status.providerBaseUrl !== baseUrl) {
+        await this.#codexConfig.apply({ baseUrl, setDefault: false });
+      }
+      return;
+    }
+    await this.#codexConfig.ensureDefault({ baseUrl, model });
   }
 
   async #ensureProxyForRelays(): Promise<void> {

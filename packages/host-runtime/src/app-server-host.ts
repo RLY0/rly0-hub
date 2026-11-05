@@ -192,10 +192,7 @@ import {
   resolveRly0HubAutostartCommand,
 } from "./rly0-appearance/hub-autostart.js";
 import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
-import {
-  Rly0RelayCodexConfigManager,
-  rly0RelayCodexConfigRpcError,
-} from "./rly0-relay/codex-config.js";
+import { Rly0RelayCodexConfigManager, rly0RelayCodexConfigRpcError, pickDefaultRly0CodexModel } from "./rly0-relay/codex-config.js";
 import {
   RLY0_RELAY_PROXY_FAILED_MESSAGE,
   type Rly0OfficialCatalogRead,
@@ -1204,6 +1201,7 @@ export class AppServerHost {
     // embedded hosts never write into a real home directory.
     if (environment.CODEXHOST_LAUNCHER_PID) {
       void this.#rly0FirstRunBackup.ensure().catch((error: unknown) => this.#diagnose(error));
+      void this.#ensureRly0CodexDefaultProvider().catch((error: unknown) => this.#diagnose(error));
     }
     this.#rly0Maintenance = new Rly0MaintenanceManager({
       environment,
@@ -8156,6 +8154,31 @@ export class AppServerHost {
     } catch (error) {
       this.#diagnose(error);
     }
+  }
+
+  /**
+   * Launcher-started Desktop: ensure Codex config.toml defaults to the RLY/0 provider.
+   * Same behavior as HubService startup; idempotent and backed up.
+   */
+  async #ensureRly0CodexDefaultProvider(): Promise<void> {
+    const baseUrl = await this.#rly0RelayModels.ensureProxy();
+    const status = await this.#rly0RelayConfig.status();
+    const currentOk =
+      typeof status.model === "string" && status.model.startsWith("rly0/");
+    let model = currentOk ? status.model : undefined;
+    if (!model) {
+      const listed = await this.#rly0Core.listRelays();
+      model = listed.available
+        ? pickDefaultRly0CodexModel(listed.relays)
+        : undefined;
+    }
+    if (!model) {
+      if (!status.providerPresent || status.providerBaseUrl !== baseUrl) {
+        await this.#rly0RelayConfig.apply({ baseUrl, setDefault: false });
+      }
+      return;
+    }
+    await this.#rly0RelayConfig.ensureDefault({ baseUrl, model });
   }
 
   #diagnose(error: unknown): void {

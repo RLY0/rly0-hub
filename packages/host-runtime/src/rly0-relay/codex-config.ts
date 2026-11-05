@@ -6,6 +6,7 @@ import { parse as parseToml } from "smol-toml";
 import {
   RLY0_CODEX_PROVIDER_ID,
   RLY0_CODEX_PROVIDER_NAME,
+  RLY0_RELAY_MODEL_ID_PREFIX,
   rly0RelayCodexConfigApplyParamsSchema,
   type Rly0RelayCodexConfigApplyParams,
   type Rly0RelayCodexConfigMutationResult,
@@ -24,6 +25,40 @@ import {
 
 export const RLY0_RELAY_INJECTION_STATE_FILE_NAME = "relay-injection.json";
 const PROVIDER_PATH = ["model_providers", RLY0_CODEX_PROVIDER_ID] as const;
+
+/** Minimal relay shape used to pick a startup default `rly0/<relayId>/<model>`. */
+export interface Rly0CodexDefaultRelayCandidate {
+  readonly id: string;
+  readonly enabled: boolean;
+  readonly hasKey: boolean;
+  readonly models: readonly string[];
+}
+
+/** First enabled, keyed, non-pattern model as `rly0/<relayId>/<model>`, or undefined. */
+export function pickDefaultRly0CodexModel(
+  relays: readonly Rly0CodexDefaultRelayCandidate[],
+): string | undefined {
+  for (const relay of relays) {
+    if (!relay.enabled || !relay.hasKey) continue;
+    for (const model of relay.models) {
+      if (model.includes("*")) continue;
+      return `${RLY0_RELAY_MODEL_ID_PREFIX}${relay.id}/${model}`;
+    }
+  }
+  return undefined;
+}
+
+function isRly0PrefixedModel(model: string | undefined): model is string {
+  return typeof model === "string" && model.startsWith(RLY0_RELAY_MODEL_ID_PREFIX);
+}
+
+export type Rly0RelayCodexConfigEnsureResult =
+  | (Rly0RelayCodexConfigMutationResult & { readonly skipped?: false })
+  | {
+      readonly ok: true;
+      readonly skipped: true;
+      readonly status: Rly0RelayCodexConfigStatusResult;
+    };
 
 /** What the first apply found in config.toml, so "restore official" can put it back. */
 interface InjectionState {
@@ -160,6 +195,46 @@ export class Rly0RelayCodexConfigManager {
       ...(model === null ? {} : { model: model.slice(0, 256) }),
       ...(catalog === null ? {} : { modelCatalogJson: catalog.slice(0, 4096) }),
     };
+  }
+
+
+  /**
+   * Idempotently ensure Codex uses the RLY/0 Hub local provider by default:
+   * top-level `model_provider = "rly0"` and `model = "rly0/..."` (before any [section]),
+   * plus the `[model_providers.rly0]` table the Hub already generates. Backs up before
+   * any write. Skips the write when already correct (including matching base_url).
+   * Never logs or alters secret values; other config content is preserved.
+   */
+  async ensureDefault(input: {
+    readonly baseUrl: string;
+    /** Used when the current model is missing or does not start with `rly0/`. */
+    readonly model: string;
+  }): Promise<Rly0RelayCodexConfigEnsureResult> {
+    if (!isRly0PrefixedModel(input.model)) {
+      throw codedError("CODEX_CONFIG_VERIFY_FAILED");
+    }
+    // Validate baseUrl the same way apply does (without requiring setDefault yet).
+    rly0RelayCodexConfigApplyParamsSchema.parse({
+      baseUrl: input.baseUrl,
+      setDefault: true,
+      model: input.model,
+    });
+
+    const status = await this.status();
+    const modelOk = isRly0PrefixedModel(status.model);
+    const providerOk = status.modelProvider === RLY0_CODEX_PROVIDER_ID;
+    const sectionOk =
+      status.providerPresent === true && status.providerBaseUrl === input.baseUrl;
+    if (modelOk && providerOk && sectionOk) {
+      return { ok: true, skipped: true, status };
+    }
+
+    const model = modelOk ? status.model : input.model;
+    return this.apply({
+      baseUrl: input.baseUrl,
+      setDefault: true,
+      model,
+    });
   }
 
   async apply(input: Rly0RelayCodexConfigApplyParams): Promise<Rly0RelayCodexConfigMutationResult> {

@@ -14,7 +14,10 @@ import {
   rly0CoreRpcError,
   sanitizeRly0Relay,
 } from "../src/rly0-core/index.js";
-import { Rly0RelayCodexConfigManager } from "../src/rly0-relay/codex-config.js";
+import {
+  pickDefaultRly0CodexModel,
+  Rly0RelayCodexConfigManager,
+} from "../src/rly0-relay/codex-config.js";
 import {
   findTableRange,
   removeTable,
@@ -512,4 +515,133 @@ describe("Rly0RelayCodexConfigManager", () => {
     );
     expect(await fs.readFile(configPath, "utf8")).toBe(original);
   });
+
+  it("ensureDefault writes rly0 provider + model_provider + rly0/ model with backup", async () => {
+    const original = [
+      "# keep",
+      'model = "gpt-5"',
+      'model_provider = "openai"',
+      'approval_policy = "on-request"',
+      "",
+      "[mcp_servers.foo]",
+      'command = "foo"',
+      "",
+    ].join("\n");
+    const configPath = await writeConfig(original);
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    const model = "rly0/relay-a/gpt-relay-1";
+    const result = await manager.ensureDefault({ baseUrl: BASE_URL, model });
+    expect(result).toMatchObject({
+      ok: true,
+      status: {
+        providerPresent: true,
+        providerBaseUrl: BASE_URL,
+        modelProvider: "rly0",
+        model,
+      },
+    });
+    expect("skipped" in result ? result.skipped : false).toBe(false);
+    const written = await fs.readFile(configPath, "utf8");
+    expect(written).toContain("# keep");
+    expect(written).toContain('approval_policy = "on-request"');
+    expect(written).toContain("[mcp_servers.foo]");
+    const parsed = parseToml(written) as {
+      model_provider: string;
+      model: string;
+      model_providers: { rly0: Record<string, unknown> };
+    };
+    expect(parsed.model_provider).toBe("rly0");
+    expect(parsed.model).toBe(model);
+    expect(parsed.model_providers.rly0).toEqual({
+      name: "RLY/0 Hub 本地代理",
+      base_url: BASE_URL,
+      wire_api: "responses",
+      requires_openai_auth: true,
+    });
+    // Top-level defaults must appear before any [section].
+    const firstSection = written.search(/^\[/mu);
+    const providerLine = written.indexOf('model_provider = "rly0"');
+    const modelLine = written.indexOf(`model = "${model}"`);
+    expect(providerLine).toBeGreaterThanOrEqual(0);
+    expect(modelLine).toBeGreaterThanOrEqual(0);
+    expect(providerLine).toBeLessThan(firstSection);
+    expect(modelLine).toBeLessThan(firstSection);
+    const backups = (await fs.readdir(path.dirname(configPath))).filter((name) =>
+      name.includes(".rly0-bak-"),
+    );
+    expect(backups).toHaveLength(1);
+  });
+
+  it("ensureDefault is idempotent when already correct and refreshes base_url only when needed", async () => {
+    const model = "rly0/relay-a/gpt-relay-1";
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    await manager.ensureDefault({ baseUrl: BASE_URL, model });
+    const configPath = path.join(tempDir, "codex", "config.toml");
+    const afterFirst = await fs.readFile(configPath, "utf8");
+    const backupsAfterFirst = (await fs.readdir(path.dirname(configPath))).filter((name) =>
+      name.includes(".rly0-bak-"),
+    ).length;
+
+    const skipped = await manager.ensureDefault({ baseUrl: BASE_URL, model: "rly0/other/ignored" });
+    expect(skipped).toMatchObject({ ok: true, skipped: true, status: { model, modelProvider: "rly0" } });
+    expect(await fs.readFile(configPath, "utf8")).toBe(afterFirst);
+    expect(
+      (await fs.readdir(path.dirname(configPath))).filter((name) => name.includes(".rly0-bak-")),
+    ).toHaveLength(backupsAfterFirst);
+
+    const nextUrl = "http://127.0.0.1:25918/v1";
+    const refreshed = await manager.ensureDefault({ baseUrl: nextUrl, model: "rly0/other/ignored" });
+    expect(refreshed).toMatchObject({
+      ok: true,
+      status: { providerBaseUrl: nextUrl, model, modelProvider: "rly0" },
+    });
+    expect("skipped" in refreshed ? refreshed.skipped : false).toBeFalsy();
+    expect(await fs.readFile(configPath, "utf8")).toContain(`base_url = "${nextUrl}"`);
+    expect(await fs.readFile(configPath, "utf8")).toContain(`model = "${model}"`);
+  });
+
+  it("ensureDefault keeps an existing rly0/ model and only upgrades provider defaults when missing", async () => {
+    const existing = "rly0/keep-me/claude-sonnet";
+    await writeConfig(
+      [
+        `model = "${existing}"`,
+        'approval_policy = "never"',
+        "",
+      ].join("\n"),
+    );
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    const result = await manager.ensureDefault({
+      baseUrl: BASE_URL,
+      model: "rly0/fallback/gpt",
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      status: { model: existing, modelProvider: "rly0", providerPresent: true },
+    });
+  });
+
+  it("ensureDefault replaces a non-rly0 model_provider and non-rly0/ model", async () => {
+    await writeConfig(['model = "gpt-5"', 'model_provider = "openai"', ""].join("\n"));
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    const model = "rly0/relay-b/gpt-4o";
+    await manager.ensureDefault({ baseUrl: BASE_URL, model });
+    const parsed = parseToml(
+      await fs.readFile(path.join(tempDir, "codex", "config.toml"), "utf8"),
+    ) as { model: string; model_provider: string };
+    expect(parsed.model_provider).toBe("rly0");
+    expect(parsed.model).toBe(model);
+  });
+
+  it("pickDefaultRly0CodexModel picks the first enabled keyed non-pattern model", () => {
+    expect(
+      pickDefaultRly0CodexModel([
+        { id: "off", enabled: false, hasKey: true, models: ["gpt-x"] },
+        { id: "nokey", enabled: true, hasKey: false, models: ["gpt-y"] },
+        { id: "wild", enabled: true, hasKey: true, models: ["gpt-*", "gpt-z"] },
+        { id: "later", enabled: true, hasKey: true, models: ["gpt-later"] },
+      ]),
+    ).toBe("rly0/wild/gpt-z");
+    expect(pickDefaultRly0CodexModel([])).toBeUndefined();
+  });
 });
+
