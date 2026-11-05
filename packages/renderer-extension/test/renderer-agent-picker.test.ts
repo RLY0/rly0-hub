@@ -258,30 +258,47 @@ describe("Renderer Agent picker presentation", () => {
     const element = (
       ownAttributes: readonly string[],
       matches: boolean,
-      modelProps: boolean,
+      modelProps: boolean | "legacy" | "desktop-26.1029" | "empty",
       attributes: Readonly<Record<string, string>> = {},
+      labelText = "",
     ) => {
+      const props =
+        modelProps === true || modelProps === "legacy"
+          ? {
+              onSelectModel: () => undefined,
+              onSelectReasoningEffort: () => undefined,
+              reasoningEffort: "medium",
+              fallbackPowerSelection: {},
+            }
+          : modelProps === "desktop-26.1029"
+            ? {
+                onSelectModel: () => undefined,
+                onSelectModelOption: () => undefined,
+                reasoningEffort: "medium",
+                powerSelections: {},
+                model: "codexhost/plugin-v1@deadbeef",
+                fallbackModelLabel: "codexhost/plugin-v1@deadbeef",
+              }
+            : {};
       const candidate = {
         getAttribute: (name: string) => attributes[name] ?? null,
         hasAttribute: (name: string) => ownAttributes.includes(name) || name in attributes,
         matches: () => matches,
+        textContent: labelText,
+        get innerText() {
+          return labelText;
+        },
       } as unknown as Element;
       Object.defineProperty(candidate, "__reactFiber$test", {
         value: {
-          memoizedProps: modelProps
-            ? {
-                onSelectModel: () => undefined,
-                onSelectReasoningEffort: () => undefined,
-                reasoningEffort: "medium",
-                fallbackPowerSelection: {},
-              }
-            : {},
+          memoizedProps: props,
         },
       });
       return candidate;
     };
 
     expect(isNativeModelControlCandidate(element([], true, true))).toBe(true);
+    expect(isNativeModelControlCandidate(element([], true, "legacy"))).toBe(true);
     expect(
       isNativeModelControlCandidate(
         element([], true, false, {
@@ -290,10 +307,49 @@ describe("Renderer Agent picker presentation", () => {
         }),
       ),
     ).toBe(true);
+    // Codex Desktop 26.1029: no intelligence-trigger / fallbackPowerSelection; uses
+    // data-selected-reasoning-effort plus onSelectModel + powerSelections fiber props.
+    expect(
+      isNativeModelControlCandidate(
+        element([], true, "desktop-26.1029", {
+          "data-composer-navigation-target": "reasoning",
+          "data-selected-reasoning-effort": "medium",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isNativeModelControlCandidate(
+        element([], true, "desktop-26.1029", {
+          "data-composer-navigation-target": "reasoning",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isNativeModelControlCandidate(
+        element([], true, "empty", {
+          "data-composer-navigation-target": "reasoning",
+          "data-selected-reasoning-effort": "medium",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isNativeModelControlCandidate(
+        element([], true, "empty", {}, "选择推理强度codexhost/plugin-v1@abc"),
+      ),
+    ).toBe(true);
     expect(isNativeModelControlCandidate(element([], true, false))).toBe(false);
     expect(isNativeModelControlCandidate(element([], false, true))).toBe(false);
     expect(
       isNativeModelControlCandidate(element(["data-codexhost-agent-control"], true, true)),
     ).toBe(false);
+    expect(
+      isNativeModelControlCandidate(
+        element([], true, "empty", {
+          "data-composer-navigation-target": "add-context",
+        }),
+      ),
+    ).toBe(false);
   });
+
+
 });

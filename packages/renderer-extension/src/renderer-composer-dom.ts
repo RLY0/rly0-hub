@@ -255,6 +255,14 @@ export function isNativeModelControlCandidate(element: Element): boolean {
   ) {
     return true;
   }
+  // Codex Desktop 26.1029+: intelligence-trigger removed; reasoning target + selected effort
+  // still mark the native model/reasoning chip.
+  if (
+    element.getAttribute("data-composer-navigation-target") === "reasoning" &&
+    element.hasAttribute("data-selected-reasoning-effort")
+  ) {
+    return true;
+  }
   const fiberName = Object.getOwnPropertyNames(element).find((name) =>
     name.startsWith("__reactFiber$"),
   );
@@ -264,22 +272,38 @@ export function isNativeModelControlCandidate(element: Element): boolean {
         memoizedProps?: unknown;
       } | null)
     : null;
-  for (let depth = 0; fiber && depth < 60; depth += 1) {
+  for (let depth = 0; fiber && depth < 80; depth += 1) {
     const props = fiber.memoizedProps;
-    if (
-      isRecord(props) &&
-      typeof props.onSelectModel === "function" &&
-      typeof props.onSelectReasoningEffort === "function" &&
-      "reasoningEffort" in props &&
-      isRecord(props.fallbackPowerSelection)
-    ) {
-      return true;
+    if (isRecord(props) && typeof props.onSelectModel === "function" && "reasoningEffort" in props) {
+      const legacy =
+        typeof props.onSelectReasoningEffort === "function" &&
+        isRecord(props.fallbackPowerSelection);
+      const desktop261029 =
+        isRecord(props.powerSelections) ||
+        typeof props.onSelectModelOption === "function" ||
+        typeof props.fallbackModelLabel === "string" ||
+        typeof props.model === "string";
+      if (legacy || desktop261029) {
+        return true;
+      }
     }
     const parent = fiber.return;
     fiber =
       (typeof parent === "object" || typeof parent === "function") && parent !== null
         ? (parent as typeof fiber)
         : null;
+  }
+  const label = [
+    typeof (element as HTMLElement).innerText === "string"
+      ? (element as HTMLElement).innerText
+      : "",
+    typeof element.textContent === "string" ? element.textContent : "",
+    element.getAttribute("aria-label") ?? "",
+    element.getAttribute("title") ?? "",
+  ].join("\n");
+  // Fallback when fiber props drift again: transport route label from harness plugin.
+  if (label.includes("codexhost/plugin-v1@")) {
+    return true;
   }
   return false;
 }
