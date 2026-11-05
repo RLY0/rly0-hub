@@ -746,11 +746,7 @@ fn supervise_desktop(
     let mut desktop = launch_desktop_session(
         installation,
         &options.shim,
-        if cfg!(target_os = "macos") {
-            DesktopLaunchMode::LaunchServices
-        } else {
-            DesktopLaunchMode::DirectExecutable
-        },
+        desktop_launch_mode(),
         &desktop_arguments,
         environment,
         Duration::from_secs(30),
@@ -2184,5 +2180,64 @@ mod tests {
             .expect("Controller ready");
         controller.wait().expect("wait fake Controller");
         controller.disarm_cleanup();
+    }
+}
+
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+const MACOS_LAUNCH_SERVICES_ENV: &str = "CODEXHOST_MACOS_LAUNCH_SERVICES";
+
+/// Desktop launch mode. DirectExecutable is the default on every OS; on macOS
+/// CODEXHOST_MACOS_LAUNCH_SERVICES=1 falls back to LaunchServices.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+fn desktop_launch_mode() -> DesktopLaunchMode {
+    select_desktop_launch_mode(
+        cfg!(target_os = "macos"),
+        std::env::var_os(MACOS_LAUNCH_SERVICES_ENV).as_deref(),
+    )
+}
+
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
+fn select_desktop_launch_mode(
+    is_macos: bool,
+    launch_services: Option<&std::ffi::OsStr>,
+) -> DesktopLaunchMode {
+    if is_macos && launch_services.is_some_and(|value| value == "1") {
+        DesktopLaunchMode::LaunchServices
+    } else {
+        DesktopLaunchMode::DirectExecutable
+    }
+}
+
+#[cfg(test)]
+mod desktop_launch_mode_tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn defaults_to_direct_executable_everywhere() {
+        assert!(matches!(
+            select_desktop_launch_mode(false, None),
+            DesktopLaunchMode::DirectExecutable
+        ));
+        assert!(matches!(
+            select_desktop_launch_mode(true, None),
+            DesktopLaunchMode::DirectExecutable
+        ));
+        assert!(matches!(
+            select_desktop_launch_mode(true, Some(OsStr::new("0"))),
+            DesktopLaunchMode::DirectExecutable
+        ));
+    }
+
+    #[test]
+    fn macos_env_opt_in_uses_launch_services() {
+        assert!(matches!(
+            select_desktop_launch_mode(true, Some(OsStr::new("1"))),
+            DesktopLaunchMode::LaunchServices
+        ));
+        assert!(matches!(
+            select_desktop_launch_mode(false, Some(OsStr::new("1"))),
+            DesktopLaunchMode::DirectExecutable
+        ));
     }
 }
