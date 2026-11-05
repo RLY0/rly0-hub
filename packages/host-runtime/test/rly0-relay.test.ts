@@ -632,6 +632,31 @@ describe("Rly0RelayCodexConfigManager", () => {
     expect(parsed.model).toBe(model);
   });
 
+
+  it("ensureDefault treats /u/v1 and /v1 as the same local proxy for idempotency", async () => {
+    const model = "rly0/relay-a/gpt-relay-1";
+    const unified = "http://127.0.0.1:25817/u/v1";
+    await writeConfig(
+      [
+        `model = "${model}"`,
+        'model_provider = "rly0"',
+        "",
+        "[model_providers.rly0]",
+        'name = "RLY/0 Hub 本地代理"',
+        `base_url = "${unified}"`,
+        'wire_api = "responses"',
+        "requires_openai_auth = true",
+        "",
+      ].join("\n"),
+    );
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    const configPath = path.join(tempDir, "codex", "config.toml");
+    const before = await fs.readFile(configPath, "utf8");
+    const skipped = await manager.ensureDefault({ baseUrl: BASE_URL, model: "rly0/other/x" });
+    expect(skipped).toMatchObject({ ok: true, skipped: true, status: { model, modelProvider: "rly0" } });
+    expect(await fs.readFile(configPath, "utf8")).toBe(before);
+  });
+
   it("pickDefaultRly0CodexModel picks the first enabled keyed non-pattern model", () => {
     expect(
       pickDefaultRly0CodexModel([

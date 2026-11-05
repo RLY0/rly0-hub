@@ -52,6 +52,17 @@ function isRly0PrefixedModel(model: string | undefined): model is string {
   return typeof model === "string" && model.startsWith(RLY0_RELAY_MODEL_ID_PREFIX);
 }
 
+/** True when both URLs point at the same local proxy host (path may be /v1 or /u/v1). */
+function sameLocalProxyHost(left: string | undefined, right: string): boolean {
+  if (!left) return false;
+  try {
+    return new URL(left).host === new URL(right).host;
+  } catch {
+    return left === right;
+  }
+}
+
+
 export type Rly0RelayCodexConfigEnsureResult =
   | (Rly0RelayCodexConfigMutationResult & { readonly skipped?: false })
   | {
@@ -224,7 +235,8 @@ export class Rly0RelayCodexConfigManager {
     const modelOk = isRly0PrefixedModel(status.model);
     const providerOk = status.modelProvider === RLY0_CODEX_PROVIDER_ID;
     const sectionOk =
-      status.providerPresent === true && status.providerBaseUrl === input.baseUrl;
+      status.providerPresent === true &&
+      sameLocalProxyHost(status.providerBaseUrl, input.baseUrl);
     if (modelOk && providerOk && sectionOk) {
       return { ok: true, skipped: true, status };
     }

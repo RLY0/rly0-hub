@@ -8161,13 +8161,19 @@ export class AppServerHost {
    * Same behavior as HubService startup; idempotent and backed up.
    */
   async #ensureRly0CodexDefaultProvider(): Promise<void> {
-    const baseUrl = await this.#rly0RelayModels.ensureProxy();
     const status = await this.#rly0RelayConfig.status();
+    let baseUrl: string | undefined;
+    try {
+      baseUrl = await this.#rly0RelayModels.ensureProxy();
+    } catch {
+      baseUrl = status.providerBaseUrl;
+    }
+    if (!baseUrl) return;
     const currentOk =
       typeof status.model === "string" && status.model.startsWith("rly0/");
     let model = currentOk ? status.model : undefined;
     if (!model) {
-      const listed = await this.#rly0Core.listRelays();
+      const listed = await this.#rly0Core.listRelays().catch(() => ({ available: false as const }));
       model = listed.available
         ? pickDefaultRly0CodexModel(listed.relays)
         : undefined;

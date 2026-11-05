@@ -837,13 +837,20 @@ export class Rly0HubService {
    * existing generator. Idempotent; backs up before writes; never prints secrets.
    */
   async #ensureCodexDefaultProvider(): Promise<void> {
-    const baseUrl = await this.#router.ensureProxy();
     const status = await this.#codexConfig.status();
+    let baseUrl: string | undefined;
+    try {
+      baseUrl = await this.#router.ensureProxy();
+    } catch {
+      // Proxy may already be up from a sibling process; reuse the configured local URL.
+      baseUrl = status.providerBaseUrl;
+    }
+    if (!baseUrl) return;
     const currentOk =
       typeof status.model === "string" && status.model.startsWith("rly0/");
     let model = currentOk ? status.model : undefined;
     if (!model) {
-      const listed = await this.#core.listRelays();
+      const listed = await this.#core.listRelays().catch(() => ({ available: false as const }));
       model = listed.available
         ? pickDefaultRly0CodexModel(listed.relays)
         : undefined;
