@@ -219,3 +219,68 @@ it.each([false, true])(
     expect(draft.modelSettings).toBeNull();
   },
 );
+
+it.each([52, 53])(
+  "binds native creation mode in the reviewed %i-slot collaboration tuple",
+  (length) => {
+    const update = vi.fn();
+    const draft = { modelSettings: null };
+    const row = Array<unknown>(14).fill(null);
+    Object.assign(row, {
+      6: "client-new-thread:a",
+      7: "client-new-thread:a",
+      9: update,
+      10: draft,
+      11: true,
+      12: update,
+      13: { draftSettings: draft, isNewThreadDraft: true, updateDraftSettings: update },
+    });
+    const context = { usesAccountPreferences: true };
+    const setModel = vi.fn();
+    const modelSettings = { model: "gpt-5", reasoningEffort: "medium" };
+    const modelRow = Array<unknown>(24).fill(null);
+    Object.assign(modelRow, {
+      7: null,
+      10: true,
+      12: context,
+      13: update,
+      14: setModel,
+      20: setModel,
+      21: context,
+      23: { ...context, modelSettings, setModelAndReasoningEffort: setModel },
+    });
+    const offset = length === 53 ? 1 : 0;
+    const settings = {
+      model: modelSettings.model,
+      reasoning_effort: modelSettings.reasoningEffort,
+    };
+    const activeMode = { mode: "default", settings };
+    const collaboration = Array<unknown>(length).fill(null);
+    Object.assign(collaboration, {
+      [39 + offset]: modelSettings.model,
+      [40 + offset]: modelSettings.reasoningEffort,
+      [41 + offset]: settings,
+      [44 + offset]: activeMode,
+      [49 + offset]: activeMode,
+      [51 + offset]: { activeMode },
+    });
+    const element = {
+      parentElement: null,
+      __reactFiber$test: {
+        updateQueue: { memoCache: { data: [collaboration, modelRow, row] } },
+      },
+    };
+    expect(findScopedDraftModelBinding(element, "client-new-thread:a")?.creationModes).toEqual([
+      activeMode,
+    ]);
+    collaboration[49 + offset] = { ...activeMode };
+    expect(
+      findScopedDraftModelBinding(element, "client-new-thread:a")?.creationModes,
+    ).toBeUndefined();
+    collaboration[49 + offset] = activeMode;
+    collaboration[39 + offset] = "different-model";
+    expect(
+      findScopedDraftModelBinding(element, "client-new-thread:a")?.creationModes,
+    ).toBeUndefined();
+  },
+);

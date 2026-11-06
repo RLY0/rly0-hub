@@ -91,16 +91,19 @@ export function findScopedDraftModelBinding(
       const settings = result.modelSettings as Draft | null;
       const group = groups.get(row);
       const candidate = group?.[group.indexOf(row) - 1];
-      const mode = candidate?.[44] as Draft | null;
-      const value = candidate?.[51] as Draft | null;
+      // Desktop 26.1029 adds one slot before the active-mode inputs. Keep
+      // identity checks for both reviewed layouts; never accept arbitrary rows.
+      const offset = candidate?.length === 53 ? 1 : 0;
+      const mode = candidate?.[44 + offset] as Draft | null;
+      const value = candidate?.[51 + offset] as Draft | null;
       if (
-        candidate?.length === 52 &&
+        (candidate?.length === 52 || candidate?.length === 53) &&
         settings &&
-        candidate[39] === settings.model &&
-        candidate[40] === settings.reasoningEffort &&
+        candidate[39 + offset] === settings.model &&
+        candidate[40 + offset] === settings.reasoningEffort &&
         mode &&
-        mode === candidate[49] &&
-        mode.settings === candidate[41] &&
+        mode === candidate[49 + offset] &&
+        mode.settings === candidate[41 + offset] &&
         (mode.settings as Draft | null)?.model === settings.model &&
         value?.activeMode === mode
       )
