@@ -141,7 +141,10 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func navigate(_ page: String) {
         guard navPages.contains(where: { $0.0 == page }) else { return }
         showWindow()
-        post(["event": "navigate", "page": page])
+        // hub-ui only accepts its own navigable names: the 打通 rail opens on its MCP tab
+        // and 设置 on 通用 (NAVIGABLE in hub-ui/app.js).
+        let target = ["bridge": "mcp", "settings": "general"][page] ?? page
+        post(["event": "navigate", "page": target])
     }
 
     func makeWindow() throws {
