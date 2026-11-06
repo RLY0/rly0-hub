@@ -732,20 +732,6 @@ fn stop_desktop_controller(controller: &mut SupervisedChild) -> Result<(), Box<d
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-/// macOS defaults to running the bundle executable directly: Codex Desktop
-/// 26.1029 can hang at startup policy read when activated via LaunchServices.
-/// Set CODEXHOST_MACOS_LAUNCH_SERVICES=1 to restore LaunchServices activation.
-fn desktop_launch_mode() -> DesktopLaunchMode {
-    if cfg!(target_os = "macos")
-        && std::env::var_os("CODEXHOST_MACOS_LAUNCH_SERVICES").is_some_and(|v| v == "1")
-    {
-        DesktopLaunchMode::LaunchServices
-    } else {
-        DesktopLaunchMode::DirectExecutable
-    }
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn supervise_desktop(
     installation: &DesktopInstallation,
     options: &ResolvedLaunchOptions,
