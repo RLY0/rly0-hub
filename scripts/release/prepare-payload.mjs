@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+﻿import { spawn } from "node:child_process";
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -10,6 +10,7 @@ import {
 } from "./harness-plugins.mjs";
 import { ensureNodeArchive, extractNodeRuntime } from "./node-runtime.mjs";
 import { parseReleaseArguments, releaseUsage } from "./targets.mjs";
+import { rustReleaseEnvironment } from "./rust-release-env.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../..");
 const runtimeLicenses = [
@@ -123,6 +124,7 @@ export function releaseBuildCommands(
   platform = process.platform,
   environment = process.env,
   nodePath = process.execPath,
+  root = repositoryRoot,
 ) {
   return [
     {
@@ -136,6 +138,7 @@ export function releaseBuildCommands(
     {
       label: "Rust release build",
       command: "cargo",
+      env: rustReleaseEnvironment(root, environment, platform),
       args: [
         "build",
         "--release",
@@ -153,9 +156,9 @@ export function releaseBuildCommands(
   ];
 }
 
-async function runCommand({ label, command, args }, cwd = repositoryRoot) {
+async function runCommand({ label, command, args, env }, cwd = repositoryRoot) {
   await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: "inherit", windowsHide: true });
+    const child = spawn(command, args, { cwd, env, stdio: "inherit", windowsHide: true });
     child.on("error", (error) => reject(new Error(`${label} could not start: ${error.message}`)));
     child.on("exit", (code, signal) => {
       if (code === 0) resolve();
@@ -420,7 +423,14 @@ export async function prepareReleasePayload({ target, root = repositoryRoot }) {
       `release target '${target.id}' requires host platform '${target.hostPlatform}', current host is '${process.platform}'`,
     );
   }
-  for (const command of releaseBuildCommands(target)) await runCommand(command, root);
+  for (const command of releaseBuildCommands(
+    target,
+    process.platform,
+    process.env,
+    process.execPath,
+    root,
+  ))
+    await runCommand(command, root);
 
   const version = await productVersion(root);
   const installerVersion = numericPackageVersion(version);
