@@ -3,6 +3,7 @@
 // lives in a throwaway HOME; the service is sandboxed away from the live Codex, Hub and Core.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { Page } from "@playwright/test";
 
 import { expect, test, type Hub } from "./hub-bench/fixture.js";
@@ -637,5 +638,97 @@ test.describe("functions, second round (real service)", () => {
         .toBe(false);
       record("no-account", { before, on, after: read(config, "utf8"), failed: failedCalls(hub) });
     });
+  });
+});
+
+/* ---------- 修复聊天记录: chats on another provider (Codex 0.166 refuses to continue them) ---------- */
+
+const PROVIDER_CHATS = [
+  "eeeeeeee-0000-4000-8000-000000000001",
+  "eeeeeeee-0000-4000-8000-000000000002",
+];
+
+/** A synthetic Codex home: config on rly0, one chat stored on openai and one on rly0. */
+function seedProviderChats(home: string) {
+  const codex = path.join(home, ".codex");
+  const day = path.join(codex, "sessions", "2026", "11", "06");
+  mkdirSync(day, { recursive: true });
+  writeFileSync(
+    path.join(codex, "config.toml"),
+    'model_provider = "rly0"\n[model_providers.rly0]\nname = "RLY/0 Hub 本地代理"\nbase_url = "http://127.0.0.1:9/v1"\nwire_api = "responses"\n',
+  );
+  const db = new DatabaseSync(path.join(codex, "state_5.sqlite"));
+  db.exec(
+    "create table threads (id text primary key, rollout_path text not null, created_at integer not null, updated_at integer not null, source text not null, model_provider text not null, cwd text not null, title text not null, archived integer not null default 0, model text)",
+  );
+  const insert = db.prepare(
+    "insert into threads values (?, ?, 1, 1794000000, 'vscode', ?, '/synthetic', ?, 0, 'gpt-5.5')",
+  );
+  PROVIDER_CHATS.forEach((id, index) => {
+    const file = path.join(day, `rollout-2026-11-06T00-00-0${index}-${id}.jsonl`);
+    writeFileSync(file, "{}\n");
+    insert.run(id, file, index === 0 ? "openai" : "rly0", `合成旧对话 ${index}`);
+  });
+  db.close();
+}
+
+function storedProviders(home: string): string[] {
+  const db = new DatabaseSync(path.join(home, ".codex", "state_5.sqlite"));
+  try {
+    const rows = db.prepare("select model_provider from threads order by id").all() as unknown as {
+      model_provider: string;
+    }[];
+    return rows.map((row) => row.model_provider);
+  } finally {
+    db.close();
+  }
+}
+
+/** A 确认 button (resources.js confirmButton): the first click arms it, the second runs it. */
+async function confirmTwice(page: Page, text: string) {
+  const target = page.locator(".tool-detail button", { hasText: text }).first();
+  await target.click({ force: true });
+  await expect(target).toHaveText(`确认${text}`);
+  await target.click({ force: true });
+}
+
+test.describe("修复聊天记录 (real service, synthetic Codex database)", () => {
+  // A function-valued option has to be handed over as a fixture: Playwright calls functions.
+  test.use({ benchSeed: async ({}, use) => use(seedProviderChats) });
+  test("moves a chat on another provider onto the current one, and the undo puts it back", async ({
+    page,
+    hub,
+  }) => {
+    await onboarded(hub);
+    await start(hub, page);
+    await rail(page, "maintenance");
+    await page.getByRole("button", { name: "检查并修复" }).click();
+    await expect(page.getByText("当初用的线路和现在的不同").first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.getByText("可以修复：改成现在的线路").first()).toBeVisible();
+    await confirmTwice(page, "修复 1 条");
+    await expect
+      .poll(() => storedProviders(hub.service.home), { timeout: 30_000 })
+      .toEqual(["rly0", "rly0"]);
+    expect(await toastText(page)).toContain("已修复 1 条");
+    await expect(page.getByRole("button", { name: "撤销上次线路修改（1 条）" })).toBeVisible({
+      timeout: 20_000,
+    });
+    await confirmTwice(page, "撤销上次线路修改（1 条）");
+    await expect
+      .poll(() => storedProviders(hub.service.home), { timeout: 30_000 })
+      .toEqual(["openai", "rly0"]);
+    await expect(page.locator("#toast")).toContainText("已把 1 条对话改回原来的线路", {
+      timeout: 15_000,
+    });
+    await expect(page.getByRole("button", { name: /撤销上次线路修改/u })).toHaveCount(0);
+    record("chat-provider-repair", {
+      calls: hub.calls
+        .filter((call) => call.method.startsWith("maintenance.chatRepair"))
+        .map((call) => ({ method: call.method, error: call.error ?? null })),
+      failed: failedCalls(hub),
+    });
+    expect(failedCalls(hub)).toEqual([]);
   });
 });
