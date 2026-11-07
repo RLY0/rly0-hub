@@ -1,3 +1,4 @@
+import path from "node:path";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
@@ -86,7 +87,7 @@ describe("delegation CLI", () => {
     expect(String(firstCall[0])).toContain("/v1/harness/inspect");
     expect(JSON.parse(String(firstCall[1]?.body))).toEqual({
       harnessId: "pi",
-      cwd: "/synthetic",
+      cwd: path.resolve("/synthetic"),
       refresh: true,
     });
   });
@@ -132,7 +133,7 @@ describe("delegation CLI", () => {
       harnessId: "claude-code",
       task: "review auth",
       taskName: "Auth review",
-      cwd: "/workspace/project",
+      cwd: path.resolve("/workspace/project"),
       parentThreadId: "parent-1",
       requestId: "request-1",
       model: { id: "model-ref" },

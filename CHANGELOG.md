@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.35
+
+### Fixes
+- Delegation CLI tests now compute the expected `--cwd` with the platform's path rules, so they pass on Windows as well as macOS. No product behavior changes.
+
+### 修复
+- 委派命令行的两项测试改为按当前系统计算期望的工作目录，Windows 与 Mac 上都能通过；产品行为不变。
+
 ## 0.11.34
 
 ### Updates
