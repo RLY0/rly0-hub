@@ -124,9 +124,10 @@ describe("chat health scan", () => {
     // The transcript under another project folder (the chat's folder was renamed) still counts.
     putThread(home, 2, record(2, { cwd: "F:/Projects/renamed" }));
     putTranscript(home, 2, "F--Projects-elsewhere");
+    // Both on the current provider (no model_provider: openai); a compressed rollout counts.
     makeCodex(home, [
       { id: SESSION(90), rollout: "plain" },
-      { id: SESSION(91), rollout: "zst", provider: "custom" },
+      { id: SESSION(91), rollout: "zst" },
     ]);
     const result = await scan(home);
     expect(result).toEqual({ agentChats: 2, codexChats: 2, groups: [] });
@@ -195,11 +196,48 @@ describe("chat health scan", () => {
       "codex-unlisted-rollout": 1,
     });
     expect(result.groups.find((g) => g.kind === "codex-provider-missing")?.archived).toBe(1);
-    expect(result.groups.every((g) => !g.repairable)).toBe(true);
+    // Only the provider can be fixed (the stored one is set to the current one).
+    expect(result.groups.filter((g) => g.repairable).map((g) => g.kind)).toEqual([
+      "codex-provider-missing",
+    ]);
     // Codex's database is only read, through a copy.
     expect(readFileSync(database).equals(before.bytes)).toBe(true);
     expect(statSync(database).mtimeMs).toBe(before.mtime);
     expect(existsSync(`${database}-wal`)).toBe(false);
+  });
+
+  it("finds Codex chats stored on a provider other than the current one", async () => {
+    const { home } = makeHome();
+    const { codex } = makeCodex(
+      home,
+      [
+        { id: SESSION(30), rollout: "plain", provider: "openai" },
+        { id: SESSION(31), rollout: "plain", provider: "rly0" },
+        { id: SESSION(32), rollout: "plain", provider: "removed-relay" },
+        { id: SESSION(33), rollout: "plain", provider: "openai", archived: true },
+      ],
+      ["rly0"],
+    );
+    const config = path.join(codex, "config.toml");
+    writeFileSync(config, `model_provider = "rly0"\n${readFileSync(config, "utf8")}`);
+    const database = path.join(codex, "state_5.sqlite");
+    const before = readFileSync(database);
+    const result = await scan(home);
+    expect(kinds(result.groups)).toEqual({
+      "codex-provider-not-current": 2,
+      "codex-provider-missing": 1,
+    });
+    expect(result.groups.find((g) => g.kind === "codex-provider-not-current")).toMatchObject({
+      archived: 1,
+      repairable: true,
+    });
+    expect(readFileSync(database).equals(before)).toBe(true);
+    // Without a model_provider, chats on the built-in openai provider are current.
+    writeFileSync(config, '[model_providers.rly0]\nname = "rly0"\n');
+    expect(kinds((await scan(home)).groups)).toEqual({
+      "codex-provider-not-current": 1,
+      "codex-provider-missing": 1,
+    });
   });
 
   it("reports Codex as unread when it has no database", async () => {
@@ -266,9 +304,10 @@ describe("chat health scan", () => {
     const { codex } = makeCodex(home, [
       { id: SESSION(36), rollout: "plain", provider: "literal.name" },
     ]);
+    // The chat's provider is the current one, defined with a quoted TOML key.
     for (const config of [
-      `[model_providers.'literal.name']\nname = 'existing'\n`,
-      `model_providers = { 'literal.name' = { name = 'existing' } }\n`,
+      `model_provider = 'literal.name'\n[model_providers.'literal.name']\nname = 'existing'\n`,
+      `model_provider = 'literal.name'\nmodel_providers = { 'literal.name' = { name = 'existing' } }\n`,
     ]) {
       writeFileSync(path.join(codex, "config.toml"), config);
       expect((await scan(home)).groups).toEqual([]);

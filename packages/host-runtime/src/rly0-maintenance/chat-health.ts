@@ -32,9 +32,13 @@ import { copyPrivateLocalFile, protectPrivateLocalDirectory } from "./private-qu
  *   this does not establish deletion, or rule out backups and other configuration roots;
  * - `codex-rollout-missing`: Codex's own list points at a conversation file that is gone;
  * - `codex-provider-missing`: a Codex chat made with a model provider no longer configured;
+ * - `codex-provider-not-current`: a Codex chat made with a configured provider other than the
+ *   current `model_provider`; Codex (app-server 0.166+) refuses to resume it, whatever the resume
+ *   request names, because it compares its stored provider with the configured one;
  * - `codex-unlisted-rollout`: a Codex conversation file Codex's list does not know.
- * Only `record-damaged` is written by the Hub; the rest are reported, never touched (the agents'
- * and Codex's own files are theirs).
+ * The repair puts back `record-damaged` records and, for the two provider kinds, sets the chats'
+ * stored provider to the current one (chat-provider-repair.ts, after a copy of Codex's database);
+ * the rest are reported, never touched (the agents' and Codex's own files are theirs).
  */
 export type ChatHealthKind =
   | "record-damaged"
@@ -43,6 +47,7 @@ export type ChatHealthKind =
   | "session-missing"
   | "codex-rollout-missing"
   | "codex-provider-missing"
+  | "codex-provider-not-current"
   | "codex-unlisted-rollout";
 
 export interface ChatHealthItem {
@@ -83,7 +88,11 @@ const THREAD_FILE = /^[A-Za-z0-9._~-]{1,128}\.json$/u;
 const ROLLOUT_ID =
   /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl(?:\.zst)?$/u;
 const MAX_ITEMS = 20;
-const REPAIRABLE: ReadonlySet<ChatHealthKind> = new Set(["record-damaged"]);
+const REPAIRABLE: ReadonlySet<ChatHealthKind> = new Set([
+  "record-damaged",
+  "codex-provider-missing",
+  "codex-provider-not-current",
+]);
 /** Same name as the sandbox runtime's settings file: present means Claude Code may run isolated. */
 const ISOLATION_SETTINGS_FILE = "claude-isolation.json";
 
@@ -267,7 +276,8 @@ export interface CodexThreadRow {
   readonly updated_at: number;
 }
 
-function stateDatabase(codexHome: string): string | null {
+/** Codex's newest state database (`state_<n>.sqlite`) in `codexHome`. */
+export function stateDatabase(codexHome: string): string | null {
   let directory;
   try {
     directory = opendirSync(codexHome);
@@ -335,7 +345,16 @@ export function configuredProviders(codexHome: string): Set<string> | null {
   return new Set(["openai", "ollama", "lmstudio", "oss", ...names]);
 }
 
-function rolloutExists(file: string): boolean {
+/** The provider new and resumed chats run on: config.toml's `model_provider`, else `openai`. */
+export function currentProvider(codexHome: string): string | null {
+  const config = codexSettings(codexHome);
+  if (!config) return null;
+  const value = config.model_provider;
+  return typeof value === "string" && value ? value : "openai";
+}
+
+/** Whether a conversation file Codex's list points at is there (plain or `.zst`). */
+export function rolloutExists(file: string): boolean {
   const plain = file.replace(/^\\\\\?\\/u, "");
   return (
     existsSync(plain) ||
@@ -366,6 +385,7 @@ async function scanCodexChats(paths: ChatHealthPaths, groups: Groups): Promise<n
   const rows = await readCodexThreads(paths.codexStateDir);
   if (!rows) return null;
   const providers = configuredProviders(paths.codexHome);
+  const current = currentProvider(paths.codexHome);
   const known = new Set<string>();
   for (const row of rows) {
     known.add(row.id);
@@ -382,6 +402,8 @@ async function scanCodexChats(paths: ChatHealthPaths, groups: Groups): Promise<n
     if (!rolloutExists(row.rollout_path)) groups.add("codex-rollout-missing", item);
     else if (providers && !providers.has(row.model_provider))
       groups.add("codex-provider-missing", item);
+    else if (current && row.model_provider && row.model_provider !== current)
+      groups.add("codex-provider-not-current", item);
   }
   const onDisk = new Set<string>();
   rolloutIds(path.join(paths.codexHome, "sessions"), onDisk);

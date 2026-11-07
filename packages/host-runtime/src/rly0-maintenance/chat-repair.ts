@@ -15,6 +15,12 @@ import {
   type ChatHealthItem,
   type ChatHealthKind,
 } from "./chat-health.js";
+import {
+  lastChatProviderRepair,
+  repairChatProviders,
+  undoChatProviderRepair,
+  type ChatProviderUndo,
+} from "./chat-provider-repair.js";
 
 /** What the maintenance page needs from `Rly0CodexControl`. */
 export interface ChatRepairCodexControl {
@@ -57,11 +63,15 @@ export interface ChatRepairScanResult {
   };
   /** Every problem found, repairable or not. */
   readonly groups: readonly ChatRepairGroup[];
+  /** The newest provider change of a repair, while it can be undone. */
+  readonly providerUndo: ChatProviderUndo | null;
 }
 
 export interface ChatRepairResult {
   readonly ok: boolean;
   readonly repaired: number;
+  /** Of `repaired`, Codex chats whose stored provider became the current one. */
+  readonly providers?: number;
   /** Codex was open and had to be closed: it was reopened (or reopening was attempted). */
   readonly codexRestarted: boolean;
   readonly reopenFailed: boolean;
@@ -95,8 +105,9 @@ const LEGACY_ISSUES = ["missing", "outdated", "deleted", "format"] as const;
  * Hub's store, Codex's own list, chats left in the old CodexHost) and says what is wrong with
  * the broken ones (`ChatRepairKind`). The repair fixes what can be fixed safely: brings over
  * CodexHost chats the Hub cannot open ("no rollout found for thread id …", an empty
- * conversation), re-encodes upstream model choices (on Codex start), and puts back the backup of
- * a damaged record. The agents' and Codex's own files are only read.
+ * conversation), re-encodes upstream model choices (on Codex start), puts back the backup of a
+ * damaged record, and sets the stored provider of Codex chats Codex would refuse to continue to
+ * the current one (after a copy of its database; undoable). Conversation files are only read.
  *
  * Codex's thread store reads these records once when it starts and keeps them in memory, so the
  * repair runs while Codex is closed: close it, back the records up, repair, open it again.
@@ -141,13 +152,13 @@ export class ChatRepair {
       items: plan.candidates.slice(0, 50),
       checked: { agent: health.agentChats, codex: health.codexChats, legacy: plan.legacyThreads },
       groups,
+      providerUndo: lastChatProviderRepair(this.#paths()),
     };
   }
 
   async repair(
     params: { readonly includeDeleted?: boolean | undefined } = {},
   ): Promise<ChatRepairResult> {
-    const { codex } = this.#options;
     const includeDeleted = params.includeDeleted === true;
     const before = await this.scan();
     // Nothing to fix: Codex is left alone.
@@ -160,30 +171,18 @@ export class ChatRepair {
         fixedOnCodexStart: 0,
       };
     }
-    const sleep = this.#options.sleep ?? sleepFor;
-    const wasRunning = (await codex.status()).running;
-    if (wasRunning) {
-      await codex.forceQuit();
-      // `status()` also trusts Codex's heartbeat, which goes stale 10 s after Codex is gone.
-      const deadline = Date.now() + (this.#options.quitTimeoutMs ?? 20_000);
-      while ((await codex.status()).running) {
-        if (Date.now() >= deadline) {
-          return {
-            ok: false,
-            repaired: 0,
-            codexRestarted: false,
-            reopenFailed: false,
-            fixedOnCodexStart: 0,
-            reason: "CODEX_STILL_RUNNING",
-          };
-        }
-        await sleep(500);
-      }
-      // Let the thread store's last writes land before merging next to them.
-      await sleep(1_000);
+    const closed = await this.#closeCodex();
+    if (!closed) {
+      return {
+        ok: false,
+        repaired: 0,
+        codexRestarted: false,
+        reopenFailed: false,
+        fixedOnCodexStart: 0,
+        reason: "CODEX_STILL_RUNNING",
+      };
     }
-    const reopen = async () =>
-      wasRunning ? !(await codex.open().catch(() => ({ ok: false }))).ok : false;
+    const { wasRunning, reopen } = closed;
     const paths = this.#paths();
     const stamp = (this.#options.now?.() ?? new Date()).toISOString().replace(/[-:.]/gu, "");
     if (!backUpChatRecords(paths, stamp)) {
@@ -202,6 +201,14 @@ export class ChatRepair {
     } catch {
       // Best effort: what was put back stays; the legacy merge below still runs.
     }
+    let providers = 0;
+    let providerFailed = false;
+    try {
+      providers = await repairChatProviders(paths, stamp);
+    } catch {
+      // Rolled back inside: Codex's database is as it was; the rest of the repair still runs.
+      providerFailed = true;
+    }
     const result = importLegacyCodexHostData(this.#options.environment, {
       ...this.#home(),
       includeDeleted,
@@ -210,13 +217,75 @@ export class ChatRepair {
     const fixedOnCodexStart = pending.filter((c) => c.issue === "format").length;
     const reopenFailed = await reopen();
     return {
-      ok: result.reason !== "copy-failed",
-      repaired: (result.threads ?? 0) + restored,
+      ok: result.reason !== "copy-failed" && !providerFailed,
+      repaired: (result.threads ?? 0) + restored + providers,
+      providers,
       codexRestarted: wasRunning,
       reopenFailed,
       fixedOnCodexStart,
       backupDir: chatRepairBackupDir(paths, stamp),
-      ...(result.imported || restored > 0 ? {} : { reason: result.reason }),
+      ...(providerFailed
+        ? { reason: "provider-repair-failed" }
+        : result.imported || restored > 0 || providers > 0
+          ? {}
+          : { reason: result.reason }),
+    };
+  }
+
+  /** Puts back the providers the given repair changed (Codex is closed meanwhile). */
+  async undoProviders(stamp: string): Promise<ChatRepairResult> {
+    const closed = await this.#closeCodex();
+    if (!closed) {
+      return {
+        ok: false,
+        repaired: 0,
+        codexRestarted: false,
+        reopenFailed: false,
+        fixedOnCodexStart: 0,
+        reason: "CODEX_STILL_RUNNING",
+      };
+    }
+    let restored = 0;
+    let failed = false;
+    try {
+      restored = await undoChatProviderRepair(this.#paths(), stamp);
+    } catch {
+      failed = true;
+    }
+    return {
+      ok: !failed,
+      repaired: restored,
+      providers: restored,
+      codexRestarted: closed.wasRunning,
+      reopenFailed: await closed.reopen(),
+      fixedOnCodexStart: 0,
+      ...(failed ? { reason: "provider-undo-failed" } : {}),
+    };
+  }
+
+  /**
+   * Codex reads these records once when it starts and keeps them in memory, so they are only
+   * written while it is closed. `null` when it would not close.
+   */
+  async #closeCodex(): Promise<{ wasRunning: boolean; reopen: () => Promise<boolean> } | null> {
+    const { codex } = this.#options;
+    const sleep = this.#options.sleep ?? sleepFor;
+    const wasRunning = (await codex.status()).running;
+    if (wasRunning) {
+      await codex.forceQuit();
+      // `status()` also trusts Codex's heartbeat, which goes stale 10 s after Codex is gone.
+      const deadline = Date.now() + (this.#options.quitTimeoutMs ?? 20_000);
+      while ((await codex.status()).running) {
+        if (Date.now() >= deadline) return null;
+        await sleep(500);
+      }
+      // Let the thread store's last writes land before merging next to them.
+      await sleep(1_000);
+    }
+    return {
+      wasRunning,
+      reopen: async () =>
+        wasRunning ? !(await codex.open().catch(() => ({ ok: false }))).ok : false,
     };
   }
 

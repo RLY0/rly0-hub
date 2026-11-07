@@ -281,6 +281,12 @@ export function createHubManagementRoutes(options: {
       (p) => chatRepair.repair(p),
       rly0MaintenanceRpcError,
     ),
+    // Puts back the chat providers a repair changed (its stamp comes from the scan's providerUndo).
+    "maintenance.chatRepairUndo": route(
+      z.object({ stamp: z.string().regex(/^\d{8}T\d{6,12}Z$/u) }).strict(),
+      (p) => chatRepair.undoProviders(p.stamp),
+      rly0MaintenanceRpcError,
+    ),
     // Without a folder: the diagnostics directory; with one: that feedback report inside it.
     "maintenance.openDiagnosticsFolder": route(
       z.object({ folder: rly0MaintenanceFeedbackFolderSchema.optional() }).strict(),

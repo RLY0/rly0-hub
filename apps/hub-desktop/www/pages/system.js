@@ -573,8 +573,12 @@ window.registerHubSystem = ({
         next: "需要从归档或备份恢复",
       },
       "codex-provider-missing": {
-        what: "原来的服务商已不在配置里",
-        next: "恢复原服务商，或换一条线路续聊",
+        what: "当初用的线路已不在配置里，新版 Codex 不让接着聊",
+        fix: "改成现在的线路（先备份，可撤销）；个别对话的历史可能仍需新开",
+      },
+      "codex-provider-not-current": {
+        what: "当初用的线路和现在的不同，新版 Codex 不让接着聊",
+        fix: "改成现在的线路（先备份，可撤销）",
       },
       "codex-unlisted-rollout": {
         what: "有没列进 Codex 的对话文件",
@@ -638,7 +642,9 @@ window.registerHubSystem = ({
             ? "Codex 没能关闭，请先用“强制关闭 Codex”再修复"
             : result && result.reason === "backup-failed"
               ? "没能先备份聊天记录，所以什么都没改，请重开 Hub 后再试"
-              : "修复没有完成，请重开 Hub 后再试",
+              : result && result.reason === "provider-repair-failed"
+                ? "线路没改成，Codex 的聊天记录保持原样，请重开 Hub 后再试"
+                : "修复没有完成，请重开 Hub 后再试",
         );
       } else if (!result.repaired && !result.fixedOnCodexStart) {
         toast("没有需要修复的聊天记录");
@@ -659,6 +665,21 @@ window.registerHubSystem = ({
             .join("，"),
         );
       }
+      await scanChats(true);
+    }
+    // 撤销上次线路修改: the chats a repair moved onto the current provider go back.
+    async function undoProviders(stamp) {
+      const status = await call("codex.status").catch(() => null);
+      if (status && status.running) toast("正在关闭 Codex，撤销后会自动重新打开…");
+      const result = await call("maintenance.chatRepairUndo", { stamp }).catch(() => null);
+      if (!alive()) return;
+      toast(
+        !result || !result.ok
+          ? result && result.reason === "CODEX_STILL_RUNNING"
+            ? "Codex 没能关闭，请先用“强制关闭 Codex”再撤销"
+            : "没能撤销，Codex 的聊天记录保持原样"
+          : `已把 ${result.providers || 0} 条对话改回原来的线路${result.reopenFailed ? "，请手动打开 Codex" : ""}`,
+      );
       await scanChats(true);
     }
     let waitingForCodex = false;
@@ -720,6 +741,11 @@ window.registerHubSystem = ({
           scan.broken ? confirmButton(`修复 ${scan.broken} 条`, () => repairChats(false)) : null,
           scan.deleted
             ? confirmButton(`含已删除的 ${scan.deleted} 条`, () => repairChats(true))
+            : null,
+          scan.providerUndo
+            ? confirmButton(`撤销上次线路修改（${scan.providerUndo.count} 条）`, () =>
+                undoProviders(scan.providerUndo.stamp),
+              )
             : null,
         ),
       );
