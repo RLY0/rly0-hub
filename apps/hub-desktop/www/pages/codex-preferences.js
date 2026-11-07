@@ -13,10 +13,17 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
   };
   const info = (short, full) => window.HubUI.info(short, full);
 
+  /** Resolves true once saved; a failure is shown and resolves false. */
   function save(values) {
     return call("prefs.codexSet", values).then(
-      () => toast("已保存，回到 Codex 窗口就生效"),
-      failed,
+      () => {
+        toast("已保存，回到 Codex 窗口就生效");
+        return true;
+      },
+      (error) => {
+        failed(error);
+        return false;
+      },
     );
   }
   const select = (label, value, options, onChange) => {
@@ -53,13 +60,16 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
 
   function draw(saved) {
     const p = { ...DEFAULTS, ...(saved || {}) };
+    // A change that did not save puts every control back to what is saved.
+    const apply = (partial) =>
+      save(partial).then((ok) => (ok ? Object.assign(p, partial) : draw(p)));
     card.replaceChildren(
       h("h3", null, "Codex 里"),
       row(
         "推理换行",
         "长推理自动换行",
         "推理过程自动换行",
-        toggle("推理换行", p.reasoningSoftWrap, (on) => save({ reasoningSoftWrap: on })),
+        toggle("推理换行", p.reasoningSoftWrap, (on) => apply({ reasoningSoftWrap: on })),
       ),
       row(
         "强调色",
@@ -76,7 +86,7 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
             ["orange", "橙"],
             ["rose", "玫红"],
           ],
-          (value) => save({ accentColor: value }),
+          (value) => apply({ accentColor: value }),
         ),
       ),
       row(
@@ -92,7 +102,7 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
             ["3m", "3 分钟"],
             ["5m", "5 分钟"],
           ],
-          (value) => save({ quotaRefresh: value }),
+          (value) => apply({ quotaRefresh: value }),
         ),
       ),
       row(
@@ -106,17 +116,11 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
             "提醒阈值",
             p.quotaAlert.thresholdPercent,
             [5, 10, 15, 20, 30].map((v) => [v, `剩 ${v}%`]),
-            (value) =>
-              save({
-                quotaAlert: { enabled: p.quotaAlert.enabled, thresholdPercent: Number(value) },
-              }).then(() => {
-                p.quotaAlert = { ...p.quotaAlert, thresholdPercent: Number(value) };
-              }),
+            (value) => apply({ quotaAlert: { ...p.quotaAlert, thresholdPercent: Number(value) } }),
           ),
-          toggle("Codex 里的低额度提醒", p.quotaAlert.enabled, (on) => {
-            p.quotaAlert = { ...p.quotaAlert, enabled: on };
-            save({ quotaAlert: p.quotaAlert });
-          }),
+          toggle("Codex 里的低额度提醒", p.quotaAlert.enabled, (on) =>
+            apply({ quotaAlert: { ...p.quotaAlert, enabled: on } }),
+          ),
         ),
       ),
       row(
@@ -130,15 +134,11 @@ window.renderCodexPreferences = ({ h, call, toast, failed, alive }) => {
             "闲置多久",
             p.idleRelease.timeoutMinutes,
             [10, 30, 60, 120, 240].map((v) => [v, v < 60 ? `${v} 分钟` : `${v / 60} 小时`]),
-            (value) => {
-              p.idleRelease = { ...p.idleRelease, timeoutMinutes: Number(value) };
-              save({ idleRelease: p.idleRelease });
-            },
+            (value) => apply({ idleRelease: { ...p.idleRelease, timeoutMinutes: Number(value) } }),
           ),
-          toggle("空闲释放", p.idleRelease.enabled, (on) => {
-            p.idleRelease = { ...p.idleRelease, enabled: on };
-            save({ idleRelease: p.idleRelease });
-          }),
+          toggle("空闲释放", p.idleRelease.enabled, (on) =>
+            apply({ idleRelease: { ...p.idleRelease, enabled: on } }),
+          ),
         ),
       ),
     );

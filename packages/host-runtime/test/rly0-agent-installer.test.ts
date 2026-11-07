@@ -11,6 +11,7 @@ import {
   decodeTranscript,
   installWindowScript,
   type CommandRunner,
+  macTerminalScript,
 } from "../src/rly0-agents/agent-installer.js";
 import { findCommand, windowsSystemTool } from "../src/rly0-agents/install-paths.js";
 import {
@@ -603,5 +604,27 @@ describe("visible install window", () => {
       "End time: 2",
     ].join("\n");
     expect(decodeTranscript(Buffer.from(transcript))).toBe("hello");
+  });
+});
+
+describe("macOS agent sign-in in Terminal", () => {
+  it("writes a script with only the bare command and the absolute search folders", () => {
+    expect(macTerminalScript("agy", "/Users/synthetic/.local/bin:relative:/opt/homebrew/bin")).toBe(
+      [
+        "#!/bin/zsh -l",
+        "export PATH='/Users/synthetic/.local/bin:/opt/homebrew/bin':\"$PATH\"",
+        "cd ~",
+        "agy",
+        "",
+      ].join("\n"),
+    );
+    expect(macTerminalScript("kiro-cli", undefined)).toBe("#!/bin/zsh -l\ncd ~\nkiro-cli\n");
+  });
+
+  it("refuses anything that is not a bare command name and quotes no folder with a quote", () => {
+    for (const command of ["agy; rm -rf ~", "a b", "$(x)", "../agy", ""]) {
+      expect(macTerminalScript(command, "/usr/bin")).toBeNull();
+    }
+    expect(macTerminalScript("pi", "/ok:/bad'quote:/also\\bad")).toContain("export PATH='/ok':");
   });
 });

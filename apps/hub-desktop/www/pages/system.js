@@ -38,6 +38,11 @@ window.registerHubSystem = ({
           "div",
           { class: "row" },
           button("保存", async () => {
+            if (mode.value === "custom" && !url.value.trim()) {
+              toast("请填写代理地址，例如 http://127.0.0.1:7890");
+              url.focus();
+              return;
+            }
             await call("proxy.settingsSet", {
               settings: {
                 mode: mode.value,
@@ -49,10 +54,15 @@ window.registerHubSystem = ({
         ),
       ),
     );
+    // The address only matters for a custom proxy.
+    const showUrl = () => (url.hidden = mode.value !== "custom");
+    mode.addEventListener("change", showUrl);
+    showUrl();
     call("proxy.settingsGet").then((result) => {
       if (alive()) {
         mode.value = result.settings.mode;
         url.value = result.settings.url || "";
+        mode.dispatchEvent(new Event("change"));
       }
     }, failed);
   };

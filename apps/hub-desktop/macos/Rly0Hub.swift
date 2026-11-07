@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import Darwin
+import UserNotifications
 
 let pageURL = URL(string: "rly0-hub://local/index.html")!
 
@@ -80,7 +81,8 @@ final class LocalResources: NSObject, WKURLSchemeHandler {
 }
 
 final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
-                         WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+                         WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler,
+                         UNUserNotificationCenterDelegate {
     var window: NSWindow!
     var webview: WKWebView!
     var worker: Process?
@@ -91,9 +93,16 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var loaded = false
     var exiting = false
     var pending = Set<String>()
-    var zoom = 1.1
+    // Every start opens at the standard interface size (100%), like the Windows Hub.
+    var zoom = 1.0
     var lockDescriptor: Int32 = -1
     var devMode = false
+    var serviceHome: URL!
+    var servicePath = ""
+    var restarts = 0
+    var internalSequence = 0
+    var internalReplies: [String: ([String: Any]?) -> Void] = [:]
+    var alertTimer: Timer?
     let steps = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6]
     let readQueue = DispatchQueue(label: "com.rly0.hub.macos.stdout")
     var buffer = Data()
@@ -121,14 +130,76 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             }
             makeMenu()
             try makeWindow()
-            try startWorker(home: devMode ? devHome : realHome)
+            // Clicks on notices shown before this launch also arrive here.
+            UNUserNotificationCenter.current().delegate = self
+            serviceHome = devMode ? devHome : realHome
+            // The login shell's PATH (agent CLIs from npm, Homebrew, nvm...) is read off the main
+            // thread; the service starts once it is known, the page waits on "后台正在启动".
+            let home = realHome
+            DispatchQueue.global(qos: .userInitiated).async {
+                let path = Self.searchPath(home: home, runtime: self.resources.appendingPathComponent("runtime").path)
+                DispatchQueue.main.async {
+                    self.servicePath = path
+                    do { try self.startWorker() } catch { self.cannotStart() }
+                }
+            }
         } catch {
-            let alert = NSAlert()
-            alert.messageText = "RLY/0 Hub 未能启动"
-            alert.informativeText = "可能已经打开了一个 RLY/0 Hub（看 Dock），或安装包不完整。"
-            alert.runModal()
-            NSApp.terminate(nil)
+            cannotStart()
         }
+    }
+
+    func cannotStart() {
+        let alert = NSAlert()
+        alert.messageText = "RLY/0 Hub 未能启动"
+        alert.informativeText = "可能已经打开了一个 RLY/0 Hub（看 Dock），或安装包不完整。"
+        alert.runModal()
+        NSApp.terminate(nil)
+    }
+
+    /// PATH for the service: what a Terminal window gets (GUI apps start with a minimal one),
+    /// else the usual install folders; the bundled Node comes last so the user's own tools win.
+    static func searchPath(home: URL, runtime: String) -> String {
+        let fallback = ["\(home.path)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin",
+                        "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        var entries = loginShellPath(home: home) ?? fallback
+        for directory in fallback where !entries.contains(directory) { entries.append(directory) }
+        entries.removeAll { $0 == runtime }
+        entries.append(runtime)
+        return entries.joined(separator: ":")
+    }
+
+    static func loginShellPath(home: URL) -> [String]? {
+        guard let record = getpwuid(getuid()), let raw = record.pointee.pw_shell else { return nil }
+        let shell = String(cString: raw)
+        guard shell.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: shell) else { return nil }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-ilc", "printf '\\n__RLY0_HUB_PATH__%s\\n' \"$PATH\""]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        process.environment = ["HOME": home.path, "USER": NSUserName(), "SHELL": shell,
+                               "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
+        var output = Data()
+        let lock = NSLock()
+        pipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            lock.lock(); if output.count < 1_048_576 { output.append(chunk) }; lock.unlock()
+        }
+        let done = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in done.signal() }
+        do { try process.run() } catch { return nil }
+        // A shell profile that hangs (prompts, network) must not keep the Hub from starting.
+        if done.wait(timeout: .now() + 5) == .timedOut { process.terminate(); return nil }
+        pipe.fileHandleForReading.readabilityHandler = nil
+        lock.lock(); output.append(pipe.fileHandleForReading.readDataToEndOfFile()); lock.unlock()
+        guard let text = String(data: output, encoding: .utf8),
+              let line = text.components(separatedBy: "\n").last(where: { $0.hasPrefix("__RLY0_HUB_PATH__") })
+        else { return nil }
+        let entries = line.dropFirst("__RLY0_HUB_PATH__".count).split(separator: ":").map(String.init)
+            .filter { $0.hasPrefix("/") }
+        return entries.isEmpty ? nil : entries
     }
 
     func makeMenu() {
@@ -189,9 +260,9 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func navigate(_ page: String) {
         guard navPages.contains(where: { $0.0 == page }) else { return }
         showWindow()
-        // hub-ui only accepts its own navigable names: the 打通 rail opens on its MCP tab
-        // and 设置 on 通用 (NAVIGABLE in hub-ui/app.js).
-        let target = ["bridge": "mcp", "settings": "general"][page] ?? page
+        // hub-ui only accepts its own navigable names (NAVIGABLE in hub-ui/app.js): 设置 opens
+        // on 通用, 打通设置 on its 概览.
+        let target = ["settings": "general"][page] ?? page
         post(["event": "navigate", "page": target])
     }
 
@@ -235,7 +306,11 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         }
     }
 
-    func startWorker(home: URL) throws {
+    func startWorker() throws {
+        let home: URL = serviceHome
+        ready = false
+        failed = false
+        buffer.removeAll()
         let process = Process()
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
@@ -246,7 +321,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         var env: [String: String] = [
             "HOME": home.path,
             "USER": NSUserName(),
-            "PATH": "/Volumes/RLY0Dev/Dev/Cache/node-v24/bin:/Volumes/RLY0Dev/Dev/Cache/npm-global/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin",
+            "PATH": servicePath,
             "LANG": "en_US.UTF-8",
             "TMPDIR": NSTemporaryDirectory(),
             "RLY0_HUB_INSTALL_ROOT": resources.path,
@@ -258,7 +333,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             env["CODEXHOST_DATA_DIR"] = home.appendingPathComponent("data").path
             env["RLY0_CORE_DATA"] = home.appendingPathComponent("core").path
         } else {
-            // Real data: ~/.codex and ~/.rly0-hub (both symlinked to RLY0Dev). Pass through
+            // Real data: ~/.codex and ~/.rly0-hub (either may be a symlink). Pass through
             // explicit overrides the user set, e.g. a Mac rly0-core build via RLY0_CORE_PATH.
             for key in ["CODEX_HOME", "CODEXHOST_DATA_DIR", "RLY0_CORE_PATH", "CODEXHOST_PKG",
                         "CODEXHOST_NODE", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"] {
@@ -271,12 +346,12 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         process.standardError = FileHandle.nullDevice
         input = stdinPipe.fileHandleForWriting
         output = stdoutPipe.fileHandleForReading
-        output?.readabilityHandler = { handle in
+        output?.readabilityHandler = { [weak process] handle in
             let data = handle.availableData
-            self.readQueue.async { self.receive(data) }
+            self.readQueue.async { if self.worker === process { self.receive(data) } }
         }
-        process.terminationHandler = { _ in
-            DispatchQueue.main.async { self.serviceStopped() }
+        process.terminationHandler = { stopped in
+            DispatchQueue.main.async { if self.worker === stopped { self.serviceStopped() } }
         }
         worker = process
         try process.run()
@@ -306,9 +381,16 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func serviceMessage(_ message: [String: Any]) {
         guard !failed, !exiting else { return }
-        if message["event"] as? String == "ready" {
+        let event = message["event"] as? String
+        if event == "ready" {
             ready = true
             if loaded { post(["event": "ready"]) }
+            startAlertChecks()
+        } else if event == "quota" || event == "balance" {
+            // Pushed numbers (a reply's quota, a relay balance), forwarded like the Windows shell.
+            post(message)
+        } else if let id = message["id"] as? String, let reply = internalReplies.removeValue(forKey: id) {
+            reply(message["result"] as? [String: Any])
         } else if let id = message["id"] as? String, pending.remove(id) != nil {
             post(message)
         }
@@ -324,7 +406,116 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let ids = pending
         pending.removeAll()
         for id in ids { replyError(id, "SERVICE_UNAVAILABLE") }
+        let waiting = internalReplies
+        internalReplies.removeAll()
+        for (_, reply) in waiting { reply(nil) }
+        // Like the Windows shell: the service is restarted up to three times; the page keeps
+        // getting SERVICE_STARTING until the new one is ready.
+        if restarts < 3 {
+            restarts += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                guard !self.exiting else { return }
+                do { try self.startWorker() } catch { self.failed = true; if self.loaded { self.post(["event": "ready"]) } }
+            }
+            return
+        }
         if loaded { post(["event": "ready"]) }
+    }
+
+    /// A shell-side request (alerts, notification actions); the reply never reaches the page.
+    func sendInternal(_ method: String, _ params: [String: Any] = [:],
+                      _ reply: (([String: Any]?) -> Void)? = nil) {
+        guard ready, !failed, worker?.isRunning == true, let input = input else { reply?(nil); return }
+        internalSequence += 1
+        let id = "t\(internalSequence)"
+        internalReplies[id] = reply ?? { _ in }
+        guard var line = try? JSONSerialization.data(withJSONObject: ["id": id, "method": method, "params": params])
+        else { internalReplies.removeValue(forKey: id); reply?(nil); return }
+        line.append(10)
+        do { try input.write(contentsOf: line) } catch { serviceStopped() }
+    }
+
+    /// 提醒 (balance, quota) and automatic account switching run inside `alerts.check`, which the
+    /// Windows tray calls a minute after start and then every five minutes; same here.
+    func startAlertChecks() {
+        guard alertTimer == nil else { return }
+        alertTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak self] _ in
+            self?.checkAlerts()
+            self?.alertTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
+                self?.checkAlerts()
+            }
+        }
+    }
+
+    func checkAlerts() {
+        sendInternal("alerts.check") { result in
+            guard let alerts = result?["alerts"] as? [[String: Any]], !alerts.isEmpty else { return }
+            self.notify(alerts.map { alert in
+                var info: [String: String] = [:]
+                if let action = alert["action"] as? String, ["recharge", "open", "switch"].contains(action) {
+                    info["action"] = action
+                }
+                if let account = alert["accountId"] as? String,
+                   account.range(of: "^[0-9a-f]{12}$", options: .regularExpression) != nil {
+                    info["accountId"] = account
+                }
+                if let agent = alert["agent"] as? String, ["claude", "grok"].contains(agent) { info["agent"] = agent }
+                return (alert["title"] as? String ?? "RLY/0 Hub 提醒", alert["body"] as? String ?? "", info)
+            })
+        }
+    }
+
+    func notify(_ notices: [(String, String, [String: String])]) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            for (title, body, info) in notices {
+                let content = UNMutableNotificationContent()
+                content.title = title
+                content.body = body
+                content.userInfo = info
+                center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+            }
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        DispatchQueue.main.async { self.performNoticeAction(info) }
+        completionHandler()
+    }
+
+    /// Clicking a notice does what the Windows balloon does.
+    func performNoticeAction(_ info: [AnyHashable: Any]) {
+        let action = info["action"] as? String
+        let account = info["accountId"] as? String
+        let agent = info["agent"] as? String
+        if action == "recharge" {
+            sendInternal("links.open", ["target": "recharge"])
+        } else if action == "switch", let account = account, let agent = agent {
+            // Claude / Grok: the credential new requests use; a running reply finishes first.
+            sendInternal("agents.autoSwitch.apply", ["agent": agent, "id": account]) { result in
+                let ok = result?["switched"] as? Bool == true
+                let later = result?["deferred"] as? Bool == true
+                self.notify([("RLY/0 Hub", ok ? "已切换账号，新的请求就用它。"
+                              : later ? "等当前回复结束后就切换。" : "切换没有成功，请在 Hub 的账号页重试。", [:])])
+            }
+        } else if action == "switch", let account = account {
+            sendInternal("accounts.switchAndRestart", ["id": account]) { result in
+                let ok = result?["switched"] as? Bool == true
+                let hot = ok && result?["reloaded"] is String
+                self.notify([("RLY/0 Hub", !ok ? "切换没有成功，请在 Hub 的账号页重试。"
+                              : hot ? "已切换账号，Codex 不用重启。" : "已切换账号，Codex 正在重启。", [:])])
+            }
+        } else {
+            showWindow()
+        }
     }
 
     func post(_ message: [String: Any]) {
@@ -348,7 +539,9 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
               method.range(of: "^[a-z]+(\\.[a-zA-Z]+){1,2}$", options: .regularExpression) != nil,
               let params = request["params"] as? [String: Any],
               let data = try? JSONSerialization.data(withJSONObject: ["id": id, "method": method, "params": params]),
-              data.count <= 65536, !pending.contains(id) else { return }
+              !pending.contains(id) else { return }
+        // Answered at once (the page would otherwise wait for its 180 s timeout).
+        guard data.count <= 65536 else { replyError(id, "REQUEST_TOO_LARGE"); return }
         if method == "window.zoomGet" || method == "window.zoomSet" {
             if method == "window.zoomSet", let next = params["zoom"] as? Double, next.isFinite {
                 zoom = max(0.8, min(1.6, (next * 100).rounded() / 100))
@@ -394,9 +587,15 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     @objc func showWindow() {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        post(["event": "visibility", "visible": true])
     }
 
-    func windowShouldClose(_ sender: NSWindow) -> Bool { sender.orderOut(nil); return false }
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        // Like the Windows tray: a hidden window stops live quota refreshes until shown again.
+        post(["event": "visibility", "visible": false])
+        return false
+    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showWindow()
@@ -405,6 +604,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationWillTerminate(_ notification: Notification) {
         exiting = true
+        alertTimer?.invalidate()
         output?.readabilityHandler = nil
         try? input?.close()
         if worker?.isRunning == true { worker?.terminate() }

@@ -10,6 +10,7 @@ import { Rly0AppearanceManager } from "../src/rly0-appearance/index.js";
 import type { Rly0CoreBridge } from "../src/rly0-core/index.js";
 import { Rly0CodexControl } from "../src/rly0-hub-service/codex-control.js";
 import { evaluateRly0HubAlerts } from "../src/rly0-hub-service/alerts.js";
+import { listRly0HubAgents } from "../src/rly0-hub-service/agents.js";
 import { isRly0Relay, Rly0HubService } from "../src/rly0-hub-service/service.js";
 import { serveRly0HubStdio } from "../src/rly0-hub-service/stdio-server.js";
 
@@ -104,6 +105,31 @@ describe("RLY/0 Hub service", () => {
     );
     expect(report.diagnostics.desktopCompatibility).toEqual(observation);
     expect(check).toHaveBeenCalledTimes(2);
+  });
+
+  it("never closes Codex for an update on macOS: in-place install is Windows-only", async () => {
+    const root = await tempDir();
+    const forceQuit = vi.fn(async () => ({ ok: true }));
+    const codex = Object.assign(Object.create(Rly0CodexControl.prototype) as Rly0CodexControl, {
+      status: async () => ({ running: true, canOpen: true }),
+      forceQuit,
+    });
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      platform: "darwin",
+      core: fakeCore([]).core,
+      codex,
+    });
+    for (const params of [{}, { closeCodex: true }]) {
+      expect(await service.handle("updates.install", params)).toMatchObject({
+        phase: "error",
+        error: "UPDATE_UNSUPPORTED",
+        needsCodexClose: false,
+      });
+    }
+    expect(forceQuit).not.toHaveBeenCalled();
+    await service.dispose();
   });
 
   it("rejects unknown methods and malformed params with codes only", async () => {
@@ -529,6 +555,14 @@ describe("AI 助手 catalog and relay logos", () => {
     expect(agents.find((a) => a.id === "opencode")?.manualCommand).toBe(
       "npm install -g opencode-ai",
     );
+  });
+
+  it("shows the manual install command of the system it runs on", () => {
+    const command = (platform: NodeJS.Platform) =>
+      listRly0HubAgents({}, platform, () => false).find((a) => a.id === "claude-code")
+        ?.manualCommand;
+    expect(command("win32")).toBe("irm https://claude.ai/install.ps1 | iex");
+    expect(command("darwin")).toBe("curl -fsSL https://claude.ai/install.sh | bash");
   });
 
   it("opens only the catalog's own docs pages", async () => {

@@ -61,9 +61,11 @@
     "agents",
     "accounts",
     "relays",
+    "bridge",
     "threads",
     "mcp",
     "skills",
+    "memory",
     "general",
     "support",
   ];
@@ -163,6 +165,10 @@
     UPDATE_CHECK_FAILED: "检查更新失败，请稍后重试",
     UPDATE_RATE_LIMITED: "GitHub 暂时限制了查询次数，几分钟后再试",
     UPDATE_NETWORK: "连不上 GitHub，检查网络或在 设置→网络代理 配置代理",
+    SERVICE_UNAVAILABLE: "Hub 后台停止了，请退出 Hub 再重新打开",
+    HUB_BUSY: "Hub 正忙，请稍后重试",
+    REQUEST_TOO_LARGE: "内容太大了，一次发不过去",
+    CAPTURE_UNSUPPORTED: "这个系统上不能截取窗口画面",
   };
   const explain = (code) => ERRORS[code] || "操作没有成功";
   const failed = (error) => toast(explain(error && error.message));
@@ -424,6 +430,13 @@
             notes.length > 1200 ? `${notes.slice(0, 1200)}…` : notes,
           )
         : h("p", { class: "sub" }, "这次更新的说明在发布页里。"),
+      window.HubUI.isMac
+        ? h(
+            "p",
+            { class: "sub" },
+            "Mac 版：下载新的安装包，把 RLY0 Hub 拖进“应用程序”替换旧版即可，账号和设置都会保留。",
+          )
+        : null,
     );
     ui.foot.append(
       h(
@@ -444,15 +457,28 @@
       ),
       h("span", { class: "spacer" }),
       h("button", { class: "btn", type: "button", onclick: () => ui.close() }, "稍后"),
-      h(
-        "button",
-        {
-          class: "btn paper",
-          type: "button",
-          onclick: () => installUpdate(ui, false),
-        },
-        "立即更新",
-      ),
+      window.HubUI.isMac
+        ? h(
+            "button",
+            {
+              class: "btn paper",
+              type: "button",
+              onclick: () => {
+                call("links.open", { target: "releases" }).catch(failed);
+                ui.close();
+              },
+            },
+            "去下载页",
+          )
+        : h(
+            "button",
+            {
+              class: "btn paper",
+              type: "button",
+              onclick: () => installUpdate(ui, false),
+            },
+            "立即更新",
+          ),
     );
   }
 
@@ -467,7 +493,9 @@
     UPDATE_RATE_LIMITED: "GitHub 暂时限制了查询次数，几分钟后再试。",
     UPDATE_NETWORK: "连不上 GitHub，检查网络或在 设置→网络代理 配置代理。",
     UPDATE_CHECK_FAILED: "暂时查不到新版本的信息，请稍后重试。",
-    UPDATE_UNSUPPORTED: "这个系统不支持自动更新。",
+    UPDATE_UNSUPPORTED: window.HubUI.isMac
+      ? "Mac 版请到下载页下载新的安装包。"
+      : "这个系统不支持自动更新。",
   };
   function megabytes(bytes) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -752,7 +780,9 @@
   };
   const INSTALL_ERRORS = {
     NETWORK: "网络不通，换个网络或开代理再试",
-    PERMISSION: "没有权限，试试以管理员身份运行",
+    PERMISSION: window.HubUI.isMac
+      ? "没有权限，检查安装目录的权限后再试"
+      : "没有权限，试试以管理员身份运行",
     NODE_MISSING: "缺少 Node.js",
     GIT_MISSING: "缺少 Git",
     MANUAL: "需要手动安装",
@@ -920,14 +950,19 @@
         toast("文件太大，不像是 auth.json");
         return;
       }
-      file.text().then((content) =>
+      file.text().then((content) => {
+        // A page request is at most 64 KiB in both window shells.
+        if (JSON.stringify({ content }).length > 60 * 1024) {
+          toast("文件太大（超过 60 KB），请拆成几个文件分别导入");
+          return;
+        }
         call("accounts.importAuthFile", { content }).then((result) => {
           toast(
             result && result.count > 1 ? `已导入 ${result.count} 个账号` : "已导入并保存这个账号",
           );
           load();
-        }, loginFailed),
-      );
+        }, loginFailed);
+      });
     });
 
     // An OpenAI API key, saved as an API-key login (and as the OpenAI key for other agents).
@@ -1320,8 +1355,12 @@
           h(
             "div",
             { class: "who" },
-            h("b", null, "托盘提醒"),
-            h("span", null, "到这里时，右下角弹一次提醒"),
+            h("b", null, window.HubUI.isMac ? "通知提醒" : "托盘提醒"),
+            h(
+              "span",
+              null,
+              window.HubUI.isMac ? "到这里时，弹一次系统通知" : "到这里时，右下角弹一次提醒",
+            ),
           ),
           h(
             "div",
@@ -1332,7 +1371,7 @@
         );
       })
       .catch(() => undefined);
-    // Interface size: the window's zoom (also Ctrl + wheel, Ctrl +/-/0), remembered by the shell.
+    // Interface size: the window's zoom, for this run only (the shell opens at 100% every start).
     const sizeCard = h("section", { class: "m span-6" });
     const SIZES = [
       [0.9, "小"],
@@ -1347,7 +1386,7 @@
           "div",
           { class: "who" },
           h("b", null, "界面大小"),
-          h("span", null, `当前 ${Math.round(zoom * 100)}%，重开 Hub 恢复 110%`),
+          h("span", null, `当前 ${Math.round(zoom * 100)}%，重开 Hub 恢复 100%`),
         ),
         h(
           "div",
@@ -1710,7 +1749,9 @@
         frame(
           "Done",
           "准备好了",
-          "关掉窗口后在托盘里继续运行",
+          window.HubUI.isMac
+            ? "关掉窗口后 Hub 仍在后台运行，点 Dock 图标重新打开"
+            : "关掉窗口后在托盘里继续运行",
           h(
             "div",
             { class: "row" },
@@ -1833,8 +1874,8 @@
       },
       "proxy.status": { available: true, running: true, port: 25917 },
       "codex.status": { running: true, canOpen: true },
-      "window.zoomGet": { zoom: 1.1, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
-      "window.zoomSet": { zoom: 1.1, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
+      "window.zoomGet": { zoom: 1, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
+      "window.zoomSet": { zoom: 1, steps: [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6] },
       "updates.install": {
         phase: "downloading",
         version: "0.11.1",

@@ -525,6 +525,10 @@ export class Rly0HubService {
    * closed first (only when the window confirmed it) and the installer opens it again.
    */
   async #installUpdate(closeCodex: boolean) {
+    // Only the Windows installer updates in place: elsewhere nothing is closed, the window
+    // offers the download page (UPDATE_UNSUPPORTED).
+    if ((this.#options.platform ?? process.platform) !== "win32")
+      return { ...this.#hubUpdater().start({ reopenCodex: false }), needsCodexClose: false };
     const codex = await this.#codex.status();
     if (codex.running) {
       if (!closeCodex) return { ...this.#hubUpdater().progress(), needsCodexClose: true };

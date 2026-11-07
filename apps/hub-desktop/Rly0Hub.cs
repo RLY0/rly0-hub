@@ -938,8 +938,8 @@ internal sealed class PanelWindow : Form {
         return new WebView2 { DefaultBackgroundColor = Color.FromArgb(13, 13, 11), Dock = DockStyle.Fill };
     }
 
-    /// <summary>The interface size every start opens at: 110% ("大").</summary>
-    internal const double DefaultZoom = 1.1;
+    /// <summary>The interface size every start opens at: 100% ("标准").</summary>
+    internal const double DefaultZoom = 1.0;
     private double zoom = DefaultZoom;
     internal static readonly double[] ZoomSteps = { 0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6 };
 

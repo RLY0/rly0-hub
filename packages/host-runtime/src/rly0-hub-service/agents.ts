@@ -290,7 +290,8 @@ export interface Rly0HubAgent {
   readonly installed: boolean | null;
   readonly automatic: boolean;
   readonly canOpenLogin: boolean;
-  /** The command a person can run themselves when one-click install fails (Windows PowerShell). */
+  /** The command a person can run themselves when one-click install fails (PowerShell on
+   *  Windows, a terminal elsewhere). */
   readonly manualCommand?: string;
   /**
    * Only the agent's desktop app is installed, not the command line tool Codex runs (Antigravity:
@@ -330,10 +331,11 @@ export function rly0HubAgentDocsUrl(agent: string): string | undefined {
   return RLY0_HUB_AGENTS.find((entry) => entry.id === agent)?.docsUrl;
 }
 
-function manualCommand(id: string): string | undefined {
+function manualCommand(id: string, platform: NodeJS.Platform): string | undefined {
   const attempt = RLY0_AGENT_RECIPES[id]?.attempts[0];
   if (!attempt) return undefined;
-  return attempt.kind === "script" ? attempt.windows : `npm install -g ${attempt.packageName}`;
+  if (attempt.kind !== "script") return `npm install -g ${attempt.packageName}`;
+  return platform === "win32" ? attempt.windows : attempt.posix;
 }
 
 export function listRly0HubAgents(
@@ -346,7 +348,7 @@ export function listRly0HubAgents(
     // Desktop-app agents without a recipe (ZCode) are listed for their connection status only.
     const recipe = RLY0_AGENT_RECIPES[entry.id] ?? { attempts: [] };
     const command = recipe.detectionCommand;
-    const manual = manualCommand(entry.id);
+    const manual = manualCommand(entry.id, platform);
     const installed = command
       ? commandExists(command, searchEnvironment, platform, fileExists)
       : null;

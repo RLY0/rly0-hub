@@ -50,7 +50,14 @@ window.registerHubAgentAccounts = ({
         toast("文件太大，不像是登录文件");
         return;
       }
-      file.text().then(onText);
+      file.text().then((content) => {
+        // A page request is at most 64 KiB in both window shells.
+        if (JSON.stringify({ content }).length > 60 * 1024) {
+          toast("文件太大（超过 60 KB），请拆成几个文件分别导入");
+          return;
+        }
+        onText(content);
+      });
     });
     document.body.append(input);
     input.click();

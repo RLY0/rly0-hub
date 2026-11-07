@@ -1,5 +1,9 @@
 # RLY/0 Hub macOS 开发包
 
+> 正式的 Mac 安装包由 `scripts/release/macos/package-hub.mjs` 生成，见
+> [`docs/platforms/macos/hub-mac-package.md`](../../../docs/platforms/macos/hub-mac-package.md)。
+> 下面的开发包流程只用于没有 codexhost 载荷的开发构建（其 `bin/codexhost` 为 `codexhost-launch.sh`）。
+
 这是 macOS 12+ 的独立 Hub 壳开发入口，默认 Apple Silicon（M 系列），另提供 Intel x64 开发构建入口。两种架构都尚未经过 Mac 编译或真机验收，不是正式 Mac 安装包。复用当前 `www` 页面、品牌素材和真正的 Hub service，不重新实现业务或使用假服务。Intel 壳能否构建与运行不证明当前 Codex Desktop 在 Intel 上受支持。
 
 ## Windows 上准备

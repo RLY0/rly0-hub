@@ -26,8 +26,11 @@ window.registerHubConsoleFeatures = ({ pages, h, call, toast, failed }) => {
   const put = (element, ...items) =>
     element.replaceChildren(...items.flat().filter((item) => item !== null && item !== undefined));
   const ERRORS = { HOST_UNAVAILABLE: "Codex 没在运行，先打开 Codex" };
-  const fail = (error) =>
-    failed(new Error(ERRORS[error && error.message] || (error && error.message) || "HUB_ERROR"));
+  const fail = (error) => {
+    const text = ERRORS[error && error.message];
+    if (text) toast(text);
+    else failed(error);
+  };
   const closedNote = (section) =>
     h(
       "div",

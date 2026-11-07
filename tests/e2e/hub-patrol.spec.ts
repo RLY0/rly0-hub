@@ -11,7 +11,7 @@ const browserExecutable = process.env.CODEXHOST_PLAYWRIGHT_EXECUTABLE_PATH;
 if (browserExecutable) test.use({ launchOptions: { executablePath: browserExecutable } });
 
 const runDir = process.env.HUB_PATROL_RUN || path.resolve(".local-test/patrol/manual");
-// 760 is the narrowest window; at the default 110% interface size its CSS width is ~690.
+// 760 is the narrowest window (its CSS width at the default 100% interface size); at 110% it is ~690.
 const WIDTHS = (process.env.HUB_PATROL_WIDTHS || "1240,760").split(",").map(Number);
 const HEIGHT = 820;
 

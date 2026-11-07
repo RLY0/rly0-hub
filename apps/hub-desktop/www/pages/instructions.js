@@ -31,11 +31,11 @@ window.registerHubInstructions = ({ pages, h, call, toast, failed, go }) => {
     const preview = h("div");
     const historyCard = h("section", { class: "m span-6" });
     root.append(h("div", { class: "grid compact" }, sharing, status, editorCard, historyCard));
-    // The sharing switches live on the AI 助手 page now, next to the agents they affect.
+    // The sharing switches live on 打通设置 → 概览.
     sharing.append(
       h("b", null, "共享给其他助手"),
       null,
-      h("button", { class: "btn sm", type: "button", onclick: () => go("agents") }, "去设置"),
+      h("button", { class: "btn sm", type: "button", onclick: () => go("bridge") }, "去设置"),
     );
     const editor = h("textarea", {
       class: "input instructions-text",

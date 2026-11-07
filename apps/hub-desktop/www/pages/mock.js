@@ -282,7 +282,7 @@ window.hubManagementMock = (() => {
   let recoveredHistory = false;
   const filters = { imageTool: false, webSearchTool: false };
   const zoomSteps = [0.8, 0.9, 1, 1.1, 1.25, 1.4, 1.6];
-  let zoom = 1.1;
+  let zoom = 1;
   // 账号 page. The first quota lookup (on opening a tab) succeeds; a manual refresh after that
   // also succeeds on the Codex tab, with one account failing, and fails outright on the Claude
   // tab, so both outcomes show without a real backend.

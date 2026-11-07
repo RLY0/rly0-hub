@@ -173,13 +173,19 @@ async function locateMacCodex(options: CodexLocateOptions): Promise<CodexLocatio
   if (!fileSystem.readHeader) return null;
   const explicit = options.environment.CODEXHOST_INSTALL_ROOT;
   const home = options.environment.HOME;
+  // Same order as the Launcher (crates/platform installation.rs): Codex Desktop also ships as
+  // ChatGPT.app.
   const bundles =
     explicit !== undefined
       ? [explicit]
       : [
           "/Applications/Codex.app",
+          "/Applications/ChatGPT.app",
           ...(home && path.posix.isAbsolute(home)
-            ? [path.posix.join(home, "Applications/Codex.app")]
+            ? [
+                path.posix.join(home, "Applications/Codex.app"),
+                path.posix.join(home, "Applications/ChatGPT.app"),
+              ]
             : []),
         ];
   for (const bundle of bundles) {

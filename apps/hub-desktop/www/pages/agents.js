@@ -104,14 +104,25 @@ window.registerHubAgents = ({
   function snippets(agent, relay) {
     const root = relayRoot(relay);
     const v1 = `${root}/v1`;
+    const mac = window.HubUI.isMac;
+    // One command per line for the current terminal window: PowerShell, or a Mac shell.
+    const shell = (pairs) => [
+      mac ? "终端（只对当前窗口生效）" : "PowerShell（只对当前窗口生效）",
+      pairs
+        .map(([name, value]) => (mac ? `export ${name}="${value}"` : `$env:${name}="${value}"`))
+        .join("\n"),
+    ];
+    const home = (relative) =>
+      mac ? `~/${relative.replaceAll("\\", "/")}` : `%USERPROFILE%\\${relative}`;
     if (agent.id === "claude-code") {
       return [
+        shell([
+          ["ANTHROPIC_BASE_URL", root],
+          ["ANTHROPIC_AUTH_TOKEN", KEY_PLACEHOLDER],
+          ["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1"],
+        ]),
         [
-          "PowerShell（只对当前窗口生效）",
-          `$env:ANTHROPIC_BASE_URL="${root}"\n$env:ANTHROPIC_AUTH_TOKEN="${KEY_PLACEHOLDER}"\n$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`,
-        ],
-        [
-          "%USERPROFILE%\\.claude\\settings.json（长期生效）",
+          `${home(".claude\\settings.json")}（长期生效）`,
           JSON.stringify(
             {
               env: {
@@ -129,7 +140,7 @@ window.registerHubAgents = ({
     if (agent.id === "opencode") {
       return [
         [
-          "%USERPROFILE%\\.config\\opencode\\opencode.json",
+          home(".config\\opencode\\opencode.json"),
           JSON.stringify(
             {
               $schema: "https://opencode.ai/config.json",
@@ -143,10 +154,10 @@ window.registerHubAgents = ({
     }
     if (agent.id === "grok") {
       return [
-        [
-          "PowerShell（只对当前窗口生效）",
-          `$env:GROK_MODELS_BASE_URL="${v1}"\n$env:XAI_API_KEY="${KEY_PLACEHOLDER}"`,
-        ],
+        shell([
+          ["GROK_MODELS_BASE_URL", v1],
+          ["XAI_API_KEY", KEY_PLACEHOLDER],
+        ]),
       ];
     }
     return [];
@@ -558,7 +569,9 @@ window.registerHubAgents = ({
       const input = h("input", {
         class: "input",
         type: "text",
-        placeholder: `${agent.name} 的安装文件夹，例如 D:\\Apps\\${agent.name}`,
+        placeholder: window.HubUI.isMac
+          ? `${agent.name} 的应用，例如 /Applications/${agent.name}.app`
+          : `${agent.name} 的安装文件夹，例如 D:\\Apps\\${agent.name}`,
         "aria-label": `${agent.name} 应用路径`,
         spellcheck: "false",
       });
@@ -660,7 +673,10 @@ window.registerHubAgents = ({
         { class: "manual" },
         h("summary", null, "手动安装"),
         agent.manualCommand
-          ? codeBlock("在 PowerShell 里运行", agent.manualCommand)
+          ? codeBlock(
+              window.HubUI.isMac ? "在“终端”里运行" : "在 PowerShell 里运行",
+              agent.manualCommand,
+            )
           : h("p", { class: "sub" }, "这个助手需要从官网下载安装。"),
         h(
           "button",

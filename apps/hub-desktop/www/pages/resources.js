@@ -45,7 +45,13 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
         ),
       );
     if (item.isLink)
-      tags.push(h("span", { class: "tag soft", title: item.realPath || "" }, "快捷方式"));
+      tags.push(
+        h(
+          "span",
+          { class: "tag soft", title: item.realPath || "" },
+          window.HubUI.isMac ? "替身" : "快捷方式",
+        ),
+      );
     if (item.conflicts?.length)
       tags.push(
         h(

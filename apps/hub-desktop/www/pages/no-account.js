@@ -45,7 +45,13 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
             { "data-brief": "Codex 模型菜单只显示中转模型" },
             "开启后 Codex 只用中转模型，官方模型暂时不可用。",
           ),
-          h("li", null, "Hub 需要一直在托盘里运行。"),
+          h(
+            "li",
+            null,
+            window.HubUI.isMac
+              ? "Hub 需要一直运行（关窗口不影响，退出 Hub 才会停）。"
+              : "Hub 需要一直在托盘里运行。",
+          ),
           h(
             "li",
             { "data-brief": "会自动让 Codex 重新打开一次，对话记录都在" },
@@ -154,7 +160,11 @@ window.registerHubNoAccount = ({ h, call, toast, failed, applyToCodex }) => {
         compact
           ? null
           : status.enabled
-            ? h("p", { class: "sub" }, "保持 Hub 在托盘里运行")
+            ? h(
+                "p",
+                { class: "sub" },
+                window.HubUI.isMac ? "保持 Hub 运行" : "保持 Hub 在托盘里运行",
+              )
             : h("p", { class: "sub" }, blocked || null),
       );
     }

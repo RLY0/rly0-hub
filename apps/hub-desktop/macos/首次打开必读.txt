@@ -1,0 +1,23 @@
+RLY/0 Hub（macOS · Apple 芯片）
+
+【安装】
+1. 把「RLY0 Hub.app」拖进旁边的「Applications（应用程序）」文件夹。
+2. 这个安装包没有苹果开发者签名。第一次打开前，打开“终端”，粘贴下面这一行并回车：
+
+   xattr -dr com.apple.quarantine "/Applications/RLY0 Hub.app"
+
+   然后在“应用程序”里双击 RLY0 Hub。
+   （不运行这一行，系统会提示“已损坏，无法打开”或“无法验证开发者”。）
+3. 需要 macOS 12 或更新版本，M 系列芯片。
+
+【第一次使用】
+- 打开后按引导开启转发、接入中转站或保存账号。
+- 密钥用系统“钥匙串”加密保存。系统询问是否允许 RLY0 Hub / rly0-core 使用钥匙串时，请点“始终允许”。
+- “打开 Codex”需要先装好官方 ChatGPT（Codex）桌面版。
+- 关掉窗口只是隐藏，Hub 仍在后台工作；点 Dock 图标重新打开，菜单里“退出 RLY/0 Hub”（⌘Q）才是退出。
+
+【卸载】
+退出 Hub，把「RLY0 Hub.app」拖进废纸篓。
+Hub 的数据在 ~/.rly0-hub 和 ~/Library/Application Support/RLY0 Hub，不需要时可一并删除。
+
+项目主页：https://github.com/RLY0/rly0-hub

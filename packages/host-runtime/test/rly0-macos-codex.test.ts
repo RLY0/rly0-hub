@@ -78,6 +78,33 @@ describe("Mac Codex discovery (synthetic filesystem)", () => {
     ).toEqual({ path: customCli, source: "macosBundle" });
   });
 
+  it("finds Codex Desktop shipped as ChatGPT.app, after Codex.app", async () => {
+    const chatgpt =
+      "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
+    expect(
+      await locateOfficialCodex({
+        environment: { HOME: "/Users/synthetic" },
+        platform: "darwin",
+        fileSystem: syntheticFiles({ [chatgpt]: {} }),
+      }),
+    ).toEqual({ path: chatgpt, source: "macosBundle" });
+    expect(
+      await locateOfficialCodex({
+        environment: { HOME: "/Users/synthetic" },
+        platform: "darwin",
+        fileSystem: syntheticFiles({ [chatgpt]: {}, [modern]: {} }),
+      }),
+    ).toEqual({ path: modern, source: "macosBundle" });
+    const userChatgpt = "/Users/synthetic/Applications/ChatGPT.app/Contents/Resources/codex";
+    expect(
+      await locateOfficialCodex({
+        environment: { HOME: "/Users/synthetic" },
+        platform: "darwin",
+        fileSystem: syntheticFiles({ [userChatgpt]: {} }),
+      }),
+    ).toEqual({ path: userChatgpt, source: "macosBundle" });
+  });
+
   it("does not silently fall back when the explicit bundle is missing or relative", async () => {
     for (const explicit of ["", "Codex.app", "/missing/Codex.app", "/Applications"]) {
       expect(

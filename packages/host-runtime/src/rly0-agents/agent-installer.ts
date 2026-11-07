@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -470,7 +470,8 @@ export const processRunner: CommandRunner = {
     }
   },
   openTerminal(command, environment) {
-    // Windows only for now; elsewhere the page shows the command to run instead.
+    if (process.platform === "darwin") return openMacTerminal(command, environment);
+    // Elsewhere the page shows the command to run instead.
     if (process.platform !== "win32") return Promise.resolve(false);
     return new Promise((resolve) => {
       try {
@@ -494,6 +495,47 @@ export const processRunner: CommandRunner = {
     });
   },
 };
+
+/**
+ * The `.command` file Terminal runs for an agent's own sign-in on macOS: the folders the Hub
+ * searched first on PATH (a Terminal login shell may not have them), then the agent.
+ */
+export function macTerminalScript(command: string, searchPath: string | undefined): string | null {
+  // Recipe commands are bare executable names; nothing else is ever written into the script.
+  if (!/^[A-Za-z0-9._-]+$/u.test(command)) return null;
+  const folders = (searchPath ?? "")
+    .split(":")
+    .filter((folder) => path.posix.isAbsolute(folder) && !/['\n\r\\]/u.test(folder));
+  return [
+    "#!/bin/zsh -l",
+    ...(folders.length > 0 ? [`export PATH='${folders.join(":")}':"$PATH"`] : []),
+    "cd ~",
+    command,
+    "",
+  ].join("\n");
+}
+
+async function openMacTerminal(command: string, environment: NodeJS.ProcessEnv): Promise<boolean> {
+  const script = macTerminalScript(command, environment.PATH);
+  if (!script) return false;
+  let directory: string;
+  try {
+    directory = await mkdtemp(path.join(tmpdir(), "rly0-login-"));
+    await writeFile(path.join(directory, `${command}.command`), script, { mode: 0o700 });
+  } catch {
+    return false;
+  }
+  const file = path.join(directory, `${command}.command`);
+  const opened = await new Promise<boolean>((resolve) => {
+    execFile("/usr/bin/open", ["-a", "Terminal", file], (error) => resolve(!error));
+  });
+  // Terminal reads the file after `open` returns; it is removed once it surely has.
+  setTimeout(
+    () => void rm(directory, { recursive: true, force: true }).catch(() => undefined),
+    60_000,
+  ).unref();
+  return opened;
+}
 
 /** Turns an installer's output into a reason a person can act on. */
 export function classifyInstallFailure(

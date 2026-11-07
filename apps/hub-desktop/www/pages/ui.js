@@ -592,7 +592,11 @@ window.HubUI = (() => {
     );
   }
 
+  // The macOS shell's WKWebView reports a Mac platform; wording, paths and commands follow it.
+  const isMac = /^Mac/u.test(navigator.platform || "");
+
   return {
+    isMac,
     menuButton,
     enhanceSelect,
     closeLayer,
