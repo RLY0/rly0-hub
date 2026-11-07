@@ -110,6 +110,11 @@ export function selectMacCodexProcesses(
 
 export interface MacProcessDependencies {
   list(): Promise<MacProcessEntry[]>;
+  /**
+   * Whether a matched Desktop process really is Codex (bundle id `com.openai.codex`): the separate
+   * ChatGPT chat app ships an executable at the same relative path and must never be ended.
+   */
+  isCodexDesktop?(entry: MacProcessEntry): Promise<boolean>;
   /** Asks Codex Desktop to quit normally (AppleScript `quit`), so it saves its state first. */
   requestQuit(): Promise<void>;
   alive(pid: number): boolean;
@@ -148,7 +153,15 @@ async function endProcesses(
  * and only then ends whatever is still running. Returns how many of the matched processes ended.
  */
 export async function quitMacCodex(dependencies: MacProcessDependencies): Promise<number> {
-  const { app, helpers } = selectMacCodexProcesses(await dependencies.list(), dependencies.keep);
+  const entries = await dependencies.list();
+  const selected = selectMacCodexProcesses(entries, dependencies.keep);
+  const helpers = selected.helpers;
+  const app: number[] = [];
+  for (const pid of selected.app) {
+    const entry = entries.find((candidate) => candidate.pid === pid);
+    if (entry && (await (dependencies.isCodexDesktop?.(entry) ?? Promise.resolve(true))))
+      app.push(pid);
+  }
   if (app.length === 0 && helpers.length === 0) return 0;
   if (app.length > 0) {
     await dependencies.requestQuit().catch(() => undefined);
@@ -175,6 +188,21 @@ function defaultMacProcessDependencies(): MacProcessDependencies {
         const match = /^\s*(\d+)\s+(.*)$/u.exec(line);
         return match ? [{ pid: Number(match[1]), args: match[2] ?? "" }] : [];
       });
+    },
+    async isCodexDesktop(entry) {
+      const bundle = /^(\/.*?\.app)\/Contents\/MacOS\//u.exec(entry.args)?.[1];
+      if (!bundle) return false;
+      try {
+        const id = await execText("/usr/bin/plutil", [
+          "-extract",
+          "CFBundleIdentifier",
+          "raw",
+          `${bundle}/Contents/Info.plist`,
+        ]);
+        return id.trim() === "com.openai.codex";
+      } catch {
+        return false;
+      }
     },
     async requestQuit() {
       await execText("/usr/bin/osascript", [

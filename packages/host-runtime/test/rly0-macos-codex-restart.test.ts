@@ -124,4 +124,13 @@ describe("macOS Codex restart (synthetic processes)", () => {
     expect(await control.restart()).toEqual({ ok: false });
     expect(started).toEqual([]);
   });
+
+  it("never ends a ChatGPT chat app that shares the executable path", async () => {
+    const f = fakeSystem({ quitWorks: false, helpersFollow: false });
+    f.dependencies.isCodexDesktop = async (entry) => entry.pid !== 302;
+    await quitMacCodex(f.dependencies);
+    expect(f.living.has(302)).toBe(true);
+    expect(f.signals.map(([pid]) => pid)).not.toContain(302);
+    expect(f.living.has(100)).toBe(false);
+  });
 });
