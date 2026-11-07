@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { openInBrowser, revealFolder } from "./desktop-open.js";
 import { createBridgeRoutes } from "./bridge-routes.js";
 import type { MemoryServerLaunch } from "../rly0-memory/launch.js";
 import path from "node:path";
@@ -156,16 +156,10 @@ const linkParams = z
 
 type Handler = (params: unknown) => Promise<unknown>;
 
-function openInExplorer(directory: string): void {
-  const child = spawn("explorer.exe", [directory], { detached: true, stdio: "ignore" });
-  child.on("error", () => undefined);
-  child.unref();
-}
-
 export interface Rly0HubServiceOptions {
   readonly environment: NodeJS.ProcessEnv;
   readonly installRoot: string;
-  /** Shows a folder in Explorer (打通设置 → 记忆 / 技能); the default runs `explorer.exe`. */
+  /** Shows a folder (打通设置 → 记忆 / 技能): Explorer on Windows, Finder on macOS. */
   readonly openFolder?: (directory: string) => void;
   /** Pins the memory server Codex is given (tests); `null` gives none. */
   readonly memoryLaunch?: MemoryServerLaunch | null;
@@ -219,26 +213,6 @@ function rly0First<
   if (!result.available || !result.relays) return result;
   const relays = [...result.relays].sort((a, b) => Number(isRly0Relay(b)) - Number(isRly0Relay(a)));
   return { ...result, relays };
-}
-
-function openInBrowser(url: string): void {
-  // url.dll's protocol handler gives the URL to the default browser. explorer.exe is not used: it
-  // mis-parses long sign-in URLs (commas, `+`) and opens the Documents folder instead.
-  const handler = path.join(
-    process.env.SystemRoot ?? process.env.windir ?? "C:\\Windows",
-    "System32",
-    "rundll32.exe",
-  );
-  const child = spawn(handler, ["url.dll,FileProtocolHandler", url], {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.on("error", () => {
-    const fallback = spawn("explorer.exe", [url], { detached: true, stdio: "ignore" });
-    fallback.on("error", () => undefined);
-    fallback.unref();
-  });
-  child.unref();
 }
 
 /**
@@ -409,7 +383,7 @@ export class Rly0HubService {
     this.#bridge = createBridgeRoutes({
       environment,
       installRoot: options.installRoot,
-      openFolder: options.openFolder ?? openInExplorer,
+      openFolder: options.openFolder ?? revealFolder,
       ...(options.memoryLaunch !== undefined ? { memoryLaunch: options.memoryLaunch } : {}),
     });
     this.#routes = this.#buildRoutes();
@@ -846,14 +820,11 @@ export class Rly0HubService {
       baseUrl = status.providerBaseUrl;
     }
     if (!baseUrl) return;
-    const currentOk =
-      typeof status.model === "string" && status.model.startsWith("rly0/");
+    const currentOk = typeof status.model === "string" && status.model.startsWith("rly0/");
     let model = currentOk ? status.model : undefined;
     if (!model) {
       const listed = await this.#core.listRelays().catch(() => ({ available: false as const }));
-      model = listed.available
-        ? pickDefaultRly0CodexModel(listed.relays)
-        : undefined;
+      model = listed.available ? pickDefaultRly0CodexModel(listed.relays) : undefined;
     }
     if (!model) {
       // No relay model to advertise yet — still ensure the provider table exists.
@@ -908,7 +879,7 @@ export class Rly0HubService {
       ...createHubManagementRoutes({
         environment: this.#options.environment,
         installRoot: this.#options.installRoot,
-        openFolder: this.#options.openFolder ?? openInExplorer,
+        openFolder: this.#options.openFolder ?? revealFolder,
         core,
         codex: this.#codex,
         compatibility: this.#compatibility,

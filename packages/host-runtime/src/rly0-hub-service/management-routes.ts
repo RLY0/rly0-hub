@@ -1,4 +1,5 @@
 import { syncNativeResourcesIfChanged } from "../rly0-bridge/native-resources.js";
+import { revealFolder } from "./desktop-open.js";
 import { sharedResourceSettings } from "../shared-harness-resources.js";
 import {
   rly0MaintenanceExportFeedbackParamsSchema,
@@ -14,7 +15,6 @@ import {
   rly0AgentDefaultsSetParamsSchema,
   rly0CodexPreferenceValuesSchema,
 } from "@codexhost/shared-contracts";
-import { spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
@@ -70,7 +70,7 @@ export function createHubManagementRoutes(options: {
   compatibility?: DesktopCompatibilitySource;
   /** An update is downloading or installing: its installer folder is not cleared. */
   updateBusy?: () => boolean;
-  /** Shows a folder in Explorer; the default runs `explorer.exe`. */
+  /** Shows a folder: Explorer on Windows, Finder on macOS. */
   openFolder?: (directory: string) => void;
 }) {
   const { environment, core, codex } = options;
@@ -90,13 +90,7 @@ export function createHubManagementRoutes(options: {
       new Rly0DesktopCompatibility({ environment, installRoot: options.installRoot }),
     busyEntries: () => (options.updateBusy?.() ? ["updates"] : []),
   });
-  const openFolder =
-    options.openFolder ??
-    ((directory: string) => {
-      const child = spawn("explorer.exe", [directory], { detached: true, stdio: "ignore" });
-      child.on("error", () => undefined);
-      child.unref();
-    });
+  const openFolder = options.openFolder ?? ((directory: string) => revealFolder(directory));
   const updates = options.updates ?? { check: () => checkHubUpdate(options.installRoot) };
   const updateFailure = () => ({ code: -32000, message: "UPDATE_CHECK_FAILED" });
   return {
