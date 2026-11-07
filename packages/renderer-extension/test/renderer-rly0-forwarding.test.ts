@@ -35,4 +35,15 @@ describe("RLY/0 forwarding through the adapter facade", () => {
     expect(current).toHaveBeenCalledTimes(1);
     expect(sendRequest).toHaveBeenCalledWith("codexhost/rly0/core/status", {});
   });
+
+  it("rejects instead of throwing while the Host is not routed yet (Desktop starting)", async () => {
+    const forwarders = createRendererRly0Forwarders(() => {
+      throw new Error("Renderer Model request manager is unavailable");
+    });
+    let returned: Promise<unknown> | undefined;
+    expect(() => {
+      returned = forwarders.rly0CodexPreferences();
+    }).not.toThrow();
+    await expect(returned).rejects.toThrow("Renderer Model request manager is unavailable");
+  });
 });

@@ -77,7 +77,9 @@ export function createRendererRly0Forwarders(
 ): Record<RendererRly0ForwardedMethod, (...args: never[]) => Promise<unknown>> {
   const forwarders: Record<string, (...args: unknown[]) => unknown> = {};
   for (const name of RENDERER_RLY0_FORWARDED_METHODS) {
-    forwarders[name] = (...args: unknown[]) => {
+    // Async so a Host that is not routed yet (Desktop still starting) rejects the returned
+    // promise instead of throwing past the caller's `.catch`.
+    forwarders[name] = async (...args: unknown[]) => {
       const client = currentClient() as unknown as Record<string, unknown>;
       const method = client[name];
       if (typeof method !== "function") throw new Error(`${name} is unavailable`);
