@@ -156,12 +156,22 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         NSApp.terminate(nil)
     }
 
-    /// PATH for the service: what a Terminal window gets (GUI apps start with a minimal one),
-    /// else the usual install folders; the bundled Node comes last so the user's own tools win.
+    /// PATH for the service: folders listed in `~/Library/Application Support/RLY0 Hub/extra-path`
+    /// (one absolute path per line; tools no shell profile adds, e.g. on an external volume), then
+    /// what a Terminal window gets (GUI apps start with a minimal one), then the usual install
+    /// folders; the bundled Node comes last so the user's own tools win.
     static func searchPath(home: URL, runtime: String) -> String {
         let fallback = ["\(home.path)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin",
                         "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-        var entries = loginShellPath(home: home) ?? fallback
+        let listed = home.appendingPathComponent("Library/Application Support/RLY0 Hub/extra-path")
+        let extra = ((try? String(contentsOf: listed, encoding: .utf8)) ?? "")
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("/") && !$0.contains(":") }
+        var entries = extra
+        for directory in loginShellPath(home: home) ?? fallback where !entries.contains(directory) {
+            entries.append(directory)
+        }
         for directory in fallback where !entries.contains(directory) { entries.append(directory) }
         entries.removeAll { $0 == runtime }
         entries.append(runtime)

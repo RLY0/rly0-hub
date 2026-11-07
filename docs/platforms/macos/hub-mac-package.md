@@ -28,7 +28,9 @@ Mac 版不能就地自动更新：Hub 照常检查新版本，更新提示在 Ma
 - 启动后 1 分钟、之后每 5 分钟调用 `alerts.check`（余额/额度提醒与自动切换账号都在这里运行），
   提醒用系统通知显示，点通知执行与 Windows 托盘气泡相同的动作；
 - 服务进程意外退出时最多自动重启 3 次；超过 64 KiB 的页面请求立即回 `REQUEST_TOO_LARGE`；
-- 服务的 PATH 取自用户登录 Shell（5 秒超时，失败用常见安装目录），内置 Node 放在最后。
+- 服务的 PATH：先是 `~/Library/Application Support/RLY0 Hub/extra-path` 里逐行列出的文件夹（没有
+  任何 Shell 配置会加的位置，例如外接盘上的工具），再是用户登录 Shell 的 PATH（5 秒超时，失败用常见
+  安装目录），内置 Node 放在最后。
 
 ## 功能测试台（tests/e2e/hub-bench）
 
