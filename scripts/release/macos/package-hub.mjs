@@ -128,7 +128,10 @@ async function makeIcon(resources) {
   try {
     const iconset = path.join(work, "AppIcon.iconset");
     await mkdir(iconset);
-    const png = path.join(repositoryRoot, "crates/launcher/assets/codexhost.png");
+    // Dark tile (ink-950, full bleed; macOS applies its own mask). A transparent icon gets a light
+    // system plate on macOS 26+, which the brand forbids. Rendered from the official
+    // docs/brand assets/rly0-ip-on-dark.svg by apps/hub-desktop/macos/render-app-icon.swift.
+    const png = path.join(repositoryRoot, "apps/hub-desktop/macos/AppIcon-1024.png");
     for (const size of [16, 32, 128, 256, 512]) {
       for (const [scale, suffix] of [
         [1, ""],
