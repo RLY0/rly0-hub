@@ -304,6 +304,23 @@ describe("checkHubUpdate", () => {
       await checkHubUpdate(root, () => Promise.reject(new Error("private detail"))),
     ).toMatchObject({ error: "UPDATE_CHECK_FAILED" });
   });
+
+  it("reads a macOS Hub.app's version from Info.plist when the payload metadata is absent", async () => {
+    const contents = await mkdtemp(path.join(os.tmpdir(), "rly0-hub-app-"));
+    const resources = path.join(contents, "Resources");
+    await mkdir(path.join(resources, "app"), { recursive: true });
+    await writeFile(
+      path.join(contents, "Info.plist"),
+      "<plist><dict>\n\t<key>CFBundleShortVersionString</key>\n\t<string>0.11.37</string>\n</dict></plist>\n",
+    );
+    expect(
+      await checkHubUpdate(resources, async () => ({
+        version: "0.11.38",
+        releaseNotes: null,
+        releaseNotesUrl: null,
+      })),
+    ).toMatchObject({ currentVersion: "0.11.37", latestVersion: "0.11.38", updateAvailable: true, error: null });
+  });
 });
 
 describe("Rly0HubUpdater", () => {

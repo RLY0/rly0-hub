@@ -32,6 +32,24 @@ function defaultLatest(): Promise<LatestRelease> {
 }
 
 /**
+ * The distribution metadata, or on macOS the app bundle's version (`Contents/Resources` is the
+ * install root): a Hub.app assembled without the codexhost payload's metadata still knows its version.
+ */
+async function installedVersion(installRoot: string): Promise<string> {
+  try {
+    const file = path.join(installRoot, "app", "codexhost-distribution.json");
+    return parseDistributionMetadata(JSON.parse(await fs.readFile(file, "utf8"))).version;
+  } catch (error) {
+    const plist = await fs.readFile(path.join(installRoot, "..", "Info.plist"), "utf8").catch(() => null);
+    const version = plist?.match(
+      /<key>CFBundleShortVersionString<\/key>\s*<string>(\d+\.\d+\.\d+)<\/string>/u,
+    )?.[1];
+    if (version) return version;
+    throw error;
+  }
+}
+
+/**
  * Read-only update discovery without Launcher PID, controller or a running app-server. `error` is
  * UPDATE_RATE_LIMITED, UPDATE_NETWORK or UPDATE_CHECK_FAILED.
  */
@@ -41,8 +59,7 @@ export async function checkHubUpdate(
 ): Promise<UpdateCheckResult> {
   let currentVersion = "0.0.0";
   try {
-    const file = path.join(installRoot, "app", "codexhost-distribution.json");
-    currentVersion = parseDistributionMetadata(JSON.parse(await fs.readFile(file, "utf8"))).version;
+    currentVersion = await installedVersion(installRoot);
     const release = await fetchLatest();
     return {
       currentVersion,
