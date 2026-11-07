@@ -64,6 +64,35 @@ describe("macOS Codex restart (synthetic processes)", () => {
     });
   });
 
+  it("also matches the Launcher and Codex-side helpers of the Hub's own install root", () => {
+    const root = "/Applications/RLY0 Hub.app/Contents/Resources";
+    const installed: MacProcessEntry[] = [
+      { pid: 500, args: `${root}/bin/codexhost` },
+      { pid: 501, args: `${root}/bin/codexhost launch --node /n` },
+      {
+        pid: 502,
+        args: `/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node ${root}/app/host-runtime.mjs -c x app-server`,
+      },
+      { pid: 503, args: `/n --disable-warning=X ${root}/app/desktop-controller.mjs --renderer y` },
+      { pid: 504, args: `${root}/runtime/node ${root}/app/hub-service.mjs` },
+      { pid: 505, args: `${root}/runtime/rly0-core` },
+      { pid: 506, args: `${root}/runtime/node ${root}/app/console-server.mjs serve` },
+      { pid: 507, args: `/Applications/RLY0 Hub.app/Contents/MacOS/rly0-hub` },
+      { pid: 508, args: `/Applications/RLY0 Hub.app/Contents/Resources/bin/codexhost-other` },
+    ];
+    expect(selectMacCodexProcesses(installed, new Set(), root)).toEqual({
+      app: [],
+      helpers: [500, 501, 502, 503],
+    });
+    // Without the install root only the npm package's helpers count.
+    expect(selectMacCodexProcesses(installed, new Set())).toEqual({ app: [], helpers: [] });
+    // A relative or empty root never widens the match.
+    expect(selectMacCodexProcesses(installed, new Set(), "Resources")).toEqual({
+      app: [],
+      helpers: [],
+    });
+  });
+
   it("quits normally first and sends no signal when everything exits by itself", async () => {
     const f = fakeSystem({ quitWorks: true, helpersFollow: true });
     expect(await quitMacCodex(f.dependencies)).toBe(4);

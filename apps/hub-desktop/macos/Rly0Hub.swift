@@ -100,6 +100,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var serviceHome: URL!
     var servicePath = ""
     var restarts = 0
+    var restarting = false
     var internalSequence = 0
     var internalReplies: [String: ([String: Any]?) -> Void] = [:]
     var alertTimer: Timer?
@@ -191,20 +192,30 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         process.standardError = FileHandle.nullDevice
         process.environment = ["HOME": home.path, "USER": NSUserName(), "SHELL": shell,
                                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8"]
+        // Done at the marker line or end of output, whichever comes first: a profile may start
+        // something in the background that keeps the pipe open long after the shell exited.
         var output = Data()
         let lock = NSLock()
+        let done = DispatchSemaphore(value: 0)
+        let marker = Data("__RLY0_HUB_PATH__".utf8)
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let chunk = handle.availableData
-            lock.lock(); if output.count < 1_048_576 { output.append(chunk) }; lock.unlock()
+            lock.lock()
+            if output.count < 1_048_576 { output.append(chunk) }
+            let complete = output.range(of: marker).map { output[$0.upperBound...].contains(10) } ?? false
+            lock.unlock()
+            if chunk.isEmpty || complete { done.signal() }
         }
-        let done = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in done.signal() }
         do { try process.run() } catch { return nil }
         // A shell profile that hangs (prompts, network) must not keep the Hub from starting.
-        if done.wait(timeout: .now() + 5) == .timedOut { process.terminate(); return nil }
+        let finished = done.wait(timeout: .now() + 5) == .success
         pipe.fileHandleForReading.readabilityHandler = nil
-        lock.lock(); output.append(pipe.fileHandleForReading.readDataToEndOfFile()); lock.unlock()
-        guard let text = String(data: output, encoding: .utf8),
+        try? pipe.fileHandleForReading.close()
+        // An interactive shell ignores SIGTERM; one still running is ended for good.
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+        guard finished else { return nil }
+        lock.lock(); let collected = output; lock.unlock()
+        guard let text = String(data: collected, encoding: .utf8),
               let line = text.components(separatedBy: "\n").last(where: { $0.hasPrefix("__RLY0_HUB_PATH__") })
         else { return nil }
         let entries = line.dropFirst("__RLY0_HUB_PATH__".count).split(separator: ":").map(String.init)
@@ -358,7 +369,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         output = stdoutPipe.fileHandleForReading
         output?.readabilityHandler = { [weak process] handle in
             let data = handle.availableData
-            self.readQueue.async { if self.worker === process { self.receive(data) } }
+            self.readQueue.async { if self.worker === process { self.receive(data, from: process) } }
         }
         process.terminationHandler = { stopped in
             DispatchQueue.main.async { if self.worker === stopped { self.serviceStopped() } }
@@ -367,30 +378,29 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         try process.run()
     }
 
-    func receive(_ data: Data) {
-        guard !data.isEmpty else {
-            DispatchQueue.main.async { self.serviceStopped() }
-            return
-        }
+    /// Output of `process`; whatever reaches the main thread after a restart is the old service's
+    /// and is dropped there.
+    func receive(_ data: Data, from process: Process?) {
+        let stop = { DispatchQueue.main.async { if self.worker === process { self.serviceStopped() } } }
+        guard !data.isEmpty else { return stop() }
         buffer.append(data)
         while let newline = buffer.firstIndex(of: 10) {
             let line = Data(buffer[..<newline])
             buffer.removeSubrange(...newline)
             guard line.count <= 1_048_576,
                   let message = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else {
-                DispatchQueue.main.async { self.serviceStopped() }
-                return
+                return stop()
             }
-            DispatchQueue.main.async { self.serviceMessage(message) }
+            DispatchQueue.main.async { if self.worker === process { self.serviceMessage(message) } }
         }
         if buffer.count > 1_048_576 {
             buffer.removeAll()
-            DispatchQueue.main.async { self.serviceStopped() }
+            stop()
         }
     }
 
     func serviceMessage(_ message: [String: Any]) {
-        guard !failed, !exiting else { return }
+        guard !failed, !restarting, !exiting else { return }
         let event = message["event"] as? String
         if event == "ready" {
             ready = true
@@ -407,29 +417,50 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func serviceStopped() {
-        guard !failed, !exiting else { return }
-        failed = true
+        guard !failed, !restarting, !exiting else { return }
         ready = false
         output?.readabilityHandler = nil
         try? input?.close()
-        if worker?.isRunning == true { worker?.terminate() }
+        let old = worker
+        // Like the Windows shell: the service is restarted up to three times; meanwhile the page
+        // gets SERVICE_STARTING, and SERVICE_UNAVAILABLE only once it stays down.
+        let restart = restarts < 3
+        if restart {
+            restarts += 1
+            restarting = true
+        } else {
+            failed = true
+        }
         let ids = pending
         pending.removeAll()
-        for id in ids { replyError(id, "SERVICE_UNAVAILABLE") }
+        for id in ids { replyError(id, restart ? "SERVICE_STARTING" : "SERVICE_UNAVAILABLE") }
         let waiting = internalReplies
         internalReplies.removeAll()
         for (_, reply) in waiting { reply(nil) }
-        // Like the Windows shell: the service is restarted up to three times; the page keeps
-        // getting SERVICE_STARTING until the new one is ready.
-        if restarts < 3 {
-            restarts += 1
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                guard !self.exiting else { return }
-                do { try self.startWorker() } catch { self.failed = true; if self.loaded { self.post(["event": "ready"]) } }
-            }
+        guard restart else {
+            if old?.isRunning == true { old?.terminate() }
+            if loaded { post(["event": "ready"]) }
             return
         }
-        if loaded { post(["event": "ready"]) }
+        // The old service, and the rly0-core it started (which stops once its input closes), must
+        // be gone before a new one starts on the same data and proxy port.
+        DispatchQueue.global(qos: .userInitiated).async {
+            if let old = old, old.isRunning {
+                old.terminate()
+                let deadline = Date().addingTimeInterval(5)
+                while old.isRunning && Date() < deadline { usleep(100_000) }
+                if old.isRunning { kill(old.processIdentifier, SIGKILL) }
+            }
+            usleep(1_500_000)
+            DispatchQueue.main.async {
+                guard !self.exiting else { return }
+                self.restarting = false
+                do { try self.startWorker() } catch {
+                    self.failed = true
+                    if self.loaded { self.post(["event": "ready"]) }
+                }
+            }
+        }
     }
 
     /// A shell-side request (alerts, notification actions); the reply never reaches the page.
@@ -470,6 +501,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                     info["accountId"] = account
                 }
                 if let agent = alert["agent"] as? String, ["claude", "grok"].contains(agent) { info["agent"] = agent }
+                info["at"] = String(Int(Date().timeIntervalSince1970))
                 return (alert["title"] as? String ?? "RLY/0 Hub 提醒", alert["body"] as? String ?? "", info)
             })
         }
@@ -501,8 +533,12 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         completionHandler()
     }
 
-    /// Clicking a notice does what the Windows balloon does.
+    /// Clicking a notice does what the Windows balloon does. One left in Notification Center for a
+    /// while, or clicked before the service is up, only opens the window: switching an account or
+    /// restarting Codex may no longer be what is wanted.
     func performNoticeAction(_ info: [AnyHashable: Any]) {
+        let at = (info["at"] as? String).flatMap(Double.init) ?? 0
+        guard ready, Date().timeIntervalSince1970 - at < 15 * 60 else { showWindow(); return }
         let action = info["action"] as? String
         let account = info["accountId"] as? String
         let agent = info["agent"] as? String

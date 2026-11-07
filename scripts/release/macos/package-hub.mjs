@@ -105,7 +105,8 @@ async function listFiles(root, current = root) {
 /** Local absolute paths a release must never contain (build machine, user, repository). */
 export function privatePathNeedles(environment = process.env, root = repositoryRoot) {
   const home = environment.HOME || os.homedir();
-  const needles = new Set([home, root, "/Volumes/RLY0Dev"]);
+  // The account's own home too: a build under a temporary HOME must not miss /Users/<name>.
+  const needles = new Set([home, os.userInfo().homedir, root, "/Volumes/RLY0Dev"]);
   return [...needles].filter((needle) => needle && needle.length > 4);
 }
 

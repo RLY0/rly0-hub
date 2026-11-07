@@ -18,7 +18,8 @@ export function killCodexProcesses(options: {
   environment: NodeJS.ProcessEnv;
   installRoot: string;
 }): Promise<number> {
-  if (process.platform === "darwin") return quitMacCodex(defaultMacProcessDependencies());
+  if (process.platform === "darwin")
+    return quitMacCodex(defaultMacProcessDependencies(), options.installRoot);
   if (process.platform !== "win32") return Promise.resolve(0);
   const { environment, installRoot } = options;
   const script = String.raw`
@@ -85,12 +86,14 @@ export interface MacProcessEntry {
 /**
  * macOS: the Codex Desktop main process (`ChatGPT.app` / `Codex.app`, by its own executable only;
  * its Electron helpers end with it) and the codexhost helpers started for it from the npm package
- * (`codexhost launch`, Host Runtime, Desktop controller). The codexhost web console, the Hub and
+ * or from the Hub's own install root (`RLY0 Hub.app/Contents/Resources`: its `bin/codexhost`
+ * Launcher, Host Runtime, Desktop controller). The codexhost web console, the Hub, its service and
  * rly0-core are left alone, as are the given `keep` PIDs.
  */
 export function selectMacCodexProcesses(
   entries: readonly MacProcessEntry[],
   keep: ReadonlySet<number>,
+  installRoot?: string,
 ): { app: number[]; helpers: number[] } {
   const app: number[] = [];
   const helpers: number[] = [];
@@ -100,10 +103,20 @@ export function selectMacCodexProcesses(
     /^\/(?:(?! \/)[^\n])*?\/(?:ChatGPT|Codex)\.app\/Contents\/MacOS\/(?:ChatGPT|Codex)(?:\s|$)/u;
   const helperPattern =
     /\/@codexhost\/cli-darwin-(?:arm64|x64)\/(?:bin\/codexhost launch(?:\s|$)|app\/(?:host-runtime|desktop-controller)\.mjs(?:\s|$))/u;
+  const root =
+    installRoot && path.posix.isAbsolute(installRoot)
+      ? installRoot.replace(/\/+$/u, "").replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")
+      : null;
+  const installedPattern = root
+    ? new RegExp(
+        `${root}/(?:bin/codexhost(?:\\s|$)|app/(?:host-runtime|desktop-controller)\\.mjs(?:\\s|$))`,
+        "u",
+      )
+    : null;
   for (const { pid, args } of entries) {
     if (!Number.isSafeInteger(pid) || pid <= 1 || keep.has(pid)) continue;
     if (appPattern.test(args)) app.push(pid);
-    else if (helperPattern.test(args)) helpers.push(pid);
+    else if (helperPattern.test(args) || installedPattern?.test(args)) helpers.push(pid);
   }
   return { app, helpers };
 }
@@ -152,9 +165,12 @@ async function endProcesses(
  * Quits Codex Desktop on macOS the way ⌘Q does, waits for it and its codexhost helpers to exit,
  * and only then ends whatever is still running. Returns how many of the matched processes ended.
  */
-export async function quitMacCodex(dependencies: MacProcessDependencies): Promise<number> {
+export async function quitMacCodex(
+  dependencies: MacProcessDependencies,
+  installRoot?: string,
+): Promise<number> {
   const entries = await dependencies.list();
-  const selected = selectMacCodexProcesses(entries, dependencies.keep);
+  const selected = selectMacCodexProcesses(entries, dependencies.keep, installRoot);
   const helpers = selected.helpers;
   const app: number[] = [];
   for (const pid of selected.app) {
