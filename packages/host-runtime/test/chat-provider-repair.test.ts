@@ -140,6 +140,33 @@ describe("Codex chat provider repair (synthetic database)", () => {
     expect(await undoChatProviderRepair(paths, STAMP)).toBe(0);
   });
 
+  it("writes nothing while another process still has Codex's database open", async () => {
+    const { home, database, paths } = makeCodex([{ id: SESSION(14), provider: "openai" }]);
+    const before = readFileSync(database);
+    const busy = { openers: async () => [4242], waitMs: 0 };
+    await expect(repairChatProviders(paths, STAMP, busy)).rejects.toThrow("CODEX_DATABASE_IN_USE");
+    expect(readFileSync(database).equals(before)).toBe(true);
+    expect(lastChatProviderRepair(paths)).toBeNull();
+    const repair = new ChatRepair({
+      environment: {},
+      home,
+      codex: {
+        status: async () => ({ running: false }),
+        forceQuit: async () => ({ ok: true }),
+        open: async () => ({ ok: true }),
+      },
+      sleep: async () => undefined,
+      now: () => new Date("2026-11-08T03:04:05.123Z"),
+      providerRepair: busy,
+    });
+    expect(await repair.repair()).toMatchObject({
+      ok: false,
+      providers: 0,
+      reason: "CODEX_DATABASE_IN_USE",
+    });
+    expect(providers(database)).toEqual({ [SESSION(14)]: "openai" });
+  });
+
   it("is part of 修复聊天记录: Codex is closed, repaired, reopened, and the change can be undone", async () => {
     const { home, database } = makeCodex([
       { id: SESSION(11), provider: "openai" },

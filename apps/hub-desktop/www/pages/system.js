@@ -642,9 +642,11 @@ window.registerHubSystem = ({
             ? "Codex 没能关闭，请先用“强制关闭 Codex”再修复"
             : result && result.reason === "backup-failed"
               ? "没能先备份聊天记录，所以什么都没改，请重开 Hub 后再试"
-              : result && result.reason === "provider-repair-failed"
-                ? "线路没改成，Codex 的聊天记录保持原样，请重开 Hub 后再试"
-                : "修复没有完成，请重开 Hub 后再试",
+              : result && result.reason === "CODEX_DATABASE_IN_USE"
+                ? "Codex 的后台还没完全退出，线路没改；稍等几秒再点修复"
+                : result && result.reason === "provider-repair-failed"
+                  ? "线路没改成，Codex 的聊天记录保持原样，请重开 Hub 后再试"
+                  : "修复没有完成，请重开 Hub 后再试",
         );
       } else if (!result.repaired && !result.fixedOnCodexStart) {
         toast("没有需要修复的聊天记录");
@@ -677,7 +679,9 @@ window.registerHubSystem = ({
         !result || !result.ok
           ? result && result.reason === "CODEX_STILL_RUNNING"
             ? "Codex 没能关闭，请先用“强制关闭 Codex”再撤销"
-            : "没能撤销，Codex 的聊天记录保持原样"
+            : result && result.reason === "CODEX_DATABASE_IN_USE"
+              ? "Codex 的后台还没完全退出，没有撤销；稍等几秒再试"
+              : "没能撤销，Codex 的聊天记录保持原样"
           : `已把 ${result.providers || 0} 条对话改回原来的线路${result.reopenFailed ? "，请手动打开 Codex" : ""}`,
       );
       await scanChats(true);

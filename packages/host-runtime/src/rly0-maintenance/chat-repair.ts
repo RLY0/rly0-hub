@@ -19,6 +19,7 @@ import {
   lastChatProviderRepair,
   repairChatProviders,
   undoChatProviderRepair,
+  type ChatProviderRepairOptions,
   type ChatProviderUndo,
 } from "./chat-provider-repair.js";
 
@@ -95,6 +96,8 @@ export interface ChatRepairOptions {
   /** How long to wait for Codex to finish closing. */
   readonly quitTimeoutMs?: number;
   readonly now?: () => Date;
+  /** Provider repair hooks (tests): who still has Codex's database open, and how long to wait. */
+  readonly providerRepair?: ChatProviderRepairOptions;
 }
 
 const sleepFor = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -202,12 +205,15 @@ export class ChatRepair {
       // Best effort: what was put back stays; the legacy merge below still runs.
     }
     let providers = 0;
-    let providerFailed = false;
+    let providerFailure: string | null = null;
     try {
-      providers = await repairChatProviders(paths, stamp);
-    } catch {
-      // Rolled back inside: Codex's database is as it was; the rest of the repair still runs.
-      providerFailed = true;
+      providers = await repairChatProviders(paths, stamp, this.#options.providerRepair);
+    } catch (error) {
+      // Nothing written (or rolled back): Codex's database is as it was; the rest still runs.
+      providerFailure =
+        error instanceof Error && error.message === "CODEX_DATABASE_IN_USE"
+          ? "CODEX_DATABASE_IN_USE"
+          : "provider-repair-failed";
     }
     const result = importLegacyCodexHostData(this.#options.environment, {
       ...this.#home(),
@@ -217,15 +223,15 @@ export class ChatRepair {
     const fixedOnCodexStart = pending.filter((c) => c.issue === "format").length;
     const reopenFailed = await reopen();
     return {
-      ok: result.reason !== "copy-failed" && !providerFailed,
+      ok: result.reason !== "copy-failed" && !providerFailure,
       repaired: (result.threads ?? 0) + restored + providers,
       providers,
       codexRestarted: wasRunning,
       reopenFailed,
       fixedOnCodexStart,
       backupDir: chatRepairBackupDir(paths, stamp),
-      ...(providerFailed
-        ? { reason: "provider-repair-failed" }
+      ...(providerFailure
+        ? { reason: providerFailure }
         : result.imported || restored > 0 || providers > 0
           ? {}
           : { reason: result.reason }),
@@ -246,20 +252,23 @@ export class ChatRepair {
       };
     }
     let restored = 0;
-    let failed = false;
+    let failure: string | null = null;
     try {
-      restored = await undoChatProviderRepair(this.#paths(), stamp);
-    } catch {
-      failed = true;
+      restored = await undoChatProviderRepair(this.#paths(), stamp, this.#options.providerRepair);
+    } catch (error) {
+      failure =
+        error instanceof Error && error.message === "CODEX_DATABASE_IN_USE"
+          ? "CODEX_DATABASE_IN_USE"
+          : "provider-undo-failed";
     }
     return {
-      ok: !failed,
+      ok: !failure,
       repaired: restored,
       providers: restored,
       codexRestarted: closed.wasRunning,
       reopenFailed: await closed.reopen(),
       fixedOnCodexStart: 0,
-      ...(failed ? { reason: "provider-undo-failed" } : {}),
+      ...(failure ? { reason: failure } : {}),
     };
   }
 

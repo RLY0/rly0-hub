@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -66,6 +67,51 @@ async function writeRecord(file: string, record: ProviderRecord): Promise<void> 
   await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
 }
 
+/**
+ * macOS: processes that still have Codex's database open (its app-server may outlive the window
+ * for a moment). Elsewhere the repair relies on Codex being ended and on SQLite's own locks.
+ */
+export type DatabaseOpeners = (database: string) => Promise<number[]>;
+
+const lsofOpeners: DatabaseOpeners = (database) =>
+  process.platform !== "darwin"
+    ? Promise.resolve([])
+    : new Promise((resolve) => {
+        execFile(
+          "/usr/sbin/lsof",
+          ["-t", "--", database, `${database}-wal`],
+          { timeout: 10_000 },
+          (_error, stdout) =>
+            // lsof exits 1 when no process has the files open.
+            resolve(
+              String(stdout ?? "")
+                .split(/\s+/u)
+                .map(Number)
+                .filter((pid) => Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid),
+            ),
+        );
+      });
+
+/** Waits (up to `timeoutMs`) until nothing else has the database open; false when it stays open. */
+async function databaseFree(
+  database: string,
+  openers: DatabaseOpeners,
+  timeoutMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if ((await openers(database)).length === 0) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+export interface ChatProviderRepairOptions {
+  /** Who still has Codex's database open (tests); `lsof` on macOS. */
+  readonly openers?: DatabaseOpeners;
+  readonly waitMs?: number;
+}
+
 async function openDatabase(file: string) {
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(file);
@@ -87,11 +133,18 @@ function backUpDatabase(database: string, target: string): void {
  * longer configured) to the current one; chats whose conversation file is gone are left alone.
  * Codex must be closed. Returns how many chats changed.
  */
-export async function repairChatProviders(paths: ChatHealthPaths, stamp: string): Promise<number> {
+export async function repairChatProviders(
+  paths: ChatHealthPaths,
+  stamp: string,
+  options: ChatProviderRepairOptions = {},
+): Promise<number> {
   if (!STAMP.test(stamp)) throw new Error("CHAT_REPAIR_STAMP_INVALID");
   const to = currentProvider(paths.codexHome);
   const database = paths.codexStateDir ? stateDatabase(paths.codexStateDir) : null;
   if (!to || !database) return 0;
+  // Codex's app-server keeps its own copy of these rows; nothing is written while it is up.
+  if (!(await databaseFree(database, options.openers ?? lsofOpeners, options.waitMs ?? 15_000)))
+    throw new Error("CODEX_DATABASE_IN_USE");
   const db = await openDatabase(database);
   try {
     const rows = db
@@ -164,6 +217,7 @@ export function lastChatProviderRepair(paths: ChatHealthPaths): ChatProviderUndo
 export async function undoChatProviderRepair(
   paths: ChatHealthPaths,
   stamp: string,
+  options: ChatProviderRepairOptions = {},
 ): Promise<number> {
   if (!STAMP.test(stamp)) throw new Error("CHAT_REPAIR_STAMP_INVALID");
   const file = path.join(chatRepairBackupDir(paths, stamp), RECORD);
@@ -172,6 +226,8 @@ export async function undoChatProviderRepair(
   const database = paths.codexStateDir ? stateDatabase(paths.codexStateDir) : null;
   // Another database than the one the repair changed: nothing of it is undone.
   if (!database || path.resolve(database) !== path.resolve(record.database)) return 0;
+  if (!(await databaseFree(database, options.openers ?? lsofOpeners, options.waitMs ?? 15_000)))
+    throw new Error("CODEX_DATABASE_IN_USE");
   const db = await openDatabase(database);
   try {
     const update = db.prepare(
