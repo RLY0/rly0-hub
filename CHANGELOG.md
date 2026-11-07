@@ -2,10 +2,20 @@
 
 ## 0.11.38
 
+### Updates
+- macOS: opening the Hub the first time needs no Terminal command. Click "完成", then 系统设置 → 隐私与安全性 → 仍要打开 once per version; the note in the DMG and the release page show the steps.
+- App icons are dark tiles (ink-950 with the RLY/0 mark) on macOS and Windows, instead of a transparent icon that macOS 26 puts on a light plate.
+
 ### Fixes
+- macOS: the update page shows the Hub's own version instead of "0.0.0 / 暂时连不上发布页" when the app carries no payload metadata.
 - Older Codex chats can be continued again. Codex Desktop 26.1029+ refuses to continue a chat started on another provider than the current one (for example `openai` while the Hub's channel is `rly0`), whatever the Hub asks. 维护 → 修复聊天记录 now finds these chats and moves them onto the current provider: Codex is closed, its chat database is backed up, only each chat's stored provider is changed, and Codex is opened again; "撤销上次线路修改" puts them back exactly.
 
+### 更新
+- Mac：第一次打开 Hub 不用再输入命令。先点“完成”，再到“系统设置 → 隐私与安全性”点一次“仍要打开”（每个新版本一次）；DMG 里的说明和发布页都写了步骤。
+- App 图标改成黑底方块（墨黑底 + RLY/0 标志），Mac 和 Windows 都是；不再用透明图标（macOS 26 会给它垫一块浅色底板）。
+
 ### 修复
+- Mac：更新页不再误报“当前版本 0.0.0、暂时连不上发布页”，读不到安装包信息时直接读 App 自己的版本号。
 - 旧对话又能接着聊了。新版 Codex（26.1029 起）会拒绝接着聊“当初用的线路和现在不同”的对话（比如当初是 openai、现在 Hub 用 rly0），Hub 怎么请求都不行。现在“维护 → 修复聊天记录”能找出这些对话并改到现在的线路：先关闭 Codex、完整备份它的聊天数据库，只改每条对话的线路记录，再重新打开 Codex；“撤销上次线路修改”可以原样改回。
 
 ## 0.11.37
@@ -13,7 +23,7 @@
 0.11.36 was tagged but not released; everything below ships in 0.11.37.
 
 ### Updates
-- First standalone macOS package (Apple Silicon): `RLY0-Hub-0.11.37-macos-arm64.dmg` carries the Hub window, its service, Node, rly0-core and the codexhost payload that opens Codex. Not signed by Apple: run `xattr -dr com.apple.quarantine "/Applications/RLY0 Hub.app"` once before the first launch.
+- First standalone macOS package (Apple Silicon): `RLY0-Hub-0.11.37-macos-arm64.dmg` carries the Hub window, its service, Node, rly0-core and the codexhost payload that opens Codex. Not signed by Apple: the first time, allow it once in 系统设置 → 隐私与安全性 → 仍要打开; no Terminal command needed.
 - Both Windows and Mac open the Hub at the standard 100% interface size.
 - macOS Hub: live quota and balance updates reach the window; balance/quota notices and automatic account switching run on the Mac too (system notifications); the background service restarts itself up to three times; agent CLIs are found through the login shell's PATH.
 
@@ -28,7 +38,7 @@
 （0.11.36 只打了标签、没有发布，以下内容都随 0.11.37 发布。）
 
 ### 更新
-- 首个 Mac 独立安装包（M 系列芯片）：`RLY0-Hub-0.11.37-macos-arm64.dmg`，内含 Hub 窗口、后台、Node、核心组件和用来打开 Codex 的 codexhost。没有苹果签名，首次打开前在“终端”运行一次 `xattr -dr com.apple.quarantine "/Applications/RLY0 Hub.app"`。
+- 首个 Mac 独立安装包（M 系列芯片）：`RLY0-Hub-0.11.37-macos-arm64.dmg`，内含 Hub 窗口、后台、Node、核心组件和用来打开 Codex 的 codexhost。没有苹果签名，第一次打开要在“系统设置 → 隐私与安全性”点一次“仍要打开”，不用输入命令。
 - Windows 和 Mac 默认都以标准 100% 界面大小打开。
 - Mac 版：额度和余额实时更新能显示到窗口；余额/额度提醒和自动切换账号在 Mac 上也会运行（系统通知）；后台意外退出会自动重启（最多 3 次）；能通过登录 Shell 的 PATH 找到各 AI 助手命令行。
 

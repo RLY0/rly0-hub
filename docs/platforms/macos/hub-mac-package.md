@@ -13,13 +13,17 @@
 - codexhost 载荷原样放入：`bin/codexhost` 是真正的 Launcher（不带参数即打开 Codex，`inspect --json`
   供 Hub 的兼容检查），`libexec/`、`app/*.mjs`、`runtime/node`、`licenses/`；
 - Hub 自己的部分：`app/hub-service.mjs`、`app/hub-ui/`、`mac-bridge.js`、`runtime/rly0-core`；
-- `Contents/MacOS/rly0-hub` 是 Swift 窗口外壳，`AppIcon.icns` 由 `crates/launcher/assets/codexhost.png` 生成。
+- `Contents/MacOS/rly0-hub` 是 Swift 窗口外壳，`AppIcon.icns` 由 `apps/hub-desktop/macos/AppIcon-1024.png`
+  生成（黑底满铺方块，圆角交给系统；生成脚本 `render-app-icon.swift`）。
 
 rly0-core 闭源、在其仓库单独构建；脚本逐字节复制并保留它原有的签名（已获得的钥匙串授权因此不变），
 打包前校验 SHA-256 和签名。公开发布用临时签名（`--sign -`）；本机可用自己的签名身份。打包会拒绝
 任何含构建机路径（主目录、仓库、外接盘）的文件，DMG 生成后用 `hdiutil verify` 校验。
 
-没有 Apple 开发者签名：DMG 内的「首次打开必读.txt」说明用 `xattr -dr com.apple.quarantine` 放行。
+没有 Apple 开发者签名（临时签名、未公证）：第一次打开时 macOS 拦下并提示“无法验证”（2026-11-08 在
+macOS 26 上用浏览器下载的 0.11.37 实测），用户在“系统设置 → 隐私与安全性”点一次“仍要打开”即可，每个
+新版本一次；DMG 内的「首次打开必读.txt」写了步骤。`xattr -dr com.apple.quarantine` 只作为提示“已损坏”
+（签名失效，例如下载不完整）时的备用办法。
 Mac 版不能就地自动更新：Hub 照常检查新版本，更新提示在 Mac 上直接打开下载页。
 
 ## 窗口外壳（Rly0Hub.swift）的 Mac 行为
