@@ -507,6 +507,7 @@ export class Rly0HubService {
   #hubUpdater(): Rly0HubUpdater {
     this.#updater ??= new Rly0HubUpdater({
       installRoot: this.#options.installRoot,
+      ...(this.#options.platform ? { platform: this.#options.platform } : {}),
       downloadDir: path.join(resolveRly0DataDir(this.#options.environment), "updates"),
       release: () => this.#releases().latest(),
       download: async (source, partial, onProgress) =>

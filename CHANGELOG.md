@@ -1,9 +1,11 @@
 # Changelog
 
-## 0.11.36
+## 0.11.37
+
+0.11.36 was tagged but not released; everything below ships in 0.11.37.
 
 ### Updates
-- First standalone macOS package (Apple Silicon): `RLY0-Hub-0.11.36-macos-arm64.dmg` carries the Hub window, its service, Node, rly0-core and the codexhost payload that opens Codex. Not signed by Apple: run `xattr -dr com.apple.quarantine "/Applications/RLY0 Hub.app"` once before the first launch.
+- First standalone macOS package (Apple Silicon): `RLY0-Hub-0.11.37-macos-arm64.dmg` carries the Hub window, its service, Node, rly0-core and the codexhost payload that opens Codex. Not signed by Apple: run `xattr -dr com.apple.quarantine "/Applications/RLY0 Hub.app"` once before the first launch.
 - Both Windows and Mac open the Hub at the standard 100% interface size.
 - macOS Hub: live quota and balance updates reach the window; balance/quota notices and automatic account switching run on the Mac too (system notifications); the background service restarts itself up to three times; agent CLIs are found through the login shell's PATH.
 
@@ -13,9 +15,12 @@
 - macOS: Codex web sign-in finds Codex Desktop installed as ChatGPT.app; Gemini and other agent sign-ins open Terminal.
 - macOS: manual install commands, relay snippets, paths and notices use Mac wording (Terminal, `~/`, notifications) instead of Windows wording.
 - 远程连接 and similar pages say Codex is not running instead of a generic error; failed settings switches flip back; 自定义指令 "去设置" opens 打通设置; a custom proxy needs an address; oversized login files are refused with a clear message.
+- macOS: quitting or restarting Codex from the Hub also ends the codexhost helpers started from the Hub app itself; the window's background service restarts without telling you to reopen the Hub, and the Hub no longer hangs at startup when a shell profile leaves a background process running.
+
+（0.11.36 只打了标签、没有发布，以下内容都随 0.11.37 发布。）
 
 ### 更新
-- 首个 Mac 独立安装包（M 系列芯片）：`RLY0-Hub-0.11.36-macos-arm64.dmg`，内含 Hub 窗口、后台、Node、核心组件和用来打开 Codex 的 codexhost。没有苹果签名，首次打开前在“终端”运行一次 `xattr -dr com.apple.quarantine "/Applications/RLY0 Hub.app"`。
+- 首个 Mac 独立安装包（M 系列芯片）：`RLY0-Hub-0.11.37-macos-arm64.dmg`，内含 Hub 窗口、后台、Node、核心组件和用来打开 Codex 的 codexhost。没有苹果签名，首次打开前在“终端”运行一次 `xattr -dr com.apple.quarantine "/Applications/RLY0 Hub.app"`。
 - Windows 和 Mac 默认都以标准 100% 界面大小打开。
 - Mac 版：额度和余额实时更新能显示到窗口；余额/额度提醒和自动切换账号在 Mac 上也会运行（系统通知）；后台意外退出会自动重启（最多 3 次）；能通过登录 Shell 的 PATH 找到各 AI 助手命令行。
 
@@ -25,6 +30,7 @@
 - Mac：Codex 网页登录能找到装成 ChatGPT.app 的 Codex；Gemini 等助手的登录能打开“终端”。
 - Mac：手动安装命令、中转配置示例、路径和提醒文字改用 Mac 说法（终端、`~/`、通知）。
 - 远程连接等页面在 Codex 没开时直接说明，不再只显示“操作没有成功”；设置开关保存失败会弹回；自定义指令的“去设置”打开打通设置；自定义代理必须填写地址；登录文件过大时给出明确提示。
+- Mac：从 Hub 关闭或重启 Codex 时，也会结束 Hub 自带的 codexhost 辅助进程；后台自动重启期间不再误提示“请退出 Hub 再打开”；Shell 配置里有常驻后台程序时 Hub 不再卡在启动中。
 
 ## 0.11.35
 
