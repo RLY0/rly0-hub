@@ -7,13 +7,6 @@ import {
 import { expect, it, vi } from "vitest";
 import { installRendererDraftPrewarmPolicyDirect } from "../src/renderer-draft-prewarm-policy.js";
 import type { RendererHostRouting as Routing } from "../src/renderer-host-routing.js";
-import {
-  findRendererAppScopeStore,
-  findRendererHostRpcFamily,
-  rendererHostRpcHostIds,
-  resolveRendererHostRpc,
-} from "../src/renderer-host-rpc-discovery.js";
-import { installRendererHostRpcRouting } from "../src/renderer-host-rpc-routing.js";
 
 const carrier = encodeHarnessPluginRoute(
   harnessPluginRouteSchema.parse({
@@ -26,34 +19,16 @@ const carrier = encodeHarnessPluginRoute(
 /** Desktop 26.1027: managers live in the main process; the Renderer keeps one
  * capnweb stub per Host in a signal family of the app scope store. */
 function setup(
-  options: { connectionFamilies?: number; nativeManager?: boolean; hosts?: string[] } = {},
+  options: {
+    connectionFamilies?: number;
+    nativeManager?: boolean;
+    unavailableNativeRegistry?: boolean;
+    hosts?: string[];
+  } = {},
 ) {
-  const sent: unknown[] = [];
-  const wire = (method: string, input: unknown, options: unknown) => {
-    // Native capnweb copies enumerable string keys only: Symbol provenance
-    // survives native shallow copies but must never be serialized to main.
-    new MessagePort().postMessage(
-      JSON.parse(JSON.stringify(["push", ["pipeline", -188, [method], [input, options]]])),
-    );
-    return Promise.resolve({ status: "created", conversationId: "synthetic" });
-  };
   const rpc = {
-    sendRequest: vi
-      .fn<(method: string, params: unknown, options?: unknown) => Promise<{ entries: unknown[] }>>()
-      .mockResolvedValue({ entries: [] }),
+    sendRequest: vi.fn(async () => ({ entries: [] })),
     clearPrewarmedThreads: vi.fn(async () => undefined),
-    startConversation: vi.fn((input: unknown, options: unknown) =>
-      wire("startConversation", input, options),
-    ),
-    prewarmConversation: vi.fn((input: unknown, options: unknown) =>
-      wire("prewarmConversation", input, options),
-    ),
-    prewarmCloudConversation: vi.fn((input: unknown, options: unknown) =>
-      wire("prewarmCloudConversation", input, options),
-    ),
-    prepareThreadStart: vi.fn((input: unknown, options: unknown) =>
-      wire("prepareThreadStart", input, options),
-    ),
   };
   const connections = new Map(
     (options.hosts ?? ["local"]).map((hostId) => [
@@ -103,35 +78,41 @@ function setup(
           },
           next: null,
         }
-      : null,
+      : options.unavailableNativeRegistry
+        ? {
+            memoizedState: {
+              addManager: vi.fn(),
+              getForHostId: () => null,
+              waitForManagerForHostId: vi.fn(),
+            },
+            next: null,
+          }
+        : null,
     return: null,
   };
-  const editors = [{ __reactFiber$app: composerFiber, parentElement: null }];
-  const registry = {
-    forHost(hostId: string) {
-      const connection = connections.get(hostId);
-      if (connection?.status !== "ready") throw new Error("Synthetic Host unavailable");
-      return connection.client.rpc;
+  const editors = [
+    {
+      __reactFiber$app: composerFiber,
+      parentElement: null,
+      matches: () => true,
+      querySelectorAll: () => [],
     },
-    collectAppStateSnapshot: vi.fn(),
-    getReviewPaneSnapshotMetrics: vi.fn(),
-    dispose: vi.fn(),
-  };
-  const registryBinding = { registry, isCurrent: () => true };
+  ];
+  const queryEditors = vi.fn(() => editors);
+  const sent: unknown[] = [];
   class MessagePort {
     postMessage(message: unknown): void {
       sent.push(message);
     }
   }
   const target: Record<string, unknown> = {};
-  const document = {
-    querySelectorAll: () => editors,
-    getElementById: (id: string) => (id === "root" ? container : null),
-  };
   const renderer = {
     async evaluate<T>(expression: string): Promise<T> {
       return await runInNewContext(expression, {
-        document,
+        document: {
+          querySelectorAll: queryEditors,
+          getElementById: (id: string) => (id === "root" ? container : null),
+        },
         window: target,
         MessagePort,
         crypto: globalThis.crypto,
@@ -143,15 +124,11 @@ function setup(
       });
     },
   };
-  const post = (message: unknown, hostId = "local") => {
-    const expression = (message as unknown[])[1] as unknown[];
-    const method = (expression[2] as string[])[0];
-    if (method === "startConversation" || method === "prewarmConversation") {
-      const client = registry.forHost(hostId);
-      return Reflect.apply(client[method], client, expression[3] as unknown[]);
-    }
-    return new MessagePort().postMessage(message);
-  };
+  const post = (message: unknown) =>
+    (MessagePort.prototype as { postMessage(message: unknown): void }).postMessage.call(
+      new MessagePort(),
+      message,
+    );
   return {
     renderer,
     target,
@@ -160,12 +137,10 @@ function setup(
     sent,
     post,
     MessagePort,
-    registryBinding,
-    registry,
-    document,
-    options,
-    store,
-    handle,
+    editors,
+    composerFiber,
+    familyBindings,
+    queryEditors,
   };
 }
 
@@ -175,25 +150,90 @@ function policyOf(route: ReturnType<Routing["forHost"]>) {
 }
 
 async function install(fixture: ReturnType<typeof setup>): Promise<Routing> {
-  if (fixture.options.nativeManager)
-    await installRendererDraftPrewarmPolicyDirect(fixture.renderer);
-  else
-    runInNewContext(`(${installRendererHostRpcRouting.toString()})(root, target, dependencies)`, {
-      root: fixture.document,
-      target: fixture.target,
-      dependencies: {
-        findStore: findRendererAppScopeStore,
-        findFamily: findRendererHostRpcFamily,
-        resolve: resolveRendererHostRpc,
-        hostIds: rendererHostRpcHostIds,
-        composerHostIds: () => ({ editorCount: 1, hostIds: ["local"] }),
-        registry: fixture.registryBinding,
-        portPrototype: fixture.MessagePort.prototype,
-      },
-      crypto: globalThis.crypto,
-    });
+  await installRendererDraftPrewarmPolicyDirect(fixture.renderer);
   return fixture.target.__codexhostHostRoutingV1 as Routing;
 }
+
+it("does not search Composer trees when reading or sending through a known RPC Host", async () => {
+  vi.useFakeTimers();
+  const f = setup();
+  const routing = await install(f);
+  try {
+    const scans = f.queryEditors.mock.calls.length;
+    const route = routing.forHost("local");
+    for (let i = 0; i < 20; i++) {
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(routing.forHost("local")).toBe(route);
+      route?.policy.requestTarget();
+      await route?.manager.sendRequest("model/list", {});
+    }
+    expect(f.queryEditors).toHaveBeenCalledTimes(scans);
+  } finally {
+    routing.dispose();
+    vi.useRealTimers();
+  }
+});
+
+it("discovers a scoped Composer without searching unrelated Composer trees", async () => {
+  const f = setup();
+  const routing = await install(f);
+  try {
+    const scans = f.queryEditors.mock.calls.length;
+    for (let i = 0; i < 20; i++) {
+      expect(routing.hostIdForComposer(f.editors[0])).toBe("local");
+      expect(routing.forComposer(f.editors[0])?.manager).toMatchObject({
+        kind: "main-process-rpc",
+      });
+    }
+    expect(f.queryEditors).toHaveBeenCalledTimes(scans);
+  } finally {
+    routing.dispose();
+  }
+});
+
+it.each(["composer", "hosts"])(
+  "discovers a late native owner on the same editor through %s reconciliation",
+  async (entry) => {
+    const f = setup({ nativeManager: true, hosts: ["local", "remote-ssh:other"] });
+    const hook = f.composerFiber.memoizedState;
+    f.composerFiber.memoizedState = null;
+    const routing = await install(f);
+    try {
+      const before = routing.forHost("local");
+      const remote = routing.forHost("remote-ssh:other");
+      expect(before?.manager).toHaveProperty("kind", "main-process-rpc");
+      f.composerFiber.memoizedState = hook;
+      if (entry === "composer") routing.hostIdForComposer(f.editors[0]);
+      else routing.knownHostIds?.();
+      const after = routing.forHost("local");
+      expect(after?.manager).toBe(hook?.memoizedState);
+      expect(() => before?.policy.requestTarget()).toThrow("retired");
+      expect(routing.forHost("remote-ssh:other")).toBe(remote);
+      // The native router still reads current owners after adoption.
+      f.composerFiber.memoizedState = null;
+      expect(routing.forHost("local")?.manager).toHaveProperty("kind", "main-process-rpc");
+      f.composerFiber.memoizedState = hook;
+      expect(routing.forHost("local")?.manager).toBe(hook?.memoizedState);
+    } finally {
+      routing.dispose();
+    }
+  },
+);
+
+it("reconciles a mounted Composer through the Controller's existing installation check", async () => {
+  const f = setup({ nativeManager: true });
+  const editor = f.editors.pop();
+  if (!editor) throw new Error("Missing editor");
+  const routing = await install(f);
+  try {
+    expect(routing.forHost("local")?.manager).toHaveProperty("kind", "main-process-rpc");
+    f.editors.push(editor);
+    expect(await install(f)).toBe(routing);
+    expect(routing.forHost("local")?.manager).toBe(f.composerFiber.memoizedState?.memoizedState);
+  } finally {
+    routing.dispose();
+  }
+});
 
 function creation(method: string, model: string, options: Record<string, unknown>) {
   return [
@@ -213,6 +253,300 @@ function creation(method: string, model: string, options: Record<string, unknown
     ],
   ];
 }
+
+it.each([false, true])(
+  "keeps SSH RPC routes when the local native manager is ready (late=%s)",
+  async (late) => {
+    const hostId = "remote-ssh:other";
+    const f = setup({ nativeManager: true, hosts: ["local", hostId] });
+    const editor = late ? f.editors.pop() : undefined;
+    const routing = await install(f);
+    const before = routing.forHost(hostId);
+    expect(before?.manager).toMatchObject({ kind: "main-process-rpc" });
+    const localBefore = late ? routing.forHost("local") : null;
+    localBefore?.policy.select(carrier, "client-new-thread:local");
+    before?.policy.select(carrier, "client-new-thread:ssh");
+    if (editor) f.editors.push(editor);
+    try {
+      // Composer reconciliation enumerates Hosts before reading per-Host clients.
+      expect(routing.knownHostIds?.()).toEqual(expect.arrayContaining(["local", hostId]));
+      expect(routing.forHost("local")?.manager).toBe(f.composerFiber.memoizedState?.memoizedState);
+      expect(routing.forHost(hostId)).toBe(before);
+      expect(routing.knownHostIds?.()).toEqual(expect.arrayContaining(["local", hostId]));
+      f.composerFiber.memoizedProps.executionTargetHostId = hostId;
+      expect(routing.hostIdForComposer()).toBe(hostId);
+      expect(routing.forComposer()).toBe(before);
+      await before?.manager.sendRequest("model/list", {});
+      expect(f.rpc.sendRequest).toHaveBeenCalledExactlyOnceWith("model/list", {});
+      if (localBefore) expect(() => localBefore.policy.requestTarget()).toThrow("retired");
+      const local = creation("startConversation", "gpt-6.1-sol", {
+        clientThreadId: "client-new-thread:local",
+      });
+      f.post(local);
+      expect(f.sent.at(-1)).toBe(local);
+      f.post(
+        creation("startConversation", "gpt-6.1-sol", { clientThreadId: "client-new-thread:ssh" }),
+      );
+      expect(JSON.stringify(f.sent.at(-1))).toContain(carrier);
+    } finally {
+      routing.dispose();
+    }
+  },
+);
+
+it("re-resolves only ready SSH RPC clients after native adoption", async () => {
+  const hostId = "remote-ssh:other";
+  const f = setup({ nativeManager: true, hosts: ["local", hostId] });
+  const routing = await install(f);
+  try {
+    const before = routing.forHost(hostId);
+    expect(before).not.toBeNull();
+    const connection = f.connections.get(hostId);
+    if (!connection) throw new Error("Missing connection fixture");
+    connection.status = "connecting";
+    expect(routing.forHost(hostId)).toBeNull();
+    expect(() => before?.policy.requestTarget()).toThrow("retired");
+    connection.client.rpc = {
+      ...connection.client.rpc,
+      sendRequest: vi.fn(async () => ({ entries: [] })),
+    };
+    connection.status = "ready";
+    const after = routing.forHost(hostId);
+    expect(after).not.toBeNull();
+    expect(after).not.toBe(before);
+    await after?.manager.sendRequest("model/list", {});
+    expect(connection.client.rpc.sendRequest).toHaveBeenCalledExactlyOnceWith("model/list", {});
+  } finally {
+    routing.dispose();
+  }
+});
+
+it("keeps legacy Remote Control RPC fallback without connection-generation signals", async () => {
+  const hostId = "remote-control:legacy";
+  const f = setup({ nativeManager: true, hosts: ["local", hostId] });
+  const routing = await install(f);
+  try {
+    const route = routing.forHost(hostId);
+    expect(route?.manager).toMatchObject({ kind: "main-process-rpc" });
+    await route?.manager.sendRequest("model/list", {});
+    expect(f.rpc.sendRequest).toHaveBeenCalledExactlyOnceWith("model/list", {});
+  } finally {
+    routing.dispose();
+  }
+});
+
+it("re-discovers the current RPC family instead of keeping an old ready family", async () => {
+  const hostId = "remote-ssh:other";
+  const f = setup({ nativeManager: true, hosts: ["local", hostId] });
+  const routing = await install(f);
+  try {
+    const before = routing.forHost(hostId);
+    expect(before).not.toBeNull();
+    const peer = {
+      sendRequest: vi.fn(async () => ({ current: true })),
+      clearPrewarmedThreads: vi.fn(),
+    };
+    f.familyBindings.clear();
+    f.familyBindings.set(
+      { kind: "signal-family" },
+      new Map([
+        [
+          hostId,
+          {
+            value: { get: () => ({ status: "ready", client: { hostId, rpc: peer } }) },
+          },
+        ],
+      ]),
+    );
+    expect(() => before?.policy.requestTarget()).toThrow("retired");
+    const after = routing.forHost(hostId);
+    expect(after).not.toBe(before);
+    await expect(after?.manager.sendRequest("model/list", {})).resolves.toEqual({ current: true });
+    expect(peer.sendRequest).toHaveBeenCalledOnce();
+  } finally {
+    routing.dispose();
+  }
+});
+
+it("reads one discovered RPC family without remounting unrelated native signals", async () => {
+  const threadSignal = vi.fn(() => null);
+  const hashSignal = vi.fn(() => null);
+  const hostSignal = vi.fn(() => null);
+  const f = setup({ hosts: ["local"] });
+  f.familyBindings.set(
+    { kind: "signal-family" },
+    new Map([
+      ['{"conversationId":"thread","hostId":"local"}', { value: { get: threadSignal } }],
+      ["1463309241", { value: { get: hashSignal } }],
+      ["local", { value: { get: hostSignal } }],
+    ]),
+  );
+  const routing = await install(f);
+  try {
+    const scans = hostSignal.mock.calls.length;
+    expect(scans).toBeGreaterThan(0);
+    const route = routing.forHost("local");
+    for (let read = 0; read < 5; read += 1) {
+      expect(routing.forHost("local")).toBe(route);
+      expect(routing.knownHostIds?.()).toContain("local");
+      route?.policy.requestTarget();
+    }
+    expect(hostSignal).toHaveBeenCalledTimes(scans);
+    expect(threadSignal).not.toHaveBeenCalled();
+    expect(hashSignal).not.toHaveBeenCalled();
+  } finally {
+    routing.dispose();
+  }
+});
+
+it("returns to the ready RPC peer when a native Host disappears", async () => {
+  const f = setup({ nativeManager: true });
+  const routing = await install(f);
+  try {
+    const native = routing.forHost("local");
+    expect(native?.manager).toHaveProperty("requestClient");
+    f.composerFiber.memoizedState = null;
+    const fallback = routing.forHost("local");
+    expect(fallback?.manager).toMatchObject({ kind: "main-process-rpc" });
+    expect(() => native?.policy.requestTarget()).toThrow("retired");
+    await fallback?.manager.sendRequest("model/list", {});
+    expect(f.rpc.sendRequest).toHaveBeenCalledOnce();
+  } finally {
+    routing.dispose();
+  }
+});
+
+it.each(["disconnected", "connecting", "ambiguous", "unreadable"])(
+  "retires Remote Control RPC fallback for %s generations even while its RPC stub stays ready",
+  async (failure) => {
+    const hostId = "remote-control:guarded";
+    const f = setup({ nativeManager: true, hosts: ["local", hostId] });
+    let state = "connected",
+      revision = 1,
+      unreadable = false;
+    const holder = () => ({
+      state$: {
+        get: () => {
+          if (unreadable) throw new Error("Connection unavailable");
+          return state;
+        },
+      },
+      revision$: { get: () => revision },
+      appServerVersion$: { get: () => "test" },
+    });
+    f.familyBindings.set({}, new Map([[hostId, { value: holder() }]]));
+    const routing = await install(f);
+    try {
+      const before = routing.forHost(hostId);
+      expect(before).not.toBeNull();
+      const ambiguous = {};
+      if (failure === "ambiguous")
+        f.familyBindings.set(ambiguous, new Map([[hostId, { value: holder() }]]));
+      else if (failure === "unreadable") unreadable = true;
+      else state = failure;
+      expect(() => before?.policy.requestTarget()).toThrow("retired");
+      expect(routing.forHost(hostId)).toBeNull();
+      f.composerFiber.memoizedProps.executionTargetHostId = hostId;
+      expect(routing.forComposer()).toBeNull();
+      expect(f.rpc.sendRequest).not.toHaveBeenCalled();
+      f.familyBindings.delete(ambiguous);
+      unreadable = false;
+      state = "connected";
+      revision++;
+      const after = routing.forHost(hostId);
+      expect(after).not.toBeNull();
+      expect(after).not.toBe(before);
+      await after?.manager.sendRequest("model/list", {});
+      expect(f.rpc.sendRequest).toHaveBeenCalledOnce();
+    } finally {
+      routing.dispose();
+    }
+  },
+);
+
+it("switches to a late native manager after starting without a Composer", async () => {
+  const fixture = setup({ nativeManager: true });
+  const editor = fixture.editors.pop();
+  if (!editor) throw new Error("Synthetic Composer absent");
+  const originalPost = fixture.MessagePort.prototype.postMessage;
+  const routing = await install(fixture);
+  const before = routing.forHost("local");
+  expect(before?.manager).toMatchObject({ kind: "main-process-rpc" });
+  fixture.editors.push(editor);
+  try {
+    const after = routing.forComposer();
+    expect(after?.manager).toBe(fixture.composerFiber.memoizedState?.memoizedState);
+    expect(() => before?.policy.requestTarget()).toThrow("retired");
+    // RPC-only Hosts still need the shared carrier hook after this Host adopts native.
+    expect(fixture.MessagePort.prototype.postMessage).not.toBe(originalPost);
+    expect(routing.forHost("local")).toBe(after);
+  } finally {
+    routing.dispose();
+    expect(fixture.MessagePort.prototype.postMessage).toBe(originalPost);
+  }
+});
+
+it.each(["missing", "null", "undefined"])(
+  "adopts a late manager using its request client Host when getHostId is %s",
+  async (mode) => {
+    const fixture = setup({ nativeManager: true });
+    const editor = fixture.editors.pop();
+    const manager = fixture.composerFiber.memoizedState?.memoizedState;
+    if (!editor || !manager || !("requestClient" in manager))
+      throw new Error("Missing fixture manager");
+    Reflect.deleteProperty(fixture.composerFiber.memoizedProps, "executionTargetHostId");
+    Object.assign(manager.requestClient, { hostId: "ssh:remote" });
+    if (mode === "missing") Reflect.deleteProperty(manager, "getHostId");
+    else
+      Object.defineProperty(manager, "getHostId", {
+        value: () => (mode === "null" ? null : undefined),
+      });
+    const originalPost = fixture.MessagePort.prototype.postMessage;
+    const routing = await install(fixture);
+    const before = routing.forHost("local");
+    fixture.editors.push(editor);
+    try {
+      expect(routing.forComposer()?.hostId).toBe("ssh:remote");
+      expect(routing.forHost("ssh:remote")?.manager).toBe(manager);
+      // Adopting the remote Host must not retire the unrelated local RPC route.
+      expect(routing.forHost("local")).toBe(before);
+      expect(before?.policy.requestTarget()).toBe(before?.manager);
+    } finally {
+      routing.dispose();
+      expect(fixture.MessagePort.prototype.postMessage).toBe(originalPost);
+    }
+  },
+);
+
+it.each(["throws", "empty", "non-string"])(
+  "keeps every RPC routing entry point usable when a late native Host getter %s",
+  async (mode) => {
+    const fixture = setup({ nativeManager: true });
+    const editor = fixture.editors.pop();
+    const manager = fixture.composerFiber.memoizedState?.memoizedState;
+    if (!editor || !manager || !("requestClient" in manager))
+      throw new Error("Missing fixture manager");
+    Object.defineProperty(manager, "getHostId", {
+      get() {
+        if (mode === "throws") throw new Error("Native Host owner unavailable");
+        return () => (mode === "empty" ? "" : 42);
+      },
+    });
+    const routing = await install(fixture);
+    const before = routing.forHost("local");
+    fixture.editors.push(editor);
+    try {
+      expect(routing.knownHostIds?.()).toEqual(["local"]);
+      expect(routing.hostIdForComposer()).toBe("local");
+      expect(routing.forComposer()).toBe(before);
+      expect(routing.forHost("local")).toBe(before);
+      await before?.manager.sendRequest("model/list", {});
+      expect(fixture.rpc.sendRequest).toHaveBeenCalledExactlyOnceWith("model/list", {});
+    } finally {
+      routing.dispose();
+    }
+  },
+);
 
 it("routes Host requests through the main-process RPC client without native internals", async () => {
   const fixture = setup();
@@ -284,11 +618,10 @@ it.each(["disconnected", "replaced"])(
       const local = creation("startConversation", "official", {
         clientThreadId: "client-new-thread:local",
       });
-      expect(() => fixture.post(local)).toThrow("Draft route is unavailable");
-      expect(fixture.sent).toEqual([]);
+      fixture.post(local);
+      expect(fixture.sent.at(-1)).toEqual(local);
       fixture.post(
         creation("startConversation", "official", { clientThreadId: "client-new-thread:remote" }),
-        "remote",
       );
       expect(fixture.sent.at(-1)).toEqual(
         creation("startConversation", carrier, { clientThreadId: "client-new-thread:remote" }),
@@ -306,7 +639,6 @@ it.each(["disconnected", "replaced"])(
       expect(fixture.sent.at(-1)).toEqual(local);
       fixture.post(
         creation("startConversation", "official", { clientThreadId: "client-new-thread:remote" }),
-        "remote",
       );
       expect(fixture.sent.at(-1)).toEqual(
         creation("startConversation", carrier, { clientThreadId: "client-new-thread:remote" }),
@@ -322,14 +654,8 @@ it("marks local prewarms with the selected carrier and stops after the draft ret
   const routing = await install(fixture);
   try {
     const policy = policyOf(routing.forHost("local"));
-    const warm = creation("prewarmConversation", "gpt-6.1-sol", {});
-    const warmInput = (
-      (warm[1] as unknown[])[3] as { collaborationMode: Record<string, unknown> }[]
-    )[0];
-    if (!warmInput) throw new Error("Missing synthetic prewarm input");
-    const mode = warmInput.collaborationMode;
-    policy.select(carrier, "client-new-thread:external", [mode]);
-    fixture.post(warm);
+    policy.select(carrier, "client-new-thread:external");
+    fixture.post(creation("prewarmConversation", "gpt-6.1-sol", {}));
     const prewarmed = (((fixture.sent[0] as unknown[])[1] as unknown[])[3] as unknown[])[0] as {
       collaborationMode: { settings: { model: string } };
     };
@@ -347,32 +673,6 @@ it("marks local prewarms with the selected carrier and stops after the draft ret
   }
 });
 
-it.each(["disconnected", "replaced"])(
-  "rejects delayed requests and creation after RPC is %s without a routing refresh",
-  async (change) => {
-    const fixture = setup();
-    const routing = await install(fixture);
-    try {
-      const route = routing.forHost("local");
-      if (!route) throw new Error("Missing synthetic route");
-      route.policy.select(carrier, "client-new-thread:delayed");
-      const connection = fixture.connections.get("local");
-      if (!connection) throw new Error("Missing synthetic connection");
-      if (change === "disconnected") connection.status = "disconnected";
-      else connection.client.rpc = { ...fixture.rpc };
-      const message = creation("startConversation", "official", {
-        clientThreadId: "client-new-thread:delayed",
-      });
-      expect(() => fixture.post(message)).toThrow("Draft route is unavailable");
-      expect(() => fixture.post(message)).toThrow("Draft route is unavailable");
-      expect(fixture.sent).toEqual([]);
-      await expect(route.manager.sendRequest("synthetic/read", {})).rejects.toThrow("retired");
-    } finally {
-      routing.dispose();
-    }
-  },
-);
-
 it("publishes the local draft workspace named by its prewarm", async () => {
   const fixture = setup();
   const routing = await install(fixture);
@@ -384,491 +684,16 @@ it("publishes the local draft workspace named by its prewarm", async () => {
   }
 });
 
-it("keeps an official draft's prewarm native when another draft selects an external Agent", async () => {
-  const fixture = setup();
-  const routing = await install(fixture);
-  try {
-    policyOf(routing.forHost("local")).select(carrier, "client-new-thread:external");
-    // Synthetic call from another native Composer: the selected external draft
-    // is not evidence that this prewarm belongs to it.
-    const official = creation("prewarmConversation", "gpt-6.1-sol", {});
-    fixture.post(official);
-    expect(fixture.sent.at(-1)).toEqual(official);
-  } finally {
-    routing.dispose();
-  }
-});
-
-it("restores the registry while retaining a dormant guard for late native fallback calls", async () => {
+it("restores the native port when routing is disposed", async () => {
   const fixture = setup();
   const original = (fixture.MessagePort.prototype as { postMessage: unknown }).postMessage;
-  const originalForHost = fixture.registry.forHost;
   const routing = await install(fixture);
-  expect(fixture.registry.forHost).not.toBe(originalForHost);
   expect((fixture.MessagePort.prototype as { postMessage: unknown }).postMessage).not.toBe(
     original,
   );
   routing.dispose();
-  expect(fixture.registry.forHost).toBe(originalForHost);
-  expect((fixture.MessagePort.prototype as { postMessage: unknown }).postMessage).not.toBe(
-    original,
-  );
-  new fixture.MessagePort().postMessage(["synthetic-native-message"]);
-  expect(fixture.sent.at(-1)).toEqual(["synthetic-native-message"]);
+  expect((fixture.MessagePort.prototype as { postMessage: unknown }).postMessage).toBe(original);
 });
-
-it("binds background creation and prewarm to the originating draft before encoding", async () => {
-  const fixture = setup();
-  const routing = await install(fixture);
-  try {
-    const policy = policyOf(routing.forHost("local"));
-    const initial = creation("startConversation", "official", {
-      clientThreadId: "client-new-thread:origin",
-    });
-    const input = (
-      (initial[1] as unknown[])[3] as { collaborationMode: Record<string, unknown> }[]
-    )[0];
-    if (!input) throw new Error("Missing synthetic creation input");
-    policy.select(carrier, "client-new-thread:origin", [input.collaborationMode]);
-    const copied = {
-      ...input.collaborationMode,
-      settings: { model: "official", reasoning_effort: "high" },
-    };
-    const result = fixture.registry
-      .forHost("local")
-      .startConversation(
-        { ...input, collaborationMode: copied },
-        { clientThreadId: "client-new-thread:background" },
-      );
-    expect(result).toBe(fixture.rpc.startConversation.mock.results.at(-1)?.value);
-    expect(fixture.sent.at(-1)).toEqual(
-      creation("startConversation", carrier, { clientThreadId: "client-new-thread:background" }),
-    );
-    expect(JSON.stringify(fixture.sent)).not.toContain("draft origin");
-    const received = fixture.rpc.startConversation.mock.calls.at(-1)?.[0] as {
-      collaborationMode: { settings: { model: string } };
-    };
-    expect(received.collaborationMode.settings.model).toBe(carrier);
-    expect(input.collaborationMode.settings).toEqual({
-      model: "official",
-      reasoning_effort: "high",
-    });
-    fixture.registry
-      .forHost("local")
-      .prewarmConversation({ ...input, collaborationMode: copied }, {});
-    const warmed = fixture.rpc.prewarmConversation.mock.calls.at(-1)?.[0] as {
-      collaborationMode: { settings: { model: string } };
-    };
-    expect(decodeHarnessPluginRoute(warmed.collaborationMode.settings.model)?.prewarm).toBe(true);
-  } finally {
-    routing.dispose();
-  }
-});
-
-it("rejects conflicting draft origins and cross-Host use without sending", async () => {
-  const fixture = setup({ hosts: ["local", "remote"] });
-  const routing = await install(fixture);
-  try {
-    const mode = { settings: { model: "official" } };
-    policyOf(routing.forHost("local")).select(carrier, "client-new-thread:a", [mode]);
-    policyOf(routing.forHost("local")).select(null, "client-new-thread:b");
-    expect(() =>
-      fixture.registry
-        .forHost("local")
-        .startConversation({ collaborationMode: mode }, { clientThreadId: "client-new-thread:b" }),
-    ).toThrow("conflicts");
-    expect(() =>
-      fixture.registry
-        .forHost("remote")
-        .startConversation(
-          { collaborationMode: mode },
-          { clientThreadId: "client-new-thread:remote-background" },
-        ),
-    ).toThrow("unavailable");
-    expect(() =>
-      policyOf(routing.forHost("local")).select(null, "client-new-thread:b", [mode]),
-    ).toThrow("multiple drafts");
-    expect(fixture.sent).toEqual([]);
-  } finally {
-    routing.dispose();
-  }
-});
-
-it("rejects copied origins after reselection and after disposal", async () => {
-  const fixture = setup();
-  const routing = await install(fixture);
-  const client = fixture.registry.forHost("local");
-  const mode = { settings: { model: "official" } };
-  const policy = policyOf(routing.forHost("local"));
-  policy.select(carrier, "client-new-thread:a", [mode]);
-  const copied = { ...mode };
-  policy.select(null, "client-new-thread:a", [mode]);
-  expect(() =>
-    client.startConversation(
-      { collaborationMode: copied },
-      { clientThreadId: "client-new-thread:late" },
-    ),
-  ).toThrow("unavailable");
-  client.startConversation({ collaborationMode: mode }, { clientThreadId: "client-new-thread:a" });
-  const forwarded = fixture.rpc.startConversation.mock.calls.at(-1)?.[0] as {
-    collaborationMode: Record<string, unknown>;
-  };
-  expect(forwarded.collaborationMode.settings).toEqual(mode.settings);
-  expect(forwarded.collaborationMode).toHaveProperty("__codexhostDraftOriginV1");
-  expect(JSON.stringify(fixture.sent)).not.toContain("__codexhostDraftOriginV1");
-  routing.dispose();
-  expect(() => client.startConversation({ collaborationMode: mode }, {})).toThrow("unavailable");
-});
-
-it("rejects retired provenance across Controller reinstallation", async () => {
-  const fixture = setup();
-  const old = await install(fixture);
-  const mode = { settings: { model: "official" } };
-  policyOf(old.forHost("local")).select(carrier, "client-new-thread:a", [mode]);
-  const copied = { ...mode };
-  old.dispose();
-  const next = await install(fixture);
-  try {
-    expect(() =>
-      fixture.registry
-        .forHost("local")
-        .startConversation(
-          { collaborationMode: copied },
-          { clientThreadId: "client-new-thread:late-background" },
-        ),
-    ).toThrow("unavailable");
-    expect(fixture.sent).toEqual([]);
-    policyOf(next.forHost("local")).select(carrier, "client-new-thread:a", [mode]);
-    fixture.registry
-      .forHost("local")
-      .startConversation(
-        { collaborationMode: mode },
-        { clientThreadId: "client-new-thread:current-background" },
-      );
-    expect(fixture.sent).toHaveLength(1);
-  } finally {
-    next.dispose();
-  }
-});
-
-it("keeps duplicate RPC clients guarded while preserving native cleanup", async () => {
-  const fixture = setup();
-  const connection = fixture.connections.get("local");
-  if (!connection) throw new Error("Missing synthetic connection");
-  const cleanup = vi.fn();
-  const copy = { ...connection.client.rpc, [Symbol.dispose]: cleanup };
-  const raw = Object.assign(connection.client.rpc, { dup: vi.fn(() => copy) });
-  const routing = await install(fixture);
-  const client = fixture.registry.forHost("local") as typeof raw;
-  const duplicate = client.dup();
-  expect(raw.dup).toHaveBeenCalledExactlyOnceWith();
-  policyOf(routing.forHost("local")).select(carrier, "client-new-thread:a");
-  duplicate.startConversation(
-    { collaborationMode: { settings: { model: "official" } } },
-    { clientThreadId: "client-new-thread:a" },
-  );
-  expect(fixture.sent.at(-1)).toBeDefined();
-  routing.dispose();
-  expect(() => duplicate.startConversation({}, {})).toThrow("unavailable");
-  duplicate[Symbol.dispose]();
-  expect(cleanup).toHaveBeenCalledExactlyOnceWith();
-});
-
-it("does not guess a route for an unbound external carrier", async () => {
-  const fixture = setup();
-  const routing = await install(fixture);
-  try {
-    expect(() =>
-      fixture.registry
-        .forHost("local")
-        .startConversation({ collaborationMode: { settings: { model: carrier } } }, {}),
-    ).toThrow("originating draft binding");
-    expect(fixture.sent).toEqual([]);
-  } finally {
-    routing.dispose();
-  }
-});
-
-it("admits one explicitly named carrier creation, such as a scheduled task's chat", async () => {
-  const fixture = setup();
-  const routing = await install(fixture);
-  try {
-    const policy = policyOf(routing.forHost("local"));
-    const client = fixture.registry.forHost("local");
-    const explicit = { collaborationMode: { settings: { model: carrier } } };
-    const release = policy.allowExplicitCreation?.(carrier);
-    expect(release).toBeTypeOf("function");
-    // Another carrier and another creation entry are still refused.
-    expect(() =>
-      client.startConversation({ collaborationMode: { settings: { model: "codexhost/pi" } } }, {}),
-    ).toThrow("originating draft binding");
-    expect(() => client.prewarmConversation(explicit, {})).toThrow("originating draft binding");
-    expect(fixture.sent).toEqual([]);
-
-    client.startConversation(explicit, {});
-    expect(fixture.sent).toHaveLength(1);
-    // The permit is spent: a second unbound creation fails closed again.
-    expect(() => client.startConversation(explicit, {})).toThrow("originating draft binding");
-    release?.();
-
-    const unused = policy.allowExplicitCreation?.(carrier);
-    unused?.();
-    expect(() => client.startConversation(explicit, {})).toThrow("originating draft binding");
-    expect(fixture.sent).toHaveLength(1);
-  } finally {
-    routing.dispose();
-  }
-});
-
-it.each(["scope", "family"])(
-  "rejects a delayed caller when the app %s is replaced",
-  async (change) => {
-    const fixture = setup();
-    const routing = await install(fixture);
-    try {
-      const client = fixture.registry.forHost("local");
-      policyOf(routing.forHost("local")).select(carrier, "client-new-thread:a");
-      if (change === "scope") fixture.handle.node.parent = { ...fixture.store };
-      else fixture.store.familyBindings.clear();
-      expect(routing.isCurrent?.()).toBe(false);
-      expect(() => client.startConversation({}, { clientThreadId: "client-new-thread:a" })).toThrow(
-        "unavailable",
-      );
-      expect(fixture.sent).toEqual([]);
-    } finally {
-      routing.dispose();
-    }
-  },
-);
-
-it("preserves callable remote RPC members without reading their remote bind property", async () => {
-  const fixture = setup();
-  const connection = fixture.connections.get("local");
-  if (!connection) throw new Error("Missing synthetic connection");
-  const paths: PropertyKey[] = [];
-  const calls: unknown[][] = [];
-  const result = Promise.resolve({ synthetic: true });
-  const remote = new Proxy(function () {}, {
-    get(_target, key) {
-      paths.push(key);
-      return function () {};
-    },
-    apply(_target, _receiver, args) {
-      calls.push(args);
-      return result;
-    },
-  });
-  const raw = connection.client.rpc;
-  const rpc = new Proxy(function () {}, {
-    get(target, key, receiver) {
-      if (key === "sendRequest") return remote;
-      if (key in raw) return Reflect.get(raw, key, raw);
-      return Reflect.get(target, key, receiver);
-    },
-  });
-  connection.client.rpc = rpc as unknown as typeof raw;
-  const routing = await install(fixture);
-  try {
-    const wrapped = fixture.registry.forHost("local");
-    expect(wrapped.sendRequest).toBe(remote);
-    const callback = () => undefined;
-    expect(wrapped.sendRequest("config/read", { callback })).toBe(result);
-    expect(calls).toEqual([["config/read", { callback }]]);
-    expect(paths).toEqual([]);
-  } finally {
-    routing.dispose();
-  }
-});
-
-function nativeFallback(fixture: ReturnType<typeof setup>) {
-  // Captured Desktop tg(): a forHost failure is swallowed, then the ready
-  // family client.rpc is returned. Calls happen outside this catch.
-  try {
-    return fixture.registry.forHost("local");
-  } catch {
-    const connection = fixture.connections.get("local");
-    if (!connection) throw new Error("Missing synthetic connection");
-    return connection.client.rpc;
-  }
-}
-
-it.each(["registry-unavailable", "owner-retired", "scope", "family", "disposed"])(
-  "guards the native raw-RPC fallback when %s",
-  async (state) => {
-    const fixture = setup();
-    if (state === "registry-unavailable")
-      fixture.registry.forHost = () => {
-        throw new Error("Synthetic registry unavailable");
-      };
-    const routing = await install(fixture);
-    const mode = { settings: { model: "official" } };
-    policyOf(routing.forHost("local")).select(carrier, "client-new-thread:a", [mode]);
-    if (state === "owner-retired") fixture.registryBinding.isCurrent = () => false;
-    if (state === "scope") fixture.handle.node.parent = { ...fixture.store };
-    if (state === "family") fixture.store.familyBindings.clear();
-    if (state === "disposed") routing.dispose();
-    try {
-      const call = () =>
-        nativeFallback(fixture).startConversation(
-          { collaborationMode: { ...mode } },
-          { clientThreadId: "client-new-thread:background" },
-        );
-      expect(call).toThrow("Draft route is unavailable");
-      expect(fixture.sent).toEqual([]);
-    } finally {
-      routing.dispose();
-    }
-  },
-);
-
-it("preserves receivers for local adapter methods", async () => {
-  const fixture = setup();
-  const raw = fixture.connections.get("local")?.client.rpc;
-  if (!raw) throw new Error("Missing synthetic RPC");
-  raw.sendRequest.mockImplementation(function (this: typeof raw) {
-    expect(this).toBe(raw);
-    return Promise.resolve({ entries: [] });
-  });
-  const routing = await install(fixture);
-  try {
-    await fixture.registry.forHost("local").sendRequest("config/read", {});
-  } finally {
-    routing.dispose();
-  }
-});
-
-it("rejects a pending raw native call that becomes ready after Controller disposal", async () => {
-  const fixture = setup();
-  const routing = await install(fixture);
-  const mode = { settings: { model: "official" } };
-  policyOf(routing.forHost("local")).select(carrier, "client-new-thread:a", [mode]);
-  const raw = fixture.connections.get("local")?.client.rpc;
-  if (!raw) throw new Error("Missing synthetic RPC");
-  const pending = Promise.resolve().then(() =>
-    raw.startConversation(
-      { collaborationMode: { ...mode } },
-      { clientThreadId: "client-new-thread:pending-background" },
-    ),
-  );
-  routing.dispose();
-  await expect(pending).rejects.toThrow("Draft route is unavailable");
-  expect(fixture.sent).toEqual([]);
-});
-
-it.each(["model", "method", "client-id", "replay"])(
-  "checks the one-use encoding permit against %s changes",
-  async (change) => {
-    const fixture = setup();
-    let encoded: unknown;
-    fixture.rpc.startConversation.mockImplementation((input, options) => {
-      encoded = JSON.parse(
-        JSON.stringify(["push", ["pipeline", -188, ["startConversation"], [input, options]]]),
-      );
-      return Promise.resolve({ status: "created", conversationId: "synthetic" });
-    });
-    const routing = await install(fixture);
-    try {
-      const mode = { settings: { model: "official" } };
-      policyOf(routing.forHost("local")).select(carrier, "client-new-thread:a", [mode]);
-      const nativeResult = fixture.registry
-        .forHost("local")
-        .startConversation(
-          { collaborationMode: mode },
-          { clientThreadId: "client-new-thread:background" },
-        );
-      expect(nativeResult).toBe(fixture.rpc.startConversation.mock.results.at(-1)?.value);
-      const expression = (encoded as unknown[])[1] as unknown[];
-      const args = expression[3] as Record<string, unknown>[];
-      const input = args[0];
-      if (!input) throw new Error("Missing synthetic encoded input");
-      if (change === "model")
-        (
-          (input.collaborationMode as Record<string, unknown>).settings as Record<string, unknown>
-        ).model = "official";
-      if (change === "method") expression[2] = ["prewarmConversation"];
-      if (change === "client-id") args[1] = { clientThreadId: "client-new-thread:other" };
-      if (change === "replay") {
-        new fixture.MessagePort().postMessage(encoded);
-        expect(JSON.stringify(fixture.sent)).not.toContain("__codexhostDraftOriginV1");
-        expect(fixture.sent).toHaveLength(1);
-      }
-      expect(() => new fixture.MessagePort().postMessage(encoded)).toThrow(
-        "Draft route is unavailable",
-      );
-      expect(fixture.sent).toHaveLength(change === "replay" ? 1 : 0);
-    } finally {
-      routing.dispose();
-    }
-  },
-);
-
-it("rejects a raw fallback on another Host rather than inferring its destination from origin", async () => {
-  const fixture = setup({ hosts: ["local", "remote"] });
-  const routing = await install(fixture);
-  try {
-    const mode = { settings: { model: "official" } };
-    policyOf(routing.forHost("local")).select(carrier, "client-new-thread:a", [mode]);
-    const rawRemote = fixture.connections.get("remote")?.client.rpc;
-    if (!rawRemote) throw new Error("Missing synthetic remote RPC");
-    expect(() =>
-      rawRemote.startConversation(
-        { collaborationMode: { ...mode } },
-        { clientThreadId: "client-new-thread:remote-background" },
-      ),
-    ).toThrow("Draft route is unavailable");
-    expect(fixture.sent).toEqual([]);
-  } finally {
-    routing.dispose();
-  }
-});
-
-it.each(["prewarmCloudConversation", "prepareThreadStart"] as const)(
-  "preserves official %s while scrubbing private draft provenance",
-  async (method) => {
-    const fixture = setup({ hosts: ["local", "durable"] });
-    const routing = await install(fixture);
-    try {
-      const mode = { mode: "default", settings: { model: "official" } };
-      policyOf(routing.forHost("durable")).select(null, "client-new-thread:cloud", [mode]);
-      const provider = () => ({ synthetic: true });
-      const input = {
-        collaborationMode: mode,
-        cwd: "/synthetic",
-        workspaceRoots: ["/synthetic"],
-        cloudThreadPrototype: true,
-        serviceTier: "synthetic-original",
-      };
-      const result = fixture.registry.forHost("durable")[method](input, provider);
-      expect(result).toBe(fixture.rpc[method].mock.results.at(-1)?.value);
-      expect(fixture.rpc[method].mock.calls.at(-1)?.[1]).toBe(provider);
-      const args = ((fixture.sent.at(-1) as unknown[])[1] as unknown[])[3] as unknown[];
-      expect(args[0]).toEqual({
-        ...input,
-        collaborationMode: { mode: "default", settings: { model: "official" } },
-      });
-      expect(JSON.stringify(fixture.sent)).not.toContain("__codexhostDraftOriginV1");
-    } finally {
-      routing.dispose();
-    }
-  },
-);
-
-it.each(["prewarmCloudConversation", "prepareThreadStart"] as const)(
-  "rejects late raw %s provenance after disposal",
-  async (method) => {
-    const fixture = setup();
-    const routing = await install(fixture);
-    const mode = { settings: { model: "official" } };
-    policyOf(routing.forHost("local")).select(null, "client-new-thread:cloud", [mode]);
-    routing.dispose();
-    const raw = fixture.connections.get("local")?.client.rpc;
-    if (!raw) throw new Error("Missing synthetic RPC");
-    expect(() => raw[method]({ collaborationMode: { ...mode } }, () => ({}))).toThrow(
-      "Draft route is unavailable",
-    );
-    expect(fixture.sent).toEqual([]);
-  },
-);
 
 it("stays unavailable when Host connection values are ambiguous", async () => {
   const fixture = setup({ connectionFamilies: 2 });
@@ -890,8 +715,118 @@ it("keeps the native manager path when Desktop exposes one in the Renderer", asy
   const routing = await install(fixture);
   try {
     expect(routing.forComposer()?.manager).toHaveProperty("requestClient");
+    const request = creation("prewarmConversation", carrier, {});
+    fixture.post(request);
+    expect(fixture.sent.at(-1)).toBe(request);
+  } finally {
+    routing.dispose();
     expect((fixture.MessagePort.prototype as { postMessage: unknown }).postMessage).toBe(original);
+  }
+});
+
+it("uses the main-process RPC when a visible legacy registry has no ready manager", async () => {
+  const fixture = setup({ unavailableNativeRegistry: true });
+  vi.useFakeTimers();
+  try {
+    const pending = installRendererDraftPrewarmPolicyDirect(fixture.renderer);
+    const result = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(await result).toEqual({ value: { state: "ready", reason: "owned-request-bridge" } });
+    const routing = fixture.target.__codexhostHostRoutingV1 as Routing;
+    expect(routing.forComposer()?.manager).toMatchObject({ kind: "main-process-rpc" });
+    routing.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("preserves an explicit different external model on a known draft", async () => {
+  const fixture = setup();
+  const routing = await install(fixture);
+  try {
+    policyOf(routing.forComposer()).select(carrier, "client-new-thread:external");
+    const explicit = creation("startConversation", "codexhost/pi-native", {
+      clientThreadId: "client-new-thread:external",
+    });
+    fixture.post(explicit);
+    expect(fixture.sent.at(-1)).toBe(explicit);
   } finally {
     routing.dispose();
   }
 });
+
+it("gives a registered external draft its carrier when the creation omits a native Model", async () => {
+  const fixture = setup();
+  const routing = await install(fixture);
+  try {
+    policyOf(routing.forComposer()).select(carrier, "client-new-thread:external");
+    for (const settings of [
+      { reasoning_effort: "high" },
+      { model: "", reasoning_effort: "high" },
+    ]) {
+      const message = creation("startConversation", "unused", {
+        clientThreadId: "client-new-thread:external",
+      });
+      const call = (message[1] as unknown[])[3] as [
+        { collaborationMode: { settings: Record<string, unknown> } },
+      ];
+      call[0].collaborationMode.settings = settings;
+      fixture.post(message);
+      const sent = fixture.sent.at(-1) as unknown[];
+      const routed = ((sent[1] as unknown[])[3] as typeof call)[0].collaborationMode.settings;
+      expect(routed).toEqual({ ...settings, model: carrier });
+    }
+    // An unregistered draft stays untouched.
+    const other = creation("startConversation", "unused", {
+      clientThreadId: "client-new-thread:x",
+    });
+    (
+      (other[1] as unknown[])[3] as [{ collaborationMode: { settings: unknown } }]
+    )[0].collaborationMode.settings = { reasoning_effort: "high" };
+    fixture.post(other);
+    expect(fixture.sent.at(-1)).toBe(other);
+  } finally {
+    routing.dispose();
+  }
+});
+
+it.each([true, false])(
+  "marks explicit external prewarms with a local selection: %s",
+  async (selected) => {
+    const fixture = setup();
+    const routing = await install(fixture);
+    try {
+      if (selected) policyOf(routing.forComposer()).select(carrier, "client-new-thread:external");
+      fixture.post(creation("prewarmConversation", carrier, {}));
+      const prewarmed = (
+        ((fixture.sent.at(-1) as unknown[])[1] as unknown[])[3] as unknown[]
+      )[0] as {
+        collaborationMode: { settings: { model: string } };
+      };
+      expect(decodeHarnessPluginRoute(prewarmed.collaborationMode.settings.model)).toEqual({
+        ...decodeHarnessPluginRoute(carrier),
+        prewarm: true,
+      });
+      // An explicit different, unmarked carrier keeps its Harness and Model and gains the marker,
+      // so Host registers a discardable prewarm rather than publishing a Thread.
+      const pi = encodeHarnessPluginRoute(
+        harnessPluginRouteSchema.parse({ harnessId: "pi", model: { id: "pi-model-v1.native" } }),
+      );
+      fixture.post(creation("prewarmConversation", pi, {}));
+      const explicit = (
+        ((fixture.sent.at(-1) as unknown[])[1] as unknown[])[3] as unknown[]
+      )[0] as {
+        collaborationMode: { settings: { model: string } };
+      };
+      expect(decodeHarnessPluginRoute(explicit.collaborationMode.settings.model)).toEqual({
+        ...decodeHarnessPluginRoute(pi),
+        prewarm: true,
+      });
+    } finally {
+      routing.dispose();
+    }
+  },
+);

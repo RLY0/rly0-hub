@@ -617,6 +617,8 @@ export {
   threadSteeringInspectParamsSchema,
   threadSteeringInspectResultSchema,
   THREAD_STEER_DELIVERY_PARAM,
+  THREAD_STEERING_CONTEXT_PARAM,
+  threadSteeringContextSchema,
   threadSteerDeliverySchema,
   threadOwnershipSchema,
 } from "./harness-models.js";
@@ -788,6 +790,8 @@ export {
   rly0AgentAccountImportFileParamsSchema,
   rly0AgentAddLoginIdParamsSchema,
 } from "./rly0-agent-accounts.js";
+
+export { desktopImageAttachmentPaths } from "./desktop-attachments.js";
 
 export {
   REMOTE_SSH_SETUP_METHOD,

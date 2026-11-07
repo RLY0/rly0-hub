@@ -274,16 +274,26 @@ export function isNativeModelControlCandidate(element: Element): boolean {
     : null;
   for (let depth = 0; fiber && depth < 80; depth += 1) {
     const props = fiber.memoizedProps;
-    if (isRecord(props) && typeof props.onSelectModel === "function" && "reasoningEffort" in props) {
+    if (
+      isRecord(props) &&
+      typeof props.onSelectModel === "function" &&
+      "reasoningEffort" in props
+    ) {
       const legacy =
         typeof props.onSelectReasoningEffort === "function" &&
         isRecord(props.fallbackPowerSelection);
+      // Upstream: Desktop's native power Model menu.
+      const powerMenu =
+        element.getAttribute("data-composer-navigation-target") === "reasoning" &&
+        typeof props.onCommitPower === "function" &&
+        Array.isArray(props.powerSelections);
+      // RLY/0 Hub: Desktop 26.1029 native Model chip.
+      // A bare power-selection object alone is not enough (upstream "invalid power choices").
       const desktop261029 =
-        isRecord(props.powerSelections) ||
         typeof props.onSelectModelOption === "function" ||
         typeof props.fallbackModelLabel === "string" ||
         typeof props.model === "string";
-      if (legacy || desktop261029) {
+      if (legacy || powerMenu || desktop261029) {
         return true;
       }
     }
@@ -860,7 +870,12 @@ export function renderComposerAgentControl(
   // native ownership verification still guards picker visibility and placement.
   const permissionModeBlocked =
     state.agent !== "codex" && !isPermissionModeControlReady(permissionModeView);
-  const submissionBlocked = switching || ownershipError || modelBlocked || permissionModeBlocked;
+  const submissionBlocked =
+    switching ||
+    ownershipError ||
+    (state.agent !== "codex" && adapterState !== "ready") ||
+    modelBlocked ||
+    permissionModeBlocked;
   if (submissionBlocked && control.sendDisabledBeforeSwitch === null) {
     control.sendDisabledBeforeSwitch = control.sendButton.disabled;
     control.sendButton.disabled = true;

@@ -16,7 +16,7 @@ import {
   resolveRendererHostRpc,
 } from "./renderer-host-rpc-discovery.js";
 import { installRendererHostRpcRouting } from "./renderer-host-rpc-routing.js";
-import { loadRendererHostRpcRegistry } from "./renderer-host-rpc-registry.js";
+import { readRendererConnectionGeneration } from "./renderer-connection-generation.js";
 
 export { requestManagerFromHookState } from "./renderer-host-discovery.js";
 
@@ -33,7 +33,7 @@ const REQUEST_MANAGER_WAIT_TIMEOUT_MS = 60_000;
 const REQUEST_MANAGER_POLL_INTERVAL_MS = 25;
 
 function directRendererInstaller(): string {
-  return `(async () => {
+  return `(() => {
     const committedReactAncestors = ${committedReactAncestors.toString()};
     const requestManagerFromHookState = ${requestManagerFromHookState.toString()};
     const discoverRendererHosts = ${discoverRendererHosts.toString()};
@@ -41,52 +41,58 @@ function directRendererInstaller(): string {
     const retainRendererHostResponses = ${retainRendererHostResponses.toString()};
     const createDraftPrewarmPolicyBridge = ${createDraftPrewarmPolicyBridge.toString()};
     const isolateRendererPrewarmConsumption = ${isolateRendererPrewarmConsumption.toString()};
+    const findRendererAppScopeStore = ${findRendererAppScopeStore.toString()};
+    const readRendererConnectionGeneration = ${readRendererConnectionGeneration.toString()};
     const discover = (root) =>
       discoverRendererHosts(root, committedReactAncestors, requestManagerFromHookState);
-    const installNative = () => (${installRendererHostRouting.toString()})(
+    const installNative = (publishRouting = true) => (${installRendererHostRouting.toString()})(
       document, window, discover,
       (discovery, hostId) => resolveRendererHostManager(discovery, hostId, requestManagerFromHookState),
       (manager, bridge, hostId, target, prewarmed, isCurrent) => createDraftPrewarmPolicyBridge(
         manager, bridge, hostId, target, prewarmed, isCurrent, retainRendererHostResponses,
         isolateRendererPrewarmConsumption,
       ),
+      (hostId) => readRendererConnectionGeneration(findRendererAppScopeStore(document), hostId),
+      publishRouting,
     );
-    const installRpc = async () => {
-      const store = (${findRendererAppScopeStore.toString()})(document);
-      const registry = await (${loadRendererHostRpcRegistry.toString()})(store, window);
-      return !registry ? null : (${installRendererHostRpcRouting.toString()})(document, window, {
+    const installRpc = () => typeof MessagePort !== 'function' ? null : (${installRendererHostRpcRouting.toString()})(document, window, {
       findStore: ${findRendererAppScopeStore.toString()},
       findFamily: ${findRendererHostRpcFamily.toString()},
       resolve: ${resolveRendererHostRpc.toString()},
       hostIds: ${rendererHostRpcHostIds.toString()},
-      composerHostIds: (composer) => {
+      discoverComposer: (composer) => {
         const source = composer?.matches?.('[data-codex-composer], [contenteditable="true"][role="textbox"]')
           ? { querySelectorAll: () => [composer] }
           : (composer ?? document);
         return discover(source);
       },
-      registry,
       portPrototype: MessagePort.prototype,
-    }); };
-    // Desktop 26.1027 moved AppServerManagers to the main process. Older builds
-    // expose native managers in Renderer hook state; the main-process mode only
-    // applies when none is visible and its per-Host RPC store is identified.
-    const routing = await (async () => {
-      const previous = window.__codexhostHostRoutingV1;
-      if (previous && (!previous.isCurrent || previous.isCurrent())) return previous;
-      previous?.dispose();
-      const native = discover(document);
-      if (native.managers.length || native.registries.length) return installNative();
-      const rpc = await installRpc();
+      installNativeRouting: () => installNative(false),
+      readConnection: (hostId) => readRendererConnectionGeneration(findRendererAppScopeStore(document), hostId),
+    });
+    const connected = (routing) => routing.forComposer() !== null ||
+      ['local', ...(routing.knownHostIds?.() ?? [])].some((hostId) => routing.forHost(hostId) !== null);
+    let nativeReady = false;
+    // Mixed layouts can expose native managers for only some Hosts. Keep one
+    // router that selects a native owner or the current ready RPC peer per Host.
+    const routing = (() => {
+      if (window.__codexhostHostRoutingV1) return window.__codexhostHostRoutingV1;
+      const rpc = installRpc();
       if (rpc) return rpc;
+      const native = discover(document);
+      if (native.managers.length || native.registries.length) {
+        const routing = installNative();
+        if (connected(routing)) {
+          nativeReady = true;
+          return routing;
+        }
+        routing.dispose();
+      }
       throw new Error('Renderer Host request manager is unavailable');
     })();
     // Publish a default draft policy only when its Host is unambiguous. Host
     // connections can be ready even when multiple Composers coexist.
-    const composerRoute = routing.forComposer();
-    const connected = composerRoute !== null ||
-      ['local', ...(routing.knownHostIds?.() ?? [])].some((hostId) => routing.forHost(hostId) !== null);
-    if (!connected) throw new Error('Renderer Host request manager is unavailable');
+    if (!nativeReady && !connected(routing)) throw new Error('Renderer Host request manager is unavailable');
     return { state: 'ready', reason: 'owned-request-bridge' };
   })()`;
 }

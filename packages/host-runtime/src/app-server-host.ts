@@ -192,7 +192,11 @@ import {
   resolveRly0HubAutostartCommand,
 } from "./rly0-appearance/hub-autostart.js";
 import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
-import { Rly0RelayCodexConfigManager, rly0RelayCodexConfigRpcError, pickDefaultRly0CodexModel } from "./rly0-relay/codex-config.js";
+import {
+  Rly0RelayCodexConfigManager,
+  rly0RelayCodexConfigRpcError,
+  pickDefaultRly0CodexModel,
+} from "./rly0-relay/codex-config.js";
 import {
   RLY0_RELAY_PROXY_FAILED_MESSAGE,
   type Rly0OfficialCatalogRead,
@@ -365,6 +369,9 @@ import {
   threadOwnershipListResultSchema,
   threadSteeringInspectParamsSchema,
   threadSteeringInspectResultSchema,
+  threadSteeringContextSchema,
+  THREAD_STEERING_CONTEXT_PARAM,
+  THREAD_STEER_DELIVERY_PARAM,
   permissionModeFixedAtCreate,
   updateCheckResultSchema,
   updateEmptyParamsSchema,
@@ -461,6 +468,7 @@ import type {
   ThreadSendResult,
 } from "./delegation-types.js";
 import { projectDelegationThreadSnapshot } from "./delegation-snapshot.js";
+import { rememberNativeListSeconds } from "./delegation-thread-list-merge.js";
 import {
   canonicalizeOfficialCodexModelRef,
   decodeOfficialCodexModelRef,
@@ -779,6 +787,32 @@ function rpcEnvelope(request: JsonRpcRequest, value: JsonObject): JsonObject {
 
 function rpcError(request: JsonRpcRequest, code: number, message: string): JsonObject {
   return rpcEnvelope(request, { error: { code, message } });
+}
+
+/**
+ * A native thread/list timestamp (Unix seconds) as the ISO field a delegation list row carries.
+ * Seconds outside the range a Date can hold leave the field out instead of failing the list.
+ */
+function listTimestamp(
+  field: "createdAt" | "updatedAt" | "recencyAt",
+  seconds: unknown,
+): { createdAt?: string; updatedAt?: string; recencyAt?: string } {
+  if (!Number.isSafeInteger(seconds)) return {};
+  const date = new Date((seconds as number) * 1_000);
+  return Number.isFinite(date.getTime()) ? { [field]: date.toISOString() } : {};
+}
+
+/** The native thread/list timestamps (Unix seconds) a delegation list row was projected from. */
+function nativeSeconds(entry: Record<string, unknown>): {
+  createdAt?: number;
+  updatedAt?: number;
+  recencyAt?: number;
+} {
+  return Object.fromEntries(
+    (["createdAt", "updatedAt", "recencyAt"] as const).flatMap((field) =>
+      Number.isSafeInteger(entry[field]) ? [[field, entry[field] as number]] : [],
+    ),
+  );
 }
 
 function unixSeconds(): number {
@@ -2015,8 +2049,12 @@ export class AppServerHost {
         isRecord(request.params) && typeof request.params.threadId === "string"
           ? request.params.threadId
           : undefined;
+      // Usage reads may wait on quota or history I/O. Track them for shutdown,
+      // but do not let that optional inspection hold the Thread's routing queue.
+      const queueThreadId =
+        request.method === "codexhost/thread/usage/inspect" ? undefined : threadId;
       this.#dispatchDesktopRequest(() =>
-        this.#desktopRequests.run(threadId, () =>
+        this.#desktopRequests.run(queueThreadId, () =>
           this.#externalRuntime.idleRelease.runOperation(threadId, () =>
             this.#guardReply(request, () => this.#handleDesktopRequest(request, frame)),
           ),
@@ -4745,18 +4783,26 @@ export class AppServerHost {
         const status =
           isRecord(entry.status) && entry.status.type === "active" ? "running" : "completed";
         return [
-          {
-            threadId: entry.id,
-            harnessId: record ? (record.harnessId as ExternalHarnessId) : "codex",
-            deepLink: `codex://threads/${entry.id}`,
-            status,
-            ...(typeof entry.cwd === "string" ? { cwd: entry.cwd } : {}),
-            ...(typeof entry.name === "string"
-              ? { title: entry.name }
-              : typeof entry.preview === "string"
-                ? { title: entry.preview }
-                : {}),
-          },
+          rememberNativeListSeconds(
+            {
+              threadId: entry.id,
+              harnessId: record ? (record.harnessId as ExternalHarnessId) : "codex",
+              deepLink: `codex://threads/${entry.id}`,
+              status,
+              ...(typeof entry.cwd === "string" ? { cwd: entry.cwd } : {}),
+              ...(typeof entry.name === "string"
+                ? { title: entry.name }
+                : typeof entry.preview === "string"
+                  ? { title: entry.preview }
+                  : {}),
+              // The Registry merges several sessions by these, so keep the fields the page sorted by.
+              ...listTimestamp("createdAt", entry.createdAt),
+              ...listTimestamp("updatedAt", entry.updatedAt),
+              ...listTimestamp("recencyAt", entry.recencyAt),
+            },
+            // Seconds a Date cannot hold are left off the row but still order the merge.
+            nativeSeconds(entry),
+          ),
         ];
       }),
       nextCursor: result.nextCursor,
@@ -4918,6 +4964,9 @@ export class AppServerHost {
       location,
       (hostThreadId) => this.#repository.setArchived(hostThreadId, archived),
       "External Thread archive state could not be persisted",
+      // A loaded Thread whose deferred native Session never arrived (its first Turn
+      // failed first) is still on Desktop's list and must remain archivable.
+      true,
     );
     if (!updated) return;
     await this.#writer.json(
@@ -5679,7 +5728,7 @@ export class AppServerHost {
         ...(arguments_ ? { arguments: arguments_ } : {}),
       });
       if (!result.ok) throw new ExternalCommandError(-32073, result.error.message);
-      return { turnId: result.value.turnId, turn: projection.projector.pendingTurn(), gate };
+      return { turnId, turn: projection.projector.pendingTurn(), gate };
     } catch (error) {
       restoreExecutionHost();
       thread.running = false;
@@ -6621,6 +6670,11 @@ export class AppServerHost {
   }
 
   async #startExternalTurn(request: JsonRpcRequest, thread: ExternalThread): Promise<void> {
+    const context = routingParams(request).additionalContext;
+    if (isRecord(context) && Object.hasOwn(context, THREAD_STEERING_CONTEXT_PARAM)) {
+      await this.#steerExternalTurn(request, thread, true);
+      return;
+    }
     if (this.#externalThreadBusy(thread) || this.#pendingExternalCommandRequests.has(thread.id)) {
       await this.#writer.json(
         rpcError(request, -32072, "External Thread already has an active Turn"),
@@ -6840,11 +6894,38 @@ export class AppServerHost {
     }
   }
 
-  async #steerExternalTurn(request: JsonRpcRequest, thread: ExternalThread): Promise<void> {
+  async #steerExternalTurn(
+    request: JsonRpcRequest,
+    thread: ExternalThread,
+    asStart = false,
+  ): Promise<void> {
+    let queued: ReturnType<ExternalThreadQueue["takeSteered"]>;
+    let accepted = false;
     try {
+      let params = requestObject(request);
+      const context = params.additionalContext;
+      if (isRecord(context) && Object.hasOwn(context, THREAD_STEERING_CONTEXT_PARAM)) {
+        const marker = threadSteeringContextSchema.safeParse(
+          context[THREAD_STEERING_CONTEXT_PARAM],
+        );
+        if (
+          !marker.success ||
+          marker.data.clientUserMessageId !== params.clientUserMessageId ||
+          (asStart && marker.data.delivery !== "newTurn")
+        )
+          throw new ExternalSteerError(-32602, "Invalid native steering preparation context");
+        if (!asStart && params.expectedTurnId !== marker.data.expectedTurnId)
+          throw new ExternalSteerError(-32074, "Native steering target changed before submission");
+        params = {
+          ...params,
+          expectedTurnId: marker.data.expectedTurnId,
+          [THREAD_STEER_DELIVERY_PARAM]: marker.data.delivery,
+        };
+      }
+      queued = this.#externalQueue.takeSteered(thread.id, params.clientUserMessageId, params.input);
       const started = await this.#externalSteering.run(
         thread,
-        requestObject(request),
+        params,
         (text, assertActive) =>
           this.#beginExternalInputTurn(
             thread,
@@ -6853,24 +6934,43 @@ export class AppServerHost {
             typeof requestObject(request).clientUserMessageId === "string"
               ? (requestObject(request).clientUserMessageId as string)
               : undefined,
-            requestObject(request)[THREAD_REFERENCE_SOURCE_HOST_PARAM],
+            queued
+              ? queued.sourceHostId
+              : requestObject(request)[THREAD_REFERENCE_SOURCE_HOST_PARAM],
           ),
         (input) => this.#insertExternalInput(thread, input),
       );
+      accepted = true;
+      if (queued) {
+        // A notification failure cannot turn an accepted input into a failed delivery.
+        await this.#externalQueue
+          .acceptSteered(thread.id, queued)
+          .catch((error) => this.#diagnose(error));
+      }
       try {
         await this.#writer.json(
           rpcEnvelope(request, {
-            result: { turnId: started.turnId, delivery: started.delivery },
+            result: asStart
+              ? { turn: this.#projectedTurn(thread, started.turnId).projector.pendingTurn() }
+              : { turnId: started.turnId, delivery: started.delivery },
           }),
         );
       } finally {
         started.gate.resolve();
       }
     } catch (error) {
+      if (queued && !accepted) {
+        this.#externalQueue.restore(thread.id, queued);
+        await this.#externalQueue
+          .notifyChanged(thread.id)
+          .catch((failure) => this.#diagnose(failure));
+      }
       await this.#writer.json(
         rpcError(
           request,
-          error instanceof ExternalSteerError || error instanceof ExternalCommandError
+          error instanceof ExternalSteerError ||
+            error instanceof ExternalCommandError ||
+            error instanceof ExternalQueueError
             ? error.code
             : -32074,
           errorMessage(error),
@@ -8169,14 +8269,11 @@ export class AppServerHost {
       baseUrl = status.providerBaseUrl;
     }
     if (!baseUrl) return;
-    const currentOk =
-      typeof status.model === "string" && status.model.startsWith("rly0/");
+    const currentOk = typeof status.model === "string" && status.model.startsWith("rly0/");
     let model = currentOk ? status.model : undefined;
     if (!model) {
       const listed = await this.#rly0Core.listRelays().catch(() => ({ available: false as const }));
-      model = listed.available
-        ? pickDefaultRly0CodexModel(listed.relays)
-        : undefined;
+      model = listed.available ? pickDefaultRly0CodexModel(listed.relays) : undefined;
     }
     if (!model) {
       if (!status.providerPresent || status.providerBaseUrl !== baseUrl) {

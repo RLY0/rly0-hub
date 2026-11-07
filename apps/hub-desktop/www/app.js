@@ -1769,6 +1769,8 @@
           ["codebuddy", "CodeBuddy", "Tencent", "community", false, "none", false, true],
           ["workbuddy", "WorkBuddy", "Tencent", "community", false, "none", false, true],
           ["copilot", "GitHub Copilot", "GitHub", "community", false, "none", false, true],
+          ["devin", "Devin CLI", "Cognition", "official", false, "none", false, true],
+          ["qwen-code", "Qwen Code", "Alibaba Qwen", "official", true, "none", false, true],
         ].map(([id, name, vendor, category, openSource, relay, installed, more]) => ({
           id,
           name,

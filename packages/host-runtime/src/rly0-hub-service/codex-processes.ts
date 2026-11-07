@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 
 /**
@@ -17,6 +18,7 @@ export function killCodexProcesses(options: {
   environment: NodeJS.ProcessEnv;
   installRoot: string;
 }): Promise<number> {
+  if (process.platform === "darwin") return quitMacCodex(defaultMacProcessDependencies());
   if (process.platform !== "win32") return Promise.resolve(0);
   const { environment, installRoot } = options;
   const script = String.raw`
@@ -72,4 +74,130 @@ Write-Output $n
       },
     );
   });
+}
+
+/** One row of `ps -axo pid=,args=`. */
+export interface MacProcessEntry {
+  readonly pid: number;
+  readonly args: string;
+}
+
+/**
+ * macOS: the Codex Desktop main process (`ChatGPT.app` / `Codex.app`, by its own executable only;
+ * its Electron helpers end with it) and the codexhost helpers started for it from the npm package
+ * (`codexhost launch`, Host Runtime, Desktop controller). The codexhost web console, the Hub and
+ * rly0-core are left alone, as are the given `keep` PIDs.
+ */
+export function selectMacCodexProcesses(
+  entries: readonly MacProcessEntry[],
+  keep: ReadonlySet<number>,
+): { app: number[]; helpers: number[] } {
+  const app: number[] = [];
+  const helpers: number[] = [];
+  // The executable must be the first token: a " /" before the bundle means another program merely
+  // received the path as an argument.
+  const appPattern =
+    /^\/(?:(?! \/)[^\n])*?\/(?:ChatGPT|Codex)\.app\/Contents\/MacOS\/(?:ChatGPT|Codex)(?:\s|$)/u;
+  const helperPattern =
+    /\/@codexhost\/cli-darwin-(?:arm64|x64)\/(?:bin\/codexhost launch(?:\s|$)|app\/(?:host-runtime|desktop-controller)\.mjs(?:\s|$))/u;
+  for (const { pid, args } of entries) {
+    if (!Number.isSafeInteger(pid) || pid <= 1 || keep.has(pid)) continue;
+    if (appPattern.test(args)) app.push(pid);
+    else if (helperPattern.test(args)) helpers.push(pid);
+  }
+  return { app, helpers };
+}
+
+export interface MacProcessDependencies {
+  list(): Promise<MacProcessEntry[]>;
+  /** Asks Codex Desktop to quit normally (AppleScript `quit`), so it saves its state first. */
+  requestQuit(): Promise<void>;
+  alive(pid: number): boolean;
+  signal(pid: number, signal: NodeJS.Signals): void;
+  sleep(ms: number): Promise<void>;
+  keep: ReadonlySet<number>;
+}
+
+async function waitGone(
+  pids: readonly number[],
+  dependencies: MacProcessDependencies,
+  timeoutMs: number,
+): Promise<number[]> {
+  let left = pids.filter((pid) => dependencies.alive(pid));
+  for (let waited = 0; left.length > 0 && waited < timeoutMs; waited += 250) {
+    await dependencies.sleep(250);
+    left = left.filter((pid) => dependencies.alive(pid));
+  }
+  return left;
+}
+
+async function endProcesses(
+  pids: readonly number[],
+  dependencies: MacProcessDependencies,
+  graceMs: number,
+): Promise<void> {
+  let left = await waitGone(pids, dependencies, graceMs);
+  for (const pid of left) dependencies.signal(pid, "SIGTERM");
+  left = await waitGone(left, dependencies, 5_000);
+  for (const pid of left) dependencies.signal(pid, "SIGKILL");
+  await waitGone(left, dependencies, 2_000);
+}
+
+/**
+ * Quits Codex Desktop on macOS the way ⌘Q does, waits for it and its codexhost helpers to exit,
+ * and only then ends whatever is still running. Returns how many of the matched processes ended.
+ */
+export async function quitMacCodex(dependencies: MacProcessDependencies): Promise<number> {
+  const { app, helpers } = selectMacCodexProcesses(await dependencies.list(), dependencies.keep);
+  if (app.length === 0 && helpers.length === 0) return 0;
+  if (app.length > 0) {
+    await dependencies.requestQuit().catch(() => undefined);
+    await endProcesses(app, dependencies, 15_000);
+  }
+  // The Launcher and Host Runtime exit by themselves once the Desktop is gone.
+  await endProcesses(helpers, dependencies, 5_000);
+  return [...app, ...helpers].filter((pid) => !dependencies.alive(pid)).length;
+}
+
+function execText(file: string, args: readonly string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(file, [...args], { timeout: 20_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
+      error ? reject(error) : resolve(String(stdout)),
+    );
+  });
+}
+
+function defaultMacProcessDependencies(): MacProcessDependencies {
+  return {
+    async list() {
+      const output = await execText("/bin/ps", ["-axo", "pid=,args="]);
+      return output.split("\n").flatMap((line) => {
+        const match = /^\s*(\d+)\s+(.*)$/u.exec(line);
+        return match ? [{ pid: Number(match[1]), args: match[2] ?? "" }] : [];
+      });
+    },
+    async requestQuit() {
+      await execText("/usr/bin/osascript", [
+        "-e",
+        'if application id "com.openai.codex" is running then tell application id "com.openai.codex" to quit',
+      ]);
+    },
+    alive(pid) {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        return (error as NodeJS.ErrnoException).code === "EPERM";
+      }
+    },
+    signal(pid, signal) {
+      try {
+        process.kill(pid, signal);
+      } catch {
+        // Already gone.
+      }
+    },
+    sleep: (ms) => delay(ms),
+    keep: new Set([process.pid, process.ppid]),
+  };
 }

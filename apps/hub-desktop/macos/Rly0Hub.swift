@@ -11,6 +11,37 @@ func isHubPage(_ url: URL?) -> Bool {
         && url.user == nil && url.password == nil && url.port == nil
 }
 
+final class HubWebView: WKWebView {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        guard event.type == .keyDown, let window = window, window.isKeyWindow,
+              let focused = window.firstResponder as? NSView,
+              focused === self || focused.isDescendant(of: self) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        let action: Selector?
+        if modifiers == [.control] {
+            switch key {
+            case "a": action = #selector(NSText.selectAll(_:))
+            case "c": action = #selector(NSText.copy(_:))
+            case "x": action = #selector(NSText.cut(_:))
+            case "v": action = #selector(NSText.paste(_:))
+            case "z": action = NSSelectorFromString("undo:")
+            default: action = nil
+            }
+        } else if modifiers == [.control, .shift] && key == "z" {
+            action = NSSelectorFromString("redo:")
+        } else {
+            action = nil
+        }
+        // Compatibility stays inside the focused Hub web view; standard responder
+        // actions preserve paste validation and never change global key mappings.
+        if let action = action, NSApp.sendAction(action, to: nil, from: self) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 final class LocalResources: NSObject, WKURLSchemeHandler {
     let root: URL
     let types = ["html": "text/html", "js": "text/javascript", "css": "text/css",
@@ -111,6 +142,23 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
                         keyEquivalent: "q")
         item.submenu = appMenu
         menu.addItem(item)
+        // Standard responder-chain actions also work in WKWebView's text/password fields.
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "编辑")
+        func addEditCommand(_ title: String, _ action: Selector, _ key: String,
+                            shifted: Bool = false) {
+            let command = editMenu.addItem(withTitle: title, action: action, keyEquivalent: key)
+            command.keyEquivalentModifierMask = shifted ? [.command, .shift] : [.command]
+        }
+        addEditCommand("撤销", NSSelectorFromString("undo:"), "z")
+        addEditCommand("重做", NSSelectorFromString("redo:"), "z", shifted: true)
+        editMenu.addItem(.separator())
+        addEditCommand("剪切", #selector(NSText.cut(_:)), "x")
+        addEditCommand("复制", #selector(NSText.copy(_:)), "c")
+        addEditCommand("粘贴", #selector(NSText.paste(_:)), "v")
+        addEditCommand("全选", #selector(NSText.selectAll(_:)), "a")
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
         // 「前往」: same as the Windows tray's page shortcuts (shell "navigate" event).
         let goItem = NSMenuItem()
         let goMenu = NSMenu(title: "前往")
@@ -160,7 +208,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         configuration.setURLSchemeHandler(
             LocalResources(root: resources.appendingPathComponent("app/hub-ui")),
             forURLScheme: "rly0-hub")
-        webview = WKWebView(frame: .zero, configuration: configuration)
+        webview = HubWebView(frame: .zero, configuration: configuration)
         webview.navigationDelegate = self
         webview.uiDelegate = self
         webview.pageZoom = zoom

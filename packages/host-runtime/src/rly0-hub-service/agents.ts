@@ -255,6 +255,28 @@ export const RLY0_HUB_AGENTS: readonly CatalogEntry[] = [
       "https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli",
     more: true,
   },
+  {
+    id: "devin",
+    name: "Devin CLI",
+    vendor: "Cognition",
+    category: "official",
+    openSource: false,
+    relay: "none",
+    sharing: sharing("none", "none", "none", "Devin CLI 接入的 MCP / 技能参数未核实，暂不接入"),
+    docsUrl: "https://docs.devin.ai/cli",
+    more: true,
+  },
+  {
+    id: "qwen-code",
+    name: "Qwen Code",
+    vendor: "Alibaba Qwen",
+    category: "official",
+    openSource: true,
+    relay: "none",
+    sharing: sharing("none", "none", "none", "Qwen Code SDK 接入的 MCP / 技能参数未核实，暂不接入"),
+    docsUrl: "https://github.com/QwenLM/qwen-code",
+    more: true,
+  },
 ];
 
 export interface Rly0HubAgent {

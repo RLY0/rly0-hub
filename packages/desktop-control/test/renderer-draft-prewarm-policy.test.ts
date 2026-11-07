@@ -7,11 +7,67 @@ import {
   requestManagerFromHookState,
 } from "../src/renderer-draft-prewarm-policy.js";
 import {
+  createDraftPrewarmPolicyBridge,
   type DraftPrewarmPolicyTarget,
   type RendererHostRequestBridge,
   type RendererHostRequestManager,
 } from "../src/renderer-draft-prewarm-runtime.js";
 import { installDraftPrewarmPolicyBridge } from "./renderer-draft-prewarm-fixture.js";
+
+it("keeps RPC tunnel control frames outside the native logical request queue", async () => {
+  const manager = requestManagerFixture();
+  const { bridge, directSend } = remoteRequestBridgeFixture();
+  directSend.mockImplementation((method?: string) => {
+    if (method?.startsWith("process/"))
+      return Promise.reject(new Error("logical request queue is occupied"));
+    return Promise.resolve({ native: true });
+  });
+  const control = vi.fn(async (method: string, params: Record<string, unknown>) => {
+    const handle = String(params.processHandle);
+    if (method === "process/spawn") {
+      queueMicrotask(() =>
+        emitBridgeOutput(manager, handle, {
+          method: "codexhost/remote-control-bridge/ready",
+          params: { protocolVersion: 1 },
+        }),
+      );
+    } else if (method === "process/writeStdin") {
+      const frame = JSON.parse(Buffer.from(String(params.deltaBase64), "base64").toString());
+      if (frame.id !== undefined)
+        queueMicrotask(() =>
+          emitBridgeOutput(manager, handle, { id: frame.id, result: { ok: true } }),
+        );
+    }
+    return {};
+  });
+  const policy = Reflect.apply(createDraftPrewarmPolicyBridge, undefined, [
+    manager,
+    bridge,
+    "remote-control:fixture-host",
+    {},
+    { discardAllPrewarmedThreads: vi.fn() },
+    undefined,
+    undefined,
+    undefined,
+    control,
+  ]);
+  try {
+    await expect(bridge.sendRequest("codexhost/harness/inspect", {})).resolves.toEqual({
+      ok: true,
+    });
+    await expect(bridge.sendRequest("model/list", {})).resolves.toEqual({ native: true });
+    expect(directSend).toHaveBeenCalledExactlyOnceWith("model/list", {});
+  } finally {
+    policy.dispose();
+  }
+  expect(control.mock.calls.map(([method]) => method)).toEqual([
+    "process/spawn",
+    "process/writeStdin",
+    "process/writeStdin",
+    "process/writeStdin",
+    "process/kill",
+  ]);
+});
 
 function requestManagerFixture(): RendererHostRequestManager {
   return {
@@ -279,7 +335,7 @@ describe("Renderer draft prewarm policy", () => {
     expect(target.dispatchEvent).toHaveBeenCalledOnce();
   });
 
-  it("keeps the selected route when the same Host bridge is reconciled", () => {
+  it("keeps selection without overriding an unrelated create after Host reconciliation", () => {
     const sendRequest = vi.fn();
     const prewarmThreadStart = vi.fn();
     const manager = requestManagerFixture();
@@ -311,11 +367,11 @@ describe("Renderer draft prewarm policy", () => {
     expect(first.hostId).toBe("remote-ssh-discovered:mac");
     void bridge.sendRequest("thread/start", { model: "gpt-5" });
     expect(sendRequest).toHaveBeenCalledWith("thread/start", {
-      model: "codexhost/claude-code-native",
+      model: "gpt-5",
     });
   });
 
-  it("routes the current request client's direct and prewarm Thread starts", async () => {
+  it("leaves official creates untouched after selecting Pi and preserves explicit creates", async () => {
     const sendRequest = vi.fn<(method: string, parameters: unknown) => Promise<void>>(
       async () => undefined,
     );
@@ -332,12 +388,12 @@ describe("Renderer draft prewarm policy", () => {
 
     policy.select("codexhost/pi-native");
     await bridge.sendRequest("thread/start", { cwd: "/tmp/project", model: "gpt-5" });
-    await bridge.prewarmThreadStart?.({ cwd: "/tmp/project", model: "gpt-5" });
+    await bridge.prewarmThreadStart?.({ cwd: "/tmp/project", model: "codexhost/pi-native" });
     await bridge.prewarmThreadStart?.({ ephemeral: true, model: "gpt-5" });
 
     expect(sendRequest).toHaveBeenCalledWith("thread/start", {
       cwd: "/tmp/project",
-      model: "codexhost/pi-native",
+      model: "gpt-5",
     });
     expect(prewarmThreadStart).toHaveBeenNthCalledWith(1, {
       cwd: "/tmp/project",
@@ -396,7 +452,9 @@ describe("Renderer draft prewarm policy", () => {
     };
 
     policy.select("codexhost/pi-native");
-    const pendingPi = bridge.prewarmThreadStart({ model: "native-model" }) as Promise<unknown>;
+    const pendingPi = bridge.prewarmThreadStart({
+      model: "codexhost/pi-native",
+    }) as Promise<unknown>;
     policy.select("codexhost/claude-code-native");
     await policy.clear();
     stalePrewarm.resolve({ thread: { id: "stale-pi" } });
@@ -407,7 +465,9 @@ describe("Renderer draft prewarm policy", () => {
     expect(sendRequest).toHaveBeenCalledWith("codexhost/thread/prewarm/discard", {
       threadId: "stale-pi",
     });
-    await expect(bridge.prewarmThreadStart({ model: "native-model" })).resolves.toEqual({
+    await expect(
+      bridge.prewarmThreadStart({ model: "codexhost/claude-code-native" }),
+    ).resolves.toEqual({
       model: "codexhost/claude-code-native",
       codexhostPrewarm: true,
     });
@@ -1152,70 +1212,6 @@ describe("Renderer draft prewarm policy", () => {
       expect(policy.requestTarget()).toBe(active);
     } finally {
       policy.dispose();
-    }
-  });
-
-  it("rejects a bare Desktop 26.1027 RPC scope without a verified native creation registry", async () => {
-    // Synthetic state with the live Desktop's scope/signal-family API; no user data.
-    const rpc = {
-      sendRequest: vi.fn(async () => ({ synthetic: true })),
-      clearPrewarmedThreads: vi.fn(async () => undefined),
-    };
-    const node = {
-      familyBindings: new Map([
-        [
-          { kind: "signal-family" },
-          new Map([
-            [
-              "local",
-              { value: { get: () => ({ status: "ready", client: { hostId: "local", rpc } }) } },
-            ],
-          ]),
-        ],
-      ]),
-    };
-    const scope = { node, chain: [], scope: {}, get() {}, set() {}, watch() {} };
-    const fiber = {
-      memoizedProps: { executionTargetHostId: "local" },
-      memoizedState: { memoizedState: { current: scope }, next: null },
-      return: null,
-    };
-    const editor = { __reactFiber$synthetic: fiber, parentElement: null };
-    const document = {
-      querySelectorAll: () => [editor],
-      getElementById: () => ({ __reactContainer$synthetic: fiber }),
-    };
-    const target: DraftPrewarmPolicyTarget = {};
-    class SyntheticMessagePort {
-      postMessage() {}
-    }
-    let source = "";
-    await installRendererDraftPrewarmPolicyDirect({
-      async evaluate<T>(expression: string): Promise<T> {
-        source = expression;
-        return { state: "ready", reason: "owned-request-bridge" } as T;
-      },
-    });
-    try {
-      // A ready raw RPC is no longer sufficient evidence for safe creation:
-      // this fixture has no already-bound native registry or loaded-module
-      // catalog. In particular it cannot retain background draft provenance.
-      await expect(
-        runInNewContext(source, {
-          document,
-          window: target,
-          MessagePort: SyntheticMessagePort,
-          TextDecoder,
-          TextEncoder,
-          setTimeout,
-          clearTimeout,
-        }),
-      ).rejects.toThrow("Renderer Host request manager is unavailable");
-      expect(target.__codexhostHostRoutingV1).toBeUndefined();
-      expect(rpc.sendRequest).not.toHaveBeenCalled();
-      expect(rpc.clearPrewarmedThreads).not.toHaveBeenCalled();
-    } finally {
-      (target.__codexhostHostRoutingV1 as { dispose(): void } | undefined)?.dispose();
     }
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "codexhost",
-  "version": "0.11.32",
+  "version": "0.11.34",
   "private": true,
   "license": "LGPL-3.0-only",
   "type": "module",
@@ -102,5 +102,9 @@
     "typescript-eslint": "8.65.0",
     "vitest": "4.1.10",
     "zod": "4.4.3"
+  },
+  "allowScripts": {
+    "@qodercn-ai/qodercn-agent-sdk@1.0.58": true,
+    "@qoder-ai/qoder-agent-sdk@1.0.58": true
   }
 }
