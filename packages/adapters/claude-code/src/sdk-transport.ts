@@ -381,6 +381,24 @@ function parseApprovalRequest(
   };
 }
 
+/**
+ * 绕过权限 (bypassPermissions) still asks for a few actions (Claude Code's permission-modes docs: a
+ * critical-path rm, a connector set to ask, MCP tools that need the person, and cases it does not
+ * explain) and leaves the decision to the host. The person chose to skip prompts, so the Host
+ * approves those asks itself — except the ones that need the person (questions, plan approval,
+ * MCP tools) and the ones Claude Code marks as dangerous: a destructive delete opens on "no"
+ * (`defaultToNo`) or names rm/delete in its reason. (User decision 2026-11-08.)
+ */
+export function approvedInBypassMode(
+  toolName: string,
+  options: Pick<Parameters<CanUseTool>[2], "decisionReason" | "defaultToNo">,
+): boolean {
+  if (toolName === "AskUserQuestion" || toolName === "ExitPlanMode") return false;
+  if (toolName.startsWith("mcp__")) return false;
+  if (options.defaultToNo === true) return false;
+  return !/\brm\b|rmdir|delet|dangerous/iu.test(options.decisionReason ?? "");
+}
+
 function denied(toolUseId: string, message: string): PermissionResult {
   return {
     behavior: "deny",
@@ -1088,6 +1106,21 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
     input: Record<string, unknown>,
     options: Parameters<CanUseTool>[2],
   ): Promise<PermissionResult> {
+    // Answered here without the person, so it needs no interaction sink.
+    if (
+      this.#permissionMode === "bypassPermissions" &&
+      typeof options.toolUseID === "string" &&
+      options.toolUseID.length > 0 &&
+      !options.signal.aborted &&
+      approvedInBypassMode(toolName, options)
+    ) {
+      return Promise.resolve({
+        behavior: "allow",
+        updatedInput: input,
+        toolUseID: options.toolUseID,
+        decisionClassification: "user_temporary",
+      });
+    }
     const sink = this.#interactionSink();
     const validToolName = boundedDisplayText(toolName, APPROVAL_TITLE_MAX_LENGTH);
     if (
