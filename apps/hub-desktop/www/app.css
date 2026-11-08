@@ -5488,7 +5488,7 @@ select.input,
 .promo-deal {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(0, max-content);
+  grid-auto-columns: max-content;
   justify-content: start;
   align-items: stretch;
   gap: 8px;
@@ -5506,7 +5506,6 @@ select.input,
   color: var(--paper-50);
 }
 .deal-tier.first {
-  min-width: max-content;
   background: var(--paper-50);
   color: var(--brand-press);
 }
