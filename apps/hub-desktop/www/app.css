@@ -5483,3 +5483,68 @@ select.input,
 .list-warn[hidden] {
   display: none;
 }
+
+/* ---------- Banner 福利: the site's offer as an ink ticket on the red banner ---------- */
+.promo-deal {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 4px;
+  justify-self: start;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 12px 18px 12px 12px;
+  border-radius: var(--r-md);
+  background: var(--ink-950);
+  color: var(--paper-50);
+  box-shadow: 0 18px 48px rgba(17, 17, 15, 0.15);
+}
+.promo-deal .deal-tag {
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  background: var(--paper-50);
+  color: var(--ink-950);
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+.promo-deal .deal-main {
+  font-size: clamp(17px, 1.7vw, 22px);
+  font-weight: 700;
+  line-height: 1.2;
+}
+.promo-deal .deal-main .deal-num {
+  font-size: 1.3em;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}
+.promo-deal .deal-more {
+  grid-column: 2;
+  color: rgba(245, 245, 240, 0.78);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.promo-deal .deal-more .deal-num {
+  color: var(--paper-50);
+  font-weight: 750;
+}
+@media (max-width: 640px) {
+  .promo-deal {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .promo-deal .deal-tag {
+    grid-row: auto;
+    justify-self: start;
+    min-height: 24px;
+  }
+  .promo-deal .deal-more {
+    grid-column: 1;
+  }
+}

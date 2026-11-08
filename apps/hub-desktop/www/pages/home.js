@@ -275,6 +275,39 @@ window.registerHubHome = (api) => {
           : api.resetCardTile(resetCredits),
     );
 
+  // rly0.com 的福利横幅（2026-11-08 原文）; promo.get replaces it with whatever the site shows now.
+  const FALLBACK_PROMO =
+    "首次充值满 ¥10，到账多送 $3｜充值 ¥100 送 $5 · ¥300 送 $8 · ¥500 送 $15｜邀请返利10%";
+
+  // Amounts (¥10, $3, 10%) are set larger so the offer reads at a glance.
+  const withAmounts = (text) =>
+    text
+      .split(/([¥$]\s?\d+(?:\.\d+)?|\d+(?:\.\d+)?\s?%)/u)
+      .filter(Boolean)
+      .map((part) =>
+        /^(?:[¥$]\s?\d+(?:\.\d+)?|\d+(?:\.\d+)?\s?%)$/u.test(part)
+          ? h("b", { class: "deal-num tabular" }, part)
+          : part,
+      );
+
+  // 福利: the first offer large, the others on one quieter line.
+  function fillDeal(node, text) {
+    const parts = text
+      .split(/[｜|]/u)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (!parts.length) return;
+    put(
+      node,
+      h("span", { class: "deal-tag" }, "福利"),
+      h("strong", { class: "deal-main" }, withAmounts(parts[0])),
+      parts.length > 1
+        ? h("span", { class: "deal-more" }, withAmounts(parts.slice(1).join(" · ")))
+        : null,
+    );
+    node.setAttribute("aria-label", `福利：${parts.join("；")}`);
+  }
+
   pages.home = (root, alive) => {
     let repaintQuota = null;
     const promo = h("section", { class: "m promo span-6" });
@@ -290,6 +323,17 @@ window.registerHubHome = (api) => {
     );
 
     async function loadPromo() {
+      // The site's own banner sentence (rly0.com 顶部横幅); the built-in copy shows until it
+      // arrives, and stays when the site cannot be reached.
+      const deal = h("div", { class: "promo-deal" });
+      fillDeal(deal, FALLBACK_PROMO);
+      call("promo.get").then(
+        (promo) => {
+          if (alive() && promo && typeof promo.text === "string" && promo.text)
+            fillDeal(deal, promo.text);
+        },
+        () => {},
+      );
       const result = await call("balance.get").catch((error) => ({
         configured: true,
         ok: false,
@@ -306,7 +350,7 @@ window.registerHubHome = (api) => {
           "一个密钥，调用所有模型",
           h("span", { class: "px-cursor", "aria-hidden": "true" }),
         ),
-        h("p", null, "Claude、GPT、Gemini、Grok，Codex 和各家 AI 助手都能直接用。"),
+        deal,
       );
       let side;
       if (!result.configured) {

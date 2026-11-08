@@ -1,4 +1,5 @@
 import { openInBrowser, revealFolder } from "./desktop-open.js";
+import { Rly0PromoSource } from "./promo.js";
 import { createBridgeRoutes } from "./bridge-routes.js";
 import type { MemoryServerLaunch } from "../rly0-memory/launch.js";
 import path from "node:path";
@@ -503,6 +504,11 @@ export class Rly0HubService {
 
   #releaseSource: Rly0HubReleaseSource | null = null;
 
+  /** 首页广告栏的福利文案, read from rly0.com through the same proxy as 检查更新. */
+  readonly #promo = new Rly0PromoSource(async () =>
+    createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 10_000 }),
+  );
+
   /** GitHub through the proxy chosen in 设置 → 网络代理 (or HTTPS_PROXY / the system proxy). */
   #updateProxy(): Promise<string | null> {
     return resolveUpdateProxy({
@@ -940,6 +946,7 @@ export class Rly0HubService {
           currentAccount: live.loggedIn ? live : null,
         };
       }),
+      "promo.get": route(empty, () => this.#promo.read()),
       "balance.get": route(empty, async () => {
         const zero = await this.#zeroRelay();
         if (!zero) return { configured: false };
