@@ -191,6 +191,7 @@ import {
   openRly0HubWindow,
   resolveRly0HubAutostartCommand,
 } from "./rly0-appearance/hub-autostart.js";
+import { UnifiedResponsesForwarder } from "./rly0-relay/unified-responses-forwarder.js";
 import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
 import {
   Rly0RelayCodexConfigManager,
@@ -1000,6 +1001,7 @@ export class AppServerHost {
   #claudeCodeRelaySaved: string | null | undefined;
   /** Where the forwarder sends Claude Code's requests now (see ClaudeRelayForwarder). */
   #claudeRelayTarget: ClaudeRelayTarget | null = null;
+  readonly #unifiedResponsesForwarder = new UnifiedResponsesForwarder();
   readonly #claudeRelayForwarder = new ClaudeRelayForwarder({
     resolve: () => this.#currentClaudeRelay(),
     describeAlternatives: (relayId) => this.#claudeAlternatives(relayId),
@@ -1187,6 +1189,8 @@ export class AppServerHost {
       },
       // 统一渠道 (Hub setting, on by default): every Thread on the rly0 provider.
       unifiedChannel: () => readUnifiedChannel(environment),
+      // Cleans relay item ids out of the history before an official model sees it.
+      unifiedEntry: (proxyUnifiedUrl) => this.#unifiedResponsesForwarder.url(proxyUnifiedUrl),
       customProviders: () => readCustomProviders(environment),
       // The current identity the Host already tracks (no extra app-server request).
       officialAccount: async () => {

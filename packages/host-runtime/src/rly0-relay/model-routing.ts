@@ -62,6 +62,12 @@ export interface Rly0RelayModelRouterOptions {
    * `/u/v1` path and the chosen model alone picks the upstream. Absent means off.
    */
   readonly unifiedChannel?: () => Promise<boolean>;
+  /**
+   * The URL Threads on the unified channel use for the proxy's `/u/v1` URL: RLY/0 Hub's
+   * forwarder that cleans other upstreams' item ids out of the history
+   * (unified-responses-forwarder.ts). Absent, or failing, means the proxy directly.
+   */
+  readonly unifiedEntry?: (proxyUnifiedUrl: string) => Promise<string>;
   /** Providers of Codex's config.toml (custom-providers.ts), offered as `cfg/<id>/<model>`. */
   readonly customProviders?: () => Promise<readonly Rly0CustomProvider[]>;
   /** How Codex is signed in (`account/read`), named in the unified menu. */
@@ -174,6 +180,7 @@ export class Rly0RelayModelRouter {
   readonly #noAccountMode: (() => Promise<Rly0NoAccountMode | null>) | undefined;
   #noAccount: { at: number; mode: Rly0NoAccountMode | null } | null = null;
   readonly #unifiedChannel: (() => Promise<boolean>) | undefined;
+  readonly #unifiedEntry: ((proxyUnifiedUrl: string) => Promise<string>) | undefined;
   #unified: { at: number; on: boolean } | null = null;
   readonly #customProviders: (() => Promise<readonly Rly0CustomProvider[]>) | undefined;
   #custom: { at: number; list: readonly Rly0CustomProvider[]; pushed: string } | null = null;
@@ -203,6 +210,7 @@ export class Rly0RelayModelRouter {
     this.#providerRequiresOpenaiAuth = options.providerRequiresOpenaiAuth;
     this.#noAccountMode = options.noAccountMode;
     this.#unifiedChannel = options.unifiedChannel;
+    this.#unifiedEntry = options.unifiedEntry;
     this.#customProviders = options.customProviders;
     this.#officialAccount = options.officialAccount;
     this.#now = options.now ?? Date.now;
@@ -502,7 +510,7 @@ export class Rly0RelayModelRouter {
   async #unifiedDefinitionOnly(input: JsonRecord): Promise<JsonRecord | null> {
     let baseUrl: string;
     try {
-      baseUrl = unifiedBaseUrl(await this.ensureProxy());
+      baseUrl = await this.#unifiedUrl();
     } catch {
       return null;
     }
@@ -790,7 +798,7 @@ export class Rly0RelayModelRouter {
     await this.isCustomModel(selected);
     let baseUrl: string;
     try {
-      baseUrl = unifiedBaseUrl(await this.ensureProxy());
+      baseUrl = await this.#unifiedUrl();
     } catch (error) {
       // Without RLY/0 Hub's own proxy the Thread stays on its native provider.
       if (isRelaySelector(selected) || parseCustomSelector(selected)) throw error;
@@ -807,6 +815,17 @@ export class Rly0RelayModelRouter {
       ...this.#withProviderDefinition(params, baseUrl, await this.#requiresAuth()),
       modelProvider: RLY0_CODEX_PROVIDER_ID,
     };
+  }
+
+  /** The `/u/v1` URL unified Threads use: the Hub's forwarder, or the proxy when it fails. */
+  async #unifiedUrl(): Promise<string> {
+    const direct = unifiedBaseUrl(await this.ensureProxy());
+    if (!this.#unifiedEntry) return direct;
+    try {
+      return await this.#unifiedEntry(direct);
+    } catch {
+      return direct;
+    }
   }
 
   async #requiresAuth(): Promise<boolean> {

@@ -16,7 +16,9 @@ import {
 } from "./app-server-host-fixture.js";
 
 const RELAY_MODEL = "rly0/f484ef57d8f9/gpt-6.1-sol";
-const UNIFIED_BASE = "http://127.0.0.1:25917/u/v1";
+// Threads reach the proxy (127.0.0.1:25917) through the Hub's local forwarder, which cleans
+// other upstreams' item ids out of the history (unified-responses-forwarder.ts).
+const UNIFIED_BASE = expect.stringMatching(/^http:\/\/127\.0\.0\.1:(?!25917\/)\d+\/u\/v1$/u);
 
 beforeEach(() => {
   vi.spyOn(Rly0CoreBridge.prototype, "listRelays").mockResolvedValue({
