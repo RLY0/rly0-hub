@@ -22,16 +22,15 @@ interface Row {
   readonly rollout?: boolean;
 }
 
-/** A synthetic `~/.codex` whose config.toml says `model_provider = "rly0"`. */
-function makeCodex(rows: readonly Row[]) {
+const ON_RLY0 = 'model_provider = "rly0"\n[model_providers.rly0]\nname = "rly0"\n';
+
+/** A synthetic `~/.codex`; by default its config.toml says `model_provider = "rly0"`. */
+function makeCodex(rows: readonly Row[], config = ON_RLY0) {
   const home = mkdtempSync(path.join(os.tmpdir(), "rly0-chat-provider-"));
   const codex = path.join(home, ".codex");
   const day = path.join(codex, "sessions", "2026", "11", "06");
   mkdirSync(day, { recursive: true });
-  writeFileSync(
-    path.join(codex, "config.toml"),
-    'model_provider = "rly0"\n[model_providers.rly0]\nname = "rly0"\n',
-  );
+  writeFileSync(path.join(codex, "config.toml"), config);
   const database = path.join(codex, "state_5.sqlite");
   const db = new DatabaseSync(database);
   db.exec(
@@ -72,14 +71,15 @@ describe("Codex chat provider repair (synthetic database)", () => {
       { id: SESSION(5), provider: "" },
     ]);
     const before = readFileSync(database);
-    expect(await repairChatProviders(paths, STAMP)).toBe(2);
+    expect(await repairChatProviders(paths, STAMP)).toBe(3);
     expect(providers(database)).toEqual({
       [SESSION(1)]: "rly0",
       [SESSION(2)]: "rly0",
       [SESSION(3)]: "rly0",
-      // Gone conversation file and an empty provider: left as they were.
+      // Gone conversation file: left as it was.
       [SESSION(4)]: "openai",
-      [SESSION(5)]: "",
+      // Codex refuses an empty provider as not configured: it moves too.
+      [SESSION(5)]: "rly0",
     });
     const backup = path.join(paths.dataDir, "chat-repair-backups", STAMP);
     expect(readFileSync(path.join(backup, "codex-state", "state_5.sqlite")).equals(before)).toBe(
@@ -92,9 +92,13 @@ describe("Codex chat provider repair (synthetic database)", () => {
       changes: [
         { id: SESSION(1), from: "openai" },
         { id: SESSION(3), from: "aimai1" },
+        { id: SESSION(5), from: "" },
       ],
     });
-    expect(lastChatProviderRepair(paths)).toEqual({ stamp: STAMP, count: 2 });
+    expect(lastChatProviderRepair(paths)).toEqual({ stamp: STAMP, count: 3 });
+    // The empty provider comes back exactly on undo.
+    expect(await undoChatProviderRepair(paths, STAMP)).toBe(3);
+    expect(providers(database)[SESSION(5)]).toBe("");
   });
 
   it("changes nothing and keeps no record when every chat is on the current provider", async () => {
@@ -135,15 +139,17 @@ describe("Codex chat provider repair (synthetic database)", () => {
       "CHAT_REPAIR_STAMP_INVALID",
     );
     await repairChatProviders(paths, STAMP);
+    expect(lastChatProviderRepair(paths)).toEqual({ stamp: STAMP, count: 1 });
     // Codex moved on to a newer database: the record no longer applies to what is there.
     writeFileSync(path.join(codex, "state_6.sqlite"), "");
+    expect(lastChatProviderRepair(paths)).toBeNull();
     expect(await undoChatProviderRepair(paths, STAMP)).toBe(0);
   });
 
   it("writes nothing while another process still has Codex's database open", async () => {
     const { home, database, paths } = makeCodex([{ id: SESSION(14), provider: "openai" }]);
     const before = readFileSync(database);
-    const busy = { openers: async () => [4242], waitMs: 0 };
+    const busy = { inUse: async () => true, waitMs: 0 };
     await expect(repairChatProviders(paths, STAMP, busy)).rejects.toThrow("CODEX_DATABASE_IN_USE");
     expect(readFileSync(database).equals(before)).toBe(true);
     expect(lastChatProviderRepair(paths)).toBeNull();
@@ -165,6 +171,77 @@ describe("Codex chat provider repair (synthetic database)", () => {
       reason: "CODEX_DATABASE_IN_USE",
     });
     expect(providers(database)).toEqual({ [SESSION(14)]: "openai" });
+  });
+
+  it("counts a check that cannot tell who has the database open as in use", async () => {
+    const { database, paths } = makeCodex([{ id: SESSION(15), provider: "openai" }]);
+    const unknown = {
+      inUse: () => Promise.reject(new Error("lsof timed out")),
+      waitMs: 0,
+    };
+    await expect(repairChatProviders(paths, STAMP, unknown)).rejects.toThrow(
+      "CODEX_DATABASE_IN_USE",
+    );
+    expect(providers(database)).toEqual({ [SESSION(15)]: "openai" });
+  });
+
+  it("leaves no undo behind when the change cannot be written", async () => {
+    const { database, paths } = makeCodex([{ id: SESSION(16), provider: "openai" }]);
+    const holder = new DatabaseSync(database);
+    holder.exec("begin immediate");
+    try {
+      // Past the in-use check (it would see this process's own handle on Windows) to the write.
+      const write = { inUse: async () => false, busyTimeoutMs: 0 };
+      await expect(repairChatProviders(paths, STAMP, write)).rejects.toThrow();
+    } finally {
+      holder.exec("rollback");
+      holder.close();
+    }
+    expect(providers(database)).toEqual({ [SESSION(16)]: "openai" });
+    expect(lastChatProviderRepair(paths)).toBeNull();
+    expect(existsSync(path.join(paths.dataDir, "chat-repair-backups", STAMP, "codex-state"))).toBe(
+      false,
+    );
+  });
+
+  it("uses the provider of the active profile, as Codex does", async () => {
+    const { database, paths } = makeCodex(
+      [
+        { id: SESSION(17), provider: "rly0" },
+        { id: SESSION(18), provider: "openai" },
+      ],
+      'model_provider = "openai"\nprofile = "relay"\n[profiles.relay]\nmodel_provider = "rly0"\n[model_providers.rly0]\nname = "rly0"\n',
+    );
+    expect(await repairChatProviders(paths, STAMP)).toBe(1);
+    expect(providers(database)).toEqual({ [SESSION(17)]: "rly0", [SESSION(18)]: "rly0" });
+  });
+
+  it("does not close Codex to undo a change that can no longer be undone", async () => {
+    const { home, codex, paths } = makeCodex([{ id: SESSION(19), provider: "openai" }]);
+    await repairChatProviders(paths, STAMP);
+    writeFileSync(path.join(codex, "state_6.sqlite"), "");
+    const calls: string[] = [];
+    const repair = new ChatRepair({
+      environment: {},
+      home,
+      codex: {
+        status: async () => ({ running: true }),
+        forceQuit: async () => {
+          calls.push("quit");
+          return { ok: true };
+        },
+        open: async () => {
+          calls.push("open");
+          return { ok: true };
+        },
+      },
+      sleep: async () => undefined,
+    });
+    expect(await repair.undoProviders(STAMP)).toMatchObject({
+      ok: false,
+      reason: "CHAT_REPAIR_UNDO_UNAVAILABLE",
+    });
+    expect(calls).toEqual([]);
   });
 
   it("is part of 修复聊天记录: Codex is closed, repaired, reopened, and the change can be undone", async () => {

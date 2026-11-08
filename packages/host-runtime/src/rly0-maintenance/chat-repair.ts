@@ -240,6 +240,18 @@ export class ChatRepair {
 
   /** Puts back the providers the given repair changed (Codex is closed meanwhile). */
   async undoProviders(stamp: string): Promise<ChatRepairResult> {
+    // Only the change 修复聊天记录 offers to undo; anything else leaves Codex running.
+    if (lastChatProviderRepair(this.#paths())?.stamp !== stamp) {
+      return {
+        ok: false,
+        repaired: 0,
+        providers: 0,
+        codexRestarted: false,
+        reopenFailed: false,
+        fixedOnCodexStart: 0,
+        reason: "CHAT_REPAIR_UNDO_UNAVAILABLE",
+      };
+    }
     const closed = await this.#closeCodex();
     if (!closed) {
       return {

@@ -1,5 +1,15 @@
 import { execFile } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -8,16 +18,18 @@ import {
   currentProvider,
   rolloutExists,
   stateDatabase,
+  withCodexDatabase,
   type ChatHealthPaths,
 } from "./chat-health.js";
 
 /**
  * 修复聊天记录 for the Codex chats Codex itself will not continue: Codex app-server 0.166+
- * compares a chat's stored provider (`threads.model_provider` in its state database) with
- * config.toml's `model_provider` and refuses the resume when they differ, whatever the request
- * names. With Codex closed, the stored provider of those chats becomes the current one; nothing
- * else in the row and nothing in the conversation files changes. Codex's database is copied
- * first, and the old values are kept next to the copy so the change can be undone exactly.
+ * compares a chat's stored provider (`threads.model_provider` in its state database) with the
+ * current one and refuses the resume when they differ (an empty or unconfigured stored provider is
+ * refused too), whatever the request names. With Codex closed and nothing else holding the
+ * database, the stored provider of those chats becomes the current one; nothing else in the row and
+ * nothing in the conversation files changes. Codex's database is copied first, and the old values
+ * are kept next to the copy so the change can be undone exactly.
  */
 
 const RECORD = "provider-changes.json";
@@ -50,10 +62,10 @@ function readRecord(file: string): ProviderRecord | null {
       value.schemaVersion !== 1 ||
       typeof value.database !== "string" ||
       typeof value.to !== "string" ||
+      !value.to ||
       !Array.isArray(value.changes) ||
       !value.changes.every(
-        (change) =>
-          change && typeof change.id === "string" && typeof change.from === "string" && change.from,
+        (change) => change && typeof change.id === "string" && typeof change.from === "string",
       )
     )
       return null;
@@ -68,54 +80,77 @@ async function writeRecord(file: string, record: ProviderRecord): Promise<void> 
 }
 
 /**
- * macOS: processes that still have Codex's database open (its app-server may outlive the window
- * for a moment). Elsewhere the repair relies on Codex being ended and on SQLite's own locks.
+ * Whether another process has one of these files open. Rejects when that cannot be told, which
+ * counts as "in use".
  */
-export type DatabaseOpeners = (database: string) => Promise<number[]>;
+export type DatabaseInUse = (files: readonly string[]) => Promise<boolean>;
 
-const lsofOpeners: DatabaseOpeners = (database) =>
-  process.platform !== "darwin"
-    ? Promise.resolve([])
-    : new Promise((resolve) => {
-        execFile(
-          "/usr/sbin/lsof",
-          ["-t", "--", database, `${database}-wal`],
-          { timeout: 10_000 },
-          (_error, stdout) =>
-            // lsof exits 1 when no process has the files open.
-            resolve(
-              String(stdout ?? "")
-                .split(/\s+/u)
-                .map(Number)
-                .filter((pid) => Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid),
-            ),
-        );
-      });
+/** macOS: `lsof` lists the processes; status 1 with no output means none. */
+function lsofInUse(files: readonly string[]): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    execFile("/usr/sbin/lsof", ["-t", "--", ...files], { timeout: 10_000 }, (error, stdout) => {
+      const others = String(stdout ?? "")
+        .split(/\s+/u)
+        .map(Number)
+        .some((pid) => Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid);
+      if (others) resolve(true);
+      else if (!error || (error as { code?: unknown }).code === 1) resolve(false);
+      else reject(error);
+    });
+  });
+}
 
-/** Waits (up to `timeoutMs`) until nothing else has the database open; false when it stays open. */
-async function databaseFree(
-  database: string,
-  openers: DatabaseOpeners,
-  timeoutMs: number,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
+/** libuv's exclusive sharing mode on Windows: the open fails (EBUSY) while anyone has the file. */
+const UV_FS_O_EXLOCK = 0x10000000;
+
+function exclusiveOpenInUse(files: readonly string[]): Promise<boolean> {
+  for (const file of files) {
+    let fd: number;
+    try {
+      fd = openSync(file, constants.O_RDONLY | UV_FS_O_EXLOCK);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") continue;
+      if (code === "EBUSY" || code === "EPERM" || code === "EACCES") return Promise.resolve(true);
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+    closeSync(fd);
+  }
+  return Promise.resolve(false);
+}
+
+const platformInUse: DatabaseInUse = (files) =>
+  process.platform === "darwin"
+    ? lsofInUse(files)
+    : process.platform === "win32"
+      ? exclusiveOpenInUse(files)
+      : Promise.resolve(false);
+
+export interface ChatProviderRepairOptions {
+  /** Whether another process has Codex's database open (tests); lsof / exclusive open otherwise. */
+  readonly inUse?: DatabaseInUse;
+  /** How long to wait for it to be let go (default 15 s). */
+  readonly waitMs?: number;
+  /** SQLite busy timeout of this module's connections (default 5 s). */
+  readonly busyTimeoutMs?: number;
+}
+
+/** Waits until nothing else has the database open; CODEX_DATABASE_IN_USE when it stays open. */
+async function waitUntilFree(database: string, options: ChatProviderRepairOptions): Promise<void> {
+  const inUse = options.inUse ?? platformInUse;
+  const deadline = Date.now() + (options.waitMs ?? 15_000);
   for (;;) {
-    if ((await openers(database)).length === 0) return true;
-    if (Date.now() >= deadline) return false;
+    const files = [database, `${database}-wal`].filter((file) => existsSync(file));
+    if (!(await inUse(files).catch(() => true))) return;
+    if (Date.now() >= deadline) throw new Error("CODEX_DATABASE_IN_USE");
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }
 
-export interface ChatProviderRepairOptions {
-  /** Who still has Codex's database open (tests); `lsof` on macOS. */
-  readonly openers?: DatabaseOpeners;
-  readonly waitMs?: number;
-}
-
-async function openDatabase(file: string) {
+async function openDatabase(file: string, options: ChatProviderRepairOptions) {
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(file);
-  db.exec("PRAGMA busy_timeout = 5000");
+  db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.trunc(options.busyTimeoutMs ?? 5_000))}`);
   return db;
 }
 
@@ -128,10 +163,70 @@ function backUpDatabase(database: string, target: string): void {
   }
 }
 
+/** The chats to move: not on `to`, and whose conversation file is still there. */
+async function pendingChanges(
+  database: string,
+  to: string,
+  options: ChatProviderRepairOptions,
+): Promise<ChatProviderChange[]> {
+  const db = await openDatabase(database, options);
+  try {
+    const rows = db
+      .prepare("select id, model_provider, rollout_path from threads where model_provider <> ?")
+      .all(to) as unknown as { id: unknown; model_provider: unknown; rollout_path: unknown }[];
+    return rows.flatMap((row) =>
+      typeof row.id === "string" &&
+      row.id &&
+      typeof row.model_provider === "string" &&
+      typeof row.rollout_path === "string" &&
+      rolloutExists(row.rollout_path)
+        ? [{ id: row.id, from: row.model_provider }]
+        : [],
+    );
+  } finally {
+    db.close();
+  }
+}
+
+/** Sets each chat still on `from` to `to`, in one transaction. Returns how many changed. */
+async function rewriteProviders(
+  database: string,
+  rows: readonly { readonly id: string; readonly from: string; readonly to: string }[],
+  options: ChatProviderRepairOptions,
+): Promise<number> {
+  const db = await openDatabase(database, options);
+  try {
+    const update = db.prepare(
+      "update threads set model_provider = ? where id = ? and model_provider = ?",
+    );
+    let open = false;
+    try {
+      db.exec("begin immediate");
+      open = true;
+      let changed = 0;
+      for (const row of rows) changed += Number(update.run(row.to, row.id, row.from).changes);
+      db.exec("commit");
+      open = false;
+      return changed;
+    } catch (error) {
+      if (open) {
+        try {
+          db.exec("rollback");
+        } catch {
+          // Closing the connection rolls back what is left.
+        }
+      }
+      throw error;
+    }
+  } finally {
+    db.close();
+  }
+}
+
 /**
- * Sets the stored provider of every Codex chat on another provider (a configured one, or one no
- * longer configured) to the current one; chats whose conversation file is gone are left alone.
- * Codex must be closed. Returns how many chats changed.
+ * Sets the stored provider of every Codex chat on another provider (a configured one, one no
+ * longer configured, or none) to the current one; chats whose conversation file is gone are left
+ * alone. Codex must be closed. Returns how many chats changed.
  */
 export async function repairChatProviders(
   paths: ChatHealthPaths,
@@ -142,28 +237,16 @@ export async function repairChatProviders(
   const to = currentProvider(paths.codexHome);
   const database = paths.codexStateDir ? stateDatabase(paths.codexStateDir) : null;
   if (!to || !database) return 0;
-  // Codex's app-server keeps its own copy of these rows; nothing is written while it is up.
-  if (!(await databaseFree(database, options.openers ?? lsofOpeners, options.waitMs ?? 15_000)))
-    throw new Error("CODEX_DATABASE_IN_USE");
-  const db = await openDatabase(database);
-  try {
-    const rows = db
-      .prepare(
-        "select id, model_provider, rollout_path from threads where model_provider <> ? and model_provider <> ''",
-      )
-      .all(to) as unknown as { id: unknown; model_provider: unknown; rollout_path: unknown }[];
-    const changes: ChatProviderChange[] = rows.flatMap((row) =>
-      typeof row.id === "string" &&
-      row.id &&
-      typeof row.model_provider === "string" &&
-      typeof row.rollout_path === "string" &&
-      rolloutExists(row.rollout_path)
-        ? [{ id: row.id, from: row.model_provider }]
-        : [],
-    );
+  return withCodexDatabase(async () => {
+    // Codex's app-server keeps its own copy of these rows: nothing is written while anything else
+    // has the database open.
+    await waitUntilFree(database, options);
+    const changes = await pendingChanges(database, to, options);
     if (changes.length === 0) return 0;
+    // No connection of ours is open while copying (see withCodexDatabase).
     const backup = chatRepairBackupDir(paths, stamp);
-    backUpDatabase(database, path.join(backup, "codex-state"));
+    const copy = path.join(backup, "codex-state");
+    backUpDatabase(database, copy);
     const recordFile = path.join(backup, RECORD);
     await writeRecord(recordFile, {
       schemaVersion: 1,
@@ -172,28 +255,29 @@ export async function repairChatProviders(
       to,
       changes,
     });
-    const update = db.prepare(
-      "update threads set model_provider = ? where id = ? and model_provider = ?",
-    );
-    let changed = 0;
-    db.exec("begin immediate");
     try {
-      for (const change of changes)
-        changed += Number(update.run(to, change.id, change.from).changes);
-      db.exec("commit");
+      return await rewriteProviders(
+        database,
+        changes.map((change) => ({ id: change.id, from: change.from, to })),
+        options,
+      );
     } catch (error) {
-      db.exec("rollback");
-      // Nothing was written: there is nothing to undo either.
+      // Nothing was written: there is nothing to undo, and the copy is not needed.
       rmSync(recordFile, { force: true });
+      rmSync(copy, { recursive: true, force: true });
       throw error;
     }
-    return changed;
-  } finally {
-    db.close();
-  }
+  });
 }
 
-/** The newest provider change, when it has not been undone yet. */
+/** The database a record's changes can be undone in: the one it changed, while Codex still uses it. */
+function undoableDatabase(paths: ChatHealthPaths, record: ProviderRecord | null): string | null {
+  if (!record || record.undoneAt) return null;
+  const database = paths.codexStateDir ? stateDatabase(paths.codexStateDir) : null;
+  return database && path.resolve(database) === path.resolve(record.database) ? database : null;
+}
+
+/** The newest provider change, when it can still be undone. */
 export function lastChatProviderRepair(paths: ChatHealthPaths): ChatProviderUndo | null {
   const root = path.dirname(chatRepairBackupDir(paths, "x"));
   let stamps: string[];
@@ -205,7 +289,7 @@ export function lastChatProviderRepair(paths: ChatHealthPaths): ChatProviderUndo
   for (const stamp of stamps.sort().reverse()) {
     const record = readRecord(path.join(root, stamp, RECORD));
     if (!record) continue;
-    return record.undoneAt ? null : { stamp, count: record.changes.length };
+    return undoableDatabase(paths, record) ? { stamp, count: record.changes.length } : null;
   }
   return null;
 }
@@ -222,30 +306,16 @@ export async function undoChatProviderRepair(
   if (!STAMP.test(stamp)) throw new Error("CHAT_REPAIR_STAMP_INVALID");
   const file = path.join(chatRepairBackupDir(paths, stamp), RECORD);
   const record = readRecord(file);
-  if (!record || record.undoneAt) return 0;
-  const database = paths.codexStateDir ? stateDatabase(paths.codexStateDir) : null;
-  // Another database than the one the repair changed: nothing of it is undone.
-  if (!database || path.resolve(database) !== path.resolve(record.database)) return 0;
-  if (!(await databaseFree(database, options.openers ?? lsofOpeners, options.waitMs ?? 15_000)))
-    throw new Error("CODEX_DATABASE_IN_USE");
-  const db = await openDatabase(database);
-  try {
-    const update = db.prepare(
-      "update threads set model_provider = ? where id = ? and model_provider = ?",
+  const database = undoableDatabase(paths, record);
+  if (!record || !database) return 0;
+  return withCodexDatabase(async () => {
+    await waitUntilFree(database, options);
+    const restored = await rewriteProviders(
+      database,
+      record.changes.map((change) => ({ id: change.id, from: record.to, to: change.from })),
+      options,
     );
-    let restored = 0;
-    db.exec("begin immediate");
-    try {
-      for (const change of record.changes)
-        restored += Number(update.run(change.from, change.id, record.to).changes);
-      db.exec("commit");
-    } catch (error) {
-      db.exec("rollback");
-      throw error;
-    }
     await writeRecord(file, { ...record, undoneAt: new Date().toISOString() });
     return restored;
-  } finally {
-    db.close();
-  }
+  });
 }

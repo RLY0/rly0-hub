@@ -8,7 +8,7 @@
 
 ### Fixes
 - macOS: the update page shows the Hub's own version instead of "0.0.0 / 暂时连不上发布页" when the app carries no payload metadata.
-- Older Codex chats can be continued again. Codex Desktop 26.1029+ refuses to continue a chat started on another provider than the current one (for example `openai` while the Hub's channel is `rly0`), whatever the Hub asks. 维护 → 修复聊天记录 now finds these chats and moves them onto the current provider: Codex is closed, its chat database is backed up, only each chat's stored provider is changed, and Codex is opened again; "撤销上次线路修改" puts them back exactly.
+- Older Codex chats can be continued again. Codex Desktop 26.1029+ refuses to continue a chat started on another provider than the current one (for example `openai` while the Hub's channel is `rly0`), whatever the Hub asks. 维护 → 修复聊天记录 now finds these chats and moves them onto the current provider: Codex is closed, its chat database is backed up, only each chat's stored provider is changed, and Codex is opened again; nothing is written while another program (the Codex CLI, the VS Code extension) still has that database open. "撤销上次线路修改" puts them back exactly.
 
 ### 更新
 - Mac：第一次打开 Hub 不用再输入命令。先点“完成”，再到“系统设置 → 隐私与安全性”点一次“仍要打开”（每个新版本一次）；DMG 里的说明和发布页都写了步骤。
@@ -16,7 +16,7 @@
 
 ### 修复
 - Mac：更新页不再误报“当前版本 0.0.0、暂时连不上发布页”，读不到安装包信息时直接读 App 自己的版本号。
-- 旧对话又能接着聊了。新版 Codex（26.1029 起）会拒绝接着聊“当初用的线路和现在不同”的对话（比如当初是 openai、现在 Hub 用 rly0），Hub 怎么请求都不行。现在“维护 → 修复聊天记录”能找出这些对话并改到现在的线路：先关闭 Codex、完整备份它的聊天数据库，只改每条对话的线路记录，再重新打开 Codex；“撤销上次线路修改”可以原样改回。
+- 旧对话又能接着聊了。新版 Codex（26.1029 起）会拒绝接着聊“当初用的线路和现在不同”的对话（比如当初是 openai、现在 Hub 用 rly0），Hub 怎么请求都不行。现在“维护 → 修复聊天记录”能找出这些对话并改到现在的线路：先关闭 Codex、完整备份它的聊天数据库，只改每条对话的线路记录，再重新打开 Codex；如果还有别的程序（命令行版 Codex、VS Code 插件）开着这个数据库，就什么都不改并提示你先关掉。“撤销上次线路修改”可以原样改回。
 
 ## 0.11.37
 

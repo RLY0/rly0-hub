@@ -19,6 +19,7 @@ import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 
 import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
+import { resolveCodexEndpoint } from "./codex-endpoint.js";
 import { copyPrivateLocalFile, protectPrivateLocalDirectory } from "./private-quota-cache.js";
 
 /**
@@ -303,8 +304,26 @@ export function stateDatabase(codexHome: string): string | null {
   }
 }
 
+let codexDatabaseQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs `task` once no other read or write of Codex's state database in this process is running.
+ * On macOS, closing any handle to a SQLite file drops every lock this process holds on it: a copy
+ * taken while a connection of ours is open could let another process discard that connection's
+ * writes along with the WAL.
+ */
+export function withCodexDatabase<T>(task: () => Promise<T>): Promise<T> {
+  const run = codexDatabaseQueue.then(task, task);
+  codexDatabaseQueue = run.catch(() => undefined);
+  return run;
+}
+
 /** Codex's thread list, read from a private copy so Codex's own database is never opened. */
-export async function readCodexThreads(codexHome: string): Promise<CodexThreadRow[] | null> {
+export function readCodexThreads(codexHome: string): Promise<CodexThreadRow[] | null> {
+  return withCodexDatabase(() => readCodexThreadsNow(codexHome));
+}
+
+async function readCodexThreadsNow(codexHome: string): Promise<CodexThreadRow[] | null> {
   const database = stateDatabase(codexHome);
   if (!database) return null;
   const copy = mkdtempSync(path.join(os.tmpdir(), "rly0-chat-scan-"));
@@ -345,12 +364,13 @@ export function configuredProviders(codexHome: string): Set<string> | null {
   return new Set(["openai", "ollama", "lmstudio", "oss", ...names]);
 }
 
-/** The provider new and resumed chats run on: config.toml's `model_provider`, else `openai`. */
+/**
+ * The provider new and resumed chats run on, with Codex's precedence: the active profile's
+ * `model_provider`, then config.toml's, else `openai`.
+ */
 export function currentProvider(codexHome: string): string | null {
   const config = codexSettings(codexHome);
-  if (!config) return null;
-  const value = config.model_provider;
-  return typeof value === "string" && value ? value : "openai";
+  return config ? resolveCodexEndpoint(config).providerId : null;
 }
 
 /** Whether a conversation file Codex's list points at is there (plain or `.zst`). */

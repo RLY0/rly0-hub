@@ -637,15 +637,18 @@ window.registerHubSystem = ({
       const result = await call("maintenance.chatRepair", { includeDeleted }).catch(() => null);
       if (!alive()) return;
       if (!result || !result.ok) {
+        // The other fixes still ran when only the provider change failed.
+        const others =
+          result && result.repaired > 0 ? `；其余 ${result.repaired} 条已修复（修改前已备份）` : "";
         toast(
           result && result.reason === "CODEX_STILL_RUNNING"
             ? "Codex 没能关闭，请先用“强制关闭 Codex”再修复"
             : result && result.reason === "backup-failed"
               ? "没能先备份聊天记录，所以什么都没改，请重开 Hub 后再试"
               : result && result.reason === "CODEX_DATABASE_IN_USE"
-                ? "Codex 的后台还没完全退出，线路没改；稍等几秒再点修复"
+                ? `Codex 的聊天数据库还被别的程序开着（Codex 后台、命令行版 Codex 或 VS Code 插件），线路没改；关掉它们后再点修复${others}`
                 : result && result.reason === "provider-repair-failed"
-                  ? "线路没改成，Codex 的聊天记录保持原样，请重开 Hub 后再试"
+                  ? `线路没改成，Codex 的聊天记录保持原样，请重开 Hub 后再试${others}`
                   : "修复没有完成，请重开 Hub 后再试",
         );
       } else if (!result.repaired && !result.fixedOnCodexStart) {
@@ -680,8 +683,10 @@ window.registerHubSystem = ({
           ? result && result.reason === "CODEX_STILL_RUNNING"
             ? "Codex 没能关闭，请先用“强制关闭 Codex”再撤销"
             : result && result.reason === "CODEX_DATABASE_IN_USE"
-              ? "Codex 的后台还没完全退出，没有撤销；稍等几秒再试"
-              : "没能撤销，Codex 的聊天记录保持原样"
+              ? "Codex 的聊天数据库还被别的程序开着（Codex 后台、命令行版 Codex 或 VS Code 插件），没有撤销；关掉它们后再试"
+              : result && result.reason === "CHAT_REPAIR_UNDO_UNAVAILABLE"
+                ? "这次线路修改已经撤销过，或 Codex 已换了新的数据库，不能再撤销"
+                : "没能撤销，Codex 的聊天记录保持原样"
           : `已把 ${result.providers || 0} 条对话改回原来的线路${result.reopenFailed ? "，请手动打开 Codex" : ""}`,
       );
       await scanChats(true);
