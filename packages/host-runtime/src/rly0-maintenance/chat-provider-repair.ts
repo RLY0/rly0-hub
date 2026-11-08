@@ -135,15 +135,38 @@ export interface ChatProviderRepairOptions {
   readonly busyTimeoutMs?: number;
 }
 
+function databaseInUse(database: string, options: ChatProviderRepairOptions): Promise<boolean> {
+  const files = [database, `${database}-wal`].filter((file) => existsSync(file));
+  if (files.length === 0) return Promise.resolve(false);
+  return (options.inUse ?? platformInUse)(files).catch(() => true);
+}
+
 /** Waits until nothing else has the database open; CODEX_DATABASE_IN_USE when it stays open. */
 async function waitUntilFree(database: string, options: ChatProviderRepairOptions): Promise<void> {
-  const inUse = options.inUse ?? platformInUse;
   const deadline = Date.now() + (options.waitMs ?? 15_000);
-  for (;;) {
-    const files = [database, `${database}-wal`].filter((file) => existsSync(file));
-    if (!(await inUse(files).catch(() => true))) return;
+  while (await databaseInUse(database, options)) {
     if (Date.now() >= deadline) throw new Error("CODEX_DATABASE_IN_USE");
     await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+/** How many of these chats are on `provider` now. */
+async function countOn(
+  database: string,
+  ids: readonly string[],
+  provider: string,
+  options: ChatProviderRepairOptions,
+): Promise<number> {
+  const db = await openDatabase(database, options);
+  try {
+    const query = db.prepare(
+      "select count(*) as n from threads where id = ? and model_provider = ?",
+    );
+    let n = 0;
+    for (const id of ids) n += Number((query.get(id, provider) as { n: unknown }).n);
+    return n;
+  } finally {
+    db.close();
   }
 }
 
@@ -245,8 +268,9 @@ export async function repairChatProviders(
     if (changes.length === 0) return 0;
     // No connection of ours is open while copying (see withCodexDatabase).
     const backup = chatRepairBackupDir(paths, stamp);
-    const copy = path.join(backup, "codex-state");
-    backUpDatabase(database, copy);
+    backUpDatabase(database, path.join(backup, "codex-state"));
+    // Opened by something else while it was copied: nothing is written.
+    if (await databaseInUse(database, options)) throw new Error("CODEX_DATABASE_IN_USE");
     const recordFile = path.join(backup, RECORD);
     await writeRecord(recordFile, {
       schemaVersion: 1,
@@ -262,9 +286,15 @@ export async function repairChatProviders(
         options,
       );
     } catch (error) {
-      // Nothing was written: there is nothing to undo, and the copy is not needed.
-      rmSync(recordFile, { force: true });
-      rmSync(copy, { recursive: true, force: true });
+      // The record stays only when part of the change landed anyway (a commit can fail after
+      // writing); a record with nothing to undo would hide an earlier change's undo.
+      const landed = await countOn(
+        database,
+        changes.map((change) => change.id),
+        to,
+        options,
+      ).catch(() => 1);
+      if (landed === 0) rmSync(recordFile, { force: true });
       throw error;
     }
   });
@@ -315,7 +345,10 @@ export async function undoChatProviderRepair(
       record.changes.map((change) => ({ id: change.id, from: record.to, to: change.from })),
       options,
     );
-    await writeRecord(file, { ...record, undoneAt: new Date().toISOString() });
+    // The providers are back even if this mark cannot be written; undoing again changes nothing.
+    await writeRecord(file, { ...record, undoneAt: new Date().toISOString() }).catch(
+      () => undefined,
+    );
     return restored;
   });
 }

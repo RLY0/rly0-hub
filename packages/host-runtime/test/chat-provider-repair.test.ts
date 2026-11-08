@@ -199,9 +199,46 @@ describe("Codex chat provider repair (synthetic database)", () => {
     }
     expect(providers(database)).toEqual({ [SESSION(16)]: "openai" });
     expect(lastChatProviderRepair(paths)).toBeNull();
-    expect(existsSync(path.join(paths.dataDir, "chat-repair-backups", STAMP, "codex-state"))).toBe(
-      false,
+    expect(
+      existsSync(path.join(paths.dataDir, "chat-repair-backups", STAMP, "provider-changes.json")),
+    ).toBe(false);
+  });
+
+  it("writes nothing when the database was opened while it was being copied", async () => {
+    const { database, paths } = makeCodex([{ id: SESSION(20), provider: "openai" }]);
+    let checks = 0;
+    const openedMeanwhile = { inUse: async () => ++checks > 1, waitMs: 0 };
+    await expect(repairChatProviders(paths, STAMP, openedMeanwhile)).rejects.toThrow(
+      "CODEX_DATABASE_IN_USE",
     );
+    expect(checks).toBe(2);
+    expect(providers(database)).toEqual({ [SESSION(20)]: "openai" });
+    expect(lastChatProviderRepair(paths)).toBeNull();
+  });
+
+  it("does not offer to move chats onto a current provider that is not defined", async () => {
+    const { home } = makeCodex(
+      [
+        { id: SESSION(21), provider: "ghost" },
+        { id: SESSION(22), provider: "openai" },
+      ],
+      'model_provider = "ghost"\n',
+    );
+    const repair = new ChatRepair({
+      environment: {},
+      home,
+      codex: {
+        status: async () => ({ running: false }),
+        forceQuit: async () => ({ ok: true }),
+        open: async () => ({ ok: true }),
+      },
+      sleep: async () => undefined,
+    });
+    const found = await repair.scan();
+    expect(found.groups.filter((g) => g.kind.startsWith("codex-provider"))).toEqual([
+      expect.objectContaining({ kind: "codex-provider-not-current", count: 1 }),
+    ]);
+    expect(found.broken).toBe(1);
   });
 
   it("uses the provider of the active profile, as Codex does", async () => {

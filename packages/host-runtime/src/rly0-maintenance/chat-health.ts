@@ -313,7 +313,8 @@ let codexDatabaseQueue: Promise<unknown> = Promise.resolve();
  * writes along with the WAL.
  */
 export function withCodexDatabase<T>(task: () => Promise<T>): Promise<T> {
-  const run = codexDatabaseQueue.then(task, task);
+  // A task must not queue another one (readCodexThreads included): it would wait for itself.
+  const run = codexDatabaseQueue.then(() => task());
   codexDatabaseQueue = run.catch(() => undefined);
   return run;
 }
@@ -420,10 +421,15 @@ async function scanCodexChats(paths: ChatHealthPaths, groups: Groups): Promise<n
       ...(row.archived ? { archived: true } : {}),
     };
     if (!rolloutExists(row.rollout_path)) groups.add("codex-rollout-missing", item);
-    else if (providers && !providers.has(row.model_provider))
-      groups.add("codex-provider-missing", item);
-    else if (current && row.model_provider && row.model_provider !== current)
-      groups.add("codex-provider-not-current", item);
+    // A chat already on the current provider is not one to move, even when that provider is not
+    // defined (config.toml is the problem then). Both are null only without a readable config.
+    else if (current !== null && row.model_provider !== current)
+      groups.add(
+        providers && !providers.has(row.model_provider)
+          ? "codex-provider-missing"
+          : "codex-provider-not-current",
+        item,
+      );
   }
   const onDisk = new Set<string>();
   rolloutIds(path.join(paths.codexHome, "sessions"), onDisk);
