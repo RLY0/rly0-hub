@@ -817,7 +817,12 @@ export {
   type CodexSshConnection,
   type CodexSshDraft,
 } from "./remote-connections.js";
-export { desktopCompatibilitySchema } from "./desktop-compatibility.js";
+export {
+  desktopCompatibilitySchema,
+  desktopVersionFamily,
+  isVerifiedDesktopVersionFamily,
+  RLY0_VERIFIED_DESKTOP_VERSION_FAMILIES,
+} from "./desktop-compatibility.js";
 export type { DesktopCompatibility } from "./desktop-compatibility.js";
 export {
   RLY0_CODEX_PREFERENCES_GET_METHOD,

@@ -4,7 +4,10 @@ import { open, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
-import type { DesktopCompatibility } from "@codexhost/shared-contracts";
+import {
+  isVerifiedDesktopVersionFamily,
+  type DesktopCompatibility,
+} from "@codexhost/shared-contracts";
 import { resolveRly0DiagnosticsDir } from "./paths.js";
 import { sanitizeDiagnosticsText } from "./sanitize.js";
 
@@ -33,7 +36,7 @@ const controllerSchema = z.object({
   pid,
   startedAt: timestamp,
   renderer: z.object({
-    state: z.enum(["installed", "installing", "unavailable"]),
+    state: z.enum(["installed", "installing", "unavailable", "disabled"]),
     error: z.string().max(1000).nullable(),
     lastError: z.string().max(1000).nullable().optional(),
     updatedAt: timestamp,
@@ -43,6 +46,8 @@ const savedSchema = z.object({
   schemaVersion: z.literal(1),
   lastCompatibleVersion: version.nullable(),
   notifiedFor: z.string().max(256).nullable(),
+  /** The user chose full mode for this Desktop version; older state files lack it. */
+  fullModeFor: version.nullable().default(null),
 });
 type SavedState = z.infer<typeof savedSchema>;
 
@@ -93,8 +98,12 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
   readonly #now: () => number;
   readonly #directory: string;
   readonly #controllerDirectory: string;
-  #saved: SavedState = { schemaVersion: 1, lastCompatibleVersion: null, notifiedFor: null };
-  #loaded = false;
+  #saved: SavedState = {
+    schemaVersion: 1,
+    lastCompatibleVersion: null,
+    notifiedFor: null,
+    fullModeFor: null,
+  };
   #pending: Promise<DesktopCompatibility> | undefined;
   #cached: DesktopCompatibility | undefined;
   #cacheUntil = 0;
@@ -177,14 +186,51 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     }
   }
 
-  async #observe(): Promise<DesktopCompatibility> {
-    if (!this.#loaded) {
-      const saved = savedSchema.safeParse(
-        await readJson(path.join(this.#directory, "desktop-compatibility-state-v1.json")),
-      );
-      if (saved.success) this.#saved = saved.data;
-      this.#loaded = true;
+  /** Re-read every time: the open decision and the page's choice may come from other instances. */
+  async #load(): Promise<void> {
+    const saved = savedSchema.safeParse(
+      await readJson(path.join(this.#directory, "desktop-compatibility-state-v1.json")),
+    );
+    if (saved.success) this.#saved = saved.data;
+  }
+
+  async #installedVersion(): Promise<string | null> {
+    const inspected = inspectSchema.safeParse(await this.#inspect().catch(() => null));
+    return inspected.success ? (inspected.data.desktop?.version ?? null) : null;
+  }
+
+  /**
+   * How the Hub opens Codex. Full mode for the version whose interface integration was last
+   * proven, a version the user chose full mode for, or a version family this Hub build ships as
+   * verified (so a fresh install is not stuck in safe mode); safe mode for any other version.
+   * An undeterminable version keeps full mode: this decision must never stop Codex from opening.
+   */
+  async decideLaunchMode(): Promise<"full" | "safe"> {
+    const version = await this.#installedVersion();
+    if (!version) return "full";
+    await this.#load();
+    if (
+      version === this.#saved.lastCompatibleVersion ||
+      version === this.#saved.fullModeFor ||
+      isVerifiedDesktopVersionFamily(version)
+    ) {
+      return "full";
     }
+    return "safe";
+  }
+
+  /** "以完整模式重启 Codex": applies to the installed version only. */
+  async allowFullMode(): Promise<void> {
+    const version = await this.#installedVersion();
+    if (!version) return;
+    await this.#load();
+    this.#saved = { ...this.#saved, fullModeFor: version };
+    await this.#save();
+    this.#cacheUntil = 0;
+  }
+
+  async #observe(): Promise<DesktopCompatibility> {
+    await this.#load();
     const result: DesktopCompatibility = {
       checkedAt: new Date(this.#now()).toISOString(),
       state: "unavailable",
@@ -257,6 +303,13 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     }
     const renderer = status.renderer;
     result.checks.interfaceConnected = renderer.state === "installed";
+    if (renderer.state === "disabled") {
+      return finish(
+        "safe-mode",
+        "UNVERIFIED_VERSION",
+        `Codex 新版本 v${desktop.version} 还没经过 Hub 验证，已用安全模式打开：Codex 和叫 CC 干活都能正常用，Hub 的界面增强暂时关闭。`,
+      );
+    }
     if (renderer.state !== "installed") {
       // So a saved diagnostics file says why, without asking the user for the Controller's file.
       // Redacted here, not only on export: this result also reaches the page.
@@ -273,6 +326,7 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
           schemaVersion: 1,
           lastCompatibleVersion: desktop.version,
           notifiedFor: null,
+          fullModeFor: null,
         };
         await this.#save();
       }
@@ -303,12 +357,20 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
   /** Unchanged version/issue is not repeated; a proven recovery resets the notice. */
   async takeNotice(): Promise<{ title: string; body: string } | null> {
     const result = await this.check();
-    if (!result.checks.managedRuntime || !["incompatible", "unavailable"].includes(result.state))
+    if (
+      !result.checks.managedRuntime ||
+      !["incompatible", "unavailable", "safe-mode"].includes(result.state)
+    )
       return null;
     const key = `${result.desktopVersion ?? "unknown"}:${result.issue}`;
     if (this.#saved.notifiedFor === key) return null;
     this.#saved = { ...this.#saved, notifiedFor: key };
     await this.#save();
+    if (result.state === "safe-mode")
+      return {
+        title: "Codex 已用安全模式打开",
+        body: `${result.message} 需要界面增强时，打开 Hub → 设置 → 维护工具 → 系统诊断，选“以完整模式重启 Codex”。`,
+      };
     return {
       title: "Codex 界面连接需要检查",
       body: `${result.message} 打开 Hub → 设置 → 维护工具 → 反馈问题。`,

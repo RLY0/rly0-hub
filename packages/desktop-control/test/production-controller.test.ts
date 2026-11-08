@@ -5,9 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   parseDesktopControllerArguments,
   runDesktopController,
+  RENDERER_DISABLED_MESSAGE,
   serializeDesktopControllerReadiness,
   type DesktopControllerDependencies,
 } from "../src/production-controller.js";
+import type { DesktopControllerStatusDocument } from "../src/controller-status.js";
 import type { RendererCdpControlSession } from "../src/renderer-cdp-control-session.js";
 import { CdpConnectionClosedError } from "../src/cdp-client.js";
 
@@ -78,6 +80,68 @@ describe("production Desktop Controller", () => {
         "bad",
       ]),
     ).toThrow("32 lowercase hexadecimal");
+  });
+
+  it("accepts --no-renderer once as a valueless safe-mode switch", () => {
+    const base = [
+      "--renderer-cdp-endpoint",
+      "http://127.0.0.1:43123",
+      "--renderer",
+      path.resolve("fixtures/renderer-extension.js"),
+      "--attachment-port",
+      "43124",
+      "--attachment-nonce",
+      attachmentNonce,
+    ];
+    expect(parseDesktopControllerArguments([...base, "--no-renderer"]).noRenderer).toBe(true);
+    expect(parseDesktopControllerArguments(["--no-renderer", ...base]).noRenderer).toBe(true);
+    expect(parseDesktopControllerArguments(base)).not.toHaveProperty("noRenderer");
+    expect(() =>
+      parseDesktopControllerArguments([...base, "--no-renderer", "--no-renderer"]),
+    ).toThrow("only be provided once");
+  });
+
+  it("in safe mode keeps the handshake and attachment but never installs the Renderer", async () => {
+    const abort = new AbortController();
+    const ready = vi.fn();
+    const install = vi.fn();
+    const readRenderer = vi.fn(async () => "production renderer");
+    const bringToFront = vi.fn(async () => {
+      throw new Error("no window yet");
+    });
+    const published: DesktopControllerStatusDocument[] = [];
+    const server = attachmentServer();
+    let handlers!: Parameters<DesktopControllerDependencies["startAttachmentServer"]>[0];
+    let ticks = 0;
+    await runDesktopController({ ...controllerOptions(), noRenderer: true }, abort.signal, {
+      readRenderer,
+      install,
+      startAttachmentServer: vi.fn(async (options) => {
+        handlers = options;
+        return server;
+      }),
+      ready,
+      publishStatus: (document) => published.push(document),
+      bringToFront,
+      sleep: vi.fn(async () => {
+        ticks += 1;
+        if (ticks === 3) abort.abort();
+      }),
+      monitorIntervalMs: 1,
+    });
+
+    expect(ready).toHaveBeenCalledWith({ schemaVersion: 2, state: "compatible", issues: [] });
+    expect(install).not.toHaveBeenCalled();
+    expect(readRenderer).not.toHaveBeenCalled();
+    expect(published.map((document) => document.renderer.state)).toEqual(["disabled"]);
+    // Attach still succeeds (the Desktop is running) even when the window cannot be raised.
+    await expect(handlers.attach()).resolves.toBeUndefined();
+    expect(bringToFront).toHaveBeenCalledWith("http://127.0.0.1:43123");
+    await expect(handlers.openLocalPage?.("http://127.0.0.1:1/")).rejects.toThrow(
+      RENDERER_DISABLED_MESSAGE,
+    );
+    expect(install).not.toHaveBeenCalled();
+    expect(server.close).toHaveBeenCalledOnce();
   });
 
   it("serializes only strict and bounded readiness results", () => {

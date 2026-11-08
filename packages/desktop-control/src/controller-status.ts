@@ -12,7 +12,8 @@ import path from "node:path";
  * failure stays visible after the Controller's stderr is gone.
  */
 export interface RendererIntegrationStatus {
-  state: "installing" | "installed" | "unavailable";
+  /** `disabled`: started with `--no-renderer` (safe mode); no installation is attempted. */
+  state: "installing" | "installed" | "unavailable" | "disabled";
   /** The current failure; cleared once installed. */
   error: string | null;
   failures: number;
@@ -54,6 +55,7 @@ export interface RendererStatusReporter {
   installing(): void;
   installed(): void;
   failed(error: unknown): void;
+  disabled(): void;
 }
 
 /** Publishes only state changes; a healthy session is re-validated every tick. */
@@ -96,6 +98,16 @@ export function createRendererStatusReporter(
         lastError: current?.lastError ?? null,
         lastFailedAt: current?.lastFailedAt ?? null,
         lastInstalledAt: now(),
+      });
+    },
+    disabled() {
+      update({
+        state: "disabled",
+        error: null,
+        failures: 0,
+        lastError: null,
+        lastFailedAt: null,
+        lastInstalledAt: null,
       });
     },
     failed(error) {

@@ -211,3 +211,70 @@ it("coalesces simultaneous checks and caches briefly rather than repeatedly invo
   await monitor.check();
   expect(f.inspect).toHaveBeenCalledTimes(2);
 });
+
+it("maps a safe-mode Controller to safe-mode with one plain notice per version", async () => {
+  const f = await fixture();
+  f.native.desktop.version = "26.1200.1";
+  f.startupRecord.desktop.version = f.native.desktop.version;
+  f.controller.renderer.state = "disabled";
+  await f.save();
+  const result = await f.monitor.check();
+  expect(desktopCompatibilitySchema.parse(result)).toMatchObject({
+    state: "safe-mode",
+    issue: "UNVERIFIED_VERSION",
+    checks: { interfaceConnected: false },
+  });
+  expect(result.message).toBe(
+    "Codex 新版本 v26.1200.1 还没经过 Hub 验证，已用安全模式打开：Codex 和叫 CC 干活都能正常用，Hub 的界面增强暂时关闭。",
+  );
+  expect(result.rendererError).toBeUndefined();
+  const notice = await f.monitor.takeNotice();
+  expect(notice?.title).toBe("Codex 已用安全模式打开");
+  expect(notice?.body).toContain("以完整模式重启 Codex");
+  expect(await f.monitor.takeNotice()).toBeNull();
+  expect(await new Rly0DesktopCompatibility(f.options).takeNotice()).toBeNull();
+});
+
+it.each([
+  ["the last proven version", "26.1021.3705.0", "26.1021.3705.0", "full"],
+  ["a changed, unlisted version", "26.1021.3705.0", "26.1200.1", "safe"],
+  ["a first install on a listed family", null, "26.1103.5130.0", "full"],
+  ["a first install on an unlisted version", null, "26.1200.1", "safe"],
+  ["a changed version in a listed family", "26.1021.3705.0", "26.1029.1.0", "full"],
+] as const)("opens %s in the decided mode", async (_label, proven, installed, mode) => {
+  const f = await fixture();
+  // A state file from before full-mode choices existed (no `fullModeFor`).
+  await writeFile(
+    path.join(f.diagnostics, "desktop-compatibility-state-v1.json"),
+    JSON.stringify({ schemaVersion: 1, lastCompatibleVersion: proven, notifiedFor: null }),
+  );
+  f.native.desktop.version = installed;
+  expect(await f.monitor.decideLaunchMode()).toBe(mode);
+});
+
+it("keeps full mode when the installed version cannot be read", async () => {
+  const f = await fixture();
+  f.inspect.mockRejectedValueOnce(new Error("no launcher"));
+  expect(await f.monitor.decideLaunchMode()).toBe("full");
+});
+
+it("remembers a full-mode choice for the current version only, then proves it on success", async () => {
+  const f = await fixture();
+  const statePath = path.join(f.diagnostics, "desktop-compatibility-state-v1.json");
+  f.native.desktop.version = "26.1200.1";
+  expect(await f.monitor.decideLaunchMode()).toBe("safe");
+  await f.monitor.allowFullMode();
+  expect(await f.monitor.decideLaunchMode()).toBe("full");
+  // A fresh instance (another Hub process) reads the same choice.
+  expect(await new Rly0DesktopCompatibility(f.options).decideLaunchMode()).toBe("full");
+  f.native.desktop.version = "26.1300.1";
+  expect(await f.monitor.decideLaunchMode()).toBe("safe");
+  // Full mode connected on 26.1200.1: it becomes the proven version.
+  f.native.desktop.version = "26.1200.1";
+  f.startupRecord.desktop.version = "26.1200.1";
+  await f.save();
+  expect((await f.monitor.check()).state).toBe("ready");
+  const saved = JSON.parse(await readFile(statePath, "utf8"));
+  expect(saved).toMatchObject({ lastCompatibleVersion: "26.1200.1", fullModeFor: null });
+  expect(await f.monitor.decideLaunchMode()).toBe("full");
+});

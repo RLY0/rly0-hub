@@ -843,3 +843,85 @@ describe("Tray notice thresholds", () => {
     ).toEqual([]);
   });
 });
+
+describe("Codex safe-mode launch from the Hub", () => {
+  function control(mode: "full" | "safe", running = { value: false }) {
+    const started: { file: string; safe: string | undefined }[] = [];
+    const choices: string[] = [];
+    let decided = mode;
+    const codex = new Rly0CodexControl({
+      environment: {},
+      installRoot: "C:\\Hub",
+      platform: "win32",
+      fileExists: () => true,
+      heartbeatAlive: async () => running.value,
+      startDetached: (file, environment) =>
+        started.push({ file, safe: environment.CODEXHOST_SAFE_MODE }),
+      launchModes: {
+        decide: async () => decided,
+        allowFullMode: async () => {
+          choices.push("full");
+          decided = "full";
+        },
+      },
+      killProcesses: async () => {
+        running.value = false;
+        return 2;
+      },
+      restartDelayMs: 0,
+    });
+    return { codex, started, choices };
+  }
+
+  it("passes the safe-mode switch only when the Hub decided safe mode", async () => {
+    const safe = control("safe");
+    expect(await safe.codex.open()).toEqual({ ok: true });
+    expect(safe.started).toEqual([
+      { file: path.join("C:\\Hub", "bin", "codexhost-start.exe"), safe: "1" },
+    ]);
+    const previous = process.env.CODEXHOST_SAFE_MODE;
+    process.env.CODEXHOST_SAFE_MODE = "1";
+    try {
+      const full = control("full");
+      await full.codex.open();
+      // A switch inherited from the Hub's own environment never leaks into a full-mode start.
+      expect(full.started[0]?.safe).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.CODEXHOST_SAFE_MODE;
+      else process.env.CODEXHOST_SAFE_MODE = previous;
+    }
+  });
+
+  it("restarts in full mode after recording the choice, ending Codex and opening it again", async () => {
+    const running = { value: true };
+    const f = control("safe", running);
+    expect(await f.codex.restart({ fullMode: true })).toEqual({ ok: true });
+    expect(f.choices).toEqual(["full"]);
+    expect(f.started.map((entry) => entry.safe)).toEqual([undefined]);
+    // A normal restart re-decides too (here still full: the choice was recorded).
+    running.value = true;
+    expect(await f.codex.restart()).toEqual({ ok: true });
+    expect(f.started.map((entry) => entry.safe)).toEqual([undefined, undefined]);
+  });
+
+  it("falls back to full mode when the decision fails", async () => {
+    const started: (string | undefined)[] = [];
+    const codex = new Rly0CodexControl({
+      environment: {},
+      installRoot: "C:\\Hub",
+      platform: "win32",
+      fileExists: () => true,
+      startDetached: (_file, environment) => started.push(environment.CODEXHOST_SAFE_MODE),
+      launchModes: {
+        decide: async () => {
+          throw new Error("inspect failed");
+        },
+        allowFullMode: async () => undefined,
+      },
+    });
+    expect(await codex.open()).toEqual({ ok: true });
+    expect(started).toEqual([undefined]);
+    // Without a way to end Codex directly the full-mode restart cannot reapply the mode.
+    expect(await codex.restart({ fullMode: true })).toEqual({ ok: false });
+  });
+});

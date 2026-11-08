@@ -43,6 +43,8 @@ import type { Rly0CodexControl } from "./codex-control.js";
 import type { Rly0CoreBridge } from "../rly0-core/index.js";
 
 const empty = z.object({}).strict();
+/** `fullMode`: "以完整模式重启 Codex" from a safe-mode start (current Desktop version only). */
+const codexRestartParams = z.object({ fullMode: z.boolean().optional() }).strict();
 type RpcFailure = (error: unknown) => { code: number; message: string };
 
 const codexPrefsRpcError = () => ({ code: -32000, message: "CODEX_PREFERENCES_FAILED" });
@@ -317,7 +319,11 @@ export function createHubManagementRoutes(options: {
       },
       rly0MaintenanceRpcError,
     ),
-    "maintenance.restartCodex": route(empty, () => codex.restart(), rly0MaintenanceRpcError),
+    "maintenance.restartCodex": route(
+      codexRestartParams,
+      (p) => codex.restart(p),
+      rly0MaintenanceRpcError,
+    ),
     "updates.check": route(
       empty,
       async () => {

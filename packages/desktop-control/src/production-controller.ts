@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { openRendererLocalPage } from "./renderer-local-page.js";
-import { CdpConnectionClosedError, listCdpTargets } from "./cdp-client.js";
+import { CdpClient, CdpConnectionClosedError, listCdpTargets } from "./cdp-client.js";
 import { remoteConnectionsExpression } from "./remote-connections-control.js";
 import { remoteConnectionsReplySchema } from "@codexhost/shared-contracts";
 
@@ -17,6 +17,7 @@ import {
 } from "./controller-status.js";
 import {
   installRendererCdpControlSession,
+  selectPrimaryRendererTarget,
   type RendererCdpControlSession,
 } from "./renderer-cdp-control-session.js";
 
@@ -25,6 +26,11 @@ export interface DesktopControllerOptions {
   rendererPath: string;
   attachmentPort: number;
   attachmentNonce: string;
+  /**
+   * Safe mode: keep the handshake, attachment server and status, but never inject the
+   * Renderer Extension or its native RPC patches. The Hub decides when to ask for it.
+   */
+  noRenderer?: true;
 }
 
 export interface DesktopControllerReadiness {
@@ -49,6 +55,8 @@ export interface DesktopControllerDependencies {
   /** Publishes Renderer integration state for the codexhost console. */
   publishStatus?(document: DesktopControllerStatusDocument): void;
   sleep(milliseconds: number): Promise<void>;
+  /** Safe mode only: brings the Desktop window forward without installing anything. */
+  bringToFront?(rendererCdpEndpoint: string): Promise<void>;
   now?(): number;
   monitorIntervalMs: number;
 }
@@ -89,6 +97,20 @@ export function serializeDesktopControllerReadiness(readiness: DesktopController
   return line;
 }
 
+/** Plain `Page.bringToFront` on the primary window; nothing is evaluated in the page. */
+async function bringRendererToFront(rendererCdpEndpoint: string): Promise<void> {
+  const target = selectPrimaryRendererTarget(await listCdpTargets(rendererCdpEndpoint));
+  if (!target) throw new Error("Codex Desktop window is not available");
+  const client = await CdpClient.connect(target.webSocketDebuggerUrl);
+  try {
+    await client.command("Page.bringToFront");
+  } finally {
+    client.close();
+  }
+}
+
+export const RENDERER_DISABLED_MESSAGE = "Renderer integration is disabled in safe mode";
+
 const defaultDependencies: DesktopControllerDependencies = {
   readRenderer: (filePath) => readFile(filePath, "utf8"),
   install: installRendererCdpControlSession,
@@ -98,6 +120,7 @@ const defaultDependencies: DesktopControllerDependencies = {
   },
   publishStatus: createControllerStatusPublisher(),
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  bringToFront: bringRendererToFront,
   monitorIntervalMs: 500,
 };
 
@@ -125,6 +148,7 @@ export function parseDesktopControllerArguments(
   let rendererPath: string | undefined;
   let attachmentPort: number | undefined;
   let attachmentNonce: string | undefined;
+  let noRenderer = false;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index];
     const value = arguments_[index + 1];
@@ -168,6 +192,11 @@ export function parseDesktopControllerArguments(
       index += 1;
       continue;
     }
+    if (argument === "--no-renderer") {
+      if (noRenderer) throw new Error("--no-renderer may only be provided once");
+      noRenderer = true;
+      continue;
+    }
     throw new Error(`unknown Desktop Controller option: ${argument}`);
   }
   if (endpoint === undefined) throw new Error("--renderer-cdp-endpoint is required");
@@ -179,6 +208,7 @@ export function parseDesktopControllerArguments(
     rendererPath,
     attachmentPort,
     attachmentNonce,
+    ...(noRenderer ? { noRenderer: true as const } : {}),
   };
 }
 
@@ -290,6 +320,11 @@ export async function runDesktopController(
     }
   };
 
+  if (options.noRenderer) {
+    await runWithoutRenderer(options, signal, dependencies, status);
+    return;
+  }
+
   let attachmentServer: ControllerAttachmentServer | undefined;
   try {
     startupTrace("starting attachment server");
@@ -351,5 +386,41 @@ export async function runDesktopController(
     await attachmentServer?.close();
     await operation;
     resetSession();
+  }
+}
+
+/**
+ * Safe mode: the Launcher's readiness and supervision contract is unchanged (handshake, attachment
+ * server, status file), but there is no Renderer Session and no recovery loop. Requests that need
+ * the injected interface are refused instead of silently installing it.
+ */
+async function runWithoutRenderer(
+  options: DesktopControllerOptions,
+  signal: AbortSignal,
+  dependencies: DesktopControllerDependencies,
+  status: ReturnType<typeof createRendererStatusReporter>,
+): Promise<void> {
+  const refuse = (): Promise<never> => Promise.reject(new Error(RENDERER_DISABLED_MESSAGE));
+  let attachmentServer: ControllerAttachmentServer | undefined;
+  try {
+    startupTrace("starting attachment server (safe mode)");
+    attachmentServer = await dependencies.startAttachmentServer({
+      port: options.attachmentPort,
+      nonce: options.attachmentNonce,
+      remoteConnections: refuse,
+      openLocalPage: refuse,
+      // The Desktop is running either way; a window that cannot be raised is not a failed attach.
+      attach: async () => {
+        await dependencies.bringToFront?.(options.rendererCdpEndpoint).catch((error: unknown) => {
+          startupTrace("safe-mode activation unavailable", error);
+        });
+      },
+    });
+    status.disabled();
+    startupTrace("publishing readiness (safe mode)");
+    dependencies.ready({ schemaVersion: 2, state: "compatible", issues: [] });
+    while (!signal.aborted) await dependencies.sleep(dependencies.monitorIntervalMs);
+  } finally {
+    await attachmentServer?.close();
   }
 }

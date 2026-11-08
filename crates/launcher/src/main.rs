@@ -91,6 +91,9 @@ const NPM_UPDATE_RUNTIME_ENV: [&str; 4] = [
 const START_MENU_ARGUMENT: &str = "--start-menu";
 const READY_LINE: &str = "ready";
 const STARTUP_TRACE_ENV: &str = "CODEXHOST_STARTUP_TRACE";
+/// Set by the RLY/0 Hub, which decides when a Desktop version is not yet verified.
+/// The Launcher only forwards it: the Desktop Controller then skips the Renderer integration.
+const SAFE_MODE_ENV: &str = "CODEXHOST_SAFE_MODE";
 const CONTROLLER_STOP_GRACE: Duration = Duration::from_secs(1);
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 const DESKTOP_TREE_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
@@ -100,6 +103,10 @@ const UNMANAGED_DESKTOP_MESSAGE: &str = "Codex Desktop is already running outsid
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn desktop_tree_refresh_due(last_refresh: Instant, now: Instant) -> bool {
     now.saturating_duration_since(last_refresh) >= DESKTOP_TREE_REFRESH_INTERVAL
+}
+
+fn safe_mode_requested(value: Option<OsString>) -> bool {
+    value.as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
 fn managed_desktop_data_directory(
@@ -365,6 +372,8 @@ struct ResolvedLaunchOptions {
     desktop_controller: PathBuf,
     renderer_extension: PathBuf,
     pi: Option<PathBuf>,
+    /// Start the Desktop Controller without injecting the Renderer Extension.
+    safe_mode: bool,
 }
 
 fn required_path(arguments: &[String], index: &mut usize, option: &str) -> Result<PathBuf, String> {
@@ -533,6 +542,7 @@ impl LaunchOptions {
                 .pi
                 .map(|path| absolute_file(&path, "--pi"))
                 .transpose()?,
+            safe_mode: safe_mode_requested(env::var_os(SAFE_MODE_ENV)),
         })
     }
 }
@@ -555,6 +565,9 @@ fn desktop_controller_command(
         .arg(control.attachment_port.to_string())
         .arg("--attachment-nonce")
         .arg(&control.nonce);
+    if options.safe_mode {
+        command.arg("--no-renderer");
+    }
     for (name, value) in environment {
         if matches!(
             name.to_str(),
@@ -1590,7 +1603,7 @@ mod tests {
         desktop_controller_command, desktop_environment, emit_ready_line,
         managed_desktop_data_directory, npm_update_runtime_environment, parse_inspect_options,
         parse_launch_options, read_bounded_controller_line, read_bounded_loopback_url,
-        validate_loopback_root_url,
+        safe_mode_requested, validate_loopback_root_url,
     };
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     use super::{DESKTOP_TREE_REFRESH_INTERVAL, desktop_tree_refresh_due};
@@ -1865,7 +1878,33 @@ mod tests {
             desktop_controller: PathBuf::from("/opt/desktop-controller.mjs"),
             renderer_extension: PathBuf::from("/opt/renderer-extension.js"),
             pi: None,
+            safe_mode: false,
         }
+    }
+
+    #[test]
+    fn safe_mode_forwards_only_the_explicit_switch_to_the_controller() {
+        assert!(safe_mode_requested(Some(OsString::from("1"))));
+        assert!(!safe_mode_requested(Some(OsString::from("0"))));
+        assert!(!safe_mode_requested(Some(OsString::from("true"))));
+        assert!(!safe_mode_requested(None));
+        let options = ResolvedLaunchOptions {
+            safe_mode: true,
+            ..resolved_options()
+        };
+        let command = desktop_controller_command(&options, &runtime_control(), &[]);
+        let arguments = command.get_args().collect::<Vec<_>>();
+        assert_eq!(
+            arguments.last(),
+            Some(&std::ffi::OsStr::new("--no-renderer"))
+        );
+        assert!(arguments.contains(&std::ffi::OsStr::new("--renderer")));
+        let normal = desktop_controller_command(&resolved_options(), &runtime_control(), &[]);
+        assert!(
+            !normal
+                .get_args()
+                .any(|argument| argument == "--no-renderer")
+        );
     }
 
     fn runtime_control() -> RuntimeControl {

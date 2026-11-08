@@ -24,12 +24,30 @@ Hub 启动时读取本机 Launcher 的 `inspect --json` 以及当前启动和 Co
 报告只包含版本、固定问题代码及连接布尔值；Controller 原始错误不写入新字段，账号凭据和聊天正文不参与检查。
 既有反馈中的截图由用户自行检查后再分享；截图不等于已自动脱敏。
 
-状态区分未运行、正在连接、连接正常、接口未接通、未验证及状态不可用。
+状态区分未运行、正在连接、连接正常、接口未接通、未验证、安全模式及状态不可用。
 仅当前受管启动记录与版本匹配、Controller 进程仍在且状态来自本次启动时，才接受“连接正常”。
 初始连接有一分钟宽限；历史状态不能充当当前成功证据。请求管理器缺失给出明确的接口问题代码，
 其他连接失败不会一概归因于版本不兼容。异常时使用现有托盘提醒，同一版本的故障未变化时不重复提醒，恢复后重置。
 本地仅保存最近成功连接的版本和提醒标记，路径为 Hub 自身诊断目录下的 `desktop-compatibility-state-v1.json`。
 目录只读时检查仍可用，但跨重启的提醒去重可能无法保存。
+
+### 安全模式启动
+
+Hub 打开 Codex 时（`codex-control.ts` 的 `open()`：打开按钮、修复聊天后重开，以及先结束再打开的重启；
+Windows 上经 Launcher 请求的普通重启由 Launcher 内部重开，沿用当次模式）
+先用 `inspect --json` 读出已安装的 Desktop 版本，由 `Rly0DesktopCompatibility.decideLaunchMode()` 决定模式：
+
+- 完整模式：版本等于 `lastCompatibleVersion`；或等于用户为当前版本选择的 `fullModeFor`；
+  或属于 `shared-contracts` 中内置的已验证版本族 `RLY0_VERIFIED_DESKTOP_VERSION_FAMILIES`（`主版本.次版本`，
+  如 `26.1103`）。内置列表让首次安装、尚无记录的用户不被关进安全模式。读不到版本时保持完整模式，不阻止 Codex 打开。
+- 安全模式：其余版本。Hub 给 Launcher 设 `CODEXHOST_SAFE_MODE=1`，Launcher 只把它透传为 Controller 的
+  `--no-renderer`（版本判断不放 Rust）。Controller 照常握手、提供 attach 与状态文件，但不注入 Renderer、
+  不装原生 RPC 补丁、不做恢复循环，状态写 `disabled`；app-server 代理与 `codexhost delegate` 不受影响。
+
+`disabled` 映射为状态 `safe-mode`、问题代码 `UNVERIFIED_VERSION`，同一版本只提醒一次。
+维护工具诊断里出现“以完整模式重启 Codex”，它记录 `fullModeFor` 后结束 Codex 再经 `open()` 打开
+（Launcher 内部重启会沿用旧模式，所以这条路径不用它）。完整模式接入成功后照常写入 `lastCompatibleVersion`，
+该版本以后自动走完整模式。开始菜单、安装器重开等不经 Hub 的入口不设开关，始终是完整模式。
 
 新旧 Request Manager 注册表同时保留：旧版使用 `waitForManagerForHostId`，
 新版使用 `getImplForHostId` 与 `addRegistryCallback` 的组合。两条路径仍要求

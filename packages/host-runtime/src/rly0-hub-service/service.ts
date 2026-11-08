@@ -147,6 +147,12 @@ export const RLY0_HUB_LINKS = {
 } as const;
 
 const empty = z.object({}).strict();
+/** `fullMode`: "以完整模式重启 Codex" from a safe-mode start (current Desktop version only). */
+const codexRestartParams = z.object({ fullMode: z.boolean().optional() }).strict();
+
+/** Safe-mode decision members are optional so a synthetic observer can omit them. */
+type Rly0HubCompatibility = Pick<Rly0DesktopCompatibility, "check" | "takeNotice"> &
+  Partial<Pick<Rly0DesktopCompatibility, "decideLaunchMode" | "allowFullMode">>;
 const addLoginIdParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/u) }).strict();
 const linkParams = z
   .object({
@@ -171,7 +177,7 @@ export interface Rly0HubServiceOptions {
   readonly core?: Rly0CoreBridge;
   readonly updates?: Pick<HostUpdateCoordinator, "check">;
   readonly codex?: Rly0CodexControl;
-  readonly compatibility?: Pick<Rly0DesktopCompatibility, "check" | "takeNotice">;
+  readonly compatibility?: Rly0HubCompatibility;
   /** Ends Codex directly when the Launcher cannot (see `codex-processes.ts`); production only. */
   readonly killCodexProcesses?: () => Promise<number>;
   readonly appearance?: Rly0AppearanceManager;
@@ -229,7 +235,7 @@ export class Rly0HubService {
   readonly #options: Rly0HubServiceOptions;
   readonly #core: Rly0CoreBridge;
   readonly #codex: Rly0CodexControl;
-  readonly #compatibility: Pick<Rly0DesktopCompatibility, "check" | "takeNotice">;
+  readonly #compatibility: Rly0HubCompatibility;
   readonly #appearance: Rly0AppearanceManager;
   readonly #router: Rly0RelayModelRouter;
   readonly #backup: Rly0FirstRunBackup;
@@ -273,11 +279,21 @@ export class Rly0HubService {
     this.#compatibility =
       options.compatibility ??
       new Rly0DesktopCompatibility({ environment, installRoot: options.installRoot });
+    const compatibility = this.#compatibility;
+    const { decideLaunchMode, allowFullMode } = compatibility;
     this.#codex =
       options.codex ??
       new Rly0CodexControl({
         environment,
         installRoot: options.installRoot,
+        ...(decideLaunchMode && allowFullMode
+          ? {
+              launchModes: {
+                decide: () => decideLaunchMode.call(compatibility),
+                allowFullMode: () => allowFullMode.call(compatibility),
+              },
+            }
+          : {}),
         heartbeatAlive: () => codexHeartbeatAlive(resolveRly0DataDir(environment)),
         ...(options.killCodexProcesses ? { killProcesses: options.killCodexProcesses } : {}),
         ...(options.platform ? { platform: options.platform } : {}),
@@ -1123,7 +1139,7 @@ export class Rly0HubService {
         restartPending: this.#applier.pending,
       })),
       "codex.open": route(empty, () => this.#codex.open()),
-      "codex.restart": route(empty, () => this.#codex.restart()),
+      "codex.restart": route(codexRestartParams, (p) => this.#codex.restart(p)),
       // After a settings change: apply it to the running Codex (see codex-apply.ts).
       "codex.applySettings": route(codexApplyParams, (p) => this.#applier.apply(p)),
       "codex.applyCancel": route(empty, async () => this.#applier.cancel()),

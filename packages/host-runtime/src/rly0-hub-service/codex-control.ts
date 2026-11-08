@@ -16,6 +16,18 @@ export interface Rly0CodexStatus {
   readonly canOpen: boolean;
 }
 
+/** Read by the Launcher, which only forwards it to the Desktop Controller as `--no-renderer`. */
+export const RLY0_SAFE_MODE_ENV = "CODEXHOST_SAFE_MODE";
+
+export type Rly0CodexLaunchMode = "full" | "safe";
+
+/** The Hub's safe-mode decision (`Rly0DesktopCompatibility`). */
+export interface Rly0CodexLaunchModes {
+  decide(): Promise<Rly0CodexLaunchMode>;
+  /** The user chose full mode for the currently installed Desktop version only. */
+  allowFullMode(): Promise<void>;
+}
+
 interface Descriptor {
   readonly launcherPid: number;
   readonly nonce: string;
@@ -26,7 +38,9 @@ export interface Rly0CodexControlOptions {
   readonly installRoot: string;
   readonly platform?: NodeJS.Platform;
   readonly isAlive?: (pid: number) => boolean;
-  readonly startDetached?: (executable: string) => void;
+  readonly startDetached?: (executable: string, environment: NodeJS.ProcessEnv) => void;
+  /** Without it Codex always opens in full mode. */
+  readonly launchModes?: Rly0CodexLaunchModes;
   readonly fileExists?: (file: string) => boolean;
   /** Whether the Codex side's heartbeat is fresh (Codex open through RLY/0 Hub). */
   readonly heartbeatAlive?: () => Promise<boolean>;
@@ -50,8 +64,9 @@ function processAlive(pid: number): boolean {
   }
 }
 
-function startDetached(executable: string): void {
+function startDetached(executable: string, environment: NodeJS.ProcessEnv): void {
   const child = spawn(executable, [], {
+    env: environment,
     detached: true,
     stdio: "ignore",
     windowsHide: false,
@@ -129,7 +144,15 @@ export class Rly0CodexControl {
 
   async open(): Promise<{ ok: boolean }> {
     if (!(await this.status()).canOpen) return { ok: false };
-    (this.#options.startDetached ?? startDetached)(this.#startExecutable());
+    // An undecidable version keeps the previous behavior (full mode) rather than blocking Codex.
+    const mode: Rly0CodexLaunchMode =
+      (await this.#options.launchModes?.decide().catch(() => "full" as const)) ?? "full";
+    // An inherited switch never leaks into a full-mode start.
+    const environment = Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => name !== RLY0_SAFE_MODE_ENV),
+    );
+    if (mode === "safe") environment[RLY0_SAFE_MODE_ENV] = "1";
+    (this.#options.startDetached ?? startDetached)(this.#startExecutable(), environment);
     return { ok: true };
   }
 
@@ -144,9 +167,17 @@ export class Rly0CodexControl {
     return { ok: viaLauncher || killed > 0, killed };
   }
 
-  /** Through the Launcher; otherwise end Codex directly and open it again. */
-  async restart(): Promise<{ ok: boolean }> {
-    if ((await this.#request("restart")).ok) return { ok: true };
+  /**
+   * Through the Launcher; otherwise end Codex directly and open it again. `fullMode` records the
+   * user's choice for the current Desktop version first; a Launcher-internal relaunch would keep
+   * its own mode, so that restart always ends Codex and opens it again through `open()`.
+   */
+  async restart(options: { fullMode?: boolean | undefined } = {}): Promise<{ ok: boolean }> {
+    if (options.fullMode) {
+      if (!this.#options.launchModes || !this.#options.killProcesses) return { ok: false };
+      await this.#options.launchModes.allowFullMode();
+      await this.#request("quit");
+    } else if ((await this.#request("restart")).ok) return { ok: true };
     if (!this.#options.killProcesses) return { ok: false };
     const killed = await this.#options.killProcesses().catch(() => 0);
     if (killed === 0 && !(await this.status()).running) return { ok: false };

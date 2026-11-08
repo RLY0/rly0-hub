@@ -305,13 +305,18 @@ window.registerHubSystem = ({
         ["Codex", true, codex && codex.running ? "运行中" : "未运行", true],
       ];
       const endpoint = d.codexEndpoint || null;
+      // Safe mode: a new Codex version opened without the Hub's interface additions (its message
+      // already names the version). Not a fault, so it is neutral and not counted as a problem.
+      const safeMode = Boolean(
+        d.desktopCompatibility && d.desktopCompatibility.state === "safe-mode",
+      );
       if (d.desktopCompatibility) {
         const connection = d.desktopCompatibility;
         rows.push([
           "Codex 界面连接",
-          connection.state === "ready",
-          `${connection.desktopVersion ? `v${connection.desktopVersion} · ` : ""}${connection.message}`,
-          ["not-running", "checking", "unverified"].includes(connection.state),
+          connection.state === "ready" || safeMode,
+          `${connection.desktopVersion && !safeMode ? `v${connection.desktopVersion} · ` : ""}${connection.message}`,
+          ["not-running", "checking", "unverified", "safe-mode"].includes(connection.state),
         ]);
       }
       if (endpoint)
@@ -415,7 +420,14 @@ window.registerHubSystem = ({
         if (endpoint && endpoint.local)
           fixes.push(button("下载页", () => call("links.open", { target: "codexWebGpt" })));
       }
-      if (codex && codex.running && (problems.length || proxyDown || rejection))
+      if (safeMode)
+        fixes.push(
+          confirmButton("以完整模式重启 Codex", async () => {
+            await restart({ fullMode: true });
+            if (alive()) await diagnose();
+          }),
+        );
+      else if (codex && codex.running && (problems.length || proxyDown || rejection))
         fixes.push(confirmButton("重启 Codex", () => restart()));
       const count =
         problems.length + (proxyDown ? 1 : 0) + (endpointDown ? 1 : 0) + (rejection ? 1 : 0);
@@ -876,8 +888,8 @@ window.registerHubSystem = ({
     }
 
     /* Codex 进程 */
-    async function restart() {
-      const result = await call("maintenance.restartCodex");
+    async function restart(params) {
+      const result = await call("maintenance.restartCodex", params);
       toast(result.ok ? "Codex 正在重启" : "Codex 没有在运行，或没能结束它，请手动关闭后再打开");
     }
     const quit = confirmButton("强制关闭", async () => {
