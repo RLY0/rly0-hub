@@ -5617,3 +5617,9 @@ select.input,
     grid-template-columns: clamp(220px, 38%, 320px) minmax(0, 1fr);
   }
 }
+/* The narrow banner's vertical padding must not lift 阿零: its column reaches both edges. */
+@media (max-width: 1000px) {
+  .promo .mascot-stage {
+    margin-block: -24px;
+  }
+}
