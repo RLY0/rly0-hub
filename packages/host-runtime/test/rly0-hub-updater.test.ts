@@ -317,9 +317,14 @@ describe("checkHubUpdate", () => {
       await checkHubUpdate(resources, async () => ({
         version: "0.11.38",
         releaseNotes: null,
-        releaseNotesUrl: null,
+        releaseNotesUrl: "https://github.com/RLY0/rly0-hub/releases/tag/v0.11.38",
       })),
-    ).toMatchObject({ currentVersion: "0.11.37", latestVersion: "0.11.38", updateAvailable: true, error: null });
+    ).toMatchObject({
+      currentVersion: "0.11.37",
+      latestVersion: "0.11.38",
+      updateAvailable: true,
+      error: null,
+    });
   });
 });
 

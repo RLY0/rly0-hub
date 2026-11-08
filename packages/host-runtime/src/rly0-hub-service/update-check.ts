@@ -40,7 +40,9 @@ async function installedVersion(installRoot: string): Promise<string> {
     const file = path.join(installRoot, "app", "codexhost-distribution.json");
     return parseDistributionMetadata(JSON.parse(await fs.readFile(file, "utf8"))).version;
   } catch (error) {
-    const plist = await fs.readFile(path.join(installRoot, "..", "Info.plist"), "utf8").catch(() => null);
+    const plist = await fs
+      .readFile(path.join(installRoot, "..", "Info.plist"), "utf8")
+      .catch(() => null);
     const version = plist?.match(
       /<key>CFBundleShortVersionString<\/key>\s*<string>(\d+\.\d+\.\d+)<\/string>/u,
     )?.[1];
