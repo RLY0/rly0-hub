@@ -4,13 +4,33 @@
 
 **One window for Codex and the other AI coding agents: multiple accounts, relays, and one-click Claude Code / Pi / Hermes / OpenCode**
 
-[Download installer](https://github.com/RLY0/rly0-hub/releases/latest) · [中文](README.md)
+<a href="https://github.com/RLY0/rly0-hub/releases/latest/download/RLY0-Hub-Windows-x64-setup.exe"><img src="https://img.shields.io/badge/Windows-Download-1D1D19?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI0Y1RjVGMCIgZD0iTTAgMGgxMS40djExLjRIMHpNMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHpNMTIuNiAxMi42SDI0VjI0SDEyLjZ6Ii8%2BPC9zdmc%2B&labelColor=0D0D0B" alt="Download for Windows" height="40"></a>
+&nbsp;&nbsp;
+<a href="https://github.com/RLY0/rly0-hub/releases/latest/download/RLY0-Hub-macOS-AppleSilicon.dmg"><img src="https://img.shields.io/badge/macOS-Download-1D1D19?style=for-the-badge&logo=apple&logoColor=F5F5F0&labelColor=0D0D0B" alt="Download for macOS" height="40"></a>
 
-<sub>The installer is not code-signed yet. On first run Windows SmartScreen may say “Windows protected your PC / Unknown publisher”: click **More info → Run anyway**. Each release lists the installer's SHA-256 so you can verify the file.</sub>
+<sub>Click to download the latest version · Windows 10/11 64-bit · Mac with Apple silicon (M series), macOS 12 or later · <a href="https://github.com/RLY0/rly0-hub/releases">All releases</a> · <a href="README.md">中文</a></sub>
 
 <img src="docs/imgs/hub/home.png" alt="RLY/0 Hub home" width="100%">
 
 </div>
+
+## Download
+
+| Your computer | Button | File | Requirements |
+| --- | --- | --- | --- |
+| Windows | **Windows Download** | `.exe` installer | Windows 10 or 11, 64-bit (x64); installs for the current user, no administrator rights needed |
+| Mac | **macOS Download** | `.dmg` disk image | Apple silicon (M1 / M2 / M3 / M4 …), macOS 12 or later; Intel Macs are not supported yet |
+
+Both need the official Codex (ChatGPT) desktop app installed first. Each release lists the SHA-256 of its files in the [release notes](https://github.com/RLY0/rly0-hub/releases/latest).
+
+**Windows, first install**: run the `.exe`. The installer is not code-signed yet; if SmartScreen says “Windows protected your PC / Unknown publisher”, click **More info → Run anyway**. Later versions are offered inside the Hub (“立即更新”).
+
+**Mac, first install** (no Terminal command):
+1. Open the `.dmg` and drag RLY0 Hub into Applications.
+2. Double-click RLY0 Hub; when macOS says it cannot verify the app, click **Done**.
+3. Open **System Settings → Privacy & Security**, click **Open Anyway** next to “RLY0 Hub.app was blocked”, then confirm with your password or Touch ID. From then on it opens normally. (macOS 12: System Preferences → Security & Privacy → General.)
+
+The Mac build is not signed by an Apple Developer ID, so each new version needs this once; when an update is out, the Hub opens the download page.
 
 ## About
 

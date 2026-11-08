@@ -4,13 +4,33 @@
 
 **一个窗口管好 Codex 和各家 AI 编程助手：多账号、中转站、Claude Code / Pi / Hermes / OpenCode 一键接入**
 
-[下载安装包](https://github.com/RLY0/rly0-hub/releases/latest) · [English](README.en.md)
+<a href="https://github.com/RLY0/rly0-hub/releases/latest/download/RLY0-Hub-Windows-x64-setup.exe"><img src="https://img.shields.io/badge/Windows-%E4%B8%8B%E8%BD%BD%E5%AE%89%E8%A3%85%E5%8C%85-1D1D19?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI0Y1RjVGMCIgZD0iTTAgMGgxMS40djExLjRIMHpNMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHpNMTIuNiAxMi42SDI0VjI0SDEyLjZ6Ii8%2BPC9zdmc%2B&labelColor=0D0D0B" alt="下载 Windows 版" height="40"></a>
+&nbsp;&nbsp;
+<a href="https://github.com/RLY0/rly0-hub/releases/latest/download/RLY0-Hub-macOS-AppleSilicon.dmg"><img src="https://img.shields.io/badge/macOS-%E4%B8%8B%E8%BD%BD%E5%AE%89%E8%A3%85%E5%8C%85-1D1D19?style=for-the-badge&logo=apple&logoColor=F5F5F0&labelColor=0D0D0B" alt="下载 Mac 版" height="40"></a>
 
-<sub>安装包暂未做代码签名，首次运行时 Windows 可能提示“已保护你的电脑 / 未知发布者”，点 **更多信息 → 仍要运行** 即可。每个版本的 SHA-256 写在 Release 说明里，可用来核对文件。</sub>
+<sub>点按钮直接下载最新版 · Windows 10/11 64 位 · Mac 需 Apple 芯片（M 系列）、macOS 12 或更新 · <a href="https://github.com/RLY0/rly0-hub/releases">全部版本</a> · <a href="README.en.md">English</a></sub>
 
 <img src="docs/imgs/hub/home.png" alt="RLY/0 Hub 首页" width="100%">
 
 </div>
+
+## 下载安装
+
+| 你的电脑 | 点哪个按钮 | 文件格式 | 要求 |
+| --- | --- | --- | --- |
+| Windows | **Windows 下载安装包** | `.exe` 安装程序 | Windows 10 或 11，64 位（x64）；装在当前用户目录，不需要管理员权限 |
+| Mac | **macOS 下载安装包** | `.dmg` 磁盘映像 | Apple 芯片（M1 / M2 / M3 / M4 等）、macOS 12 或更新；Intel 芯片的 Mac 暂不支持 |
+
+两个系统都要先装好官方 Codex（ChatGPT）桌面版。每个版本的 SHA-256 写在 [Release 说明](https://github.com/RLY0/rly0-hub/releases/latest) 里，可用来核对文件。
+
+**Windows 首次安装**：双击 `.exe`。安装包暂未做代码签名，如果提示“已保护你的电脑 / 未知发布者”，点 **更多信息 → 仍要运行**。以后有新版时，Hub 会提示你，点“立即更新”就行。
+
+**Mac 首次安装**（不用输入命令）：
+1. 打开 `.dmg`，把 RLY0 Hub 拖进“应用程序”。
+2. 双击 RLY0 Hub，提示“Apple 无法验证……”时先点“完成”。
+3. 打开“系统设置 → 隐私与安全性”，在“已阻止‘RLY0 Hub.app’”旁边点 **仍要打开**，再按提示输入开机密码或按指纹。之后双击就能直接打开。（macOS 12 在“系统偏好设置 → 安全性与隐私 → 通用”。）
+
+Mac 版没有苹果开发者签名，每个新版本第一次打开时都要这样放行一次；有新版时 Hub 会打开下载页，重新下载安装即可。
 
 ## 项目简介
 
