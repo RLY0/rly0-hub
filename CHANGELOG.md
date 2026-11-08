@@ -5,8 +5,21 @@
 ### Updates
 - When Codex Desktop updates to a version the Hub has not verified yet, the Hub opens it in safe mode: Codex and delegating work to CC keep working, only the interface enhancements are off for now, and 维护 offers one click to restart Codex in full mode.
 
+- The home banner shows RLY/0's current offer (read from rly0.com's own banner): each top-up tier with its bonus, the first-top-up one highlighted. In a narrow window the banner drops 阿零 and spreads out.
+- macOS: the RLY/0 icon in Codex's sidebar opens the Hub window (on the matching page) instead of the old settings inside Codex.
+- macOS: standard shortcuts in the Hub — ⌘W closes the window (the Hub keeps running), ⌘M, ⌘H, ⌥⌘H, ⌘, (settings), ⌘R (reload).
+
+### Fixes
+- One chat can switch from a relay model to an official one again. Relays name past messages `item_…`, which the official API refuses ("Expected an ID that begins with 'msg'"); the Hub now drops those ids before the request leaves (the messages themselves are unchanged), and retries once without reasoning another upstream encrypted if the official API cannot read it.
+
 ### 更新
 - Codex 更新到 Hub 还没验证的新版本时，Hub 会用安全模式打开它：Codex 和叫 CC 干活照常可用，界面增强先关闭，维护页可以一键以完整模式重启。
+- 首页广告栏显示零号中转当前的福利（直接读零号中转网站顶部的横幅）：每一档充多少送多少，首充那档最醒目；窗口窄时不显示阿零，内容铺满。
+- Mac：点 Codex 左边的 RLY/0 图标直接打开 Hub 窗口（并跳到对应页面），不再打开 Codex 里的旧设置页。
+- Mac：Hub 支持常用快捷键——⌘W 关窗口（Hub 继续运行）、⌘M、⌘H、⌥⌘H、⌘,（设置）、⌘R（重新载入）。
+
+### 修复
+- 同一个对话里从中转模型切到官方模型不再报错。中转给历史消息编的号是 `item_…`，官方不认（“Expected an ID that begins with 'msg'”）；Hub 现在在发出前去掉这些编号，消息内容不变；官方读不懂别处加密的思考记录时，会去掉它再试一次。
 
 ## 0.11.38
 
