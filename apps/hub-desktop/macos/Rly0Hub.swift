@@ -229,6 +229,15 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: "打开 RLY/0 Hub", action: #selector(showWindow), keyEquivalent: "0")
             .target = self
+        appMenu.addItem(withTitle: "设置…", action: #selector(openSettings), keyEquivalent: ",")
+            .target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "隐藏 RLY/0 Hub", action: #selector(NSApplication.hide(_:)),
+                        keyEquivalent: "h")
+        appMenu.addItem(withTitle: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)),
+                        keyEquivalent: "h").keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "全部显示", action: #selector(NSApplication.unhideAllApplications(_:)),
+                        keyEquivalent: "")
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出 RLY/0 Hub", action: #selector(NSApplication.terminate(_:)),
                         keyEquivalent: "q")
@@ -260,8 +269,23 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             page.target = self
             page.representedObject = entry.0
         }
+        goMenu.addItem(.separator())
+        goMenu.addItem(withTitle: "重新载入页面", action: #selector(reloadPage), keyEquivalent: "r")
+            .target = self
         goItem.submenu = goMenu
         menu.addItem(goItem)
+        // 「窗口」: ⌘W only hides the window (like its close button), the Hub keeps running.
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "窗口")
+        windowMenu.addItem(withTitle: "最小化", action: #selector(NSWindow.performMiniaturize(_:)),
+                           keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "缩放", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "关闭窗口", action: #selector(NSWindow.performClose(_:)),
+                           keyEquivalent: "w")
+        windowItem.submenu = windowMenu
+        menu.addItem(windowItem)
+        NSApp.windowsMenu = windowMenu
         // Local automation (screenshots/tests): only whitelisted page names, nothing else.
         DistributedNotificationCenter.default().addObserver(
             forName: Notification.Name("com.rly0.hub.navigate"), object: nil, queue: .main) { note in
@@ -276,6 +300,16 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     @objc func navigateFromMenu(_ sender: NSMenuItem) {
         if let page = sender.representedObject as? String { navigate(page) }
+    }
+
+    @objc func openSettings() { navigate("settings") }
+
+    /// The page starts over; replies still owed to the old page are dropped, its ids restart at w1.
+    @objc func reloadPage() {
+        showWindow()
+        loaded = false
+        pending.removeAll()
+        webview.load(URLRequest(url: pageURL))
     }
 
     func navigate(_ page: String) {
