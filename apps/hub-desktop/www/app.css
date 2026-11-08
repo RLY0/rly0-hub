@@ -5598,19 +5598,13 @@ select.input,
 
 /* ---------- Banner v5: 阿零 keeps one framing at every window size (2026-11-08 user reference) ----------
    The square IP sits centred in its column with its body top ~27% down the banner and the bottom
-   edge cutting through its third layer. Its size follows the banner height, capped by the column
-   width; a capped (narrow, tall) banner keeps the same bottom cut with more red above. */
-@supports (width: 1cqh) {
-  .promo .mascot-stage {
-    container-type: size;
-  }
-  .promo .mascot-art {
-    --ip: min(133cqh, 86cqw);
-    width: var(--ip);
-    left: calc((100cqw - var(--ip)) / 2);
-    top: auto;
-    bottom: calc(var(--ip) * -0.366);
-  }
+   edge cutting through its third layer. Its size (--ip, set by pages/home.js from the stage's
+   measured box) follows the banner height, capped by the column width. */
+.promo .mascot-stage[style*="--ip"] .mascot-art {
+  width: var(--ip);
+  left: calc(50% - var(--ip) / 2);
+  top: auto;
+  bottom: calc(var(--ip) * -0.366);
 }
 @media (max-width: 1000px) {
   .m.promo {

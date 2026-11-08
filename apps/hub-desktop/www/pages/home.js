@@ -86,6 +86,15 @@ window.registerHubHome = (api) => {
       art,
       burst,
     );
+    // 阿零's framing (app.css, Banner v5) is sized from the banner: the larger of what its height
+    // allows (×1.33) and its column's width (×0.86). Measured here because container query
+    // heights resolve to 0 on a <button> in Chromium (the Windows Hub's WebView2).
+    if (typeof ResizeObserver === "function")
+      new ResizeObserver(([entry]) => {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0)
+          stage.style.setProperty("--ip", `${Math.round(Math.min(height * 1.33, width * 0.86))}px`);
+      }).observe(stage);
 
     // Every few seconds the eyes put on a little show: blinks most often, and now and then a
     // big exaggerated act (darting, popping wide, rolling, going cross-eyed, dozing off…).
