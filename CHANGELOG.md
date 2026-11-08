@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.39
+
+### Updates
+- When Codex Desktop updates to a version the Hub has not verified yet, the Hub opens it in safe mode: Codex and delegating work to CC keep working, only the interface enhancements are off for now, and 维护 offers one click to restart Codex in full mode.
+
+### 更新
+- Codex 更新到 Hub 还没验证的新版本时，Hub 会用安全模式打开它：Codex 和叫 CC 干活照常可用，界面增强先关闭，维护页可以一键以完整模式重启。
+
 ## 0.11.38
 
 ### Updates
