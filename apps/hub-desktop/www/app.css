@@ -5623,3 +5623,27 @@ select.input,
     margin-block: -24px;
   }
 }
+/* Too narrow for 阿零's framing: no 阿零, the text and the balance use the whole banner. */
+@media (max-width: 1000px) {
+  .m.promo {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    row-gap: 18px;
+    padding: 28px 32px;
+  }
+  .promo .mascot-stage {
+    display: none;
+  }
+  .promo .promo-text {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .promo .promo-side {
+    grid-column: 1;
+    grid-row: 2;
+    justify-content: space-between;
+  }
+  .promo-deal {
+    grid-auto-columns: minmax(0, 1fr);
+  }
+}
