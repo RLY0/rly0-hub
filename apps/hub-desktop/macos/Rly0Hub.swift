@@ -312,12 +312,21 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         webview.load(URLRequest(url: pageURL))
     }
 
+    /// Pages Codex asks for (`--page <name>` at launch, or the navigate notification): same list
+    /// as RLY0_HUB_PAGES in shared-contracts and Program.Pages in the Windows Rly0Hub.cs.
+    let codexPages: Set<String> = ["home", "maintenance", "remote", "usage", "updates", "agents",
+                                   "accounts", "relays", "threads", "mcp", "skills", "general",
+                                   "support", "sessions"]
+    /// Asked for before the page finished loading; sent once it has.
+    var pendingPage: String?
+
     func navigate(_ page: String) {
-        guard navPages.contains(where: { $0.0 == page }) else { return }
+        guard navPages.contains(where: { $0.0 == page }) || codexPages.contains(page) else { return }
         showWindow()
         // hub-ui only accepts its own navigable names (NAVIGABLE in hub-ui/app.js): 设置 opens
         // on 通用, 打通设置 on its 概览.
         let target = ["settings": "general"][page] ?? page
+        guard loaded else { pendingPage = target; return }
         post(["event": "navigate", "page": target])
     }
 
@@ -358,6 +367,9 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             controller.add(list)
             self.webview.load(URLRequest(url: pageURL))
             if !CommandLine.arguments.contains("--background") { self.showWindow() }
+            // Opened from Codex on a page: `open -a "RLY0 Hub.app" --args --page <name>`.
+            let args = CommandLine.arguments
+            if let at = args.firstIndex(of: "--page"), at + 1 < args.count { self.navigate(args[at + 1]) }
         }
     }
 
@@ -653,6 +665,10 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         if ready || failed { post(["event": "ready"]) }
+        if let page = pendingPage {
+            pendingPage = nil
+            post(["event": "navigate", "page": page])
+        }
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,

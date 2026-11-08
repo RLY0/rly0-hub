@@ -4,6 +4,8 @@ import path from "node:path";
 
 import type { Rly0HubPage } from "@codexhost/shared-contracts";
 
+import { macHubAvailable, openMacHub } from "./hub-macos.js";
+
 /** The standalone RLY/0 Hub window, installed next to the Launcher in `bin/`. */
 export const RLY0_HUB_EXECUTABLE_NAME = "rly0-hub.exe";
 /** Starts the Hub in the tray only, without opening its window. */
@@ -40,11 +42,21 @@ export function rly0HubStatus(
   fileExists: (file: string) => boolean = existsSync,
   platform: NodeJS.Platform = process.platform,
 ): { available: boolean } {
+  if (platform === "darwin") return { available: macHubAvailable() };
   return {
     available:
       platform === "win32" &&
       fileExists(path.win32.join(installRoot, "bin", RLY0_HUB_EXECUTABLE_NAME)),
   };
+}
+
+/** Opens the Hub window from Codex on this platform: `RLY0 Hub.app` on macOS, the exe on Windows. */
+export async function openRly0HubWindow(
+  page?: Rly0HubPage,
+  platform: NodeJS.Platform = process.platform,
+): Promise<{ available: boolean; ok: boolean }> {
+  if (platform === "darwin") return openMacHub(page);
+  return openRly0Hub(undefined, undefined, undefined, page);
 }
 
 /**
@@ -59,7 +71,9 @@ export function openRly0Hub(
   page?: Rly0HubPage,
 ): { available: boolean; ok: boolean } {
   const executable = path.win32.join(installRoot, "bin", RLY0_HUB_EXECUTABLE_NAME);
-  if (!rly0HubStatus(installRoot, fileExists).available) return { available: false, ok: false };
+  // The Windows window only; macOS opens RLY0 Hub.app through openRly0HubWindow.
+  if (process.platform !== "win32" || !fileExists(executable))
+    return { available: false, ok: false };
   try {
     start(executable, page ? ["--page", page] : []);
     return { available: true, ok: true };

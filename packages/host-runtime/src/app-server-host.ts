@@ -188,7 +188,7 @@ import { Rly0MaintenanceManager, rly0MaintenanceRpcError } from "./rly0-maintena
 import { Rly0AppearanceManager, rly0AppearanceRpcError } from "./rly0-appearance/index.js";
 import {
   rly0HubStatus,
-  openRly0Hub,
+  openRly0HubWindow,
   resolveRly0HubAutostartCommand,
 } from "./rly0-appearance/hub-autostart.js";
 import { WindowsRegistryAutostart } from "./rly0-appearance/windows-autostart.js";
@@ -4035,7 +4035,7 @@ export class AppServerHost {
             result:
               request.method === RLY0_HUB_STATUS_METHOD
                 ? rly0HubStatus()
-                : openRly0Hub(undefined, undefined, undefined, params.data.page),
+                : await openRly0HubWindow(params.data.page),
           }),
         );
         return;
