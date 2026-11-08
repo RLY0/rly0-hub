@@ -279,33 +279,71 @@ window.registerHubHome = (api) => {
   const FALLBACK_PROMO =
     "首次充值满 ¥10，到账多送 $3｜充值 ¥100 送 $5 · ¥300 送 $8 · ¥500 送 $15｜邀请返利10%";
 
-  // Amounts (¥10, $3, 10%) are set larger so the offer reads at a glance.
-  const withAmounts = (text) =>
-    text
-      .split(/([¥$]\s?\d+(?:\.\d+)?|\d+(?:\.\d+)?\s?%)/u)
-      .filter(Boolean)
-      .map((part) =>
-        /^(?:[¥$]\s?\d+(?:\.\d+)?|\d+(?:\.\d+)?\s?%)$/u.test(part)
-          ? h("b", { class: "deal-num tabular" }, part)
-          : part,
-      );
+  // One offer tier: pay ¥X, get $Y extra. `first` marks the 首充 one.
+  const TIER = /¥\s?(\d+(?:\.\d+)?)[^¥$｜|]*?送\s*\$\s?(\d+(?:\.\d+)?)/gu;
 
-  // 福利: the first offer large, the others on one quieter line.
+  function parseDeal(text) {
+    const tiers = [];
+    const extras = [];
+    for (const segment of text.split(/[｜|]/u).map((part) => part.trim())) {
+      if (!segment) continue;
+      let previous = 0;
+      let found = false;
+      for (const match of segment.matchAll(TIER)) {
+        found = true;
+        tiers.push({
+          pay: match[1],
+          gift: Number(match[2]),
+          first: segment.slice(previous, match.index).includes("首"),
+        });
+        previous = match.index + match[0].length;
+      }
+      if (!found) extras.push(segment);
+    }
+    return { tiers, extras };
+  }
+
+  // 福利 as a ladder: each tier says how much extra it gives, in big numbers, with a row of
+  // data packets that grows with the gift; the 首充 tier is the filled one. Text that does not
+  // read as tiers (邀请返利…) follows quietly; anything unparseable shows as one plain line.
   function fillDeal(node, text) {
-    const parts = text
-      .split(/[｜|]/u)
-      .map((part) => part.trim())
-      .filter(Boolean);
-    if (!parts.length) return;
+    const { tiers, extras } = parseDeal(text);
+    const most = Math.max(1, ...tiers.map((tier) => tier.gift));
+    node.setAttribute("aria-label", `福利：${text}`);
+    if (!tiers.length) {
+      put(node, h("span", { class: "deal-plain" }, text));
+      return;
+    }
     put(
       node,
-      h("span", { class: "deal-tag" }, "福利"),
-      h("strong", { class: "deal-main" }, withAmounts(parts[0])),
-      parts.length > 1
-        ? h("span", { class: "deal-more" }, withAmounts(parts.slice(1).join(" · ")))
-        : null,
+      tiers.map((tier, index) =>
+        h(
+          "div",
+          { class: `deal-tier ${tier.first ? "first" : ""}`, "aria-hidden": "true" },
+          h("span", { class: "deal-gift tabular" }, `+$${tier.gift}`),
+          h("span", { class: "deal-pay" }, tier.first ? `首充满 ¥${tier.pay}` : `充 ¥${tier.pay}`),
+          h(
+            "span",
+            { class: "deal-packets" },
+            Array.from({ length: Math.max(1, Math.round((tier.gift / most) * 6)) }, (_, i) =>
+              h("i", { style: { "--d": `${(index * 3 + i) * 40}ms` } }),
+            ),
+          ),
+        ),
+      ),
+      // 邀请返利10% reads as one more cell: the rate big, what it is for small.
+      extras.map((extra) => {
+        const rate = /^(.*?)\s*(\d+(?:\.\d+)?\s?%)$/u.exec(extra);
+        return rate && rate[1]
+          ? h(
+              "div",
+              { class: "deal-tier extra", "aria-hidden": "true" },
+              h("span", { class: "deal-gift tabular" }, rate[2].replace(/\s/gu, "")),
+              h("span", { class: "deal-pay" }, rate[1]),
+            )
+          : h("span", { class: "deal-extra", "aria-hidden": "true" }, extra);
+      }),
     );
-    node.setAttribute("aria-label", `福利：${parts.join("；")}`);
   }
 
   pages.home = (root, alive) => {
