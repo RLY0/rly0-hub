@@ -13,7 +13,7 @@
     CODEX_UPDATE_CHECK_FAILED: "这次没能准备好更新，稍后会自动再试。",
     CODEX_DOWNLOAD_TIMEOUT: "新版下载太久没完成，这次先停下，稍后会再试。",
     CODEX_INSTALL_TIMEOUT:
-      "Codex 退出后迟迟没装完，这次先停下，稍后会再试。如果 Codex 没有自己打开，请手动打开它。",
+      "这次更新没完成（Codex 没有退出，或退出后迟迟没装完），稍后会再试。如果 Codex 没有自己打开，请手动打开它。",
     CODEX_UPDATE_TARGET_CHANGED: "OpenAI 刚又换了一个新版，这个版本还没适配，先不更新。",
     CODEX_REOPEN_FAILED: "Codex 已更新，但没能自动重新打开，请手动打开 Codex。",
     CODEX_HEALTH_FAILED:
@@ -22,6 +22,8 @@
   };
 
   const v = (version) => (version ? `v${version}` : "未知");
+  // supported=false is Windows, or on a Mac a development/test Hub that leaves Codex alone.
+  const isMac = () => Boolean(window.HubUI && window.HubUI.isMac);
 
   /** One line in plain words for each phase, plus the tone of the status dot. */
   function describe(s) {
@@ -32,7 +34,10 @@
       case "disabled":
         return ["off", "已交给 Codex 自己更新"];
       case "unsupported":
-        return ["off", "这台电脑上 Hub 拦不住 Codex 更新"];
+        return [
+          "off",
+          isMac() ? "测试版 Hub 不管理 Codex 更新" : "这台电脑上 Hub 拦不住 Codex 更新",
+        ];
       case "up-to-date":
         return ["ok", "已是适配好的最新版"];
       case "waiting-compatibility":
@@ -40,7 +45,7 @@
       case "downloading":
         return ["wait", `${latest} 已适配，Codex 正在后台下载`];
       case "waiting-idle":
-        return ["wait", `${latest} 已适配，等你没在用 Codex 时开始更新`];
+        return ["wait", `${latest} 已适配，等你离开电脑 5 分钟后开始更新`];
       case "installing":
         return ["wait", "正在更新，Codex 会自动重新打开"];
       case "health-check":
@@ -163,7 +168,9 @@
               null,
               mac
                 ? "新版 Codex 先等 Hub 适配好，再自动更新"
-                : "Windows 版 Codex 由微软商店负责更新",
+                : isMac()
+                  ? "只有正式安装的 Hub 才会管理"
+                  : "Windows 版 Codex 由微软商店负责更新",
             ),
           ),
           sw,
@@ -218,7 +225,7 @@
       h(
         "p",
         { class: "sub", "data-keep": "" },
-        "Codex 出新版后，Hub 先适配好再让它更新，避免装上就用不了。适配好后会在你没在用 Codex 时自动更新，期间 Codex 会自动重启。",
+        "Codex 出新版后，Hub 先适配好再让它更新，避免装上就用不了。适配好后，会在 Codex 没有任务、你也离开电脑 5 分钟时自动更新，期间 Codex 会自动重启。",
       ),
       h("p", { class: "sub", "data-keep": "" }, "不想要的话，可以在 设置 → 更新 里关掉。"),
     );

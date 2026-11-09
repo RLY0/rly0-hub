@@ -57,7 +57,7 @@ const base: Status = {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-function load(status: Status) {
+function load(status: Status, isMac = false) {
   const calls: { method: string; params: unknown }[] = [];
   const dialogs: Element[] = [];
   const h = (tag: string, props: Record<string, unknown> | null, ...children: unknown[]) =>
@@ -66,6 +66,7 @@ function load(status: Status) {
     new Element("button", { class: "btn", onclick: action }, [label]);
   const window: Record<string, unknown> = {
     HubUI: {
+      isMac,
       dialog: ({ title, onClose }: { title: string; onClose?: () => void }) => {
         const ui = {
           title,
@@ -96,8 +97,8 @@ function load(status: Status) {
   return { window, calls, dialogs, h, button, call };
 }
 
-async function card(status: Status) {
-  const env = load(status);
+async function card(status: Status, isMac = false) {
+  const env = load(status, isMac);
   const render = env.window.renderCodexUpdates as (api: unknown) => Element;
   const root = render({
     h: env.h,
@@ -186,6 +187,13 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
     expect(page.root.textContent).not.toContain("26.1300");
   });
 
+  it("on a Mac test/dev Hub says it leaves Codex alone instead of blaming Windows", async () => {
+    const page = await card({ ...base, supported: false, phase: "unsupported" }, true);
+    expect(page.root.textContent).toContain("测试版 Hub 不管理 Codex 更新");
+    expect(page.root.textContent).not.toContain("Windows");
+    expect(page.switchEl()?.props.disabled).toBe(true);
+  });
+
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {
     const page = await card({
       ...base,
@@ -196,7 +204,7 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
 
   it("keeps reading status while an update is moving", async () => {
     const page = await card({ ...base, phase: "waiting-idle", latestVersion: "26.1200.1.0" });
-    expect(page.root.textContent).toContain("等你没在用 Codex 时开始更新");
+    expect(page.root.textContent).toContain("等你离开电脑 5 分钟后开始更新");
   });
 
   it("shows the one-time notice only when pending, enabled and supported", async () => {

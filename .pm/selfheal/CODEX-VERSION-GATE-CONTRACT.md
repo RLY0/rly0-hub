@@ -1,6 +1,6 @@
-# HUB-CODEX-VERSION-GATE contract v2 (review fixes)
+# HUB-CODEX-VERSION-GATE contract v3 (second review fixes)
 
-状态：Codex 技术定义，待 Claude 核对；未发布。基线：79fc26e8；工单：HUB-CODEX-VERSION-GATE。
+状态：Codex 技术定义，待 Claude 核对；未发布。本轮基线：c796e85c；工单：HUB-CODEX-VERSION-GATE。
 
 ## 兼容资产
 
@@ -43,7 +43,7 @@ feature：usage、composer、sidebar-icons、settings、schedules、delegation�
 }
 ```
 
-示例为 synthetic。currentVersion/latestVersion/checkedAt 可 null；启动初始化前 defaulted=false、phase=checking。supported 仅表示当前平台有控制适配器，不能代表已经取得系统权限或已通过真机验收。Windows supported=false，保留用户选择并检测安装版本/兼容状态，不改商店全局更新策略；latestVersion=null（无可靠的单应用商店最新版本接口）。关闭管理后不再默认开启，仍刷新兼容策略供 C 保底。
+示例为 synthetic。currentVersion/latestVersion/checkedAt 可 null；启动初始化前 defaulted=false、phase=checking。supported 仅表示当前平台及环境允许挂载控制适配器，不能代表已经取得系统权限或已通过真机验收。开发/测试模式、非登录用户 HOME、非默认数据目录，以及显式 `RLY0_CODEX_UPDATE_CONTROL=0` 的环境 driver=null、supported=false，不接触原生偏好/应用控制；真实 HOME 按系统登录用户信息判定，不能用临时 HOME 冒充。macOS shell 开发模式明确注入该禁用变量，正式模式透传它。Windows supported=false，保留用户选择并检测安装版本/兼容状态，不改商店全局更新策略；latestVersion=null（无可靠的单应用商店最新版本接口）。关闭管理后不再默认开启，仍刷新兼容策略供 C 保底。
 
 | phase | 含义 |
 | --- | --- |
@@ -64,7 +64,7 @@ feature：usage、composer、sidebar-icons、settings、schedules、delegation�
 
 renderer.mode 为 full/core/safe；旧 maintenance.compatibility 的 state 新增 core-mode。连接成功、用户旧“完整模式”选择均不能认证未知 Desktop family。open/restart 都重新判定；restart 走退出后 open，不沿用 Launcher 内部旧模式。
 
-Hub 写入版本绑定的 codex-renderer-policy.json；Controller 每 2 秒查看，变更时先释放旧 session/新文档注入脚本，再重新建对应模式，不退出 Desktop。Controller 从当前父 Launcher 的 launcher-startup-v1.json 记录读取实际 Desktop 身份，不依赖是否由 Hub open。启动版本与策略不匹配、损坏或首次不可读时使用 core；运行中临时 I/O/版本读取失败沿用上次策略，版本为 null 时 Hub 不发布覆盖文件。core 只提供被动数据桥，不加载原增强 bundle、不发现 React、不改 native RPC/输入框；桥失败保留握手并退无注入，待重开再试。safe 使用既有 no-renderer。
+Hub 写入版本绑定的 codex-renderer-policy.json；Controller 每 2 秒查看，变更时先释放旧 session/新文档注入脚本，再重新建对应模式，不退出 Desktop。Controller 从 `<CODEXHOST_DATA_DIR 或 ~/.codexhost>/diagnostics/launcher-startup-v1.json` 中当前父 Launcher 的记录读取实际 Desktop 身份，不依赖是否由 Hub open。启动版本与策略不匹配、损坏或首次不可读时使用 core；运行中临时 I/O/版本读取失败沿用上次策略，版本为 null 时 Hub 不发布覆盖文件。core 只提供被动数据桥，不加载原增强 bundle、不发现 React、不改 native RPC/输入框；桥失败保留握手并退无注入，待重开再试。safe 使用既有 no-renderer。
 
 Claude 实现额度/余额视图时可读取 `globalThis.__codexhostCoreUsageV1`，并监听 `codexhost:core-usage` 事件。形状：`{available:boolean, checkedAt:number|null, quota:{usedPercent:number,resetsAt?:number}|null, balance:{amount:number,unit:"USD"|"CNY"}|null}`。Hub alerts 周期写快照，Controller 发布；超过 10 分钟、未来时间、坏类型显示 unavailable，不造数。此工单仅提供数据桥，新增显示和提示条属于 Claude；未声称核心模式视觉已完成。
 
@@ -74,15 +74,21 @@ Claude 实现额度/余额视图时可读取 `globalThis.__codexhostCoreUsageV1`
 
 用本机 production-appcast-bootstrap.json 中 installationId、当前版本、实际 arch 请求官方 appcast。**不再点击“检查更新”菜单**，不需要菜单 Accessibility 权限，不伪造 Codex 启动参数、不改 App 包。
 
-没有有效暂存时，先等持续 15 秒空闲；将 `SUEnableAutomaticChecks` 和 `SULastCheckTime` 原值（含缺失）存入 `codexUpdates.originalCheckPreferences`，再开启后台自动检查并清除上次检查日期。随后正常 quit，等退出后通过 Hub open 重开，使 Sparkle 走自己的定时后台检查。结束、失败、关闭管理或下次 Hub 初始化时恢复这两个辅助键的原值。SUAutomaticallyUpdate 的原值仍保留到用户关闭管理时恢复。设置未知字段容忍；损坏字段不重新获取 Hub 自己写入的 false 作为原值，损坏整段保守禁用。
+没有有效暂存时，先等持续 15 秒空闲；将 `SUEnableAutomaticChecks` 和 `SULastCheckTime` 原值（含缺失）存入 `codexUpdates.originalCheckPreferences`，再开启后台自动检查并清除上次检查日期。随后正常 quit，等退出后通过 Hub open 重开，使 Sparkle 走自己的定时后台检查。结束、失败、关闭管理或下次 Hub 初始化时，仅在辅助键仍是 Hub 写入状态（automaticChecks=1、lastCheckTime 缺失）时恢复原值；Sparkle 已写入的新检查日期保留。watchdog 在有效租约中携带辅助原值，父进程失联时也尝试恢复。SUAutomaticallyUpdate 的原值仍保留到用户关闭管理时恢复。设置未知字段容忍；originalCheckPreferences 损坏时只丢弃该辅助字段，保留 enabled、originalAutoUpdate 等已知有效字段；损坏字段不重新获取 Hub 自己写入的 false 作为原值，损坏整段保守禁用。
 
-开启 SUAutomaticallyUpdate 之前，先原子写 `codex-update-armed.json`（id、at 毫秒、Hub pid、target），启动独立 Node watchdog 并等 IPC ready；watchdog 不可用则不开开关、不 quit。watchdog 每 2 秒读取租约，父进程消失、租约超过 60 秒/未来时间/损坏时写 false；显式删除或更新 id 时退出，不碰已恢复的原设置。Hub 每个 active tick 更新租约。watchdog 与 manager 独立，Hub SIGKILL 后不依赖下一次 Hub 启动或外部 guard；操作系统拒绝 defaults 写入仍可能阻止恢复，需真机权限验证。本轮测试仅注入驱动，没有启动真实 watchdog。
+原生驱动先获取数据目录下 `codex-update-owner.json` 的排他控制权；同一目录内的第二个活 Hub 不得写原生设置，已退出 owner 的接管也串行化。损坏 owner 或遗留 reclaim 文件拒绝接管，需另行核验后处理，不猜测删除。
 
-下载就绪要求 Sparkle Installation 缓存 .app 的 bundle id、候选版本与 codesign --verify --deep --strict 有效。成功签名结果按路径/身份缓存，失败探测每版本最少间隔 30 秒；quit 前强制重验，之后复查空闲。codesign 原生超时 120 秒。下载超时仅计实际后台下载 30 分钟，持续忙/缺心跳无限等待；失败后 6/12/24 小时退避（进程内递增，持久记录当前 retryAt），不每 5 分钟重新触发重开。已有有效暂存不再触发检查。
+开启 SUAutomaticallyUpdate 之前，先原子写 `codex-update-armed.json`（id、at 毫秒、Hub pid、target、可选辅助偏好原值），启动独立 Node watchdog 并等 IPC ready；不可用则不开开关、不 quit。打包现在有主服务和 watchdog 两个独立入口；构建、原生开发包预检与正式包审计均要求 watchdog 存在。watchdog 每 2 秒检查父进程，父进程消失或租约损坏时关回开关；有效租约显式删除或 id 变化则退出，不动新 owner。活父进程租约过期阈值为 5 分钟；超龄或时钟跳变持续 15 次观察才关回，给睡眠唤醒后的续租留出时间。恢复写失败会每轮重读租约、重新确认归属后重试。
 
-feed 最大版本只作展示和 feed 变化复查；由于系统版本/分批投放由 Sparkle 决定，Hub 保守要求 feed 中所有较新候选均已适配，再接受其中实际签名暂存的目标（可以低于 feed 最大版本）。不在 feed、未适配或签名无效的暂存不用于安装。退出前刷新 feed，再核对最大版本未变化且所有较新候选适配；feed 此后变化的竞态仍无法在外部锁定，C 保底必须保留。低于 feed 最大版本的实际投放成功后保留 6 小时重试间隔，避免每 5 分钟重开。
+Hub 用独立 2 秒定时器续租，不受 appcast、codesign 或 RPC 串行队列阻塞；临时文件名唯一，关闭前等待正在进行的续租完成。驱动保留子进程退出监听；意外退出会清除 armed，下载阶段下次 tick 重新握手后再放行。操作系统持续拒绝 defaults 写入仍可能阻止恢复，需真机权限验证。本轮已实际构建隔离、ad-hoc 签名的开发 `.app`，用包内 Node 启动包内 watchdog 的同一 runner，并注入所有系统副作用；未启动 Hub 窗口，未运行真实 defaults。该结果不代表正式 DMG 或真实升级验收。
 
-安装版本与暂存目标使用数值分段比较，尾部零等价（如 26.1200.1 与 26.1200.1.0）。安装等待 5 分钟、体检 60 秒。Hub 记录自己发出 quit 的日志；安装超时/驱动异常/关回开关失败也尝试重开当前已安装版本，自己的 updater 尚在运行则延后；其他软件的 updater 不阻碍恢复。发现 Codex 本身仍在运行（quit 被取消或 Sparkle 已重开）则清除关闭归属，防止随后把用户自行退出误当作需要恢复。重启 Hub 可恢复 24 小时内的关闭记录。
+下载就绪要求 Sparkle Installation 缓存 .app 的 bundle id、候选版本与 codesign --verify --deep --strict 有效。成功签名结果按路径/身份缓存，失败探测每版本最少间隔 30 秒；quit 前重验，之后复查空闲；同一暂存身份的强制验签在 15 秒短窗口内复用，超时或身份指纹变化立即重验，计时使用单调时钟。codesign 原生超时 120 秒。下载超时仅计实际后台下载 30 分钟，持续忙/缺心跳无限等待；失败后 6/12/24 小时退避，持久记录 retryAt、失败计数、错误与终态；关闭再开启仍明确报告退避状态，不永久停在 checking。相同 feed 连续下载超时三次后暂停，直到 feed 内容变化；计数跨 Hub 重启保留，成功或 feed 变化重置，不每 5 分钟重新触发重开。已有有效暂存不再触发检查。
+
+feed 最大版本只作展示和 feed 变化复查；读取 minimumSystemVersion，当前系统没有较新可安装条目时保持 up-to-date 而不重开；未带有效 shortVersionString 的 enclosure 拒绝整份 feed，报 CODEX_APPCAST_FAILED，不静默漏掉 Sparkle 的 build-only 候选；由于系统版本/分批投放由 Sparkle 决定，Hub 保守要求 feed 中所有较新候选均已适配，再接受其中实际签名暂存的目标（可以低于 feed 最大版本）。不在 feed、未适配或签名无效的暂存不用于安装。退出前刷新 feed，再核对最大版本未变化且所有较新候选适配；feed 此后变化的竞态仍无法在外部锁定，C 保底必须保留。低于 feed 最大版本的实际投放成功后保留 6 小时重试间隔，避免每 5 分钟重开。
+
+应用是否运行按 `com.openai.codex` bundle id 查询；updater 按系统解析出的实际 `.app` 目录及该 bundle 的 Sparkle 缓存识别，覆盖 ChatGPT.app、Codex.app 与改名安装。无法可靠解析时拒绝认为已退出。
+
+安装版本与暂存目标使用数值分段比较，尾部零等价（如 26.1200.1 与 26.1200.1.0）。安装等待 5 分钟、体检 60 秒。Hub 记录自己发出 quit 的日志；安装超时/驱动异常/关回开关失败也尝试重开当前已安装版本，自己的 updater 尚在运行则延后；其他软件的 updater 不阻碍恢复。quit 返回 30 秒后 Codex 仍运行时清除关闭归属：若版本已达到签名目标则进入体检，否则关回开关并失败退避，防止随后把用户自行退出误当作需要恢复。重启 Hub 仅恢复 5 分钟内且没有晚于记录的 Codex 心跳的关闭记录；旧记录直接丢弃。
 
 官方依据：Sparkle [Customization](https://sparkle-project.org/documentation/customization/)、[SPUUpdater](https://sparkle-project.org/documentation/api-reference/Classes/SPUUpdater.html)、[Documentation](https://sparkle-project.org/documentation/)（2026-11-09 读取）。这是后台调度方案的依据，**不代表当前 Codex 已验证无弹窗、成功下载或退出即安装**。需要按 LIVE-VALIDATION.md 在获授权的独立真机环境验证偏好读取、下载目录、签名耗时、静默程度、安装/自动重开与 watchdog 权限。
 
@@ -97,3 +103,15 @@ feed 最大版本只作展示和 feed 变化复查；由于系统版本/分批�
 RPC 字段、phase 枚举及错误码不新增/删除。waiting-idle 包含“后台检查前等待”，installing 包含“后台检查所需的正常重开”，downloading 不再代表点击菜单；CODEX_UPDATE_CHECK_FAILED 也覆盖 watchdog/后台准备失败，旧“辅助功能权限”专属文案需更新。低版本成功投放时 up-to-date 不表示 feed 最大版本可在当前系统安装。内部持久状态新增 originalCheckPreferences、armed/attempt/session 记录及独立 watchdog 文件；无新增外部接口、端口或远程执行能力。
 
 第 11 条保持：restart 仍退出后 open 重新判定，设置触发的重启不会再走 Launcher 内部平滑 restart；Windows 路径原有强制退出行为可能中断未完成工作。本轮没有恢复旧路径，也没有进行真实 restart。
+
+
+## 交 Claude 的 v3 差异与未决项
+
+RPC 字段、phase 枚举、错误码不变。supported=false 也包括开发/隔离/明确禁用控制的环境，显示层需避免一律解释成 Windows 不支持。退避重新开启会返回 failed 和保留的错误；连续三次下载超时会等 feed 变化，不自动按时间重开。原有 CODEX_INSTALL_TIMEOUT 也涵盖 30 秒后退出被取消。以上文案交 Claude，本轮未改 apps/hub-desktop/www。
+
+N5 未决：默认仍为连续 15 秒 fresh busy=false，不把它认定为最终“空闲”产品规则。所有退出前判断统一经过可注入的 CodexIdleDriver（options.idle），默认适配 options.busy；用户定稿后替换一个驱动即可。
+
+本轮仅 self_verified，安全敏感更新控制尚无修复后独立审查。真实 Sparkle 静默下载/升级、系统权限、Windows、guard 实际部署及与睡眠唤醒互操作均待独立授权环境验收；不构成发布放行。
+
+## v3.1（Claude，2026-11-09 20:30）：N5 用户定稿已接入
+“没在用 Codex”= 心跳 busy=false **且** 系统键盘鼠标空闲 ≥5 分钟（`ioreg -c IOHIDSystem` 的 HIDIdleTime）；任一读不到按“在用”。实现：`codex-input-idle.ts` 的 `codexIdleFromBusyAndInput`，由 service.ts 作为 `options.idle` 注入；manager 原有连续 15 秒复核仍叠加其上，退出前复查经同一驱动。界面：waiting-idle 显示“等你离开电脑 5 分钟后开始更新”；Mac 上 supported=false 显示“测试版 Hub 不管理 Codex 更新”，不再误称 Windows。

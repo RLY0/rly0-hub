@@ -1,5 +1,7 @@
+import { codexNativeUpdateControlAllowed } from "./codex-update-control.js";
 import { CodexCompatibilityCatalog } from "./codex-compat.js";
 import { CodexUpdateManager } from "./codex-update-manager.js";
+import { codexIdleFromBusyAndInput, macInputIdleMs } from "./codex-input-idle.js";
 import { createMacCodexUpdateDriver } from "./codex-sparkle.js";
 import { writeJsonFile } from "../rly0-maintenance/backend-reload-channel.js";
 import { openInBrowser, revealFolder } from "./desktop-open.js";
@@ -407,17 +409,18 @@ export class Rly0HubService {
       catalog: this.#codexCatalog,
       currentVersion,
       busy: () => codexHeartbeatBusy(dataDirectory),
-      driver:
-        (options.platform ?? process.platform) === "darwin"
-          ? createMacCodexUpdateDriver({
-              environment,
-              currentVersion,
-              get: async () =>
-                createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
-              reopen: async () => (await this.#codex.open()).ok,
-              healthy: async () => (await compatibility.check()).state === "ready",
-            })
-          : null,
+      // No task running AND keyboard/mouse untouched for five minutes (user decision 2026-11-09).
+      idle: codexIdleFromBusyAndInput(() => codexHeartbeatBusy(dataDirectory), macInputIdleMs()),
+      driver: codexNativeUpdateControlAllowed(environment, options.platform ?? process.platform)
+        ? createMacCodexUpdateDriver({
+            environment,
+            currentVersion,
+            get: async () =>
+              createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+            reopen: async () => (await this.#codex.open()).ok,
+            healthy: async () => (await compatibility.check()).state === "ready",
+          })
+        : null,
     });
     this.#liveQuota = new Rly0HubLiveQuota({
       file: liveQuotaFeedPath(environment),
