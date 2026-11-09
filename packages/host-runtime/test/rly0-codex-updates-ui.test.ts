@@ -203,6 +203,16 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
     expect(page.root.textContent).not.toContain("测试版");
   });
 
+  it("shows that Codex is being reopened", async () => {
+    const page = await card({ ...base, phase: "installing", reopening: true });
+    expect(page.root.textContent).toContain("正在重新打开 Codex…");
+  });
+
+  it("tells the user to open Codex once reopening was given up", async () => {
+    const page = await card({ ...base, phase: "failed", error: "CODEX_REOPEN_FAILED" });
+    expect(page.root.textContent).toContain("请手动打开 Codex");
+  });
+
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {
     const page = await card({
       ...base,

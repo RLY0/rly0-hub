@@ -1258,6 +1258,7 @@
             h("li", null, "关闭统一渠道，停止本机枢纽"),
             h("li", null, "关闭免登录用中转"),
             h("li", null, "Codex 配置还原为安装前的备份"),
+            h("li", null, "关闭 Codex 更新管理，Codex 恢复自己更新"),
             h("li", null, "完成后自动重启 Codex"),
           ),
           h("p", { class: "sub" }, "已保存的账号、中转站和 Key 会保留。"),
