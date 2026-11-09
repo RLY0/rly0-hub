@@ -238,15 +238,19 @@ describe("RLY/0 Hub service", () => {
 });
 
 describe("Codex control from the Hub", () => {
-  it("restarts only the running Launcher named in its descriptor", async () => {
+  it("quits only the named Launcher and restarts through open with a fresh policy", async () => {
     const root = await tempDir();
     const runtime = path.join(root, "rly0-hub");
     await fs.mkdir(runtime, { recursive: true });
-    const control = new Rly0CodexControl({
+    const started = vi.fn();
+    const control: Rly0CodexControl = new Rly0CodexControl({
       environment: { LOCALAPPDATA: root },
       installRoot: root,
       platform: "win32",
       isAlive: (pid) => pid === 4242,
+      startDetached: started,
+      restartDelayMs: 0,
+      killProcesses: async () => ((await control.status()).running ? 1 : 0),
       fileExists: () => true,
     });
     expect(await control.status()).toEqual({ running: false, canOpen: true });
@@ -262,8 +266,9 @@ describe("Codex control from the Hub", () => {
     const request = JSON.parse(
       await fs.readFile(path.join(runtime, "desktop-control-request.json"), "utf8"),
     ) as unknown;
-    expect(request).toEqual({ schemaVersion: 1, launcherPid: 4242, nonce, action: "restart" });
-    expect(await control.forceQuit()).toEqual({ ok: true });
+    expect(request).toEqual({ schemaVersion: 1, launcherPid: 4242, nonce, action: "quit" });
+    expect(started).toHaveBeenCalledOnce();
+    expect(await control.forceQuit()).toEqual({ ok: true, killed: 1 });
     expect(
       JSON.parse(await fs.readFile(path.join(runtime, "desktop-control-request.json"), "utf8")),
     ).toMatchObject({ action: "quit", launcherPid: 4242, nonce });
@@ -904,14 +909,18 @@ describe("Codex safe-mode launch from the Hub", () => {
     expect(f.started.map((entry) => entry.safe)).toEqual([undefined, undefined]);
   });
 
-  it("falls back to full mode when the decision fails", async () => {
+  it("falls back to core mode when the decision fails", async () => {
     const started: (string | undefined)[] = [];
+    const policies: string[] = [];
     const codex = new Rly0CodexControl({
       environment: {},
       installRoot: "C:\\Hub",
       platform: "win32",
       fileExists: () => true,
-      startDetached: (_file, environment) => started.push(environment.CODEXHOST_SAFE_MODE),
+      startDetached: (_file, environment) => {
+        started.push(environment.CODEXHOST_SAFE_MODE);
+        policies.push(environment.CODEXHOST_RENDERER_POLICY ?? "");
+      },
       launchModes: {
         decide: async () => {
           throw new Error("inspect failed");
@@ -921,6 +930,7 @@ describe("Codex safe-mode launch from the Hub", () => {
     });
     expect(await codex.open()).toEqual({ ok: true });
     expect(started).toEqual([undefined]);
+    expect(JSON.parse(policies[0] ?? "null")).toMatchObject({ mode: "core" });
     // Without a way to end Codex directly the full-mode restart cannot reapply the mode.
     expect(await codex.restart({ fullMode: true })).toEqual({ ok: false });
   });

@@ -199,7 +199,7 @@ describe("production Desktop Controller", () => {
     expect(install).toHaveBeenCalledWith({
       rendererCdpEndpoint: "http://127.0.0.1:43123",
       rendererSource:
-        "globalThis.__zod_globalConfig ??= {}; globalThis.__zod_globalConfig.jitless = true;\nproduction renderer",
+        'globalThis.__zod_globalConfig ??= {}; globalThis.__zod_globalConfig.jitless = true;\nglobalThis.__codexhostFeaturePolicyV1 = {"schemaVersion":1,"mode":"full","disabled":[]};\nproduction renderer',
       timeoutMs: 90_000,
       signal: abort.signal,
     });
@@ -535,3 +535,44 @@ describe("production Desktop Controller", () => {
     expect(secondClose).toHaveBeenCalledOnce();
   });
 });
+
+it.each([false, true])(
+  "core mode avoids full injection and falls back without injection on failure=%s",
+  async (fail) => {
+    const abort = new AbortController();
+    const fullInstall = vi.fn();
+    const readRenderer = vi.fn();
+    const installed: DesktopControllerStatusDocument[] = [];
+    const session: RendererCdpControlSession = {
+      snapshot: controllerSnapshot(),
+      ensureInstalled: vi.fn(async () => controllerSnapshot()),
+      activateDesktop: vi.fn(async () => 1),
+      executeRenderer: vi.fn(),
+      close: vi.fn(),
+      dispose: vi.fn(async () => undefined),
+    };
+    const coreInstall = vi.fn(async () => {
+      if (fail) throw new Error("synthetic unsupported core");
+      return session;
+    });
+    let ticks = 0;
+    await runDesktopController(controllerOptions(), abort.signal, {
+      readPolicy: async () => ({ schemaVersion: 1, mode: "core", disabled: [] }),
+      install: fullInstall,
+      readRenderer,
+      installCore: coreInstall,
+      startAttachmentServer: async () => attachmentServer(),
+      ready: vi.fn(),
+      publishStatus: (status) => installed.push(status),
+      sleep: async () => {
+        if (++ticks > 2) abort.abort();
+      },
+      monitorIntervalMs: 1,
+    });
+    expect(fullInstall).not.toHaveBeenCalled();
+    expect(readRenderer).not.toHaveBeenCalled();
+    expect(coreInstall).toHaveBeenCalledOnce();
+    expect(installed.map((entry) => entry.renderer.state)).toContain(fail ? "disabled" : "core");
+    if (!fail) expect(session.dispose).toHaveBeenCalledOnce();
+  },
+);

@@ -1,3 +1,7 @@
+import { readCoreUsageSnapshot } from "./core-usage-snapshot.js";
+import { readCodexRendererPolicy, rendererPolicyBootstrap } from "./codex-renderer-policy.js";
+import { createCoreRendererSession } from "./core-renderer-session.js";
+import type { CodexRendererPolicy } from "@codexhost/shared-contracts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { openRendererLocalPage } from "./renderer-local-page.js";
@@ -41,6 +45,12 @@ export interface DesktopControllerReadiness {
 
 export interface DesktopControllerDependencies {
   readRenderer(filePath: string): Promise<string>;
+  readPolicy?(): Promise<CodexRendererPolicy>;
+  readCoreUsage?(): Promise<unknown>;
+  installCore?(options: {
+    rendererCdpEndpoint: string;
+    policy: CodexRendererPolicy;
+  }): Promise<RendererCdpControlSession>;
   install(options: {
     rendererCdpEndpoint: string;
     rendererSource: string;
@@ -112,6 +122,8 @@ async function bringRendererToFront(rendererCdpEndpoint: string): Promise<void> 
 export const RENDERER_DISABLED_MESSAGE = "Renderer integration is disabled in safe mode";
 
 const defaultDependencies: DesktopControllerDependencies = {
+  readPolicy: () => readCodexRendererPolicy(),
+  readCoreUsage: () => readCoreUsageSnapshot(),
   readRenderer: (filePath) => readFile(filePath, "utf8"),
   install: installRendererCdpControlSession,
   startAttachmentServer: startControllerAttachmentServer,
@@ -246,10 +258,55 @@ async function installProductionSession(
   throw new Error("Desktop Controller exhausted Renderer installation attempts");
 }
 
+/** Policy refresh tears down injected owners before a new mode starts; Desktop keeps running. */
 export async function runDesktopController(
   options: DesktopControllerOptions,
   signal: AbortSignal,
   dependencies: DesktopControllerDependencies = defaultDependencies,
+): Promise<void> {
+  if (!dependencies.readPolicy)
+    return runDesktopControllerSession(options, signal, dependencies, {
+      schemaVersion: 1,
+      mode: "full",
+      disabled: [],
+    });
+  let policy = await dependencies.readPolicy();
+  while (!signal.aborted) {
+    const transition = new AbortController();
+    const combined = AbortSignal.any([signal, transition.signal]);
+    let next: CodexRendererPolicy | null = null;
+    let polling = false;
+    const timer = setInterval(() => {
+      if (polling || combined.aborted) return;
+      polling = true;
+      void dependencies
+        .readPolicy?.()
+        .then((candidate) => {
+          if (JSON.stringify(candidate) !== JSON.stringify(policy)) {
+            next = candidate;
+            transition.abort();
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          polling = false;
+        });
+    }, 2000);
+    try {
+      await runDesktopControllerSession(options, combined, dependencies, policy);
+    } finally {
+      clearInterval(timer);
+    }
+    if (!next || signal.aborted) return;
+    policy = next;
+  }
+}
+
+async function runDesktopControllerSession(
+  options: DesktopControllerOptions,
+  signal: AbortSignal,
+  dependencies: DesktopControllerDependencies,
+  policy: CodexRendererPolicy,
 ): Promise<void> {
   const now = dependencies.now ?? Date.now;
   let session: RendererCdpControlSession | undefined;
@@ -267,10 +324,16 @@ export async function runDesktopController(
   const recordRecoverySuccess = (): void => {
     nextRecoveryAt = 0;
     recoveryDelayMs = RECOVERY_RETRY_INITIAL_MS;
-    status.installed();
+    if (policy.mode === "core") status.core();
+    else status.installed();
   };
   const createSession = async (): Promise<RendererCdpControlSession> => {
     status.installing();
+    if (policy.mode === "core")
+      return (dependencies.installCore ?? createCoreRendererSession)({
+        rendererCdpEndpoint: options.rendererCdpEndpoint,
+        policy,
+      });
     startupTrace("reading Renderer bundle");
     const rendererSource = await dependencies.readRenderer(options.rendererPath);
     if (rendererSource.trim().length === 0) throw new Error("production Renderer Bundle is empty");
@@ -278,7 +341,7 @@ export async function runDesktopController(
     const installed = await installProductionSession(
       {
         rendererCdpEndpoint: options.rendererCdpEndpoint,
-        rendererSource: `${RENDERER_CSP_BOOTSTRAP}\n${rendererSource}`,
+        rendererSource: `${RENDERER_CSP_BOOTSTRAP}\n${rendererPolicyBootstrap(policy)}\n${rendererSource}`,
         // External Agents are discovered from each target Host after installation.
         timeoutMs: PRODUCTION_INSTALL_TIMEOUT_MS,
         signal,
@@ -299,8 +362,9 @@ export async function runDesktopController(
     );
     return next;
   };
-  const resetSession = (): void => {
-    session?.close();
+  const resetSession = async (): Promise<void> => {
+    if (session?.dispose) await session.dispose();
+    else session?.close();
     session = undefined;
   };
   const ensureSession = async (): Promise<RendererCdpControlSession> => {
@@ -314,17 +378,18 @@ export async function runDesktopController(
       recordRecoverySuccess();
       return current;
     } catch (error) {
-      resetSession();
+      await resetSession();
       recordRecoveryFailure(error);
       throw error;
     }
   };
 
-  if (options.noRenderer) {
+  if (options.noRenderer || policy.mode === "safe") {
     await runWithoutRenderer(options, signal, dependencies, status);
     return;
   }
 
+  let coreFailed = false;
   let attachmentServer: ControllerAttachmentServer | undefined;
   try {
     startupTrace("starting attachment server");
@@ -332,6 +397,7 @@ export async function runDesktopController(
       port: options.attachmentPort,
       nonce: options.attachmentNonce,
       remoteConnections: async (request) => {
+        if (policy.mode !== "full" || coreFailed) throw new Error(RENDERER_DISABLED_MESSAGE);
         // Serialize session recovery, not the native request: the renderer can await Host
         // responses while other settings reads run. Never retry a submitted mutation.
         const current = await useSession(() => recoverSession());
@@ -368,24 +434,39 @@ export async function runDesktopController(
         startupTrace("initial Renderer Session unavailable", error);
         session = undefined;
         recordRecoveryFailure(error);
+        if (policy.mode === "core") {
+          coreFailed = true;
+          status.disabled();
+        }
       }
     });
     while (!signal.aborted) {
       await dependencies.sleep(dependencies.monitorIntervalMs);
       if (signal.aborted) continue;
       await useSession(async () => {
-        if (!session && now() < nextRecoveryAt) return;
+        if (coreFailed || (!session && now() < nextRecoveryAt)) return;
         try {
-          await recoverSession();
+          const current = await recoverSession();
+          if (policy.mode === "core" && dependencies.readCoreUsage) {
+            const usage = await dependencies.readCoreUsage();
+            await current.executeRenderer(
+              `globalThis.__codexhostCoreUsageV1 = ${JSON.stringify(usage)}; globalThis.dispatchEvent(new CustomEvent('codexhost:core-usage')); true`,
+            );
+          }
         } catch {
-          // Renderer integration remains unavailable until a later bounded retry succeeds.
+          if (policy.mode === "core") {
+            await resetSession();
+            coreFailed = true;
+            status.disabled();
+          }
+          // Full integration retries; a failed core bridge stays without injection until reopen.
         }
       });
     }
   } finally {
     await attachmentServer?.close();
     await operation;
-    resetSession();
+    await resetSession();
   }
 }
 

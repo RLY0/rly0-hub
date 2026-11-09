@@ -34,7 +34,7 @@ function rendererClient(binding = readyBinding()) {
     commands,
     evaluateSpy,
     on: vi.fn(() => () => {}),
-    command: vi.fn(async (method: string, params?: Record<string, unknown>) => {
+    command: vi.fn(async (method: string, params?: Record<string, unknown>): Promise<unknown> => {
       commands.push({ method, ...(params ? { params } : {}) });
       if (method === "Runtime.evaluate") return { result: { type: "undefined" } };
       return {};
@@ -327,4 +327,33 @@ describe("Renderer CDP Control Session", () => {
     expect(replacement.close).toHaveBeenCalledOnce();
     session.close();
   });
+});
+
+it("removes the registered new-document script and releases all renderer owners on policy teardown", async () => {
+  const client = rendererClient();
+  const original = client.command.getMockImplementation();
+  client.command.mockImplementation(async (method, params) => {
+    if (method === "Page.addScriptToEvaluateOnNewDocument")
+      return { identifier: "synthetic-script" };
+    return original ? original(method, params) : {};
+  });
+  const session = await createRendererCdpControlSession({
+    rendererCdpEndpoint: "http://127.0.0.1:43123",
+    rendererSource: "synthetic bundle",
+    timeoutMs: 100,
+    pollIntervalMs: 1,
+    operations: {
+      listTargets: async () => [target("page-1")],
+      connect: async () => client,
+      installDraftPrewarmPolicy: async () => ({ state: "ready", reason: "owned-request-bridge" }),
+    },
+  });
+  await session.dispose?.();
+  expect(client.command).toHaveBeenCalledWith("Page.removeScriptToEvaluateOnNewDocument", {
+    identifier: "synthetic-script",
+  });
+  expect(client.evaluateSpy).toHaveBeenLastCalledWith(
+    expect.stringContaining("__codexhostHostRoutingV1"),
+  );
+  expect(client.close).toHaveBeenCalledOnce();
 });

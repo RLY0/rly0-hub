@@ -1,0 +1,18 @@
+--- a/tools/selfheal/codex_guard.py
++++ b/tools/selfheal/codex_guard.py
+@@ -11,2 +11,3 @@
+ import json
++import os
+ import subprocess
+@@ -23,2 +24,11 @@
+ def main():
++    # Hub owns this preference after the user opted into (or kept the default) management.
++    hub_data = Path(os.environ.get('CODEXHOST_DATA_DIR', str(Path.home() / '.rly0-hub')))
++    try:
++        hub = json.loads((hub_data / 'hub-desktop.json').read_text())
++    except (OSError, ValueError):
++        hub = {}
++    if hub.get('codexUpdates', {}).get('enabled') is True:
++        print(json.dumps({'status': 'managed_by_hub'}))
++        return 0
+     state_file = STATE / 'nightly-state.json'

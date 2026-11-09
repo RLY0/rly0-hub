@@ -1,3 +1,4 @@
+import type { CodexUpdateManager } from "./codex-update-manager.js";
 import { syncNativeResourcesIfChanged } from "../rly0-bridge/native-resources.js";
 import { revealFolder } from "./desktop-open.js";
 import { sharedResourceSettings } from "../shared-harness-resources.js";
@@ -70,6 +71,7 @@ export function createHubManagementRoutes(options: {
   codex: Rly0CodexControl;
   updates?: Pick<HostUpdateCoordinator, "check">;
   compatibility?: DesktopCompatibilitySource;
+  codexUpdates?: CodexUpdateManager;
   /** An update is downloading or installing: its installer folder is not cleared. */
   updateBusy?: () => boolean;
   /** Shows a folder: Explorer on Windows, Finder on macOS. */
@@ -96,6 +98,38 @@ export function createHubManagementRoutes(options: {
   const updates = options.updates ?? { check: () => checkHubUpdate(options.installRoot) };
   const updateFailure = () => ({ code: -32000, message: "UPDATE_CHECK_FAILED" });
   return {
+    "codex.updates.status": route(
+      empty,
+      () => {
+        if (!options.codexUpdates) throw new Error("CODEX_UPDATES_UNAVAILABLE");
+        return options.codexUpdates.status();
+      },
+      () => ({ code: -32000, message: "CODEX_UPDATES_UNAVAILABLE" }),
+    ),
+    "codex.updates.acknowledgeNotice": route(
+      empty,
+      () => {
+        if (!options.codexUpdates) throw new Error("CODEX_UPDATES_UNAVAILABLE");
+        return options.codexUpdates.acknowledgeNotice();
+      },
+      () => ({ code: -32000, message: "CODEX_UPDATES_UNAVAILABLE" }),
+    ),
+    "codex.updates.check": route(
+      empty,
+      () => {
+        if (!options.codexUpdates) throw new Error("CODEX_UPDATES_UNAVAILABLE");
+        return options.codexUpdates.check();
+      },
+      () => ({ code: -32000, message: "CODEX_UPDATES_UNAVAILABLE" }),
+    ),
+    "codex.updates.setEnabled": route(
+      z.object({ enabled: z.boolean() }).strict(),
+      (p) => {
+        if (!options.codexUpdates) throw new Error("CODEX_UPDATES_UNAVAILABLE");
+        return options.codexUpdates.setEnabled(p.enabled);
+      },
+      () => ({ code: -32000, message: "CODEX_UPDATES_UNAVAILABLE" }),
+    ),
     "instructions.state": route(empty, () => instructions.state(), rly0InstructionsRpcError),
     "instructions.preview": route(
       z.object({ content }).strict(),

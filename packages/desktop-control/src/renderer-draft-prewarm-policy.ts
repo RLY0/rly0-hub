@@ -25,8 +25,8 @@ interface InspectorEvaluator {
 }
 
 export interface RendererDraftPrewarmPolicyStatus {
-  state: "ready";
-  reason: "owned-request-bridge";
+  state: "ready" | "disabled";
+  reason: "owned-request-bridge" | "core-no-patches";
 }
 
 const REQUEST_MANAGER_WAIT_TIMEOUT_MS = 60_000;

@@ -13,7 +13,7 @@ import path from "node:path";
  */
 export interface RendererIntegrationStatus {
   /** `disabled`: started with `--no-renderer` (safe mode); no installation is attempted. */
-  state: "installing" | "installed" | "unavailable" | "disabled";
+  state: "installing" | "installed" | "unavailable" | "disabled" | "core";
   /** The current failure; cleared once installed. */
   error: string | null;
   failures: number;
@@ -54,6 +54,7 @@ function errorMessage(error: unknown): string {
 export interface RendererStatusReporter {
   installing(): void;
   installed(): void;
+  core(): void;
   failed(error: unknown): void;
   disabled(): void;
 }
@@ -79,6 +80,16 @@ export function createRendererStatusReporter(
     publish({ schemaVersion: 1, pid, startedAt, renderer: current });
   };
   return {
+    core() {
+      update({
+        state: "core",
+        error: null,
+        failures: current?.failures ?? 0,
+        lastError: current?.lastError ?? null,
+        lastFailedAt: current?.lastFailedAt ?? null,
+        lastInstalledAt: now(),
+      });
+    },
     installing() {
       update({
         state: "installing",

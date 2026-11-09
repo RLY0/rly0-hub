@@ -13,6 +13,7 @@ export const desktopCompatibilitySchema = z
       "unavailable",
       /** Opened without the interface integration because this Desktop version is unverified. */
       "safe-mode",
+      "core-mode",
     ]),
     desktopVersion: z.string().max(96).nullable(),
     previousCompatibleVersion: z.string().max(96).nullable(),

@@ -20,7 +20,7 @@ async function fixture() {
   const environment = { CODEXHOST_DATA_DIR: directory };
   const native = {
     schemaVersion: 1,
-    desktop: { version: "26.1021.3705.0", processIds: [101] },
+    desktop: { version: "26.1103.5130.0", processIds: [101] },
     runtime: { running: true, launcherPid: 102 },
   };
   const controller = {
@@ -89,7 +89,7 @@ it("records a baseline only when the current managed session has connected its i
 it("classifies the observed new-version manager failure and exports no raw error or secrets", async () => {
   const f = await fixture();
   await f.monitor.check();
-  f.native.desktop.version = "26.1022.1";
+  f.native.desktop.version = "26.1029.1";
   f.startupRecord.desktop.version = f.native.desktop.version;
   f.controller.renderer.state = "unavailable";
   f.controller.renderer.error =
@@ -99,7 +99,7 @@ it("classifies the observed new-version manager failure and exports no raw error
   expect(result).toMatchObject({
     state: "incompatible",
     issue: "REQUEST_MANAGER_UNAVAILABLE",
-    previousCompatibleVersion: "26.1021.3705.0",
+    previousCompatibleVersion: "26.1103.5130.0",
     versionChanged: true,
   });
   const notice = await f.monitor.takeNotice();
@@ -120,7 +120,7 @@ it("classifies the observed new-version manager failure and exports no raw error
   f.controller.renderer.error = null;
   await f.save();
   expect((await f.monitor.check()).state).toBe("ready");
-  expect((await f.monitor.check()).previousCompatibleVersion).toBe("26.1022.1");
+  expect((await f.monitor.check()).previousCompatibleVersion).toBe("26.1029.1");
   expect((await f.monitor.check()).rendererError).toBeUndefined();
 });
 
@@ -141,14 +141,14 @@ it("keeps a CDP failure's reason, home folder removed, falling back to the last 
   expect((await f.monitor.check()).rendererError).toBe("CDP target closed");
 });
 
-it("does not reject a version change when the actual interface is connected", async () => {
+it("does not certify an unlisted version merely because the interface connected", async () => {
   const f = await fixture();
   await f.monitor.check();
   f.native.desktop.version = "26.9000.1";
   f.startupRecord.desktop.version = f.native.desktop.version;
   await f.save();
-  expect(await f.monitor.check()).toMatchObject({ state: "ready", versionChanged: true });
-  expect(await f.monitor.takeNotice()).toBeNull();
+  expect(await f.monitor.check()).toMatchObject({ state: "core-mode", versionChanged: true });
+  expect(await f.monitor.takeNotice()).toMatchObject({ title: "Codex 增强已降级" });
 });
 
 it.each(["dead", "previous-session", "different-version", "future-status"])(
@@ -236,10 +236,10 @@ it("maps a safe-mode Controller to safe-mode with one plain notice per version",
 });
 
 it.each([
-  ["the last proven version", "26.1021.3705.0", "26.1021.3705.0", "full"],
-  ["a changed, unlisted version", "26.1021.3705.0", "26.1200.1", "safe"],
+  ["the previously connected but unverified version", "26.1021.3705.0", "26.1021.3705.0", "core"],
+  ["a changed, unlisted version", "26.1021.3705.0", "26.1200.1", "core"],
   ["a first install on a listed family", null, "26.1103.5130.0", "full"],
-  ["a first install on an unlisted version", null, "26.1200.1", "safe"],
+  ["a first install on an unlisted version", null, "26.1200.1", "core"],
   ["a changed version in a listed family", "26.1021.3705.0", "26.1029.1.0", "full"],
 ] as const)("opens %s in the decided mode", async (_label, proven, installed, mode) => {
   const f = await fixture();
@@ -252,29 +252,21 @@ it.each([
   expect(await f.monitor.decideLaunchMode()).toBe(mode);
 });
 
-it("keeps full mode when the installed version cannot be read", async () => {
+it("uses core mode when the installed version cannot be read", async () => {
   const f = await fixture();
   f.inspect.mockRejectedValueOnce(new Error("no launcher"));
-  expect(await f.monitor.decideLaunchMode()).toBe("full");
+  expect(await f.monitor.decideLaunchMode()).toBe("core");
 });
 
-it("remembers a full-mode choice for the current version only, then proves it on success", async () => {
+it("neither a prior full-mode choice nor a connected renderer certifies an unknown version", async () => {
   const f = await fixture();
-  const statePath = path.join(f.diagnostics, "desktop-compatibility-state-v1.json");
   f.native.desktop.version = "26.1200.1";
-  expect(await f.monitor.decideLaunchMode()).toBe("safe");
+  expect(await f.monitor.decideLaunchMode()).toBe("core");
   await f.monitor.allowFullMode();
-  expect(await f.monitor.decideLaunchMode()).toBe("full");
-  // A fresh instance (another Hub process) reads the same choice.
-  expect(await new Rly0DesktopCompatibility(f.options).decideLaunchMode()).toBe("full");
-  f.native.desktop.version = "26.1300.1";
-  expect(await f.monitor.decideLaunchMode()).toBe("safe");
-  // Full mode connected on 26.1200.1: it becomes the proven version.
-  f.native.desktop.version = "26.1200.1";
+  expect(await f.monitor.decideLaunchMode()).toBe("core");
+  expect(await new Rly0DesktopCompatibility(f.options).decideLaunchMode()).toBe("core");
   f.startupRecord.desktop.version = "26.1200.1";
   await f.save();
-  expect((await f.monitor.check()).state).toBe("ready");
-  const saved = JSON.parse(await readFile(statePath, "utf8"));
-  expect(saved).toMatchObject({ lastCompatibleVersion: "26.1200.1", fullModeFor: null });
-  expect(await f.monitor.decideLaunchMode()).toBe("full");
+  expect((await f.monitor.check()).state).toBe("core-mode");
+  expect(await f.monitor.decideLaunchMode()).toBe("core");
 });

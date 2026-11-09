@@ -1,3 +1,7 @@
+import { CodexCompatibilityCatalog } from "./codex-compat.js";
+import { CodexUpdateManager } from "./codex-update-manager.js";
+import { createMacCodexUpdateDriver } from "./codex-sparkle.js";
+import { writeJsonFile } from "../rly0-maintenance/backend-reload-channel.js";
 import { openInBrowser, revealFolder } from "./desktop-open.js";
 import { Rly0PromoSource } from "./promo.js";
 import { createBridgeRoutes } from "./bridge-routes.js";
@@ -153,7 +157,12 @@ const codexRestartParams = z.object({ fullMode: z.boolean().optional() }).strict
 
 /** Safe-mode decision members are optional so a synthetic observer can omit them. */
 type Rly0HubCompatibility = Pick<Rly0DesktopCompatibility, "check" | "takeNotice"> &
-  Partial<Pick<Rly0DesktopCompatibility, "decideLaunchMode" | "allowFullMode">>;
+  Partial<
+    Pick<
+      Rly0DesktopCompatibility,
+      "decideLaunchMode" | "allowFullMode" | "rendererPolicy" | "installedVersion"
+    >
+  >;
 const addLoginIdParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/u) }).strict();
 const linkParams = z
   .object({
@@ -255,6 +264,8 @@ export class Rly0HubService {
   readonly #antigravity: AntigravityUsageReader;
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
+  readonly #codexUpdates: CodexUpdateManager;
+  readonly #codexCatalog: CodexCompatibilityCatalog;
   readonly #codexConfig: Rly0RelayCodexConfigManager;
   readonly #addLogin: Rly0HubAddLogin;
   readonly #applier: Rly0CodexApplier;
@@ -277,9 +288,18 @@ export class Rly0HubService {
     const { environment } = options;
     const windows = (options.platform ?? process.platform) === "win32";
     this.#core = options.core ?? new Rly0CoreBridge({ environment });
+    this.#codexCatalog = new CodexCompatibilityCatalog({
+      environment,
+      installRoot: options.installRoot,
+      get: async () => createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+    });
     this.#compatibility =
       options.compatibility ??
-      new Rly0DesktopCompatibility({ environment, installRoot: options.installRoot });
+      new Rly0DesktopCompatibility({
+        environment,
+        installRoot: options.installRoot,
+        catalog: this.#codexCatalog,
+      });
     const compatibility = this.#compatibility;
     const { decideLaunchMode, allowFullMode } = compatibility;
     this.#codex =
@@ -291,6 +311,24 @@ export class Rly0HubService {
           ? {
               launchModes: {
                 decide: () => decideLaunchMode.call(compatibility),
+                ...(compatibility.installedVersion
+                  ? {
+                      version: () =>
+                        compatibility.installedVersion?.call(compatibility) ??
+                        Promise.resolve(null),
+                    }
+                  : {}),
+                ...(compatibility.rendererPolicy
+                  ? {
+                      policy: () =>
+                        compatibility.rendererPolicy?.call(compatibility) ??
+                        Promise.resolve({
+                          schemaVersion: 1 as const,
+                          mode: "core" as const,
+                          disabled: [],
+                        }),
+                    }
+                  : {}),
                 allowFullMode: () => allowFullMode.call(compatibility),
               },
             }
@@ -360,6 +398,27 @@ export class Rly0HubService {
       ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#state = new Rly0HubStateStore(environment);
+    const currentVersion = () =>
+      compatibility.installedVersion?.call(compatibility) ??
+      compatibility.check().then((result) => result.desktopVersion);
+    this.#codexUpdates = new CodexUpdateManager({
+      environment,
+      state: this.#state,
+      catalog: this.#codexCatalog,
+      currentVersion,
+      busy: () => codexHeartbeatBusy(dataDirectory),
+      driver:
+        (options.platform ?? process.platform) === "darwin"
+          ? createMacCodexUpdateDriver({
+              environment,
+              currentVersion,
+              get: async () =>
+                createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+              reopen: async () => (await this.#codex.open()).ok,
+              healthy: async () => (await compatibility.check()).state === "ready",
+            })
+          : null,
+    });
     this.#liveQuota = new Rly0HubLiveQuota({
       file: liveQuotaFeedPath(environment),
       listAccounts: async () => {
@@ -418,6 +477,7 @@ export class Rly0HubService {
 
   /** First run turns autostart on (the confirmed default); later runs respect the toggle. */
   async start(): Promise<void> {
+    void this.#codexUpdates.start();
     const state = await this.#state.read();
     // Without a Hub executable to register (source checkout) the default waits for a real build.
     if (!state.autostartDefaulted && this.#appearance.supported) {
@@ -438,6 +498,7 @@ export class Rly0HubService {
 
   /** Tray notices to show now; each is remembered so it is not repeated. */
   async #checkAlerts(): Promise<unknown> {
+    void this.#codexUpdates.check();
     const zero = await this.#zeroRelay();
     let balance: { amount: number; unit: "USD" | "CNY" } | null = null;
     if (zero?.enabled && zero.hasKey) {
@@ -457,6 +518,10 @@ export class Rly0HubService {
         };
       }
     }
+    await writeJsonFile(
+      path.join(resolveRly0DataDir(this.#options.environment), "codex-core-usage.json"),
+      { checkedAt: Date.now(), balance, quota },
+    ).catch(() => undefined);
     const before = await this.#state.read();
     const switching = usage?.available ? await this.#autoSwitch(usage.usage, before) : null;
     // An auto-switch notice already covers a low Codex quota.
@@ -824,6 +889,7 @@ export class Rly0HubService {
   }
 
   async dispose(): Promise<void> {
+    await this.#codexUpdates.stop();
     this.#liveQuota.dispose();
     this.#isolation.close();
     this.#claudeAdd.close();
@@ -910,6 +976,7 @@ export class Rly0HubService {
         core,
         codex: this.#codex,
         compatibility: this.#compatibility,
+        codexUpdates: this.#codexUpdates,
         updateBusy: () =>
           ["downloading", "verifying", "installing"].includes(
             this.#updater?.progress().phase ?? "idle",

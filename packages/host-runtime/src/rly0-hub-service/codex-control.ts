@@ -2,7 +2,10 @@ import { spawn } from "node:child_process";
 import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 
-import { RLY0_APP_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
+import {
+  type CodexRendererPolicy,
+  RLY0_APP_DATA_DIRECTORY_NAME,
+} from "@codexhost/shared-contracts";
 
 import { createLauncherProcessControl } from "../rly0-maintenance/launcher-process-control.js";
 
@@ -19,11 +22,13 @@ export interface Rly0CodexStatus {
 /** Read by the Launcher, which only forwards it to the Desktop Controller as `--no-renderer`. */
 export const RLY0_SAFE_MODE_ENV = "CODEXHOST_SAFE_MODE";
 
-export type Rly0CodexLaunchMode = "full" | "safe";
+export type Rly0CodexLaunchMode = "full" | "core" | "safe";
 
 /** The Hub's safe-mode decision (`Rly0DesktopCompatibility`). */
 export interface Rly0CodexLaunchModes {
   decide(): Promise<Rly0CodexLaunchMode>;
+  policy?(): Promise<CodexRendererPolicy>;
+  version?(): Promise<string | null>;
   /** The user chose full mode for the currently installed Desktop version only. */
   allowFullMode(): Promise<void>;
 }
@@ -39,7 +44,7 @@ export interface Rly0CodexControlOptions {
   readonly platform?: NodeJS.Platform;
   readonly isAlive?: (pid: number) => boolean;
   readonly startDetached?: (executable: string, environment: NodeJS.ProcessEnv) => void;
-  /** Without it Codex always opens in full mode. */
+  /** Without it Codex opens in conservative core mode. */
   readonly launchModes?: Rly0CodexLaunchModes;
   readonly fileExists?: (file: string) => boolean;
   /** Whether the Codex side's heartbeat is fresh (Codex open through RLY/0 Hub). */
@@ -144,12 +149,26 @@ export class Rly0CodexControl {
 
   async open(): Promise<{ ok: boolean }> {
     if (!(await this.status()).canOpen) return { ok: false };
-    // An undecidable version keeps the previous behavior (full mode) rather than blocking Codex.
+    // An undecidable version keeps Codex usable with only the passive core bridge.
     const mode: Rly0CodexLaunchMode =
-      (await this.#options.launchModes?.decide().catch(() => "full" as const)) ?? "full";
+      (await this.#options.launchModes?.decide().catch(() => "core" as const)) ?? "core";
     // An inherited switch never leaks into a full-mode start.
     const environment = Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => name !== RLY0_SAFE_MODE_ENV),
+      Object.entries(this.#options.environment).filter(
+        ([name]) => name !== RLY0_SAFE_MODE_ENV && name !== "CODEXHOST_RENDERER_POLICY",
+      ),
+    );
+    const version = await this.#options.launchModes?.version?.().catch(() => null);
+    if (version) environment.CODEXHOST_CODEX_VERSION = version;
+    else delete environment.CODEXHOST_CODEX_VERSION;
+    environment.CODEXHOST_RENDERER_POLICY = JSON.stringify(
+      (await this.#options.launchModes
+        ?.policy?.()
+        .catch(() => ({ schemaVersion: 1, mode: "core", disabled: [] }))) ?? {
+        schemaVersion: 1,
+        mode,
+        disabled: [],
+      },
     );
     if (mode === "safe") environment[RLY0_SAFE_MODE_ENV] = "1";
     (this.#options.startDetached ?? startDetached)(this.#startExecutable(), environment);
@@ -173,12 +192,13 @@ export class Rly0CodexControl {
    * its own mode, so that restart always ends Codex and opens it again through `open()`.
    */
   async restart(options: { fullMode?: boolean | undefined } = {}): Promise<{ ok: boolean }> {
-    if (options.fullMode) {
-      if (!this.#options.launchModes || !this.#options.killProcesses) return { ok: false };
-      await this.#options.launchModes.allowFullMode();
-      await this.#request("quit");
-    } else if ((await this.#request("restart")).ok) return { ok: true };
+    // Do not submit a quit when this installation cannot complete the reopen path.
     if (!this.#options.killProcesses) return { ok: false };
+    if (options.fullMode) {
+      if (!this.#options.launchModes) return { ok: false };
+      await this.#options.launchModes.allowFullMode();
+    }
+    await this.#request("quit");
     const killed = await this.#options.killProcesses().catch(() => 0);
     if (killed === 0 && !(await this.status()).running) return { ok: false };
     await new Promise((resolve) => setTimeout(resolve, this.#options.restartDelayMs ?? 1500));

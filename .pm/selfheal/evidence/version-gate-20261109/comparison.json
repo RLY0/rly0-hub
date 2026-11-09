@@ -1,0 +1,170 @@
+{
+  "baseCommit": "79fc26e8b2b57b5cb22b6b0fd9b42142f5dde945",
+  "baselineCommand": "npm run test:typescript",
+  "baseline": {
+    "testFiles": "12 failed | 815 passed | 27 skipped",
+    "tests": "19 failed | 9387 passed | 69 skipped",
+    "failures": [
+      "packages/adapters/workbuddy/test/discovery.test.ts > WorkBuddy app discovery > finds the macOS bundle /Applications/WorkBuddy.app",
+      "packages/host-runtime/test/app-server-host.external-continue.test.ts > External Thread turn/start without typed text > passes an image-only message to the Harness as an attachment reference",
+      "packages/host-runtime/test/delegation-thread-list-pagination.test.ts > delegation Thread list native pagination > does not cache an unreturned candidate across requests",
+      "packages/host-runtime/test/external-resources-review.test.ts > HUB-52 independent review regressions (synthetic isolated home) > R2: a legacy backup can reclaim only the Hub-owned replacement left by the old bug",
+      "packages/host-runtime/test/external-resources-review.test.ts > HUB-52 independent review regressions (synthetic isolated home) > R2: pausing a Codex name prevents external substitution and restores the exact original",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > B: a failed legacy restore leaves a new user skill visible and distributed",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > B: a move failure also rolls back only the temporary pause",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > C: a deleted backup stays visible as distributionOnly and restore explicitly unpauses its name",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > C: an orphan with no remaining source can still be unpaused without inventing recovered content",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > C: permission failure is not misclassified as a missing backup",
+      "packages/host-runtime/test/external-skills.test.ts > external installer skills (synthetic, isolated home) > lists the Claude original once, preserves its junction, and copies to Codex",
+      "packages/host-runtime/test/resource-added-at.test.ts > resource addedAt (synthetic, isolated HOME) > keeps lists usable without an optional timestamp when Hub metadata cannot be written",
+      "packages/host-runtime/test/rly0-hub-add-login.test.ts > adding a GPT account from the Hub > signs in through the located official app-server in a throw-away CODEX_HOME",
+      "packages/host-runtime/test/rly0-skills/index.test.ts > Rly0SkillsManager > deactivates a skill by moving it to the backup root, then lists it under backups",
+      "packages/host-runtime/test/rly0-skills/index.test.ts > Rly0SkillsManager > lists installed skills with front matter title/description",
+      "packages/host-runtime/test/rly0-skills/index.test.ts > Rly0SkillsManager > rejects restoring on top of an already-installed skill",
+      "packages/host-runtime/test/shared-brain-review.test.ts > HUB-50 review 6, 7 and 8: successful mutations, cached synchronization and credential filtering > reports native sync failures beside successful import/deactivate/restore without losing the primary result",
+      "packages/host-runtime/test/shared-resource-settings.test.ts > Codex resource sharing settings > returns skill folders instead of an index to agents that register skills natively",
+      "packages/protocol-core/test/thread-fork.test.ts > Codex thread/fork protocol boundary > maps missing Harness configuration without exposing native diagnostics"
+    ],
+    "logSha256": "d61f40547e607e690953a5d5864cd099765c350c72a7301588a469c785ce536a"
+  },
+  "baselineFollowup": {
+    "paginationFailures": [
+      "packages/host-runtime/test/delegation-thread-list-pagination.test.ts > delegation Thread list native pagination > continues after the last emitted native row when a prior prefix changes: delete",
+      "packages/host-runtime/test/delegation-thread-list-pagination.test.ts > delegation Thread list native pagination > continues after the last emitted native row when a prior prefix changes: insert",
+      "packages/host-runtime/test/delegation-thread-list-pagination.test.ts > delegation Thread list native pagination > preserves created-desc order through real Host aggregation",
+      "packages/host-runtime/test/delegation-thread-list-pagination.test.ts > delegation Thread list native pagination > rejects cwd changes before reading any source, but allows changing limit"
+    ],
+    "paginationProjection": "48 passed; ENOTEMPTY is intermittent"
+  },
+  "independentReview": {
+    "status": "not_run",
+    "dispatchErrors": ["CODEXHOST_NOT_FOUND", "CODEXHOST_FAILED"]
+  },
+  "nativeTests": {
+    "macOSRealUpdate": "not_run",
+    "windowsDesktop": "not_run",
+    "userDefaultsMutations": "none",
+    "liveClientRestarts": "none"
+  },
+  "final": {
+    "testFiles": "11 failed | 819 passed | 27 skipped",
+    "tests": "18 failed | 9419 passed | 69 skipped",
+    "failures": [
+      "packages/adapters/workbuddy/test/discovery.test.ts > WorkBuddy app discovery > finds the macOS bundle /Applications/WorkBuddy.app",
+      "packages/host-runtime/test/app-server-host.external-continue.test.ts > External Thread turn/start without typed text > passes an image-only message to the Harness as an attachment reference",
+      "packages/host-runtime/test/external-resources-review.test.ts > HUB-52 independent review regressions (synthetic isolated home) > R2: a legacy backup can reclaim only the Hub-owned replacement left by the old bug",
+      "packages/host-runtime/test/external-resources-review.test.ts > HUB-52 independent review regressions (synthetic isolated home) > R2: pausing a Codex name prevents external substitution and restores the exact original",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > B: a failed legacy restore leaves a new user skill visible and distributed",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > B: a move failure also rolls back only the temporary pause",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > C: a deleted backup stays visible as distributionOnly and restore explicitly unpauses its name",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > C: an orphan with no remaining source can still be unpaused without inventing recovered content",
+      "packages/host-runtime/test/external-resources-review2.test.ts > HUB-52 second independent review regressions (synthetic isolated home) > C: permission failure is not misclassified as a missing backup",
+      "packages/host-runtime/test/external-skills.test.ts > external installer skills (synthetic, isolated home) > lists the Claude original once, preserves its junction, and copies to Codex",
+      "packages/host-runtime/test/resource-added-at.test.ts > resource addedAt (synthetic, isolated HOME) > keeps lists usable without an optional timestamp when Hub metadata cannot be written",
+      "packages/host-runtime/test/rly0-hub-add-login.test.ts > adding a GPT account from the Hub > signs in through the located official app-server in a throw-away CODEX_HOME",
+      "packages/host-runtime/test/rly0-skills/index.test.ts > Rly0SkillsManager > deactivates a skill by moving it to the backup root, then lists it under backups",
+      "packages/host-runtime/test/rly0-skills/index.test.ts > Rly0SkillsManager > lists installed skills with front matter title/description",
+      "packages/host-runtime/test/rly0-skills/index.test.ts > Rly0SkillsManager > rejects restoring on top of an already-installed skill",
+      "packages/host-runtime/test/shared-brain-review.test.ts > HUB-50 review 6, 7 and 8: successful mutations, cached synchronization and credential filtering > reports native sync failures beside successful import/deactivate/restore without losing the primary result",
+      "packages/host-runtime/test/shared-resource-settings.test.ts > Codex resource sharing settings > returns skill folders instead of an index to agents that register skills natively",
+      "packages/protocol-core/test/thread-fork.test.ts > Codex thread/fork protocol boundary > maps missing Harness configuration without exposing native diagnostics"
+    ],
+    "newFailures": [],
+    "logSha256": "41f542507b4b50458b4cb92df296046284c5bcf37d63e0ae8b544a5290ffde3f",
+    "codeAndTestsSha256": "fe6091d38d7a74c1f6d6fb5fdb88dfd2e6652f52d0172be920afd038dea8e722",
+    "fingerprintedFiles": [
+      "codex-compat.json",
+      "packages/desktop-control/src/codex-renderer-policy.ts",
+      "packages/desktop-control/src/controller-status.ts",
+      "packages/desktop-control/src/core-renderer-session.ts",
+      "packages/desktop-control/src/core-usage-snapshot.ts",
+      "packages/desktop-control/src/production-controller.ts",
+      "packages/desktop-control/src/renderer-cdp-control-session.ts",
+      "packages/desktop-control/src/renderer-draft-prewarm-policy.ts",
+      "packages/desktop-control/test/codex-renderer-policy.test.ts",
+      "packages/desktop-control/test/production-controller.test.ts",
+      "packages/desktop-control/test/renderer-cdp-control-session.test.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-compat.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-control.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts",
+      "packages/host-runtime/src/rly0-hub-service/hub-state.ts",
+      "packages/host-runtime/src/rly0-hub-service/management-routes.ts",
+      "packages/host-runtime/src/rly0-hub-service/service.ts",
+      "packages/host-runtime/src/rly0-hub-service/update-check.ts",
+      "packages/host-runtime/src/rly0-maintenance/desktop-compatibility.ts",
+      "packages/host-runtime/test/codex-version-gate.test.ts",
+      "packages/host-runtime/test/rly0-hub-service.test.ts",
+      "packages/host-runtime/test/rly0-maintenance/desktop-compatibility.test.ts",
+      "packages/renderer-extension/src/install-renderer-binding.ts",
+      "packages/renderer-extension/src/production-entry.ts",
+      "packages/renderer-extension/src/renderer-binding-probe.ts",
+      "packages/renderer-extension/src/renderer-feature-gate.ts",
+      "packages/renderer-extension/test/renderer-feature-gate.test.ts",
+      "packages/shared-contracts/src/codex-version-gate.ts",
+      "packages/shared-contracts/src/desktop-compatibility.ts",
+      "packages/shared-contracts/src/index.ts",
+      "tests/e2e/renderer-version-gate.spec.ts"
+    ]
+  },
+  "checks": {
+    "typecheck": {
+      "command": "npm run typecheck",
+      "exitCode": 0,
+      "status": "pass"
+    },
+    "focused": {
+      "command": "npx vitest run --config tests/vitest.config.js <7 affected test files>",
+      "exitCode": 0,
+      "tests": 105,
+      "status": "pass"
+    },
+    "typescriptFull": {
+      "command": "npm run test:typescript",
+      "exitCode": 1,
+      "status": "existing_failures_only",
+      "newFailures": 0
+    },
+    "lint": {
+      "command": "npm run lint",
+      "exitCode": 1,
+      "status": "existing_failure_only",
+      "failure": "packages/host-runtime/test/rly0-hub-promo.test.ts:11 @typescript-eslint/no-non-null-assertion"
+    },
+    "boundaries": {
+      "command": "node tools/check-boundaries.mjs",
+      "exitCode": 0,
+      "status": "pass"
+    },
+    "rendererBuild": {
+      "command": "npm run build:renderer",
+      "exitCode": 0,
+      "status": "pass"
+    },
+    "webkit": {
+      "command": "npm run test:e2e -- renderer-version-gate.spec.ts --browser=webkit",
+      "exitCode": 0,
+      "tests": 1,
+      "status": "pass"
+    },
+    "changedFormat": {
+      "command": "prettier --check <changed files>",
+      "exitCode": 0,
+      "status": "pass"
+    },
+    "rustClippyNativeGates": {
+      "status": "not_run",
+      "reason": "No Rust changes; selected TS/Renderer checks; not a release approval"
+    }
+  },
+  "recordedAt": "2026-11-09T07:07:27.878581+00:00",
+  "artifactHashes": {
+    ".local-test/typecheck.log": "0f74e9a1b23f9b8bdd76f7a3b8ab8698b8614ccda1ca1f00c4768fa2891a200f",
+    ".local-test/focused.log": "1d7ed3248858a1d6813a6ed232730b5b4702de6be34d6791c2b0ade0278d42d3",
+    ".local-test/lint.log": "4e8ef2e7d613197e8a98842cab638a21d7b9bc527c867b6f918c5f980df54a65",
+    ".local-test/boundaries.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    ".local-test/renderer.log": "da18614bab02d347e6931e30cfdb5f9484c20108d4126f031f1e32cb00729507",
+    ".local-test/e2e-webkit.log": "6bd6155c20473512c23f98bd96ba67c7ccf3950787cf19d795fe14014058530c",
+    ".local-test/format.log": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20"
+  }
+}

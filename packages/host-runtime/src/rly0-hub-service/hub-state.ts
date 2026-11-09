@@ -1,3 +1,4 @@
+import { codexUpdateSettingsSchema, type CodexUpdateSettings } from "@codexhost/shared-contracts";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -17,6 +18,7 @@ export const RLY0_HUB_STATE_FILE = "hub-desktop.json";
 export interface Rly0HubState {
   /** Autostart was turned on once on first run; later the person's choice wins. */
   readonly autostartDefaulted?: boolean;
+  readonly codexUpdates?: CodexUpdateSettings;
   /** The first-run guide was finished or skipped. */
   readonly onboarded?: boolean;
   /**
@@ -48,6 +50,9 @@ function clean(value: unknown): Rly0HubState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const raw = value as Record<string, unknown>;
   return {
+    ...(codexUpdateSettingsSchema.safeParse(raw.codexUpdates).success
+      ? { codexUpdates: codexUpdateSettingsSchema.parse(raw.codexUpdates) }
+      : {}),
     ...(raw.autostartDefaulted === true ? { autostartDefaulted: true } : {}),
     ...(raw.onboarded === true ? { onboarded: true } : {}),
     ...(raw.channelConsented === true ? { channelConsented: true } : {}),
@@ -89,6 +94,7 @@ function clean(value: unknown): Rly0HubState {
 
 export class Rly0HubStateStore {
   readonly #file: string;
+  #pending: Promise<unknown> = Promise.resolve();
 
   constructor(environment: NodeJS.ProcessEnv) {
     this.#file = path.join(resolveRly0DataDir(environment), RLY0_HUB_STATE_FILE);
@@ -111,7 +117,13 @@ export class Rly0HubStateStore {
     }
   }
 
-  async update(change: Partial<Record<keyof Rly0HubState, unknown>>): Promise<Rly0HubState> {
+  update(change: Partial<Record<keyof Rly0HubState, unknown>>): Promise<Rly0HubState> {
+    const next = this.#pending.then(() => this.#update(change));
+    this.#pending = next.catch(() => undefined);
+    return next;
+  }
+
+  async #update(change: Partial<Record<keyof Rly0HubState, unknown>>): Promise<Rly0HubState> {
     const next = clean({ ...(await this.read()), ...change });
     await fs.mkdir(path.dirname(this.#file), { recursive: true });
     const temporary = `${this.#file}.tmp-${process.pid}-${Date.now()}`;

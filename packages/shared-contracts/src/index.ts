@@ -849,3 +849,4 @@ export type {
   Rly0CodexPreferences,
   Rly0CodexPreferencesGetResult,
 } from "./rly0-codex-preferences.js";
+export * from "./codex-version-gate.js";

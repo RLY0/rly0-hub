@@ -1,3 +1,4 @@
+import { rendererFeatureEnabled } from "./renderer-feature-gate.js";
 import { type RendererAgent } from "./agent-selection-state.js";
 import {
   installRendererBindingProbe,
@@ -11,6 +12,7 @@ export function installRendererBinding(
   window.__codexhostRendererBindingProbeV1?.dispose();
   const binding = installRendererBindingProbe({ ...(enabledAgents ? { enabledAgents } : {}) });
   try {
+    if (!rendererFeatureEnabled("composer")) throw new Error("COMPOSER_DISABLED");
     const adapter = installCurrentRendererAdapter();
     binding.setAdapter(adapter.status, adapter.dispose, adapter.applyAgent, adapter.modelControl);
   } catch (error) {

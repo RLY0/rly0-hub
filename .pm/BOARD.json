@@ -1,0 +1,20 @@
+{
+  "scope": "isolated-candidate-only",
+  "base": "79fc26e8b2b57b5cb22b6b0fd9b42142f5dde945",
+  "tickets": [
+    {
+      "id": "HUB-CODEX-VERSION-GATE",
+      "stage": "M1",
+      "milestone": "2-好用",
+      "owner": "codex",
+      "collaborators": ["claude"],
+      "status": "self_verified",
+      "review": "pending-unavailable",
+      "accepted": false,
+      "scope": "A/B/C nonvisual; no package, release or live process changes",
+      "contract": ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md",
+      "evidence_files": [".pm/selfheal/evidence/version-gate-20261109/RESULTS.md"],
+      "next_action": "Claude 核对接口并接显示层；补独立复查、guard 实际部署与真机升级验收"
+    }
+  ]
+}

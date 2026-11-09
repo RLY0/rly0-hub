@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 import {
   isVerifiedDesktopVersionFamily,
+  type CodexRendererPolicy,
   type DesktopCompatibility,
 } from "@codexhost/shared-contracts";
 import { resolveRly0DiagnosticsDir } from "./paths.js";
@@ -36,7 +37,7 @@ const controllerSchema = z.object({
   pid,
   startedAt: timestamp,
   renderer: z.object({
-    state: z.enum(["installed", "installing", "unavailable", "disabled"]),
+    state: z.enum(["installed", "installing", "unavailable", "disabled", "core"]),
     error: z.string().max(1000).nullable(),
     lastError: z.string().max(1000).nullable().optional(),
     updatedAt: timestamp,
@@ -56,6 +57,11 @@ export interface DesktopCompatibilitySource {
 }
 
 interface Options {
+  catalog?: {
+    load(): Promise<void>;
+    policy(version: string | null): CodexRendererPolicy;
+    publishPolicy?(version: string | null): Promise<void>;
+  };
   environment: NodeJS.ProcessEnv;
   installRoot?: string;
   /** Tests supply synthetic metadata; production only invokes the installed launcher's inspect. */
@@ -194,35 +200,37 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     if (saved.success) this.#saved = saved.data;
   }
 
-  async #installedVersion(): Promise<string | null> {
+  async installedVersion(): Promise<string | null> {
     const inspected = inspectSchema.safeParse(await this.#inspect().catch(() => null));
     return inspected.success ? (inspected.data.desktop?.version ?? null) : null;
   }
 
-  /**
-   * How the Hub opens Codex. Full mode for the version whose interface integration was last
-   * proven, a version the user chose full mode for, or a version family this Hub build ships as
-   * verified (so a fresh install is not stuck in safe mode); safe mode for any other version.
-   * An undeterminable version keeps full mode: this decision must never stop Codex from opening.
-   */
-  async decideLaunchMode(): Promise<"full" | "safe"> {
-    const version = await this.#installedVersion();
-    if (!version) return "full";
-    await this.#load();
-    if (
-      version === this.#saved.lastCompatibleVersion ||
-      version === this.#saved.fullModeFor ||
-      isVerifiedDesktopVersionFamily(version)
-    ) {
-      return "full";
+  /** Connection health never certifies a Desktop family. Only the shipped/remote table can. */
+  async rendererPolicy(): Promise<CodexRendererPolicy> {
+    return this.#policyFor(await this.installedVersion());
+  }
+
+  async #policyFor(version: string | null): Promise<CodexRendererPolicy> {
+    if (this.#options.catalog) {
+      await this.#options.catalog.load();
+      await this.#options.catalog.publishPolicy?.(version);
+      return this.#options.catalog.policy(version);
     }
-    return "safe";
+    return {
+      schemaVersion: 1,
+      mode: version && isVerifiedDesktopVersionFamily(version) ? "full" : "core",
+      disabled: [],
+    };
+  }
+
+  async decideLaunchMode(): Promise<"full" | "core" | "safe"> {
+    return (await this.rendererPolicy()).mode;
   }
 
   /** "以完整模式重启 Codex": applies to the installed version only. */
   async allowFullMode(): Promise<void> {
-    const version = await this.#installedVersion();
-    if (!version) return;
+    const version = await this.installedVersion();
+    if (!version || (await this.rendererPolicy()).mode !== "full") return;
     await this.#load();
     this.#saved = { ...this.#saved, fullModeFor: version };
     await this.#save();
@@ -303,6 +311,12 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     }
     const renderer = status.renderer;
     result.checks.interfaceConnected = renderer.state === "installed";
+    if (renderer.state === "core")
+      return finish(
+        "core-mode",
+        "UNVERIFIED_VERSION",
+        "当前为核心模式，额度与余额服务可用，部分增强等待适配或已远程停用。",
+      );
     if (renderer.state === "disabled") {
       return finish(
         "safe-mode",
@@ -318,6 +332,12 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
       result.rendererError = reason || null;
     }
     if (renderer.state === "installed") {
+      if ((await this.#policyFor(desktop.version)).mode !== "full")
+        return finish(
+          "core-mode",
+          "UNVERIFIED_VERSION",
+          "当前为核心模式，额度与余额服务可用，部分增强等待适配或已远程停用。",
+        );
       if (
         this.#saved.lastCompatibleVersion !== desktop.version ||
         this.#saved.notifiedFor !== null
@@ -359,13 +379,14 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     const result = await this.check();
     if (
       !result.checks.managedRuntime ||
-      !["incompatible", "unavailable", "safe-mode"].includes(result.state)
+      !["incompatible", "unavailable", "safe-mode", "core-mode"].includes(result.state)
     )
       return null;
     const key = `${result.desktopVersion ?? "unknown"}:${result.issue}`;
     if (this.#saved.notifiedFor === key) return null;
     this.#saved = { ...this.#saved, notifiedFor: key };
     await this.#save();
+    if (result.state === "core-mode") return { title: "Codex 增强已降级", body: result.message };
     if (result.state === "safe-mode")
       return {
         title: "Codex 已用安全模式打开",

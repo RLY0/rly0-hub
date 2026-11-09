@@ -46,6 +46,7 @@ interface RendererCdpControlOperations {
 }
 
 export interface RendererCdpControlSession {
+  dispose?(): Promise<void>;
   readonly snapshot: RendererCdpControlSnapshot;
   ensureInstalled(): Promise<RendererCdpControlSnapshot>;
   activateDesktop(): Promise<number>;
@@ -257,6 +258,25 @@ async function waitForBinding(
   throw new Error(`Production Renderer binding did not become ready${detail}`);
 }
 
+async function removeRendererScript(renderer: RendererCdpClient, scriptId?: string): Promise<void> {
+  if (scriptId)
+    await renderer
+      .command("Page.removeScriptToEvaluateOnNewDocument", { identifier: scriptId })
+      .catch(() => undefined);
+}
+async function disposeRendererOwners(renderer: RendererCdpClient): Promise<void> {
+  await renderer
+    .evaluate(
+      `(() => {
+    const owners = [window.__codexhostRendererBindingProbeV1, window.__codexhostRpcSteeringV1, window.__codexhostHostRoutingV1];
+    for (const owner of owners) { try { if (owner?.release) owner.release(); else owner?.dispose(); } catch {} }
+    delete window.__codexhostRendererBindingProbeV1;
+    return true;
+  })()`,
+    )
+    .catch(() => undefined);
+}
+
 async function installTarget(
   target: CdpTarget,
   rendererSource: string,
@@ -268,18 +288,31 @@ async function installTarget(
   renderer: RendererCdpClient;
   snapshot: RendererCdpControlSnapshot;
   disposeModules(): void;
+  scriptId?: string;
 }> {
   const renderer = await operations.connect(target.webSocketDebuggerUrl);
   let disposeModules: (() => void) | undefined;
+  let scriptId: string | undefined;
   try {
     disposeModules = await installRendererLoadedModules(renderer);
     await renderer.command("Page.enable");
-    await renderer.command("Page.addScriptToEvaluateOnNewDocument", { source: rendererSource });
+    const script = await renderer.command("Page.addScriptToEvaluateOnNewDocument", {
+      source: rendererSource,
+    });
+    scriptId =
+      isRecord(script) && typeof script.identifier === "string" ? script.identifier : undefined;
     await evaluateSource(renderer, rendererSource);
     const draftPrewarmPolicy = await operations.installDraftPrewarmPolicy(renderer);
     const binding = await waitForBinding(renderer, enabledAgents, timeoutMs, pollIntervalMs);
-    return { renderer, snapshot: { target, draftPrewarmPolicy, binding }, disposeModules };
+    return {
+      renderer,
+      snapshot: { target, draftPrewarmPolicy, binding },
+      disposeModules,
+      ...(scriptId ? { scriptId } : {}),
+    };
   } catch (error) {
+    await removeRendererScript(renderer, scriptId);
+    if (!(error instanceof CdpConnectionClosedError)) await disposeRendererOwners(renderer);
     disposeModules?.();
     renderer.close();
     throw error;
@@ -299,6 +332,7 @@ class InstalledRendererCdpControlSession implements RendererCdpControlSession {
     private readonly operations: RendererCdpControlOperations,
     private currentSnapshot: RendererCdpControlSnapshot,
     private disposeModules: () => void,
+    private scriptId?: string,
   ) {}
 
   get snapshot(): RendererCdpControlSnapshot {
@@ -315,6 +349,7 @@ class InstalledRendererCdpControlSession implements RendererCdpControlSession {
       this.currentSnapshot.target.id,
     );
     if (target.id !== this.currentSnapshot.target.id) {
+      await disposeRendererOwners(this.renderer);
       const replacement = await installTarget(
         target,
         this.rendererSource,
@@ -323,11 +358,13 @@ class InstalledRendererCdpControlSession implements RendererCdpControlSession {
         this.pollIntervalMs,
         this.operations,
       );
+      await removeRendererScript(this.renderer, this.scriptId);
       this.disposeModules();
       this.renderer.close();
       this.renderer = replacement.renderer;
       this.disposeModules = replacement.disposeModules;
       this.currentSnapshot = replacement.snapshot;
+      this.scriptId = replacement.scriptId;
       return this.currentSnapshot;
     }
 
@@ -354,11 +391,13 @@ class InstalledRendererCdpControlSession implements RendererCdpControlSession {
         this.pollIntervalMs,
         this.operations,
       );
+      await removeRendererScript(this.renderer, this.scriptId);
       this.disposeModules();
       this.renderer.close();
       this.renderer = replacement.renderer;
       this.disposeModules = replacement.disposeModules;
       this.currentSnapshot = replacement.snapshot;
+      this.scriptId = replacement.scriptId;
       return this.currentSnapshot;
     }
   }
@@ -374,6 +413,13 @@ class InstalledRendererCdpControlSession implements RendererCdpControlSession {
     return this.renderer.evaluate<T>(expression);
   }
 
+  async dispose(): Promise<void> {
+    if (this.#closed) return;
+    await removeRendererScript(this.renderer, this.scriptId);
+    await disposeRendererOwners(this.renderer);
+    this.close();
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
@@ -387,8 +433,23 @@ const defaultOperations: RendererCdpControlOperations = {
   connect: (webSocketDebuggerUrl) => CdpClient.connect(webSocketDebuggerUrl),
   async installDraftPrewarmPolicy(renderer) {
     const status = await installRendererDraftPrewarmPolicyDirect(renderer);
-    await installNativeRpcRemoteControlDirect(renderer);
-    await installRendererRpcSteeringDirect(renderer);
+    const disabled = await renderer.evaluate<string[]>(
+      "globalThis.__codexhostFeaturePolicyV1?.disabled ?? []",
+    );
+    if (!disabled.includes("native-rpc")) {
+      try {
+        await installNativeRpcRemoteControlDirect(renderer);
+      } catch {
+        /* Isolated optional feature. */
+      }
+    }
+    if (!disabled.includes("rpc-steering") && !disabled.includes("native-rpc")) {
+      try {
+        await installRendererRpcSteeringDirect(renderer);
+      } catch {
+        /* Isolated optional feature. */
+      }
+    }
     return status;
   },
 };
@@ -426,6 +487,7 @@ export async function createRendererCdpControlSession(
     operations,
     installed.snapshot,
     installed.disposeModules,
+    installed.scriptId,
   );
 }
 

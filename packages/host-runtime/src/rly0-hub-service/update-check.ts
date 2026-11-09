@@ -35,7 +35,7 @@ function defaultLatest(): Promise<LatestRelease> {
  * The distribution metadata, or on macOS the app bundle's version (`Contents/Resources` is the
  * install root): a Hub.app assembled without the codexhost payload's metadata still knows its version.
  */
-async function installedVersion(installRoot: string): Promise<string> {
+export async function installedHubVersion(installRoot: string): Promise<string> {
   try {
     const file = path.join(installRoot, "app", "codexhost-distribution.json");
     return parseDistributionMetadata(JSON.parse(await fs.readFile(file, "utf8"))).version;
@@ -61,7 +61,7 @@ export async function checkHubUpdate(
 ): Promise<UpdateCheckResult> {
   let currentVersion = "0.0.0";
   try {
-    currentVersion = await installedVersion(installRoot);
+    currentVersion = await installedHubVersion(installRoot);
     const release = await fetchLatest();
     return {
       currentVersion,

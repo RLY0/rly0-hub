@@ -1,3 +1,4 @@
+import { installRendererFeature, rendererFeatureEnabled } from "./renderer-feature-gate.js";
 import { createRemoteConnectionsControl } from "./remote-connections-control.js";
 import { installRendererQuestions } from "./renderer-questions.js";
 import { isOrbitComposer, orbitComposerKind } from "./renderer-composer-kind.js";
@@ -804,7 +805,11 @@ export function installRendererBindingProbe(
   >();
   const pendingReplacements = new Map<Element, PendingComposerReplacement>();
   let disposed = false;
-  const disposeReasoningSoftWrap = installReasoningTranscriptSoftWrap(document);
+  const disposeReasoningSoftWrap = installRendererFeature(
+    "reasoning-wrap",
+    () => installReasoningTranscriptSoftWrap(document),
+    () => () => undefined,
+  );
   let scanScheduled = false;
   let refreshTargetsOnNextScan = false;
   let adapterDispose: (() => void) | null = null;
@@ -847,25 +852,30 @@ export function installRendererBindingProbe(
     }
     return null;
   };
-  const sidebarAgentIcons = installRendererSidebarAgentIcons({
-    getClient: (hostId) => modelClientForHost(hostId),
-    getPlugins: (hostId) => {
-      const state = hostHarnessAvailabilityState(hostId);
-      const client = modelClientForHost(hostId);
-      // Sidebar ownership is enough to discover this Host's artwork; opening a Composer
-      // must not be required. Keep directory requests deduplicated and client-scoped.
-      if (
-        client &&
-        (state.directoryClient !== client || (!state.plugins && !state.directoryError))
-      ) {
-        void refreshHarnessAvailabilityForHost(hostId);
-      }
-      return state.directoryClient === client
-        ? state.plugins?.map((plugin) => pluginForHost(hostId, plugin.id) ?? plugin)
-        : undefined;
-    },
-    getLocalAgent: localAgentForSidebarThread,
-  });
+  const sidebarAgentIcons = installRendererFeature(
+    "sidebar-icons",
+    () =>
+      installRendererSidebarAgentIcons({
+        getClient: (hostId) => modelClientForHost(hostId),
+        getPlugins: (hostId) => {
+          const state = hostHarnessAvailabilityState(hostId);
+          const client = modelClientForHost(hostId);
+          // Sidebar ownership is enough to discover this Host's artwork; opening a Composer
+          // must not be required. Keep directory requests deduplicated and client-scoped.
+          if (
+            client &&
+            (state.directoryClient !== client || (!state.plugins && !state.directoryError))
+          ) {
+            void refreshHarnessAvailabilityForHost(hostId);
+          }
+          return state.directoryClient === client
+            ? state.plugins?.map((plugin) => pluginForHost(hostId, plugin.id) ?? plugin)
+            : undefined;
+        },
+        getLocalAgent: localAgentForSidebarThread,
+      }),
+    () => ({ refresh() {}, dispose() {} }),
+  );
   let connectionDiagnostics: RendererConnectionDiagnostics | null = null;
   const remoteConnections = createRemoteConnectionsControl(window, modelClientForHost);
   const usageStatistics = createRendererUsageStatisticsSource({
@@ -873,46 +883,57 @@ export function installRendererBindingProbe(
     listConnections: () => remoteConnections.ssh.list(),
     disposed: () => disposed,
   });
-  const settingsLifecycle = installRendererSettingsLifecycle(window, {
-    getHubClient: () => modelControl,
-    harnessSchedules: {
-      openSchedules: (signal) => openCodexSchedules(signal),
-    },
-    getRemoteConnections: () => remoteConnections,
-    getUpdateClient: () => modelControl,
-    getAccountClient: () => modelControl,
-    getConnectionDiagnostics: () => connectionDiagnostics,
-    getLoadedSessionsClient: () => modelClientForHost("local"),
-    getMcpClient: () => modelControl,
-    getSkillsClient: () => modelControl,
-    getDashboardClient: () => modelControl,
-    getThreadsClient: () => modelControl,
-    getMaintenanceClient: () => modelControl,
-    getAppearanceClient: () => modelControl,
-    getRelayClient: () => modelControl,
-    requestUsageStatistics: usageStatistics.request,
-    usageStatisticsHosts: usageStatistics.hosts,
-    getSessionImportClient: (requestedHostId) => {
-      const hostId = requestedHostId ?? activeModelHostId();
-      if (!hostId) return null;
-      const client = modelClientForHost(hostId);
-      const sources = client?.listSessionImportSources;
-      const list = client?.listHarnessSessions;
-      const importSession = client?.importHarnessSession;
-      if (!sources || !list || !importSession) return null;
-      return {
-        hostId,
-        listSessionImportSources: () => sources(),
-        listHarnessSessions: (input) => list(input),
-        importHarnessSession: (input) => importSession(input),
-      };
-    },
-    openImportedThread: (threadId, signal, hostId) =>
-      openRendererThread(threadId, { hostId: hostId ?? "local", signal }),
-    onLocaleChange() {
-      for (const mounted of mountedByComposer.values()) renderMounted(mounted);
-    },
-  });
+  const settingsLifecycle = installRendererFeature(
+    "settings",
+    () =>
+      installRendererSettingsLifecycle(window, {
+        getHubClient: () => modelControl,
+        harnessSchedules: {
+          openSchedules: (signal) => openCodexSchedules(signal),
+        },
+        getRemoteConnections: () => remoteConnections,
+        getUpdateClient: () => modelControl,
+        getAccountClient: () => modelControl,
+        getConnectionDiagnostics: () => connectionDiagnostics,
+        getLoadedSessionsClient: () => modelClientForHost("local"),
+        getMcpClient: () => modelControl,
+        getSkillsClient: () => modelControl,
+        getDashboardClient: () => modelControl,
+        getThreadsClient: () => modelControl,
+        getMaintenanceClient: () => modelControl,
+        getAppearanceClient: () => modelControl,
+        getRelayClient: () => modelControl,
+        requestUsageStatistics: usageStatistics.request,
+        usageStatisticsHosts: usageStatistics.hosts,
+        getSessionImportClient: (requestedHostId) => {
+          const hostId = requestedHostId ?? activeModelHostId();
+          if (!hostId) return null;
+          const client = modelClientForHost(hostId);
+          const sources = client?.listSessionImportSources;
+          const list = client?.listHarnessSessions;
+          const importSession = client?.importHarnessSession;
+          if (!sources || !list || !importSession) return null;
+          return {
+            hostId,
+            listSessionImportSources: () => sources(),
+            listHarnessSessions: (input) => list(input),
+            importHarnessSession: (input) => importSession(input),
+          };
+        },
+        openImportedThread: (threadId, signal, hostId) =>
+          openRendererThread(threadId, { hostId: hostId ?? "local", signal }),
+        onLocaleChange() {
+          for (const mounted of mountedByComposer.values()) renderMounted(mounted);
+        },
+      }),
+    () => ({
+      locale: "zh-CN" as const,
+      refresh() {
+        return false;
+      },
+      dispose() {},
+    }),
+  );
   let adapterStatus: RendererAdapterStatus = {
     state: "installing",
     reason: "installing",
@@ -1116,6 +1137,7 @@ export function installRendererBindingProbe(
   };
 
   const quotaView = (mounted: MountedComposer): RendererQuotaView | null => {
+    if (!rendererFeatureEnabled("usage")) return null;
     if (!threadIdFromComposerModelTarget(mounted.modelTarget) && !mounted.accountCredits) {
       return null;
     }
@@ -1271,8 +1293,8 @@ export function installRendererBindingProbe(
       composerAvailability(mounted),
       mounted.modelView,
       mounted.permissionModeView,
-      mounted.usage,
-      mounted.accountCredits,
+      rendererFeatureEnabled("usage") ? mounted.usage : null,
+      rendererFeatureEnabled("usage") ? mounted.accountCredits : null,
       settingsLifecycle.locale,
       currentCodexAccount ?? null,
       mounted.ownershipStatus === "error",
@@ -3020,33 +3042,42 @@ export function installRendererBindingProbe(
     },
   };
 
-  const nativeScheduleControls = installRendererNativeScheduleControls(document, {
-    getClient: () => modelClientForHost("local"),
-    getAvailablePlugins: () => {
-      const client = modelClientForHost("local");
-      const state = hostHarnessAvailabilityState("local");
-      if (!client || state.directoryClient !== client) return [];
-      return (state.plugins ?? [])
-        .filter((plugin) => plugin.kind !== "usage" && state.availability[plugin.id] === "ready")
-        .map((plugin) => pluginForHost("local", plugin.id) ?? plugin);
-    },
-    subscribeAvailability: (listener) => {
-      connectionListeners.add(listener);
-      return () => connectionListeners.delete(listener);
-    },
-    canRouteExternal: () =>
-      window.__codexhostHostRoutingV1?.forHost("local")?.policy.scopedCreation === true,
-    async createWorkspaceThread(input, signal) {
-      const routing = window.__codexhostHostRoutingV1;
-      const manager = routing?.forHost("local")?.manager;
-      const create = await loadCodexNativeServices(window, isNativeProjectThreadCreator);
-      signal.throwIfAborted();
-      if (!routing || !manager || routing.forHost("local")?.manager !== manager || !create)
-        throw new Error("Native workspace chat creation is unavailable. Reopen the task dialog.");
-      return createNativeScheduleWorkspaceThread(document, routing, create, input, signal);
-    },
-    locale: () => settingsLifecycle.locale,
-  });
+  const nativeScheduleControls = installRendererFeature(
+    "schedules",
+    () =>
+      installRendererNativeScheduleControls(document, {
+        getClient: () => modelClientForHost("local"),
+        getAvailablePlugins: () => {
+          const client = modelClientForHost("local");
+          const state = hostHarnessAvailabilityState("local");
+          if (!client || state.directoryClient !== client) return [];
+          return (state.plugins ?? [])
+            .filter(
+              (plugin) => plugin.kind !== "usage" && state.availability[plugin.id] === "ready",
+            )
+            .map((plugin) => pluginForHost("local", plugin.id) ?? plugin);
+        },
+        subscribeAvailability: (listener) => {
+          connectionListeners.add(listener);
+          return () => connectionListeners.delete(listener);
+        },
+        canRouteExternal: () =>
+          window.__codexhostHostRoutingV1?.forHost("local")?.policy.scopedCreation === true,
+        async createWorkspaceThread(input, signal) {
+          const routing = window.__codexhostHostRoutingV1;
+          const manager = routing?.forHost("local")?.manager;
+          const create = await loadCodexNativeServices(window, isNativeProjectThreadCreator);
+          signal.throwIfAborted();
+          if (!routing || !manager || routing.forHost("local")?.manager !== manager || !create)
+            throw new Error(
+              "Native workspace chat creation is unavailable. Reopen the task dialog.",
+            );
+          return createNativeScheduleWorkspaceThread(document, routing, create, input, signal);
+        },
+        locale: () => settingsLifecycle.locale,
+      }),
+    () => ({ refresh() {}, dispose() {} }),
+  );
 
   const mount = (composer: Element): void => {
     if (
@@ -3540,95 +3571,109 @@ export function installRendererBindingProbe(
   window.addEventListener("codexhost:draft-workspace", onDraftWorkspace);
   window.addEventListener("codexhost:renderer-adapter-status", onAdapterStatus);
   window.addEventListener("focus", onWindowFocus);
-  delegationMention = installRendererDelegationMention(document, {
-    onOpen: (editor) => {
-      const composer = composerForElement(editor);
-      const mounted = composer ? mountedByComposer.get(composer) : undefined;
-      if (mounted && controller.get(mounted.composer).agent !== "codex") {
-        void refreshCommands(mounted, { keepCurrent: true });
-      }
-    },
-    readTargets: (editor) => {
-      const composer = composerForElement(editor);
-      const mounted = composer ? mountedByComposer.get(composer) : undefined;
-      const availability = mounted ? composerAvailability(mounted) : {};
-      return enabledAgents
-        .filter((agent) => agent === "codex" || availability[agent] === "ready")
-        .filter((agent) => !RLY0_HIDDEN_RENDERER_AGENTS.has(agent))
-        .map((agent) => {
-          const plugin = mounted?.hostId ? pluginForHost(mounted.hostId, agent) : undefined;
-          return { agent, label: rendererAgentLabel(agent, plugin), ...(plugin ? { plugin } : {}) };
-        });
-    },
-    isComposerEditor: (editor) => {
-      const composer = composerForElement(editor);
-      return composer !== null && isMountedComposer(composer);
-    },
-    readLocale: () => settingsLifecycle.locale,
-    // Desktop's own suggestion menu hugs the input card and covers the
-    // top tray (workspace / branch bar), so anchor to the card when present.
-    anchorForEditor: (editor) =>
-      editor.closest("[data-composer-body]") ?? composerForElement(editor),
-    readCommands: (editor) => {
-      const composer = composerForElement(editor);
-      const mounted = composer ? mountedByComposer.get(composer) : undefined;
-      if (!mounted || controller.get(mounted.composer).agent === "codex") return null;
-      const { commands, hasSession, executingCommandId, source } =
-        mounted.control.harnessCommands.snapshot();
-      // While a command runs, the ⌘ button is disabled too.
-      if (executingCommandId !== null) return null;
-      const messages = rendererHarnessMessages(settingsLifecycle.locale);
-      const agent = controller.get(mounted.composer).agent;
-      const pendingNotice =
-        source === "static"
-          ? rendererLiveCommandsPendingNotice(
-              settingsLifecycle.locale,
-              rendererAgentLabel(
+  delegationMention = installRendererFeature(
+    "delegation",
+    () =>
+      installRendererDelegationMention(document, {
+        onOpen: (editor) => {
+          const composer = composerForElement(editor);
+          const mounted = composer ? mountedByComposer.get(composer) : undefined;
+          if (mounted && controller.get(mounted.composer).agent !== "codex") {
+            void refreshCommands(mounted, { keepCurrent: true });
+          }
+        },
+        readTargets: (editor) => {
+          const composer = composerForElement(editor);
+          const mounted = composer ? mountedByComposer.get(composer) : undefined;
+          const availability = mounted ? composerAvailability(mounted) : {};
+          return enabledAgents
+            .filter((agent) => agent === "codex" || availability[agent] === "ready")
+            .filter((agent) => !RLY0_HIDDEN_RENDERER_AGENTS.has(agent))
+            .map((agent) => {
+              const plugin = mounted?.hostId ? pluginForHost(mounted.hostId, agent) : undefined;
+              return {
                 agent,
-                mounted.hostId
-                  ? hostHarnessAvailabilityState(mounted.hostId).plugins?.find(
-                      ({ id }) => id === agent,
-                    )
-                  : undefined,
-              ),
-            )
-          : null;
-      if (commands.length === 0 && pendingNotice === null) return null;
-      return {
-        commands,
-        pendingNotice,
-        disabledReason: (command) =>
-          !hasSession && rendererHarnessCommandExecutesDirectly(command)
-            ? messages.commandRequiresConversation
-            : null,
-        select: (command) => selectCommand(mounted, command),
-      };
-    },
-  });
+                label: rendererAgentLabel(agent, plugin),
+                ...(plugin ? { plugin } : {}),
+              };
+            });
+        },
+        isComposerEditor: (editor) => {
+          const composer = composerForElement(editor);
+          return composer !== null && isMountedComposer(composer);
+        },
+        readLocale: () => settingsLifecycle.locale,
+        // Desktop's own suggestion menu hugs the input card and covers the
+        // top tray (workspace / branch bar), so anchor to the card when present.
+        anchorForEditor: (editor) =>
+          editor.closest("[data-composer-body]") ?? composerForElement(editor),
+        readCommands: (editor) => {
+          const composer = composerForElement(editor);
+          const mounted = composer ? mountedByComposer.get(composer) : undefined;
+          if (!mounted || controller.get(mounted.composer).agent === "codex") return null;
+          const { commands, hasSession, executingCommandId, source } =
+            mounted.control.harnessCommands.snapshot();
+          // While a command runs, the ⌘ button is disabled too.
+          if (executingCommandId !== null) return null;
+          const messages = rendererHarnessMessages(settingsLifecycle.locale);
+          const agent = controller.get(mounted.composer).agent;
+          const pendingNotice =
+            source === "static"
+              ? rendererLiveCommandsPendingNotice(
+                  settingsLifecycle.locale,
+                  rendererAgentLabel(
+                    agent,
+                    mounted.hostId
+                      ? hostHarnessAvailabilityState(mounted.hostId).plugins?.find(
+                          ({ id }) => id === agent,
+                        )
+                      : undefined,
+                  ),
+                )
+              : null;
+          if (commands.length === 0 && pendingNotice === null) return null;
+          return {
+            commands,
+            pendingNotice,
+            disabledReason: (command) =>
+              !hasSession && rendererHarnessCommandExecutesDirectly(command)
+                ? messages.commandRequiresConversation
+                : null,
+            select: (command) => selectCommand(mounted, command),
+          };
+        },
+      }),
+    () => ({ refresh() {}, openFor() {}, dispose() {} }),
+  );
 
   const connectedComposers = (): MountedComposer[] =>
     [...mountedByComposer.values()].filter(
       (mounted) => isMountedComposer(mounted.composer) && mounted.control.root.isConnected,
     );
 
-  const questions = installRendererQuestions(window, () => {
-    const visible = connectedComposers().filter(
-      (mounted) =>
-        mounted.composer.getClientRects().length > 0 &&
-        window.getComputedStyle(mounted.composer).visibility === "visible" &&
-        !mounted.composer.closest('[hidden], [inert], [aria-hidden="true"]') &&
-        controller.get(mounted.composer).agent !== "codex",
-    );
-    const mounted = visible.length === 1 ? visible[0] : undefined;
-    const threadId = mounted
-      ? threadIdFromComposerModelTarget(findComposerModelTarget(mounted.composer))
-      : null;
-    const hostId = mounted?.hostId;
-    const route = hostId ? window.__codexhostHostRoutingV1?.forHost(hostId) : null;
-    return mounted && threadId && hostId && route
-      ? { hostId, threadId, composer: mounted.composer, route: route.manager }
-      : null;
-  });
+  const questions = installRendererFeature(
+    "questions",
+    () =>
+      installRendererQuestions(window, () => {
+        const visible = connectedComposers().filter(
+          (mounted) =>
+            mounted.composer.getClientRects().length > 0 &&
+            window.getComputedStyle(mounted.composer).visibility === "visible" &&
+            !mounted.composer.closest('[hidden], [inert], [aria-hidden="true"]') &&
+            controller.get(mounted.composer).agent !== "codex",
+        );
+        const mounted = visible.length === 1 ? visible[0] : undefined;
+        const threadId = mounted
+          ? threadIdFromComposerModelTarget(findComposerModelTarget(mounted.composer))
+          : null;
+        const hostId = mounted?.hostId;
+        const route = hostId ? window.__codexhostHostRoutingV1?.forHost(hostId) : null;
+        return mounted && threadId && hostId && route
+          ? { hostId, threadId, composer: mounted.composer, route: route.manager }
+          : null;
+      }),
+    () => ({ refreshContext() {}, dispose() {} }),
+  );
 
   const api: RendererBindingProbeApi = {
     remoteConnections: (request) => handleRemoteConnectionsRequest(remoteConnections, request),

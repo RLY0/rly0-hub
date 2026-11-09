@@ -1,9 +1,12 @@
+import { rendererFeatureEnabled } from "./renderer-feature-gate.js";
 import { installRendererBinding } from "./install-renderer-binding.js";
 import { installRendererRpcSteering } from "./renderer-rpc-steering.js";
 
 Object.defineProperty(window, "__codexhostInstallRpcSteeringV1", {
   configurable: true,
   value(controller: unknown) {
+    if (!rendererFeatureEnabled("rpc-steering") || !rendererFeatureEnabled("native-rpc"))
+      return false;
     const state = window as unknown as Record<string, unknown>;
     if (state.__codexhostRpcSteeringV1)
       return window.__codexhostRpcSteeringV1?.controller === controller;
@@ -37,7 +40,7 @@ Object.defineProperty(window, "__codexhostInstallRpcSteeringV1", {
 });
 
 const install = (): void => {
-  installRendererBinding();
+  if (rendererFeatureEnabled("composer")) installRendererBinding();
 };
 
 if (document.documentElement && document.body) {
