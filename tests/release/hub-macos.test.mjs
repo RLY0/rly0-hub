@@ -149,6 +149,7 @@ describe("macOS Hub development kit", () => {
             "sources/Info.plist",
             "build-on-mac.sh",
             "payload/app/hub-service.mjs",
+            "payload/app/codex-update-watchdog.js",
             "payload/app/hub-ui/index.html",
             "payload/app/hub-ui/fonts/OFL-LICENSE.txt",
           ]),

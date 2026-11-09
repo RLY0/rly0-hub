@@ -37,7 +37,7 @@ fi
 /usr/bin/xcrun --find swiftc >/dev/null
 /usr/bin/plutil -lint "$KIT_ROOT/sources/Info.plist" >/dev/null
 for required in sources/Rly0Hub.swift sources/bridge.js sources/codexhost-launch.sh kit-manifest.json \
-  payload/app/hub-service.mjs payload/app/hub-ui/index.html; do
+  payload/app/hub-service.mjs payload/app/codex-update-watchdog.js payload/app/hub-ui/index.html; do
   test -s "$KIT_ROOT/$required" || { echo "Incomplete development kit: $required" >&2; exit 1; }
 done
 "$NODE_PATH_FOR_BUILD" --check "$KIT_ROOT/payload/app/hub-service.mjs"

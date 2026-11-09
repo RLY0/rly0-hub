@@ -1,0 +1,24 @@
+{
+  "name": "regression",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109",
+  "base": "c796e85ca88d2aedd7cbc9829cfeb8681111f28c",
+  "command": [
+    "npx",
+    "vitest",
+    "run",
+    "--config",
+    "tests/vitest.config.js",
+    "packages/host-runtime/test/codex-version-gate.test.ts",
+    "packages/host-runtime/test/codex-update-watchdog.test.ts",
+    "packages/desktop-control/test/codex-renderer-policy.test.ts",
+    "packages/host-runtime/test/rly0-codex-updates-ui.test.ts",
+    "packages/host-runtime/test/rly0-maintenance/desktop-compatibility.test.ts",
+    "packages/host-runtime/test/rly0-backend-reload-channel.test.ts",
+    "tests/release/hub-watchdog.test.mjs",
+    "tests/release/hub-macos.test.mjs"
+  ],
+  "exit_code": 0,
+  "duration_seconds": 2.09,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR, RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0",
+  "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109\n\n\n Test Files  8 passed (8)\n      Tests  148 passed (148)\n   Start at  16:25:11\n   Duration  1.53s (transform 1.13s, setup 0ms, import 2.02s, tests 1.81s, environment 1ms)\n\n"
+}

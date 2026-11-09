@@ -1,0 +1,30 @@
+{
+  "name": "format",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109",
+  "base": "c796e85ca88d2aedd7cbc9829cfeb8681111f28c",
+  "command": [
+    "node_modules/.bin/prettier",
+    "--check",
+    ".pm/BOARD.json",
+    "packages/desktop-control/src/codex-renderer-policy.ts",
+    "packages/desktop-control/test/codex-renderer-policy.test.ts",
+    "packages/host-runtime/scripts/build-hub-service.mjs",
+    "packages/host-runtime/src/rly0-hub-service/codex-check-preferences.ts",
+    "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-control.ts",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-watchdog.ts",
+    "packages/host-runtime/src/rly0-hub-service/service.ts",
+    "packages/host-runtime/src/rly0-maintenance/backend-reload-channel.ts",
+    "packages/host-runtime/test/codex-update-watchdog.test.ts",
+    "packages/host-runtime/test/codex-version-gate.test.ts",
+    "packages/shared-contracts/src/codex-version-gate.ts",
+    "scripts/release/macos/package-hub.mjs",
+    "tests/release/hub-macos.test.mjs",
+    "tests/release/hub-watchdog.test.mjs"
+  ],
+  "exit_code": 0,
+  "duration_seconds": 0.44,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR, RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0",
+  "output": "Checking formatting...\nAll matched files use Prettier code style!\n"
+}

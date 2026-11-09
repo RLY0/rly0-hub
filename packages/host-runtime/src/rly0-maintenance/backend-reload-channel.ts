@@ -28,6 +28,12 @@ export const AGENT_STATUS_FILE = "agent-status.json";
 export const CODEX_HEARTBEAT_FILE = "codex-heartbeat.json";
 const HEARTBEAT_FRESH_MS = 10_000;
 
+/** A later heartbeat proves Codex survived the Hub's recorded quit; discard recovery ownership. */
+export async function codexHeartbeatAfter(dataDirectory: string, at: number): Promise<boolean> {
+  const heartbeat = await readJson(path.join(dataDirectory, CODEX_HEARTBEAT_FILE));
+  return typeof heartbeat?.at === "number" && heartbeat.at > at;
+}
+
 /** Hub side: is the Codex side (Codex opened through RLY/0 Hub) alive right now? */
 export async function codexHeartbeatAlive(
   dataDirectory: string,

@@ -1,0 +1,26 @@
+{
+  "base": "c796e85ca88d2aedd7cbc9829cfeb8681111f28c",
+  "node": "v24.22.2",
+  "npm": "11.19.1",
+  "sha256_of_sorted_path_hash_lines": "58d5c853958802fe96192e6eae123894a7e7184d90870c43fca3451466b04fbf",
+  "files": {
+    "apps/hub-desktop/macos/Rly0Hub.swift": "e7b4700da33c68bd2bc1e651dbd764a9a3abf2f10229daa7cdd53ae1ca0a918f",
+    "apps/hub-desktop/macos/build-on-mac.sh": "e02a35be710b6ba3db5d41b540bcce3bc6b2418fc2963001f981c66a39c2b776",
+    "packages/desktop-control/src/codex-renderer-policy.ts": "cb9464a969ba43cfff9870de42b7c6f4bc67a77ffcc011050dd6ecf6440a563b",
+    "packages/desktop-control/test/codex-renderer-policy.test.ts": "28045aa80da29b7d1cf0439cbcd7845f213a4bebf9cd7350a39ffd2b92533dcc",
+    "packages/host-runtime/scripts/build-hub-service.mjs": "1442ff34abe2e55109c7c07887dafa9f64023cbe3c6a9783353ba61ded3ee390",
+    "packages/host-runtime/src/rly0-hub-service/codex-check-preferences.ts": "85e48ee702542b205312f65cc850c800cbea03a5fa5d81c0ea5cf46f13dcfb02",
+    "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts": "cb507c14efde69921e011fa074655d9fde0a52f1fa794ede5d42f82ac004911e",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-control.ts": "4f7a2093565f40ae84c45136d4032d9c19129f838e7a48af90e51f7231a03acd",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts": "0e0f2b52fe93752c48afc56b0e1ca95e8dd54c7a176ed578b8393e2b77a76851",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-watchdog.ts": "345ef6953101f340a416563c13cba70be7d8df59b929582412d20564a0347d3e",
+    "packages/host-runtime/src/rly0-hub-service/service.ts": "13d0dedb052e72fc0e36b5551b2c47b5df37276a16eb7dcddd00f7b997d56748",
+    "packages/host-runtime/src/rly0-maintenance/backend-reload-channel.ts": "4258c92ede596cddda0918e419b820bee7901f17602cdcf3955b81ec9c9af316",
+    "packages/host-runtime/test/codex-update-watchdog.test.ts": "b2a4efb23c76abb34e90656950d8c8063a772258f417b62c9e8b6dd13ffbed10",
+    "packages/host-runtime/test/codex-version-gate.test.ts": "a67ba8a0e47a461048afbf418500b7321df53babad0d91944057416a9ee72e5f",
+    "packages/shared-contracts/src/codex-version-gate.ts": "a7bed255f490bc07b6fd9663611d2d06d01322780876725b70d8070f54eb8f89",
+    "scripts/release/macos/package-hub.mjs": "1efa550335fe27cca575ca24bf1ee9f5b1e80f83b2e7b6543ddd361ecc1e84a7",
+    "tests/release/hub-macos.test.mjs": "f10e8e3386ac33f6463dbc3a1cfb4d6d6903580932bfffc4d34d3a065065e108",
+    "tests/release/hub-watchdog.test.mjs": "111abc634acbd277c84fb4a9beefdfe5a98c04ec703ad8b0e41a47fcfa091918"
+  }
+}

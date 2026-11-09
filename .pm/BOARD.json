@@ -9,16 +9,17 @@
       "owner": "codex",
       "collaborators": ["claude"],
       "status": "self_verified",
-      "review": "review-1-fixed-pending-independent-recheck",
+      "review": "review-2-fixed-self-verified-pending-independent-review",
       "accepted": false,
-      "scope": "Review fixes 1-5, 6/7/9/10; nonvisual background Sparkle/watchdog; no package/release/live process changes",
+      "scope": "Second review fixes N1/N2/N3/N4, prior 6/7, N6-N11; N5 unchanged except injectable idle driver; isolated dev app build only; no live settings/process/release actions",
       "contract": ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md",
       "evidence_files": [
         ".pm/selfheal/evidence/version-gate-20261109/RESULTS.md",
-        ".pm/selfheal/evidence/version-gate-review-20261109/RESULTS.md"
+        ".pm/selfheal/evidence/version-gate-review-20261109/RESULTS.md",
+        ".pm/selfheal/evidence/version-gate-review2-20261109/RESULTS.md"
       ],
-      "next_action": "独立复查修复；Claude 核对 CONTRACT v2 文案；独立真机/guard 部署验收后再决定发布",
-      "base": "2d795e9c33d33992b911c4374924bb41ba840dcc"
+      "next_action": "Claude 核对 CONTRACT v3；用户决定 N5；修复后独立审查与独立环境真实升级/guard/Windows 验收",
+      "base": "c796e85c"
     }
   ]
 }

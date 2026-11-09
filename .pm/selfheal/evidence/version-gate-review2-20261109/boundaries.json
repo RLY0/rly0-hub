@@ -1,0 +1,10 @@
+{
+  "name": "boundaries",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109",
+  "base": "c796e85ca88d2aedd7cbc9829cfeb8681111f28c",
+  "command": ["node", "tools/check-boundaries.mjs"],
+  "exit_code": 0,
+  "duration_seconds": 4.29,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR, RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0",
+  "output": ""
+}

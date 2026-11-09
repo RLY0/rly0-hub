@@ -1,5 +1,5 @@
 // Bundles `app/hub-service.mjs`, the backend of the standalone RLY/0 Hub window.
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -39,30 +39,47 @@ function auditHubServiceMetafile(metafile) {
   }
 }
 
+export async function auditHubServiceBundle(directory) {
+  for (const name of ["hub-service.mjs", "codex-update-watchdog.js"]) {
+    const metadata = await stat(path.join(directory, name));
+    if (!metadata.isFile() || metadata.size === 0) throw new Error(`Hub runtime missing: ${name}`);
+  }
+}
+
 export async function buildHubServiceBundle({ repositoryRoot, outputPath }) {
   await mkdir(path.dirname(outputPath), { recursive: true });
-  const result = await esbuildBuild({
-    absWorkingDir: repositoryRoot,
-    entryPoints: ["packages/host-runtime/src/hub-service-main.ts"],
-    outfile: outputPath,
-    bundle: true,
-    platform: "node",
-    format: "esm",
-    target: "node22",
-    packages: "bundle",
-    sourcemap: false,
-    metafile: true,
-    minify: false,
-    treeShaking: true,
-    charset: "utf8",
-    legalComments: "none",
-    banner: {
-      js: 'import { createRequire as __codexhostCreateRequire } from "node:module"; const require = __codexhostCreateRequire(import.meta.url);',
-    },
-    logLevel: "silent",
-  });
-  if (!result.metafile) throw new Error("Hub service build did not return a metafile");
-  auditHubServiceMetafile(result.metafile);
+  for (const [entry, output] of [
+    ["hub-service-main.ts", outputPath],
+    [
+      "rly0-hub-service/codex-update-watchdog.ts",
+      path.join(path.dirname(outputPath), "codex-update-watchdog.js"),
+    ],
+  ]) {
+    const result = await esbuildBuild({
+      absWorkingDir: repositoryRoot,
+      entryPoints: [`packages/host-runtime/src/${entry}`],
+      outfile: output,
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      target: "node22",
+      packages: "bundle",
+      sourcemap: false,
+      metafile: true,
+      minify: false,
+      treeShaking: true,
+      charset: "utf8",
+      legalComments: "none",
+      banner: {
+        js: 'import { createRequire as __codexhostCreateRequire } from "node:module"; const require = __codexhostCreateRequire(import.meta.url);',
+      },
+      logLevel: "silent",
+    });
+    if (!result.metafile) throw new Error("Hub service build did not return a metafile");
+    auditHubServiceMetafile(result.metafile);
+    if (!(await stat(output)).isFile()) throw new Error(`Hub runtime missing: ${output}`);
+  }
+  await auditHubServiceBundle(path.dirname(outputPath));
 }
 
 const invoked = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : null;

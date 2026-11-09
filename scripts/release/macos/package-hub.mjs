@@ -31,7 +31,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
-import { buildHubServiceBundle } from "../../../packages/host-runtime/scripts/build-hub-service.mjs";
+import {
+  auditHubServiceBundle,
+  buildHubServiceBundle,
+} from "../../../packages/host-runtime/scripts/build-hub-service.mjs";
 import { prepareReleasePayload } from "../prepare-payload.mjs";
 import { RELEASE_TARGETS } from "../targets.mjs";
 
@@ -317,6 +320,7 @@ export async function packageMacHub(options) {
   if (launcherVersion.trim() !== version) {
     throw new Error(`bundled codexhost reports ${launcherVersion.trim()}, expected ${version}`);
   }
+  await auditHubServiceBundle(path.join(resources, "app"));
   const hits = await findPrivatePaths(app);
   if (hits.length > 0) {
     throw new Error(`private paths in the package: ${JSON.stringify(hits.slice(0, 10))}`);

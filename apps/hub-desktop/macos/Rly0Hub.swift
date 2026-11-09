@@ -395,6 +395,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
             "RLY0_SKIP_LEGACY_IMPORT": "1",
         ]
         if devMode {
+            env["RLY0_CODEX_UPDATE_CONTROL"] = "0"
             env["CODEX_HOME"] = home.appendingPathComponent("codex").path
             env["CLAUDE_CONFIG_DIR"] = home.appendingPathComponent("claude").path
             env["CODEXHOST_DATA_DIR"] = home.appendingPathComponent("data").path
@@ -402,7 +403,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
         } else {
             // Real data: ~/.codex and ~/.rly0-hub (either may be a symlink). Pass through
             // explicit overrides the user set, e.g. a Mac rly0-core build via RLY0_CORE_PATH.
-            for key in ["CODEX_HOME", "CODEXHOST_DATA_DIR", "RLY0_CORE_PATH", "CODEXHOST_PKG",
+            for key in ["RLY0_CODEX_UPDATE_CONTROL", "CODEX_HOME", "CODEXHOST_DATA_DIR", "RLY0_CORE_PATH", "CODEXHOST_PKG",
                         "CODEXHOST_NODE", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY"] {
                 if let value = inherited[key], !value.isEmpty { env[key] = value }
             }

@@ -1,8 +1,14 @@
+import {
+  codexNativeUpdateControlAllowed,
+  acquireCodexUpdateControl,
+} from "../src/rly0-hub-service/codex-update-control.js";
+import { restoreCodexCheckPreferences } from "../src/rly0-hub-service/codex-check-preferences.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  codexUpdateSettingsSchema,
   codexCompatManifestSchema,
   codexRendererPolicy,
   codexVersionVerified,
@@ -728,9 +734,19 @@ it("normal quit is cancelled if the final idle check becomes unknown", async () 
 
 it("background driver uses only documented preferences, with no menu or fake launch parameters", async () => {
   const f = await fixture();
+  const prefs = new Map<string, string>([
+    ["SUEnableAutomaticChecks", "0"],
+    ["SULastCheckTime", "2026-01-01 00:00:00 +0000"],
+  ]);
   const exec = vi.fn(async (_file: string, args: string[]) => {
-    if (args[0] === "read")
-      return args[2] === "SUEnableAutomaticChecks" ? "0" : "2026-01-01 00:00:00 +0000";
+    const key = args[2] ?? "";
+    if (args[0] === "read") {
+      if (!prefs.has(key)) throw Object.assign(new Error("missing"), { stderr: "does not exist" });
+      return prefs.get(key) ?? "";
+    }
+    if (args[0] === "delete") prefs.delete(key);
+    if (args[0] === "write")
+      prefs.set(key, args[4] === "true" ? "1" : args[4] === "false" ? "0" : (args[4] ?? ""));
     return "";
   });
   const driver = createMacCodexUpdateDriver({
@@ -770,9 +786,31 @@ it.each([
     false,
   ],
   ["/Applications/Codex.app/Contents/MacOS/Codex", false],
+  ["/Applications/ChatGPT.app/Contents/MacOS/ChatGPT", false],
+  ["/Applications/ChatGPT.app/Contents/Frameworks/Sparkle.framework/Autoupdate", false],
+  ["/Applications/Codex Renamed.app/Contents/Frameworks/Sparkle.framework/Autoupdate", false],
+  [
+    "/Applications/ChatGPT.app/Contents/Frameworks/Sparkle.framework/Versions/B/Resources/Updater.app/Contents/MacOS/Updater",
+    false,
+  ],
 ])("scopes installer recovery to Codex processes: %s", async (processes, stopped) => {
   const f = await fixture();
-  const exec = vi.fn(async () => processes);
+  const exec = vi.fn(async (file: string, args: string[]) => {
+    if (file === "/usr/bin/osascript") {
+      if (args[1]?.includes("is running"))
+        return /\/(?:Codex\.app\/Contents\/MacOS\/Codex|ChatGPT\.app\/Contents\/MacOS\/ChatGPT)$/u.test(
+          processes,
+        )
+          ? "true"
+          : "false";
+      return processes.includes("/Codex Renamed.app/")
+        ? "/Applications/Codex Renamed.app/"
+        : processes.includes("/Codex.app/")
+          ? "/Applications/Codex.app/"
+          : "/Applications/ChatGPT.app/";
+    }
+    return processes;
+  });
   const driver = createMacCodexUpdateDriver({
     environment: f.environment,
     get: async () => response({}),
@@ -782,7 +820,7 @@ it.each([
     exec,
   });
   expect(await driver.installationStopped()).toBe(stopped);
-  expect(exec).toHaveBeenCalledWith("/bin/ps", ["-axo", "args="]);
+  if (stopped) expect(exec).toHaveBeenCalledWith("/bin/ps", ["-axo", "args="]);
 });
 it("caches successful staging signatures, revalidates on quit, and invalidates changed identities", async () => {
   const f = await fixture();
@@ -928,4 +966,293 @@ it("the Mac watchdog process starter can be injected without spawning a process"
   });
   await driver.watchLease("/synthetic/lease.json", "synthetic-id");
   expect(startWatchdog).toHaveBeenCalledWith("/synthetic/lease.json", "synthetic-id");
+});
+
+it("recognizes the installed bundle by id regardless of application filename", async () => {
+  const f = await fixture();
+  const exec = vi.fn(async () => "true");
+  const driver = createMacCodexUpdateDriver({
+    environment: f.environment,
+    get: async () => response({}),
+    currentVersion: f.driver.currentVersion,
+    reopen: f.driver.reopen,
+    healthy: f.driver.healthy,
+    exec,
+  });
+  expect(await driver.isRunning()).toBe(true);
+  expect(exec).toHaveBeenCalledWith("/usr/bin/osascript", [
+    "-e",
+    'application id "com.openai.codex" is running',
+  ]);
+  exec.mockResolvedValue("false");
+  expect(await driver.isRunning()).toBe(false);
+  exec.mockResolvedValue("unknown");
+  await expect(driver.isRunning()).rejects.toThrow("CODEX_PROCESS_STATE_INVALID");
+});
+it.each([
+  {},
+  { RLY0_CODEX_UPDATE_CONTROL: "0" },
+  { RLY0_HUB_MACOS_DEV_HOME: "1" },
+  { CODEXHOST_DATA_DIR: "/synthetic/kit/data" },
+  { HOME: "/synthetic/kit" },
+  { NODE_ENV: "test" },
+])("isolated native control is disabled: %j", async (overrides) => {
+  const base = { HOME: "/synthetic/real", CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub" };
+  const env = Object.keys(overrides).length
+    ? { ...base, ...overrides }
+    : { HOME: "/synthetic/kit" };
+  expect(codexNativeUpdateControlAllowed(env, "darwin", "/synthetic/real")).toBe(false);
+});
+it("allows production control only at the real default directory", () => {
+  const env = { HOME: "/synthetic/real", CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub" };
+  expect(codexNativeUpdateControlAllowed(env, "darwin", "/synthetic/real")).toBe(true);
+  expect(codexNativeUpdateControlAllowed(env, "win32", "/synthetic/real")).toBe(false);
+});
+it("a damaged originalCheckPreferences preserves originalAutoUpdate and the selected management state", async () => {
+  const f = await fixture();
+  await f.state.update({
+    codexUpdates: { defaulted: true, enabled: true, originalAutoUpdate: true },
+  });
+  const file = path.join(f.environment.CODEXHOST_DATA_DIR, "hub-desktop.json");
+  const raw = JSON.parse(await fs.readFile(file, "utf8"));
+  raw.codexUpdates.originalCheckPreferences = { automaticChecks: "broken", lastCheckTime: null };
+  await fs.writeFile(file, JSON.stringify(raw));
+  const saved = (await f.state.read()).codexUpdates;
+  expect(saved).toMatchObject({ enabled: true, originalAutoUpdate: true });
+  expect(codexUpdateSettingsSchema.parse(raw.codexUpdates).originalAutoUpdate).toBe(true);
+  await f.manager.check();
+  await f.manager.setEnabled(false);
+  expect(f.preference.at(-1)).toBe(true);
+  expect(f.driver.readAutoUpdate).not.toHaveBeenCalled();
+});
+it("a cancelled quit clears ownership within 30 seconds and cannot reopen a later user quit", async () => {
+  const f = await fixture();
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  vi.mocked(f.driver.isRunning).mockResolvedValue(true);
+  vi.mocked(f.driver.installationStopped).mockResolvedValue(false);
+  f.advance(30_000);
+  expect((await f.manager.tick()).error).toBe("CODEX_INSTALL_TIMEOUT");
+  vi.mocked(f.driver.isRunning).mockResolvedValue(false);
+  vi.mocked(f.driver.installationStopped).mockResolvedValue(true);
+  await f.manager.tick();
+  expect(f.driver.reopen).not.toHaveBeenCalled();
+  await expect(
+    fs.stat(path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-session.json")),
+  ).rejects.toMatchObject({ code: "ENOENT" });
+});
+it.each(["old", "new-heartbeat"])("ignores unsafe crash recovery records: %s", async (reason) => {
+  const f = await fixture();
+  await fs.mkdir(f.environment.CODEXHOST_DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-session.json"),
+    JSON.stringify({ target: "26.1200.1", at: 500, closedByHub: true }),
+  );
+  if (reason === "old") f.advance(6 * 60_000);
+  else
+    await fs.writeFile(
+      path.join(f.environment.CODEXHOST_DATA_DIR, "codex-heartbeat.json"),
+      JSON.stringify({ at: 900, pid: 123, busy: false }),
+    );
+  await f.manager.check();
+  expect(f.driver.reopen).not.toHaveBeenCalled();
+});
+it("uses a replaceable idle driver for every quit check without changing the default idle definition", async () => {
+  const f = await fixture();
+  const idle = vi.fn(async () => false);
+  const manager = new CodexUpdateManager({ ...f.options, idle });
+  managers.push(manager);
+  await manager.check();
+  f.advance(30_000);
+  await manager.tick();
+  expect(f.busy).not.toHaveBeenCalled();
+  expect(f.driver.quit).not.toHaveBeenCalled();
+  idle.mockResolvedValue(true);
+  await manager.tick();
+  f.advance(10);
+  await manager.tick();
+  expect(f.driver.quit).toHaveBeenCalledOnce();
+  expect(idle.mock.calls.length).toBeGreaterThanOrEqual(4);
+});
+it("the native control lock prevents two Hubs sharing a directory from taking ownership", async () => {
+  const f = await fixture();
+  const release = await acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR);
+  try {
+    await expect(acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR)).rejects.toThrow(
+      "CODEX_UPDATE_OWNER_BUSY",
+    );
+  } finally {
+    await release();
+  }
+  await (
+    await acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR)
+  )();
+});
+it("preserves Sparkle's newer check date, restoring only Hub-written values", async () => {
+  const write = vi.fn(async () => undefined);
+  await restoreCodexCheckPreferences(
+    { automaticChecks: false, lastCheckTime: "old" },
+    async (key) => (key === "SULastCheckTime" ? "newer-sparkle-date" : "1"),
+    write,
+  );
+  expect(write.mock.calls).toEqual([["SUEnableAutomaticChecks", false]]);
+});
+it("unknown appcast enclosures fail closed, including build-only entries selected by Sparkle", () => {
+  expect(() =>
+    parseCodexAppcast(
+      '<rss><item><sparkle:version>999999</sparkle:version><enclosure url="https://example.test/build"/></item></rss>',
+    ),
+  ).toThrow("CODEX_APPCAST_FAILED");
+  expect(
+    parseCodexAppcast(
+      "<rss><item><sparkle:shortVersionString>26.1200.1</sparkle:shortVersionString><sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion><enclosure/></item></rss>",
+      "15.0",
+    ),
+  ).toEqual([]);
+});
+it("watchdog exit resets arming so an active download gets a new worker", async () => {
+  const f = await fixture();
+  let exited: (() => void) | undefined;
+  vi.mocked(f.driver.watchLease).mockImplementation(async (_file, _id, onExit) => {
+    exited = onExit;
+  });
+  await backgroundRestart(f);
+  expect(f.driver.watchLease).toHaveBeenCalledOnce();
+  exited?.();
+  await f.manager.tick();
+  expect(f.driver.watchLease).toHaveBeenCalledTimes(2);
+});
+it("three download timeouts persist across restarts and suspend retries until the feed changes", async () => {
+  const f = await fixture();
+  let feed = "synthetic-feed-a";
+  f.driver.feedIdentity = () => feed;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await backgroundRestart(f);
+    f.advance(31 * 60_000);
+    await f.manager.tick();
+    f.advance(25 * 60 * 60_000);
+  }
+  const count = vi.mocked(f.driver.quit).mock.calls.length;
+  const restarted = new CodexUpdateManager(f.options);
+  managers.push(restarted);
+  expect((await restarted.check()).error).toBe("CODEX_DOWNLOAD_TIMEOUT");
+  f.advance(25 * 60 * 60_000);
+  await restarted.check();
+  expect(f.driver.quit).toHaveBeenCalledTimes(count);
+  feed = "synthetic-feed-b";
+  expect((await restarted.check()).phase).toBe("waiting-idle");
+});
+it("reenabling during backoff reports a terminal retry state instead of checking forever", async () => {
+  const f = await fixture();
+  await backgroundRestart(f);
+  f.advance(31 * 60_000);
+  await f.manager.tick();
+  await f.manager.setEnabled(false);
+  expect((await f.manager.setEnabled(true)).phase).toBe("failed");
+});
+it("renews the lease independently while compatibility refresh blocks the serialized queue", async () => {
+  vi.useFakeTimers();
+  const f = await fixture();
+  let release: (() => void) | undefined;
+  try {
+    await backgroundRestart(f);
+    let entered: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(f.catalog, "refresh").mockImplementationOnce(async () => {
+      entered?.();
+      await blocked;
+    });
+    const check = f.manager.check();
+    await started;
+    f.advance(400_000);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(async () => {
+      const lease = JSON.parse(
+        await fs.readFile(
+          path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-armed.json"),
+          "utf8",
+        ),
+      );
+      expect(lease.at).toBe(401_010);
+    });
+    release?.();
+    await check;
+    await f.manager.stop();
+  } finally {
+    release?.();
+    vi.useRealTimers();
+  }
+});
+it("an OS-ineligible feed maximum remains visible without causing a restart", async () => {
+  const f = await fixture();
+  f.driver.installableVersions = () => ["26.1103.1.0"];
+  expect((await f.manager.check()).phase).toBe("up-to-date");
+  expect(f.manager.status().latestVersion).toBe("26.1200.1.0");
+  expect(f.driver.quit).not.toHaveBeenCalled();
+});
+it("recognizes a successful Sparkle relaunch instead of treating it as a cancelled quit", async () => {
+  const f = await fixture();
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  f.install();
+  vi.mocked(f.driver.isRunning).mockResolvedValue(true);
+  vi.mocked(f.driver.installationStopped).mockResolvedValue(false);
+  f.advance(30_000);
+  expect((await f.manager.tick()).phase).toBe("health-check");
+  expect(f.driver.reopen).not.toHaveBeenCalled();
+});
+it("short repeated idle races reuse a fresh forced signature verification", async () => {
+  const f = await fixture();
+  const app = path.join(
+    f.root,
+    "Library/Caches/com.openai.codex/org.sparkle-project.Sparkle/Installation/synthetic/ChatGPT.app",
+  );
+  await fs.mkdir(app, { recursive: true });
+  const exec = vi.fn(async (file: string, args: string[]) =>
+    file === "/usr/bin/plutil"
+      ? args.includes("CFBundleIdentifier")
+        ? "com.openai.codex"
+        : "26.1200.1.0"
+      : "",
+  );
+  const driver = createMacCodexUpdateDriver({
+    environment: f.environment,
+    get: async () => response({}),
+    currentVersion: f.driver.currentVersion,
+    reopen: f.driver.reopen,
+    healthy: f.driver.healthy,
+    exec,
+  });
+  expect(await driver.downloadReady("26.1200.1.0", true)).toBe(true);
+  expect(await driver.downloadReady("26.1200.1.0", true)).toBe(true);
+  expect(exec.mock.calls.filter(([file]) => file === "/usr/bin/codesign")).toHaveLength(1);
+});
+
+it("reclaims an exited owner's native lock while admitting only one concurrent successor", async () => {
+  const { spawn } = await import("node:child_process");
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise<void>((resolve, reject) => {
+    child.once("exit", () => resolve());
+    child.once("error", reject);
+  });
+  const f = await fixture();
+  await fs.mkdir(f.environment.CODEXHOST_DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-owner.json"),
+    JSON.stringify({ id: "synthetic-dead", pid: child.pid }),
+  );
+  const results = await Promise.allSettled([
+    acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR),
+    acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR),
+  ]);
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+  for (const result of results) if (result.status === "fulfilled") await result.value();
 });

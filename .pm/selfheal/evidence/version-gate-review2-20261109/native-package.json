@@ -1,0 +1,17 @@
+{
+  "name": "native-package",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109",
+  "base": "c796e85ca88d2aedd7cbc9829cfeb8681111f28c",
+  "command": [
+    "npx",
+    "vitest",
+    "run",
+    "--config",
+    "tests/vitest.config.js",
+    "tests/release/hub-watchdog.test.mjs"
+  ],
+  "exit_code": 0,
+  "duration_seconds": 12.51,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR, RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0",
+  "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109\n\n/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/synthetic-hub-watchdog-package-xlhocs/kit/RLY0 Hub.app/Contents/Resources/runtime/node: replacing existing signature\n/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/synthetic-hub-watchdog-package-xlhocs/kit/RLY0 Hub.app/Contents/MacOS/rly0-hub: replacing existing signature\n/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/synthetic-hub-watchdog-package-xlhocs/kit/RLY0 Hub.app: replacing existing signature\nDevelopment app built. Launch and real-account validation have not run.\n\n Test Files  1 passed (1)\n      Tests  1 passed (1)\n   Start at  16:23:26\n   Duration  11.72s (transform 44ms, setup 0ms, import 66ms, tests 11.54s, environment 0ms)\n\n"
+}

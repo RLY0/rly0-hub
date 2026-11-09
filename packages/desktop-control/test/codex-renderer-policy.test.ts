@@ -88,12 +88,27 @@ it("bounds, validates and expires passive quota/balance snapshots", async () => 
 it("uses this Launcher's inspected Desktop identity when Hub did not open Codex", async () => {
   const { readLauncherCodexVersion } = await import("../src/codex-renderer-policy.js");
   const f = await fixture();
+  await fs.mkdir(path.join(f.root, "diagnostics"), { recursive: true });
   await fs.writeFile(
-    path.join(f.root, "launcher-startup-v1.json"),
+    path.join(f.root, "diagnostics", "launcher-startup-v1.json"),
     JSON.stringify({
       schemaVersion: 1,
       records: [
-        { pid: 100, desktop: { version: "26.1200.1" } },
+        {
+          id: "synthetic-100",
+          pid: 100,
+          launcherVersion: "0.11.39",
+          startedAtMs: 1000,
+          finishedAtMs: 1100,
+          outcome: "success",
+          error: null,
+          stages: [],
+          desktop: {
+            version: "26.1200.1",
+            build: "123456",
+            installRoot: "/Applications/ChatGPT.app",
+          },
+        },
         { pid: 200, desktop: { version: "26.1103.1" } },
       ],
     }),
@@ -133,4 +148,35 @@ it("the policy filesystem reader exposes non-ENOENT failures instead of publishi
   const f = await fixture();
   await fs.mkdir(path.join(f.root, "codex-renderer-policy.json"));
   await expect(readCodexRendererPolicy(f.environment)).rejects.toThrow();
+});
+
+it("matches the Launcher's default ~/.codexhost/diagnostics location, ignoring the old wrong location", async () => {
+  const { readLauncherCodexVersion } = await import("../src/codex-renderer-policy.js");
+  const f = await fixture();
+  const environment = { HOME: f.root };
+  const file = path.join(f.root, ".codexhost", "diagnostics", "launcher-startup-v1.json");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(
+    file,
+    JSON.stringify({
+      schemaVersion: 1,
+      records: [
+        {
+          pid: 321,
+          desktop: {
+            version: "26.1200.1",
+            build: "123456",
+            installRoot: "/Applications/ChatGPT.app",
+          },
+        },
+      ],
+    }),
+  );
+  expect(await readLauncherCodexVersion(environment, 321)).toBe("26.1200.1");
+  expect(
+    await readLauncherCodexVersion(
+      { ...environment, CODEXHOST_DATA_DIR: "relative-ignored-by-launcher" },
+      321,
+    ),
+  ).toBe("26.1200.1");
 });

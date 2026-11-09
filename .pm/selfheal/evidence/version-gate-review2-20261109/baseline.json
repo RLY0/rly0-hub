@@ -1,0 +1,38 @@
+{
+  "base": "c796e85ca88d2aedd7cbc9829cfeb8681111f28c",
+  "dependencies": "same installed node_modules; source archived from c796e85c",
+  "checks": {
+    "typecheck": {
+      "command": ["npm", "run", "typecheck"],
+      "exit_code": 0,
+      "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 typecheck\n> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false\n\n"
+    },
+    "lint": {
+      "command": ["npm", "run", "lint"],
+      "exit_code": 1,
+      "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 lint\n> eslint . && node tools/check-boundaries.mjs\n\n\n/private/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/synthetic-version-gate-baseline-80ct6g26/packages/host-runtime/test/rly0-hub-promo.test.ts\n  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion\n\n✖ 1 problem (1 error, 0 warnings)\n\n"
+    },
+    "regression": {
+      "command": [
+        "npx",
+        "vitest",
+        "run",
+        "--config",
+        "tests/vitest.config.js",
+        "packages/host-runtime/test/codex-version-gate.test.ts",
+        "packages/host-runtime/test/codex-update-watchdog.test.ts",
+        "packages/desktop-control/test/codex-renderer-policy.test.ts",
+        "packages/host-runtime/test/rly0-codex-updates-ui.test.ts",
+        "packages/host-runtime/test/rly0-maintenance/desktop-compatibility.test.ts",
+        "packages/host-runtime/test/rly0-backend-reload-channel.test.ts",
+        "tests/release/hub-macos.test.mjs"
+      ],
+      "exit_code": 0,
+      "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n RUN  v4.1.10 /private/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/synthetic-version-gate-baseline-80ct6g26\n\n\n Test Files  7 passed (7)\n      Tests  116 passed (116)\n   Start at  16:18:47\n   Duration  1.09s (transform 1.13s, setup 0ms, import 1.67s, tests 1.10s, environment 0ms)\n\n"
+    },
+    "bundle": {
+      "exit_code": 0,
+      "output": "{\"files\":[\"hub-service.mjs\"],\"watchdogPresent\":false}\n"
+    }
+  }
+}

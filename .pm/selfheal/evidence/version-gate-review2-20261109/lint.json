@@ -1,0 +1,10 @@
+{
+  "name": "lint",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109",
+  "base": "c796e85ca88d2aedd7cbc9829cfeb8681111f28c",
+  "command": ["npm", "run", "lint"],
+  "exit_code": 1,
+  "duration_seconds": 17.98,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR, RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0",
+  "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 lint\n> eslint . && node tools/check-boundaries.mjs\n\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109/packages/host-runtime/test/rly0-hub-promo.test.ts\n  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion\n\n✖ 1 problem (1 error, 0 warnings)\n\n"
+}

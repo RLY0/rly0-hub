@@ -122,6 +122,7 @@ export const codexUpdateSettingsSchema = z.object({
       automaticChecks: z.boolean().nullable(),
       lastCheckTime: z.string().max(100).nullable(),
     })
-    .optional(),
+    .optional()
+    .catch(undefined),
 });
 export type CodexUpdateSettings = z.infer<typeof codexUpdateSettingsSchema>;

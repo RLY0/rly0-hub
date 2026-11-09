@@ -14,9 +14,11 @@ export async function readLauncherCodexVersion(
   parentPid = process.ppid,
 ): Promise<string | null> {
   const directory =
-    environment.CODEXHOST_DATA_DIR ?? path.join(environment.HOME ?? os.homedir(), ".rly0-hub");
+    environment.CODEXHOST_DATA_DIR && path.isAbsolute(environment.CODEXHOST_DATA_DIR)
+      ? environment.CODEXHOST_DATA_DIR
+      : path.join(environment.HOME ?? os.homedir(), ".codexhost");
   try {
-    const bytes = await readFile(path.join(directory, "launcher-startup-v1.json"));
+    const bytes = await readFile(path.join(directory, "diagnostics", "launcher-startup-v1.json"));
     if (bytes.length > 256 * 1024) return null;
     const raw = JSON.parse(bytes.toString("utf8"));
     if (raw.schemaVersion !== 1 || !Array.isArray(raw.records)) return null;

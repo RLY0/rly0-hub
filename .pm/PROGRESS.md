@@ -1,11 +1,11 @@
-# 隔离候选进度
+# 隔离候选进度：HUB-CODEX-VERSION-GATE 第二次复查修复
 
-2026-11-09，HUB-CODEX-VERSION-GATE；worktree codex-version-gate-20261109 / feat/codex-version-gate。原实现 81720dcd；Claude 界面 d4552531、2d795e9c；本轮复查修复以 2d795e9c 为固定基线。
+2026-11-09，feat/codex-version-gate，固定输入 c796e85c。已修 N1/N2 阻断、N3/N4、上轮 6 的 Launcher 读取位置及 7 的 originalCheckPreferences；N6–N11 一并修复。N5 保留默认规则，只收敛 CodexIdleDriver。
 
-Codex 已完成复查必修 1–5 与建议 6/7/9/10；11 的 restart 影响保持并记入契约。菜单检查入口已移除，改为持续空闲后的 Sparkle 后台调度与正常重开；新增独立租约 watchdog。显示层文件未改，契约更新 v2，具体语义交 Claude。
+self_verified：8 个文件 148 pass、0 fail、0 skip；隔离原生开发 .app 构建、ad-hoc 验签及包内 Node/包内 watchdog 注入驱动冒烟通过。基线 archive c796e85c 的 7 个已有文件 116 pass；旧产物实测只有 hub-service.mjs，缺 watchdog。类型与边界检查通过，lint 与基线均为 rly0-hub-promo.test.ts:11 同一既有错误，新增 0；格式检查见本轮证据。
 
-当前 self_verified：204 pass、1 既有 skip、0 fail；typecheck/边界/renderer build/WebKit/改动格式通过，lint 保留基线同一错误。修复后未再次独立审查、未 accepted。证据见 .pm/selfheal/evidence/version-gate-review-20261109/RESULTS.md。
+证据：.pm/selfheal/evidence/version-gate-review2-20261109/RESULTS.md、baseline.json、regression.json、native-package.json 及源码指纹。CONTRACT v3 无 RPC 字段/枚举变化，新增环境隔离语义、持久退避及空闲驱动接口说明，文案交 Claude。apps/hub-desktop/www 未改。
 
-本记录只属隔离候选，不覆盖主工作区其他工单。无真实系统偏好、进程、guard、发布变更。
+未操作真实 defaults、用户 Codex/Hub、guard 或真实升级；仅构建临时开发验收产物，不是正式 DMG/发布。仅自检，未 reviewed/accepted；用户空闲定义、修复后独立审查、独立真机 Sparkle/权限/Windows 与 guard 部署验收仍待完成。
 
-next_action：独立复查本轮修复；Claude 核对 CONTRACT v2 文案；实际 guard 部署与独立真机验收（watchdog/后台下载静默程度/安装恢复/Windows）后再由 Claude 按既定归属处理发布。本轮不构成发布放行。
+next_action：Claude 核对 CONTRACT v3 及提示文案；用户定稿 N5 后仅替换空闲驱动；独立审查本轮后端改动，随后在获准独立环境验收真实更新，再由 Claude 决定正式打包发布。

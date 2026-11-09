@@ -12,7 +12,7 @@ it.each(["dead", "expired", "future", "invalid"])(
         pid: 123,
         at:
           reason === "expired"
-            ? 0
+            ? -400_000
             : reason === "future"
               ? 200_000
               : reason === "invalid"
@@ -22,9 +22,7 @@ it.each(["dead", "expired", "future", "invalid"])(
       alive: () => reason !== "dead",
       now: () => 100_000,
       disarm,
-      wait: async () => {
-        throw new Error("must not wait");
-      },
+      wait: async () => undefined,
     });
     expect(disarm).toHaveBeenCalledOnce();
   },
@@ -72,4 +70,34 @@ it("read errors fail closed instead of leaving automatic updates armed", async (
   });
   expect(disarm).toHaveBeenCalledOnce();
   expect(ready).not.toHaveBeenCalled();
+});
+
+it("allows a live Hub to renew after sleep or clock changes instead of abandoning its watchdog", async () => {
+  const disarm = vi.fn(async () => undefined);
+  let count = 0;
+  await watchCodexUpdateLease({
+    id: "sleep",
+    now: () => 10_000_000,
+    read: async () =>
+      ++count === 1
+        ? { id: "sleep", pid: 123, at: 1 }
+        : count === 2
+          ? { id: "sleep", pid: 123, at: 10_000_000 }
+          : null,
+    alive: () => true,
+    disarm,
+    wait: async () => undefined,
+  });
+  expect(disarm).not.toHaveBeenCalled();
+});
+it("retries failed preference writes while still checking lease ownership", async () => {
+  const disarm = vi.fn(async () => undefined).mockRejectedValueOnce(new Error("synthetic denied"));
+  await watchCodexUpdateLease({
+    id: "retry",
+    read: async () => ({ id: "retry", pid: 123, at: 1 }),
+    alive: () => false,
+    disarm,
+    wait: async () => undefined,
+  });
+  expect(disarm).toHaveBeenCalledTimes(2);
 });

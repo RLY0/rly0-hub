@@ -1,3 +1,10 @@
+import { restoreCodexCheckPreferences } from "./codex-check-preferences.js";
+import { createHash } from "node:crypto";
+import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
+import {
+  acquireCodexUpdateControl,
+  codexNativeUpdateControlAllowed,
+} from "./codex-update-control.js";
 import { fileURLToPath } from "node:url";
 import { execFile, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
@@ -7,13 +14,20 @@ import { compareCodexVersions } from "@codexhost/shared-contracts";
 import type { CodexUpdateDriver } from "./codex-update-manager.js";
 import type { UpdateHttpGet } from "./hub-update-net.js";
 
-export function parseCodexAppcast(xml: string): string[] {
+export function parseCodexAppcast(xml: string, systemVersion?: string): string[] {
   const versions = [...xml.matchAll(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gu)].flatMap(([block]) => {
-    if (!/<enclosure\s/u.test(block)) return [];
+    if (!/<enclosure(?:\s|\/?>)/u.test(block)) return [];
     const version =
       /<sparkle:shortVersionString>\s*([\d.]+)\s*<\//u.exec(block)?.[1] ??
       /sparkle:shortVersionString="([\d.]+)"/u.exec(block)?.[1];
-    return version && /^\d+(?:\.\d+)+$/u.test(version) ? [version] : [];
+    // A short version is required to map Sparkle build versions to our compatibility families.
+    // Never silently remove an unknown enclosure from the authorization decision.
+    if (!version || !/^\d+(?:\.\d+)+$/u.test(version)) throw new Error("CODEX_APPCAST_FAILED");
+    const minimum = /<sparkle:minimumSystemVersion>\s*([\d.]+)\s*<\//u.exec(block)?.[1];
+    if (/<sparkle:minimumSystemVersion/u.test(block) && !minimum)
+      throw new Error("CODEX_APPCAST_FAILED");
+    if (minimum && systemVersion && compareCodexVersions(systemVersion, minimum) < 0) return [];
+    return [version];
   });
   return [...new Set(versions)].sort((a, b) => compareCodexVersions(b, a));
 }
@@ -23,6 +37,9 @@ export async function latestCodexAppcast(options: {
   get: UpdateHttpGet;
   arch?: string;
   onVersions?: (versions: string[]) => void;
+  systemVersion?: string;
+  onFeed?: (identity: string) => void;
+  onEligibleVersions?: (versions: string[]) => void;
 }): Promise<string> {
   const home = options.environment.HOME ?? os.homedir();
   const bootstrap: unknown = JSON.parse(
@@ -59,7 +76,10 @@ export async function latestCodexAppcast(options: {
       if (size > 1024 * 1024) throw new Error("CODEX_APPCAST_FAILED");
       chunks.push(Buffer.from(chunk));
     }
-    const versions = parseCodexAppcast(Buffer.concat(chunks).toString("utf8"));
+    const xml = Buffer.concat(chunks).toString("utf8");
+    const versions = parseCodexAppcast(xml);
+    options.onEligibleVersions?.(parseCodexAppcast(xml, options.systemVersion));
+    options.onFeed?.(createHash("sha256").update(xml).digest("hex"));
     options.onVersions?.(versions);
     const latest = versions[0];
     if (!latest) throw new Error("CODEX_APPCAST_FAILED");
@@ -74,7 +94,7 @@ function nativeExec(environment: NodeJS.ProcessEnv): SparkleExec {
   return (file, args) =>
     new Promise((resolve, reject) => {
       // defaults/cfprefsd is per login session, not isolated by HOME. Unit tests MUST inject exec.
-      if (process.env.VITEST || process.env.NODE_ENV === "test") {
+      if (!codexNativeUpdateControlAllowed(environment)) {
         reject(new Error("CODEX_UPDATER_TEST_ISOLATION"));
         return;
       }
@@ -157,12 +177,15 @@ export function createMacCodexUpdateDriver(options: {
   reopen: () => Promise<boolean>;
   healthy: () => Promise<boolean>;
   exec?: SparkleExec;
-  startWatchdog?: (file: string, id: string) => Promise<void>;
+  startWatchdog?: (file: string, id: string, exited?: () => void) => Promise<void>;
 }): CodexUpdateDriver {
   const exec = options.exec ?? nativeExec(options.environment);
   const domain = "com.openai.codex";
   const cache = new Map<string, string>();
   let versions: string[] = [];
+  let eligibleVersions: string[] = [];
+  let feedIdentity: string | null = null;
+  let lastRevalidatedAt = -Infinity;
   const lastFailedProbes = new Map<string, number>();
   const read = async (key: string): Promise<string | null> => {
     try {
@@ -194,10 +217,19 @@ export function createMacCodexUpdateDriver(options: {
         String(value),
       ]);
   };
+  const isRunning = async () => {
+    const result = await exec("/usr/bin/osascript", [
+      "-e",
+      'application id "com.openai.codex" is running',
+    ]);
+    if (result !== "true" && result !== "false") throw new Error("CODEX_PROCESS_STATE_INVALID");
+    return result === "true";
+  };
   return {
+    acquireControl: () => acquireCodexUpdateControl(resolveRly0DataDir(options.environment)),
     watchLease:
       options.startWatchdog ??
-      ((file, id) =>
+      ((file, id, exited) =>
         new Promise<void>((resolve, reject) => {
           if (process.env.VITEST || process.env.NODE_ENV === "test") {
             reject(new Error("CODEX_UPDATER_TEST_ISOLATION"));
@@ -222,6 +254,7 @@ export function createMacCodexUpdateDriver(options: {
             reject(new Error("CODEX_WATCHDOG_UNAVAILABLE"));
           });
           child.once("exit", () => {
+            exited?.();
             clearTimeout(timer);
             reject(new Error("CODEX_WATCHDOG_UNAVAILABLE"));
           });
@@ -247,12 +280,19 @@ export function createMacCodexUpdateDriver(options: {
       };
     },
     async restoreCheckPreferences(value) {
-      await write("SUEnableAutomaticChecks", value.automaticChecks);
-      await write("SULastCheckTime", value.lastCheckTime);
+      await restoreCodexCheckPreferences(value, read, write);
     },
     currentVersion: options.currentVersion,
+    feedIdentity: () => feedIdentity,
     latestVersion: async (current) =>
       latestCodexAppcast({
+        systemVersion: await exec("/usr/bin/sw_vers", ["-productVersion"]),
+        onEligibleVersions: (eligible) => {
+          eligibleVersions = eligible;
+        },
+        onFeed: (identity) => {
+          feedIdentity = identity;
+        },
         environment: options.environment,
         current,
         get: await options.get(),
@@ -261,6 +301,7 @@ export function createMacCodexUpdateDriver(options: {
         },
       }),
     availableVersions: async () => versions,
+    installableVersions: () => eligibleVersions,
     async requestCheck() {
       // Sparkle's documented scheduled-check path. No menu/foreground check, fake
       // launch argument or App bundle edit. Manager waits idle, then quits/reopens.
@@ -268,7 +309,11 @@ export function createMacCodexUpdateDriver(options: {
       await write("SULastCheckTime", null);
     },
     async downloadReady(version, revalidate = false) {
-      if (revalidate) cache.clear();
+      // Revalidate at most once per short quit window, and immediately on identity changes.
+      if (revalidate && performance.now() - lastRevalidatedAt > 15_000) {
+        cache.clear();
+        lastRevalidatedAt = performance.now();
+      }
       if (!revalidate && Date.now() - (lastFailedProbes.get(version) ?? -Infinity) < 30_000)
         return false;
       const ready = await stagedSparkleUpdate(
@@ -283,18 +328,27 @@ export function createMacCodexUpdateDriver(options: {
     async quit() {
       await exec("/usr/bin/osascript", ["-e", 'tell application id "com.openai.codex" to quit']);
     },
-    async isRunning() {
-      return /(?:^|\n)[^\n]*\/Codex\.app\/Contents\/MacOS\/Codex(?:\s|$)/u.test(
-        await exec("/bin/ps", ["-axo", "args="]),
-      );
-    },
+    isRunning,
     async installationStopped() {
+      if (await isRunning()) return false;
+      // Resolve the registered bundle, not its marketing name or a fixed /Applications path.
+      const app = (
+        await exec("/usr/bin/osascript", [
+          "-e",
+          'POSIX path of (path to application id "com.openai.codex")',
+        ])
+      ).replace(/\/$/u, "");
+      if (!path.isAbsolute(app) || !app.endsWith(".app"))
+        throw new Error("CODEX_INSTALLATION_UNAVAILABLE");
       const processes = await exec("/bin/ps", ["-axo", "args="]);
-      if (/(?:^|\n).*\/Codex\.app\/Contents\/MacOS\/Codex(?:\s|$)/u.test(processes)) return false;
-      // Only this bundle's installer blocks recovery; another app's updater is unrelated.
-      return !/(?:^|\n)[^\n]*(?:\/Codex\.app\/Contents\/[^\n]*\/(?:Autoupdate|Updater\.app\/Contents\/MacOS\/Updater)|\/com\.openai\.codex\/org\.sparkle-project\.Sparkle\/[^\n]*\/(?:Autoupdate|Updater\.app\/Contents\/MacOS\/Updater))(?:\s|$)/u.test(
-        processes,
-      );
+      return !processes
+        .split("\n")
+        .some(
+          (line) =>
+            (line.includes(`${app}/Contents/`) ||
+              line.includes("/com.openai.codex/org.sparkle-project.Sparkle/")) &&
+            /\/(?:Autoupdate|Updater\.app\/Contents\/MacOS\/Updater)(?:\s|$)/u.test(line),
+        );
     },
     reopen: options.reopen,
     healthy: options.healthy,
