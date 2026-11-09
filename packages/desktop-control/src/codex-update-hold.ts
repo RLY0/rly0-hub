@@ -8,33 +8,34 @@
  * `disableInAppUpdates: null` leaves Codex's per-launch update latch untouched (a later contrary
  * latch makes Codex show a "restart to apply policy" dialog).
  *
- * The first gate message of a launch can precede injection. The last observed real message is kept
- * in the page's own storage and replayed (corrected) when a held page installs this script.
+ * To see the first gate message of a launch, the Controller registers this script through a
+ * browser-level auto-attach session before the page's own scripts run (`early-update-hold.ts`);
+ * that copy is authoritative (`override`). The copy bundled with the full/core injection is a
+ * fallback for pages the early session missed: it installs only when no hold is present and never
+ * changes an existing hold value. Nothing is stored or replayed across launches.
  *
  * Self-contained: serialized with `Function.prototype.toString` and run in full and core modes.
  * No React, DOM or Codex module access. Anything unexpected records `update-hold` in
  * `__codexhostFeatureFailuresV1` and sends nothing.
  */
-export function installCodexUpdateHold(root: Record<string, unknown>, hold: boolean): boolean {
+export function installCodexUpdateHold(
+  root: Record<string, unknown>,
+  hold: boolean,
+  override: boolean,
+): boolean {
   const STATE_KEY = "__codexhostUpdateHoldV1";
-  const STORAGE_KEY = "codexhost.sparkle-gates.v1";
   const MESSAGE_TYPE = "electron-sparkle-gates-changed";
   type Gates = Record<string, string | number | boolean | null>;
-  type PageStorage = {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-  };
   interface HoldState {
     hold: boolean;
     observed: number;
     sent: number;
-    replayed: boolean;
     error: string | null;
     setHold(value: boolean): void;
   }
   const existing = root[STATE_KEY] as Partial<HoldState> | undefined;
   if (existing && typeof existing.setHold === "function") {
-    existing.setHold(hold);
+    if (override) existing.setHold(hold);
     return true;
   }
   let last: Gates | null = null;
@@ -42,7 +43,6 @@ export function installCodexUpdateHold(root: Record<string, unknown>, hold: bool
     hold: false,
     observed: 0,
     sent: 0,
-    replayed: false,
     error: null,
     setHold: () => undefined,
   };
@@ -122,11 +122,6 @@ export function installCodexUpdateHold(root: Record<string, unknown>, hold: bool
         }
         state.observed += 1;
         last = message;
-        try {
-          (root.localStorage as PageStorage).setItem(STORAGE_KEY, JSON.stringify(message));
-        } catch {
-          /* Replay is best effort; correcting this message does not depend on it. */
-        }
         if (state.hold) send(message);
       } catch {
         fail("listener-failed");
@@ -135,28 +130,23 @@ export function installCodexUpdateHold(root: Record<string, unknown>, hold: bool
   );
   root[STATE_KEY] = state;
   state.hold = hold === true;
-  if (state.hold) {
-    let stored: unknown = null;
-    try {
-      stored = JSON.parse((root.localStorage as PageStorage).getItem(STORAGE_KEY) ?? "null");
-    } catch {
-      stored = null;
-    }
-    const template = gates(stored);
-    if (template) {
-      last = template;
-      state.replayed = true;
-      send(template);
-    }
-  }
   return true;
 }
 
+/** Authoritative copy: installs, or sets the hold of an installed page. */
 export function codexUpdateHoldScript(hold: boolean): string {
-  return `(${installCodexUpdateHold.toString()})(globalThis, ${hold === true});`;
+  return `(${installCodexUpdateHold.toString()})(globalThis, ${hold === true}, true);`;
 }
 
-/** Pushes a hold change into an installed page; a page without the script is left untouched. */
+/** Bundled with the full/core injection: installs only when the page has no hold yet. */
+export function codexUpdateHoldFallbackScript(hold: boolean): string {
+  return `(${installCodexUpdateHold.toString()})(globalThis, ${hold === true}, false);`;
+}
+
+/**
+ * Idempotent; safe to run every monitor pass, which also corrects a page reloaded with a stale
+ * fallback value. A page without the script is left untouched.
+ */
 export function codexUpdateHoldPushExpression(hold: boolean): string {
-  return `(() => { const state = globalThis.__codexhostUpdateHoldV1; if (state && typeof state.setHold === "function") state.setHold(${hold === true}); return true; })()`;
+  return `(() => { const state = globalThis.__codexhostUpdateHoldV1; if (state && typeof state.setHold === "function" && state.hold !== ${hold === true}) state.setHold(${hold === true}); return true; })()`;
 }

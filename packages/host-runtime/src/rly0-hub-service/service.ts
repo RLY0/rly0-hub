@@ -1085,6 +1085,12 @@ export class Rly0HubService {
           () => true,
           () => false,
         );
+        // Hub update management also changes Codex (SUAutomaticallyUpdate, the renderer update hold):
+        // turning it off restores the original preference and publishes holdUpdates=false.
+        steps.codexUpdates = await this.#codexUpdates.setEnabled(false).then(
+          (status) => status.error === null && !status.enabled,
+          () => false,
+        );
         await this.#state.update({ channelConsented: false });
         return { ok: Object.values(steps).every(Boolean), steps };
       }),

@@ -234,6 +234,7 @@ export class CdpClient {
   #nextId = 1;
   #pending = new Map<number, PendingCommand>();
   #listeners = new Map<string, Set<CdpEventListener>>();
+  #closeListeners = new Set<() => void>();
 
   private constructor(socket: CdpSocket, commandTimeoutMs: number) {
     this.#socket = socket;
@@ -362,12 +363,31 @@ export class CdpClient {
     this.#disconnect(new CdpConnectionClosedError("CDP client closed"));
   }
 
+  /** Runs once when the connection ends for any reason (also immediately if it already has). */
+  onClose(listener: () => void): () => void {
+    if (this.#closed) {
+      queueMicrotask(listener);
+      return () => undefined;
+    }
+    this.#closeListeners.add(listener);
+    return () => this.#closeListeners.delete(listener);
+  }
+
   #disconnect(error: CdpConnectionClosedError): void {
     if (this.#closed) return;
     this.#closed = true;
     this.#fail(error);
     this.#listeners.clear();
     this.#socket.close();
+    const listeners = [...this.#closeListeners];
+    this.#closeListeners.clear();
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch {
+        /* A close observer must not break the others. */
+      }
+    }
   }
 
   #onMessage(event: CdpSocketEvent): void {

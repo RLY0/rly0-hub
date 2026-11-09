@@ -21,7 +21,8 @@ export class CodexCompatibilityCatalog {
   #error: "COMPAT_UNAVAILABLE" | "COMPAT_INVALID" | "COMPAT_CACHE_WRITE_FAILED" | null = null;
   #pending: Promise<void> | null = null;
   #loaded = false;
-  #holdUpdates = false;
+  /** null until this process writes it: the file on disk may still carry an earlier value. */
+  #holdUpdates: boolean | null = null;
   #publishedVersion: string | null = null;
   readonly file: string;
   constructor(
@@ -103,27 +104,55 @@ export class CodexCompatibilityCatalog {
       JSON.stringify({
         desktopVersion: version,
         policy: this.policy(version),
-        holdUpdates: this.#holdUpdates,
+        holdUpdates: this.#holdUpdates === true,
       }),
       { mode: 0o600 },
     );
     await fs.rename(temporary, file);
     this.#publishedVersion = version;
   }
-  /** Republishes the last version-bound policy when the update hold changes. */
+  /**
+   * Republishes the last version-bound policy when the update hold changes. Before this process has
+   * published a policy (Desktop version unknown), only `holdUpdates` of the existing file changes;
+   * its version-bound part is kept, so a stale hold never stays on disk.
+   */
   async setHoldUpdates(hold: boolean): Promise<void> {
     if (hold === this.#holdUpdates) return;
     const previous = this.#holdUpdates;
     this.#holdUpdates = hold;
     try {
       if (this.#publishedVersion) await this.publishPolicy(this.#publishedVersion);
+      else await this.#writeHoldOnly(hold);
     } catch (error) {
       this.#holdUpdates = previous; // A failed write is retried by the next change request.
       throw error;
     }
   }
+  async #writeHoldOnly(hold: boolean): Promise<void> {
+    const file = path.join(path.dirname(this.file), "codex-renderer-policy.json");
+    let existing: Record<string, unknown> = {};
+    try {
+      const value: unknown = JSON.parse(await fs.readFile(file, "utf8"));
+      if (typeof value === "object" && value !== null && !Array.isArray(value))
+        existing = value as Record<string, unknown>;
+    } catch (error) {
+      // Absent or unreadable as JSON: the Controller treats either as core; keep only the hold.
+      if (
+        (error as NodeJS.ErrnoException).code &&
+        (error as NodeJS.ErrnoException).code !== "ENOENT"
+      )
+        throw error;
+    }
+    if (!hold && !("holdUpdates" in existing)) return; // Nothing on disk holds updates.
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+    await fs.writeFile(temporary, JSON.stringify({ ...existing, holdUpdates: hold }), {
+      mode: 0o600,
+    });
+    await fs.rename(temporary, file);
+  }
   holdUpdates(): boolean {
-    return this.#holdUpdates;
+    return this.#holdUpdates === true;
   }
   verified(version: string | null): boolean {
     return codexVersionVerified(version, this.#hub, this.#manifest, compareSemanticVersions);

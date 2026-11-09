@@ -247,3 +247,21 @@ it("carries Hub's update hold beside the policy, also when the policy falls back
     disabled: [],
   });
 });
+
+it("a hold-only file (Desktop version not yet known to Hub) keeps the unpublished policy", async () => {
+  const f = await fixture();
+  const file = path.join(f.root, "codex-renderer-policy.json");
+  await fs.writeFile(file, JSON.stringify({ holdUpdates: true }));
+  expect(await readCodexRendererPolicy(f.environment)).toEqual({
+    schemaVersion: 1,
+    mode: "full",
+    disabled: [],
+    holdUpdates: true,
+  });
+  // Half a version-bound record is still corruption: core.
+  await fs.writeFile(file, JSON.stringify({ desktopVersion: "26.1103.1", holdUpdates: true }));
+  expect(await readCodexRendererPolicy(f.environment)).toMatchObject({
+    mode: "core",
+    holdUpdates: true,
+  });
+});

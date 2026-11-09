@@ -1,6 +1,10 @@
 import { runInNewContext } from "node:vm";
 import { expect, it } from "vitest";
-import { codexUpdateHoldPushExpression, codexUpdateHoldScript } from "../src/codex-update-hold.js";
+import {
+  codexUpdateHoldFallbackScript,
+  codexUpdateHoldPushExpression,
+  codexUpdateHoldScript,
+} from "../src/codex-update-hold.js";
 import { coreRendererBootstrap } from "../src/core-renderer-session.js";
 
 /**
@@ -128,23 +132,43 @@ it("a page without an event target records the failure instead of throwing", () 
   expect(failures).toEqual(["update-hold"]);
 });
 
-it("replays the stored last gates (corrected) when a held page installs after Codex's first message", async () => {
+it("never stores or replays gates from an earlier launch (M2)", async () => {
   const storage = new Map<string, string>();
   const earlier = page({ storage });
   earlier.run(codexUpdateHoldScript(false));
-  earlier.view(realGates({ preferMxc: true }));
-  // Next launch: the first message was sent before injection.
+  earlier.view(realGates({ useBackendAppcast: false }));
+  // Next launch, held: nothing is sent until Codex itself reports its current gates.
   const later = page({ storage });
   later.run(codexUpdateHoldScript(true));
   await settle();
+  expect(storage.size).toBe(0);
+  expect(later.sent).toEqual([]);
+  later.view(realGates());
+  await settle();
   expect(later.sent).toEqual([
-    {
-      ...realGates({ preferMxc: true }),
-      disableInAppUpdates: null,
-      disableSparkleAutodownload: true,
-    },
+    { ...realGates(), disableInAppUpdates: null, disableSparkleAutodownload: true },
   ]);
-  expect(later.state()).toMatchObject({ replayed: true });
+});
+
+it("the bundled fallback never overrides a hold installed by the early session (M1)", async () => {
+  const p = page();
+  // Early session registered the current value (released) before the page's own scripts.
+  p.run(codexUpdateHoldScript(false));
+  // The full/core injection carries the value its session was built with (stale: held).
+  p.run(codexUpdateHoldFallbackScript(true));
+  p.view(realGates());
+  await settle();
+  expect(p.sent).toEqual([]);
+  expect(p.state()).toMatchObject({ hold: false });
+  // Without an early hold, the fallback installs with its own value.
+  const alone = page();
+  alone.run(codexUpdateHoldFallbackScript(true));
+  alone.view(realGates());
+  await settle();
+  expect(alone.sent).toHaveLength(1);
+  // The authoritative copy (re-registered after a hold change) sets an installed page.
+  alone.run(codexUpdateHoldScript(false));
+  expect(alone.state()).toMatchObject({ hold: false });
 });
 
 it("installs once; a hold turned on while running re-sends the last observed message", async () => {

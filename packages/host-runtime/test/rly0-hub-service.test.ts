@@ -92,7 +92,13 @@ describe("RLY/0 Hub service", () => {
       core: Object.assign(fakeCore([]).core, {
         status: async () => ({ available: false as const }),
       }),
-      compatibility: { check, takeNotice: async () => null },
+      // The update manager reads the installed version on its own; only the startup check and the
+      // feedback export may run the compatibility check.
+      compatibility: {
+        check,
+        takeNotice: async () => null,
+        installedVersion: async () => observation.desktopVersion,
+      },
     });
     await service.start();
     expect(check).toHaveBeenCalledTimes(1);
@@ -426,7 +432,9 @@ describe("Hub tray notices", () => {
     const restored = (await service.handle("hub.restorePure", {})) as {
       steps: Record<string, boolean>;
     };
-    expect(restored.steps).toMatchObject({ unified: true, proxy: true });
+    // Update management is turned off too (restores Codex's preference, releases the hold).
+    expect(restored.steps).toMatchObject({ unified: true, proxy: true, codexUpdates: true });
+    expect(await service.handle("codex.updates.status", {})).toMatchObject({ enabled: false });
     expect(stopped).toEqual(["proxy"]);
     expect(await service.handle("relay.unifiedStatus", {})).toEqual({ enabled: false });
     expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: false });

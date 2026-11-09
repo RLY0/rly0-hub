@@ -12,7 +12,10 @@ import {
 import type { DesktopControllerStatusDocument } from "../src/controller-status.js";
 import type { RendererCdpControlSession } from "../src/renderer-cdp-control-session.js";
 import { CdpConnectionClosedError } from "../src/cdp-client.js";
-import { codexUpdateHoldPushExpression, codexUpdateHoldScript } from "../src/codex-update-hold.js";
+import {
+  codexUpdateHoldFallbackScript,
+  codexUpdateHoldPushExpression,
+} from "../src/codex-update-hold.js";
 
 const attachmentNonce = "0123456789abcdef0123456789abcdef";
 
@@ -199,7 +202,7 @@ describe("production Desktop Controller", () => {
 
     expect(install).toHaveBeenCalledWith({
       rendererCdpEndpoint: "http://127.0.0.1:43123",
-      rendererSource: `globalThis.__zod_globalConfig ??= {}; globalThis.__zod_globalConfig.jitless = true;\nglobalThis.__codexhostFeaturePolicyV1 = {"schemaVersion":1,"mode":"full","disabled":[],"holdUpdates":false};\ntry { ${codexUpdateHoldScript(false)} } catch {}\nproduction renderer`,
+      rendererSource: `globalThis.__zod_globalConfig ??= {}; globalThis.__zod_globalConfig.jitless = true;\nglobalThis.__codexhostFeaturePolicyV1 = {"schemaVersion":1,"mode":"full","disabled":[],"holdUpdates":false};\ntry { ${codexUpdateHoldFallbackScript(false)} } catch {}\nproduction renderer`,
       timeoutMs: 90_000,
       signal: abort.signal,
     });
@@ -630,6 +633,86 @@ it("pushes an update-hold change into the running page without reinstalling the 
   expect(coreInstall).toHaveBeenCalledOnce();
   expect(coreInstall.mock.calls[0]?.[0].policy.holdUpdates).toBe(true);
   expect(session.dispose).toHaveBeenCalledOnce(); // Only at shutdown, not on the hold change.
-  expect(executed).toContain(codexUpdateHoldPushExpression(false));
-  expect(executed).not.toContain(codexUpdateHoldPushExpression(true));
+  // Every pass pushes the live value (idempotent in the page): true before the change, false after.
+  const pushes = executed.filter((expression) => expression.includes("__codexhostUpdateHoldV1"));
+  const firstRelease = pushes.indexOf(codexUpdateHoldPushExpression(false));
+  expect(firstRelease).toBeGreaterThan(0);
+  expect(
+    pushes.slice(0, firstRelease).every((e) => e === codexUpdateHoldPushExpression(true)),
+  ).toBe(true);
+  expect(pushes.slice(firstRelease).every((e) => e === codexUpdateHoldPushExpression(false))).toBe(
+    true,
+  );
+});
+
+it("starts the early update hold before any page session, forwards hold changes, and stops it on exit", async () => {
+  const abort = new AbortController();
+  const order: string[] = [];
+  const setHold = vi.fn(async () => undefined);
+  let earlySignal: AbortSignal | undefined;
+  const session: RendererCdpControlSession = {
+    snapshot: controllerSnapshot(),
+    ensureInstalled: vi.fn(async () => controllerSnapshot()),
+    activateDesktop: vi.fn(async () => 1),
+    executeRenderer: vi.fn(async () => true as never),
+    close: vi.fn(),
+    dispose: vi.fn(async () => undefined),
+  };
+  let hold = true;
+  let ticks = 0;
+  const realSetInterval = globalThis.setInterval;
+  const intervals: (() => void)[] = [];
+  vi.stubGlobal("setInterval", (callback: () => void) => {
+    intervals.push(callback);
+    return realSetInterval(() => undefined, 1_000_000);
+  });
+  try {
+    await runDesktopController(controllerOptions(), abort.signal, {
+      readPolicy: async () => ({ schemaVersion: 1, mode: "core", disabled: [], holdUpdates: hold }),
+      install: vi.fn(),
+      readRenderer: vi.fn(),
+      installCore: vi.fn(async () => {
+        order.push("core session");
+        return session;
+      }),
+      startEarlyHold: (options) => {
+        order.push(`early hold=${options.hold}`);
+        earlySignal = options.signal;
+        return { state: () => "attached", setHold, finished: Promise.resolve() };
+      },
+      startAttachmentServer: async () => attachmentServer(),
+      ready: vi.fn(),
+      sleep: async () => {
+        ticks += 1;
+        if (ticks === 2) {
+          hold = false;
+          for (const callback of intervals) callback();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        if (ticks > 3) abort.abort();
+      },
+      monitorIntervalMs: 1,
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  expect(order).toEqual(["early hold=true", "core session"]);
+  expect(setHold).toHaveBeenCalledExactlyOnceWith(false);
+  expect(earlySignal?.aborted).toBe(true);
+});
+
+it("does not start the early update hold in safe mode", async () => {
+  const abort = new AbortController();
+  const startEarlyHold = vi.fn();
+  await runDesktopController(controllerOptions(), abort.signal, {
+    readPolicy: async () => ({ schemaVersion: 1, mode: "safe", disabled: [], holdUpdates: true }),
+    install: vi.fn(),
+    readRenderer: vi.fn(),
+    startEarlyHold,
+    startAttachmentServer: async () => attachmentServer(),
+    ready: vi.fn(),
+    sleep: async () => abort.abort(),
+    monitorIntervalMs: 1,
+  });
+  expect(startEarlyHold).not.toHaveBeenCalled();
 });

@@ -7,6 +7,13 @@ import type { CodexCompatibilityCatalog } from "./codex-compat.js";
 import type { Rly0HubStateStore } from "./hub-state.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import type { CodexUpdateUnsupportedReason } from "./codex-update-control.js";
+import {
+  REOPEN_GIVE_UP_MS,
+  REOPEN_POLL_MS,
+  REOPEN_RETRY_MS,
+  reopenCodexOnStop,
+  reopenCodexPass,
+} from "./codex-reopen.js";
 
 export interface CodexCheckPreferences {
   automaticChecks: boolean | null;
@@ -68,6 +75,8 @@ export interface CodexUpdateStatus {
   supported: boolean;
   /** Present only when supported=false and the reason is known. */
   unsupportedReason?: CodexUpdateUnsupportedReason;
+  /** Present only while the Hub is reopening a Codex it closed (other requests wait for it). */
+  reopening?: true;
   noticePending: boolean;
   phase: CodexUpdatePhase;
   currentVersion: string | null;
@@ -82,12 +91,6 @@ export type CodexIdleDriver = () => Promise<boolean>;
 export function codexIdleFromBusy(busy: () => Promise<boolean | null>): CodexIdleDriver {
   return async () => (await busy()) === false;
 }
-/** Reopen confirmation: wait for an exiting Launcher, then confirm Codex runs, retrying the start. */
-const LAUNCHER_EXIT_WAIT_MS = 30_000;
-const REOPEN_CONFIRM_MS = 15_000;
-const REOPEN_ATTEMPTS = 4;
-const REOPEN_POLL_MS = 3_000;
-const REOPEN_RETRY_MS = 60_000;
 const ACTIVE = new Set<CodexUpdatePhase>([
   "downloading",
   "waiting-idle",
@@ -115,6 +118,8 @@ export class CodexUpdateManager {
   #backgroundStarted = false;
   #closedByHub = false;
   #reopenRetryAt = 0;
+  #reopenFailingSince: number | null = null;
+  #reopening = false;
   #quitReason: "background" | "install" | "recovery" = "install";
   #retryAt = 0;
   #retryStatus: { phase: "failed" | "up-to-date"; error: CodexUpdateError } = {
@@ -287,6 +292,7 @@ export class CodexUpdateManager {
       ...(this.options.driver === null && this.options.unsupportedReason
         ? { unsupportedReason: this.options.unsupportedReason }
         : {}),
+      ...(this.#reopening ? { reopening: true as const } : {}),
       noticePending: this.#settings.defaulted && this.#settings.noticeAcknowledged !== true,
       phase: this.#phase,
       currentVersion: this.#current,
@@ -425,6 +431,10 @@ export class CodexUpdateManager {
             this.#initialized = true;
             this.#error = null;
             this.#phase = "disabled";
+            await this.#publishHold().catch(() => {
+              this.#phase = "failed";
+              this.#error = "CODEX_STATE_FAILED";
+            });
             return this.status();
           }
         }
@@ -467,7 +477,15 @@ export class CodexUpdateManager {
       } catch {
         this.#fail("CODEX_PREFERENCES_FAILED");
       }
-      await this.#publishHold().catch(() => undefined);
+      try {
+        await this.#publishHold();
+      } catch {
+        // Reported, not retried with a backoff: the next check() publishes the hold again.
+        if (!this.#error) {
+          this.#phase = "failed";
+          this.#error = "CODEX_STATE_FAILED";
+        }
+      }
       return this.status();
     }).then(async (result) => (enabled && !result.error ? this.check() : result));
   }
@@ -488,6 +506,7 @@ export class CodexUpdateManager {
         if (observed) this.#current = observed;
         try {
           await this.options.catalog.publishPolicy(this.#current);
+          await this.#publishHold(); // Recomputed every check: a failed earlier write is retried.
         } catch {
           this.#fail("CODEX_STATE_FAILED");
           return this.status();
@@ -605,45 +624,55 @@ export class CodexUpdateManager {
       this.#settings = settings;
     }
   }
-  async #recoverClosed(confirm = true) {
-    const driver = this.options.driver;
-    if (!this.#closedByHub || !driver || this.#now() < this.#reopenRetryAt) return;
-    const reopened = async () => {
-      this.#closedByHub = false;
-      this.#reopenRetryAt = 0;
-      await fs.rm(this.#sessionFile(), { force: true });
-    };
-    try {
-      if (await driver.isRunning()) {
-        // Quit was cancelled/lost, or Sparkle already relaunched it. Never reopen a later user quit.
-        await reopened();
-        return;
-      }
-      if (!(await driver.installationStopped())) return;
-      if (!confirm) {
-        if (await driver.reopen()) await reopened();
-        else this.#fail("CODEX_REOPEN_FAILED");
-        return;
-      }
-      // A start issued while the previous Launcher is still exiting can be silently dropped.
-      if (driver.launcherRunning)
-        await this.#waitFor(async () => !(await driver.launcherRunning?.()), LAUNCHER_EXIT_WAIT_MS);
-      // Recovery is required even when disarming failed. Never strand an app we closed, and never
-      // take an issued start as proof: only a running Codex ends the recovery.
-      for (let attempt = 0; attempt < REOPEN_ATTEMPTS; attempt += 1) {
-        if (!(await driver.reopen())) break;
-        if (await this.#waitFor(() => driver.isRunning(), REOPEN_CONFIRM_MS)) {
-          await reopened();
-          return;
-        }
-      }
+  async #reopened() {
+    this.#closedByHub = false;
+    this.#reopenRetryAt = 0;
+    this.#reopenFailingSince = null;
+    await fs.rm(this.#sessionFile(), { force: true });
+  }
+  #reopenFailed() {
+    this.#reopenFailingSince ??= this.#now();
+    this.#fail("CODEX_REOPEN_FAILED");
+    if (this.#now() - this.#reopenFailingSince < REOPEN_GIVE_UP_MS) {
       // Keep ownership: the periodic tick retries the reopen after a pause.
       this.#reopenRetryAt = this.#now() + REOPEN_RETRY_MS;
-      this.#fail("CODEX_REOPEN_FAILED");
-    } catch {
-      this.#reopenRetryAt = this.#now() + REOPEN_RETRY_MS;
-      this.#fail("CODEX_REOPEN_FAILED");
+      return;
     }
+    // Give up (a version that crashes on launch must not be started forever); keep the error.
+    this.#closedByHub = false;
+    this.#reopenRetryAt = 0;
+    this.#reopenFailingSince = null;
+  }
+  async #recoverClosed(confirm = true) {
+    const driver = this.options.driver;
+    if (!this.#closedByHub || !driver) return;
+    if (!confirm) {
+      // Hub shutdown ignores the retry pause. Its unconfirmed start keeps the session record, so
+      // the next Hub start can still recover a Codex that did not come up.
+      try {
+        if ((await reopenCodexOnStop(driver)) === "running") await this.#reopened();
+      } catch {
+        /* The session record remains for the next start. */
+      }
+      return;
+    }
+    if (this.#now() < this.#reopenRetryAt) return;
+    this.#reopening = true;
+    try {
+      // Recovery is required even when disarming failed. Never strand an app we closed. A quit
+      // that was cancelled (or a Sparkle relaunch) counts as running: never reopen a later user quit.
+      const result = await reopenCodexPass(driver, (condition, timeoutMs) =>
+        this.#waitFor(condition, timeoutMs),
+      );
+      if (result === "running") await this.#reopened();
+      else if (result === "failed") this.#reopenFailed();
+    } catch {
+      this.#reopenFailed();
+    } finally {
+      this.#reopening = false;
+    }
+    if (!this.#closedByHub)
+      await fs.rm(this.#sessionFile(), { force: true }).catch(() => undefined);
   }
   async #disarm() {
     if (!this.#controlReady) return;

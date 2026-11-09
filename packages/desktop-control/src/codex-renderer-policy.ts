@@ -37,12 +37,7 @@ export async function readCodexRendererPolicy(
 ): Promise<CodexRendererPolicy> {
   const directory =
     environment.CODEXHOST_DATA_DIR ?? path.join(environment.HOME ?? os.homedir(), ".rly0-hub");
-  let bytes: Buffer;
-  try {
-    bytes = await readFile(path.join(directory, "codex-renderer-policy.json"));
-  } catch (error) {
-    // A runtime I/O failure is not a policy transition. The stateful reader retains its last policy.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  const unpublished = (): CodexRendererPolicy => {
     try {
       return codexRendererPolicySchema.parse(
         JSON.parse(environment.CODEXHOST_RENDERER_POLICY ?? "null"),
@@ -50,6 +45,14 @@ export async function readCodexRendererPolicy(
     } catch {
       return CORE;
     }
+  };
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(path.join(directory, "codex-renderer-policy.json"));
+  } catch (error) {
+    // A runtime I/O failure is not a policy transition. The stateful reader retains its last policy.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return unpublished();
   }
   if (bytes.length > 16 * 1024) return CORE;
   let value: unknown;
@@ -65,6 +68,8 @@ export async function readCodexRendererPolicy(
       ? { holdUpdates: value.holdUpdates }
       : {};
   try {
+    // Hub writes a hold-only file before it knows the Desktop version: no policy is published yet.
+    if (!("policy" in value) && !("desktopVersion" in value)) return { ...unpublished(), ...hold };
     if (!("policy" in value) || !("desktopVersion" in value)) return { ...CORE, ...hold };
     // A current Launcher identity takes precedence over a possibly inherited Hub environment.
     const expected = (await readVersion()) ?? environment.CODEXHOST_CODEX_VERSION;

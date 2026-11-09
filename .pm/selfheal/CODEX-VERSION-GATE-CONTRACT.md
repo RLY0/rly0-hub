@@ -138,7 +138,7 @@ N5 未决：默认仍为连续 15 秒 fresh busy=false，不把它认定为最�
 - **发送位置**：webview 异步块 `366057.*.js` 中一个 `useEffect` 调用 `dispatchMessage("electron-sparkle-gates-changed", {preferMxc, disableInAppUpdates, disableSparkleAutodownload, useBackendAppcast, useInternalUpdateCdn:false, useWindowsCoreRuntimeFrameworks, useWindowsPrimaryRuntimeFrameworks})`。`disableInAppUpdates` 在账户/功能列表未就绪时为 `null`，就绪后为布尔。依赖项是各服务器开关值：挂载时发一次，此后只在开关值变化时再发，没有可以请求重发的消息。
 - **通道**：`dispatchMessage` → `SITX.F.postMessage({...payload, type})`。每次调用都读取 `window.electronBridge.sendMessageFromView`（preload 通过 `contextBridge.exposeInMainWorld("electronBridge")` 暴露，内部是 `ipcRenderer.invoke("codex_desktop:message-from-view")`），随后用同一对象派发 window 事件 `codex-message-from-view`（detail）。Codex 没有开启 Electron 的 `ContextBridgeMutability`，暴露的桥对象按 Electron 默认被深冻结、只读且不可重定义，页面脚本无法包装或替换发送函数。
 - **主进程**：`early-bootstrap-854` 中的 `ipcMain.handle("codex_desktop:message-from-view")` 收到该消息后依次执行：`disableInAppUpdates!=null` 时调用 `latchInAppUpdatesEnabledForLaunch(!disableInAppUpdates)`；`setAutomaticBackgroundDownloadsEnabled(!disableSparkleAutodownload)`；`setBackendAppcastEnabled(useBackendAppcast)`（写 production-appcast-bootstrap.json）；把 useInternalUpdateCdn、preferMxc、Windows 运行时开关写入 `.codex-global-state.json`。
-- **latch 语义**（`early-bootstrap-339` 中的 updater 类）：每次启动的策略初始为 `pending`，并设有 5 分钟定时器，到时自动放行。第一次非空 latch 决定本次启动：true → `allowed` 并初始化 Sparkle（`initializeMacSparkle` 以当前 `automaticBackgroundDownloadsEnabled` 设置 sparkle.node，然后立即做一次后台检查）；false → `denied`，本次启动不再初始化 updater。之后的 latch 只记录 `latestInAppUpdatesEnabled`；它与已定策略相反时，`hasInAppUpdatesPolicyChanges()` 为真，在账户更新或配置刷新时**弹出“需要重启以应用策略”的对话框并重启 Codex**。`setAutomaticBackgroundDownloadsEnabled` 只在值变化时转发给 sparkle.node，值为 true 时还会立即触发一次后台检查。
+- **latch 语义**（`early-bootstrap-339` 中的 updater 类）：每次启动的策略初始为 `pending`，并设有 5 分钟定时器，到时自动放行。第一次非空 latch 决定本次启动：true → `allowed` 并初始化 Sparkle（`initializeMacSparkle` 以当前 `automaticBackgroundDownloadsEnabled` 设置 sparkle.node，然后立即做一次后台检查）；false → `denied`，本次启动不再初始化 updater。之后的 latch 只记录 `latestInAppUpdatesEnabled`；它与已定策略相反时，`hasInAppUpdatesPolicyChanges()` 为真，在账户更新或配置刷新时**弹出“需要重启以应用策略”的对话框并重启 Codex**。`setAutomaticBackgroundDownloadsEnabled` 只在值变化时转发给 sparkle.node；值为 true 时**仅在旧 feed（useBackendAppcast 为假）下**立即触发一次后台检查（代码为 `e&&!a&&d()`，a 即生产 appcast），生产 appcast 路径不立即检查（v5 更正）。
 - **注入时机**：生产 Launcher 只开放渲染进程 CDP，不开放主进程 inspector（`main-process-title-policy` 不在生产路径中），因此不能在主进程拦截。full 模式虽然登记了 new-document 脚本，但会对已加载的页面直接 evaluate，不重载页面；core 模式只做 evaluate。所以本次启动的第一条 gate 消息通常早于注入。
 
 ### 拦截（desktop-control `codex-update-hold.ts`）
@@ -146,7 +146,7 @@ N5 未决：默认仍为连续 15 秒 fresh busy=false，不把它认定为最�
 - 一段自包含函数（通过 toString 注入，不依赖 React/DOM/Codex 模块）。full 模式把它放在增强 bundle 之前（同时进入 new-document 脚本）；core 模式放在被动数据桥之前，各自用独立的 try 包住。safe 模式和 `--no-renderer` 不注入，**无法拦截**。
 - 监听 `codex-message-from-view`。看到 gate 消息且 hold=true、`disableSparkleAutodownload!==true` 时，立即通过同一个桥发送纠正副本：`{...原消息, disableSparkleAutodownload:true, disableInAppUpdates:null}`。`null` 使主进程跳过 latch，不改变本次启动的策略，从而避免上述“重启以应用策略”的对话框。其他字段原样复制，避免改写 Codex 持久化的 appcast/CDN 设置。hold=false 时原样放行，不发送任何消息。
 - 失败安全：识别不了的 gate 形态（`disableSparkleAutodownload` 不是布尔值，或某个字段不是基本类型）、桥不存在、发送被拒、页面没有 addEventListener，这些情况都不发送消息，在 `__codexhostFeatureFailuresV1` 中记录 `update-hold`，并在 `globalThis.__codexhostUpdateHoldV1.error` 中写明原因（`unknown-shape` / `bridge-unavailable` / `send-failed` / `listener-unavailable` / `listener-failed`）。状态对象还提供 `hold/observed/sent/replayed` 供诊断。
-- **错过首条消息的补救**：每看到一条真实 gate 消息，就把它存到页面自己的 localStorage（键 `codexhost.sparkle-gates.v1`）。处于 hold 状态的页面安装脚本时，如果有存档，立即按上述方式发送一份纠正副本（`replayed=true`）。存档字段来自上一次看到的消息，若这些服务器开关在两次启动之间变了，可能把 useBackendAppcast 等暂时写回旧值，直到下一条真实消息出现；只在 hold 期间发生。hold 从 false 变为 true 时（例如放行失败后重新压住），会重发最后一条真实消息的纠正副本。从来没见过 gate 消息的全新环境没有补救手段。
+- **错过首条消息的补救（v5 已删除，见下）**：每看到一条真实 gate 消息，就把它存到页面自己的 localStorage（键 `codexhost.sparkle-gates.v1`）。处于 hold 状态的页面安装脚本时，如果有存档，立即按上述方式发送一份纠正副本（`replayed=true`）。存档字段来自上一次看到的消息，若这些服务器开关在两次启动之间变了，可能把 useBackendAppcast 等暂时写回旧值，直到下一条真实消息出现；只在 hold 期间发生。hold 从 false 变为 true 时（例如放行失败后重新压住），会重发最后一条真实消息的纠正副本。从来没见过 gate 消息的全新环境没有补救手段。
 - **剩余竞态**：首条真实消息、Sparkle 初始化和启动时的那次检查，可能在注入之前就已经开始下载。拦截只能把后续的下载决定改成“不自动下载”，已经在进行的下载可能继续，退出时可能被安装。若要彻底消除，需要在页面脚本运行前注入（例如 controller 在浏览器级 CDP 使用 `Target.setAutoAttach` + `waitForDebuggerOnStart`，或改由 Launcher 开放主进程），这涉及 Launcher/controller 启动时序，本轮未做，需要另立工单。
 - **Hub 下发**：`codex-renderer-policy.json` 顶层新增 `holdUpdates:boolean`，与 `policy` 并列。旧 controller 严格解析 `policy`，但会忽略顶层未知键，因此放在顶层是兼容的。启动环境变量 `CODEXHOST_RENDERER_POLICY` 不带这个字段。新 controller 读取后合入 `CodexRendererPolicy.holdUpdates`（schema 新增可选布尔）；版本不匹配回落 core，或文件缺少 policy 时，仍保留该值（hold 与 Desktop 版本无关）。文件不存在时不带该字段，等同放行。只有 hold 变化时，controller 不重建会话，由监控循环把 `setHold` 推送到当前页面，失败则下一轮重试。
 - **取值**：`holdUpdates = driver 存在（macOS 原生控制可用）&& 用户开启管理 && 没有处于放行租约中（#armed）`。`#arm` 先发布 false，再打开 SUAutomaticallyUpdate 并 quit，让重开的 Codex 能够下载；`#disarm` 发布 true。用户关闭管理、Windows 或开发/隔离环境下为 false，即放行。发布失败时回滚内存值，下次请求再写。
@@ -163,3 +163,57 @@ N5 未决：默认仍为连续 15 秒 fresh busy=false，不把它认定为最�
 - 修复：`defaultsValueMissing` 同时识别新旧文本，驱动和 watchdog 共用。`#disarm` 在偏好恢复失败时仍保存退避记录。
 
 仍需真机：纠正消息在主进程的处理顺序与 sparkle.node 的实际效果（SUAutomaticallyUpdate 是否保持 0、不下载、不弹窗）；首条消息早于注入的频率；localStorage 存档在真实页面中能否写入；开发版包装脚本与正式 Launcher 的 `ps` 形态；正式 Launcher 在 Codex 退出后多久退出；macOS 27 上 watchdog 实际写回检查日期。
+
+## v5（Claude，2026-11-10）：提前注入（B1）与第五轮复查修复
+
+基线 2e5d245d。依据 CODEX-VERSION-GATE-REVIEW-5.md。仅 self_verified（隔离离线测试），未经独立复查与真机验收。RPC 方法、phase、错误码不变；status 新增一个可选字段（见“交 Claude”）。Launcher（Rust）未改。
+
+### v4 更正
+
+v4“研究结论”中“值为 true 时立即触发后台检查”只适用旧 feed；生产 appcast 路径（useBackendAppcast 为真）不立即检查，原文已就地更正。
+
+### 浏览器级自动附着（desktop-control `early-update-hold.ts`）
+
+- controller 读到首份策略后（非 safe、非 `--no-renderer`）立即启动：轮询 `/json/version`（前 200 次每 50 ms，之后每 1 s）→ 连接浏览器 websocket → 先挂 `Target.attachedToTarget` / `detachedFromTarget` 监听，再发 `Target.setAutoAttach {autoAttach:true, waitForDebuggerOnStart:true, flatten:true}`，随后 `Target.getTargets` 补附着 setAutoAttach 没报到的 Codex 页面。
+- `attachedToTarget`：`targetInfo.type==="page"` 且 URL 为空、`about:blank` 或 `app://` 开头的页面：在该 session 依次 `Page.enable` → `Page.addScriptToEvaluateOnNewDocument`（只放 hold 小脚本，当前值）；`waitingForDebugger:false`（已存在的页面）再立即 `Runtime.evaluate` 同一脚本（hold 是第一步）。其他类型与非 Codex 页面不登记脚本，立即放行并 `Target.detachFromTarget`。放行（`Runtime.runIfWaitingForDebugger`）在 `finally` 中执行，准备步骤最长 2 秒（超时或报错照样放行，只记 trace）。
+- 连接常驻：新文档脚本随 session 存在，断线即清空本地页面表，1 秒后重连并按当前值重新附着/登记。controller 退出、或策略转为 safe 时中止。
+- hold 变化：controller 每 2 秒读策略，值变化时调用 `setHold`：对每个页面串行执行“移除旧新文档脚本 → 按新值重新登记 → `Runtime.evaluate` 推送”；断线期间的变化由下次连接按新值登记。
+- 不可用时（端点连不上、附着失败）：页面注入里捆绑的 hold 脚本照常工作（事件纠正），只是可能错过本次启动的首条 gate 消息；**不再补发任何旧存档**。
+
+### hold 脚本（`codex-update-hold.ts`）
+
+- 删除 localStorage 存档与补发（M2）：不读写 `codexhost.sparkle-gates.v1`，状态对象去掉 `replayed`。hold 从 false 变 true 时仍重发**本页本次**看到的最后一条真实消息的纠正副本。
+- 新增第三个参数 `override`：浏览器级会话登记的副本为权威（已安装时调用 `setHold`）；full/core 注入捆绑的副本是后备，页面已有 hold 时不改其值（`codexUpdateHoldFallbackScript`）。
+- M1：controller 不再记 `pushedHold`，监控循环每轮（500 ms）推送幂等表达式（值不同才 `setHold`），页面重载/会话重装后带旧值的后备脚本也会在下一轮被纠正；有浏览器级会话时，重载页面先运行按新值重登记的权威脚本，后备脚本不覆盖。
+
+### 策略文件（L6）
+
+- Hub 进程内 hold 初值为“未知”，第一次发布一定落盘。Desktop 版本未知时只改现有文件的 `holdUpdates`，保留 `desktopVersion/policy`；文件不存在且 hold=false 时不创建文件。
+- controller：只有 `holdUpdates`、没有 `desktopVersion` 与 `policy` 的文件视为“尚未发布策略”，沿用启动环境 `CODEXHOST_RENDERER_POLICY`（与文件不存在相同）并带上 hold；只缺其中一个仍按损坏回落 core。
+
+### 重开（`codex-reopen.ts`，manager 调用）
+
+- 每轮：Codex 已运行即成功；updater 未退出则下轮再看；等旧 Launcher 退出最多 30 秒后发起启动；每次启动后确认 30 秒（≥ Launcher 自身 30 秒启动超时）；未确认时再等该 Launcher 退出最多 30 秒，**仍在运行就结束本轮、不再发第二次启动**（L3）；每轮最多 2 次启动。`launcherRunning()` 报错按“正在运行”处理。
+- 失败后 60 秒重试；从第一次失败起满 30 分钟放弃：释放关闭归属、删除会话记录、保留 `failed / CODEX_REOPEN_FAILED`（L4）。
+- 停服（`stop()`）：忽略重试暂停（L1）；Launcher 仍在运行或无法确认时不发启动；发了启动也不删会话记录，由下次 Hub 启动按 5 分钟规则恢复，Codex 已运行时才删（L2）。
+
+### 其他
+
+- L5：`setEnabled` 发布 hold 失败时返回 `failed / CODEX_STATE_FAILED`（不进退避）；每次 `check()` 在发布策略后重算并发布 hold。未初始化即关闭的路径也发布 hold。
+- L7：关闭管理发布 hold=false（已核对）。`hub.restorePure` 新增步骤 `steps.codexUpdates`：调用 `setEnabled(false)`，恢复原 SUAutomaticallyUpdate 并发布 hold=false；成功条件为无错误且已关闭。停服不改 hold：与停服后 SUAutomaticallyUpdate 保持 0 的语义一致。**这是产品决定，需用户确认**：恢复纯净会把“由 Hub 管理 Codex 更新”一并关掉，之后不会自动重新开启。
+- L8：见下。
+
+### 交 Claude（界面，本轮未改 apps/hub-desktop/www）
+
+- status 新增可选 `reopening: true`：仅当 Hub 正在重开它关掉的 Codex 时出现（一轮最长约 2.5 分钟，期间其他请求排队）。建议文案“正在重新打开 Codex…”，与 phase 并列显示；字段缺失即未在重开。phase 枚举不变。
+- `hub.restorePure` 的 `steps` 多一项 `codexUpdates`；恢复纯净的说明文案需提到会关闭 Codex 更新管理（待用户确认上条产品决定）。
+- `CODEX_REOPEN_FAILED` 现在可能是“已放弃重试”：文案需提示用户自己打开 Codex。
+
+### 仍需真机
+
+- Codex 渲染端口是否早于首个窗口开放（打点：controller 附着时间 vs 首条 gate 消息）；首个页面在 `waitingForDebugger` 时的 `targetInfo.url` 实际值。
+- controller 崩溃 / websocket 断开时被暂停的页面是否由 Chromium 自动放行（不白屏）。
+- 浏览器级 session 存在时 `/json/list` 仍给出页面 `webSocketDebuggerUrl`，现有按页连接与 renderer-host owner 清理不受影响。
+- 新文档脚本在 Codex 真实页面中先于 webview 异步块运行，首条 gate 消息被纠正；SUAutomaticallyUpdate 保持 0、不下载、不弹“重启以应用策略”。
+- 重开：正式 Launcher 在 Gatekeeper 校验新包时的 `ps` 形态与耗时；30 分钟放弃后的提示。
+

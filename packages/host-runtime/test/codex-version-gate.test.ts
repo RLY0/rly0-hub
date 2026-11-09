@@ -1759,7 +1759,8 @@ describe("live validation 2026-11-09 fixes (synthetic commands only)", () => {
       .mockResolvedValue(false);
     vi.mocked(f.driver.reopen).mockImplementationOnce(async () => true);
     expect((await f.manager.tick()).phase).toBe("downloading");
-    expect(f.driver.launcherRunning).toHaveBeenCalledTimes(3);
+    // Three polls before the first start, one after it before the second start (L3).
+    expect(f.driver.launcherRunning).toHaveBeenCalledTimes(4);
     expect(f.driver.reopen).toHaveBeenCalledTimes(2);
     expect(await f.driver.isRunning()).toBe(true);
     expect(f.manager.status().error).toBeNull();
@@ -1774,17 +1775,17 @@ describe("live validation 2026-11-09 fixes (synthetic commands only)", () => {
     vi.mocked(f.driver.reopen).mockImplementation(async () => true); // Never actually starts.
     const started = f.now();
     expect(await f.manager.tick()).toMatchObject({ phase: "failed", error: "CODEX_REOPEN_FAILED" });
-    expect(f.driver.reopen).toHaveBeenCalledTimes(4);
+    expect(f.driver.reopen).toHaveBeenCalledTimes(2);
     expect(f.now() - started).toBeLessThanOrEqual(75_000);
     await f.manager.tick();
-    expect(f.driver.reopen).toHaveBeenCalledTimes(4); // Paused.
+    expect(f.driver.reopen).toHaveBeenCalledTimes(2); // Paused.
     f.advance(61_000);
     vi.mocked(f.driver.reopen).mockImplementation(async () => {
       vi.mocked(f.driver.isRunning).mockResolvedValue(true);
       return true;
     });
     await f.manager.tick();
-    expect(f.driver.reopen).toHaveBeenCalledTimes(5);
+    expect(f.driver.reopen).toHaveBeenCalledTimes(3);
     vi.mocked(f.driver.reopen).mockClear();
     f.advance(61_000);
     await f.manager.tick();
@@ -1946,5 +1947,165 @@ describe("live validation 2026-11-09 fixes (synthetic commands only)", () => {
     });
     expect(await driver.readAutoUpdate()).toBeNull();
     await expect(driver.writeAutoUpdate(null)).resolves.toBeUndefined();
+  });
+});
+
+describe("fifth review fixes (synthetic commands only)", () => {
+  const policyFile = (f: Awaited<ReturnType<typeof fixture>>) =>
+    path.join(f.environment.CODEXHOST_DATA_DIR, "codex-renderer-policy.json");
+  const sessionFile = (f: Awaited<ReturnType<typeof fixture>>) =>
+    path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-session.json");
+  const exists = (file: string) =>
+    fs.access(file).then(
+      () => true,
+      () => false,
+    );
+  /** Background restart issued; Codex closed by Hub and the start never brings it up. */
+  async function closedAndNotComingBack() {
+    const f = await fixture();
+    vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+    await f.manager.check();
+    f.advance(10);
+    expect((await f.manager.tick()).phase).toBe("installing");
+    vi.mocked(f.driver.reopen).mockImplementation(async () => true); // Never actually starts.
+    return f;
+  }
+
+  it("L1: Hub shutdown during the reopen pause still issues a start", async () => {
+    const f = await closedAndNotComingBack();
+    expect((await f.manager.tick()).error).toBe("CODEX_REOPEN_FAILED");
+    vi.mocked(f.driver.reopen).mockClear();
+    await f.manager.stop();
+    expect(f.driver.reopen).toHaveBeenCalledOnce();
+  });
+
+  it("L2: Hub shutdown keeps the session record unless Codex is confirmed running", async () => {
+    const f = await closedAndNotComingBack();
+    f.driver.launcherRunning = vi.fn(async () => true);
+    await f.manager.stop();
+    expect(f.driver.reopen).not.toHaveBeenCalled(); // An exiting Launcher would drop it.
+    expect(await exists(sessionFile(f))).toBe(true);
+
+    const g = await closedAndNotComingBack();
+    g.driver.launcherRunning = vi.fn(async () => {
+      throw new Error("ps failed");
+    });
+    await g.manager.stop();
+    expect(g.driver.reopen).not.toHaveBeenCalled(); // Unknown counts as running.
+    expect(await exists(sessionFile(g))).toBe(true);
+
+    const h = await closedAndNotComingBack();
+    h.driver.launcherRunning = vi.fn(async () => false);
+    await h.manager.stop();
+    expect(h.driver.reopen).toHaveBeenCalledOnce();
+    expect(await exists(sessionFile(h))).toBe(true); // Issued, not confirmed: next start recovers.
+  });
+
+  it("L3: waits 30 seconds for a slow start and never starts again while that Launcher runs", async () => {
+    const f = await closedAndNotComingBack();
+    let startedAt = 0;
+    let launcherAlive = false;
+    vi.mocked(f.driver.reopen).mockImplementation(async () => {
+      startedAt = f.now();
+      launcherAlive = true;
+      return true;
+    });
+    // Gatekeeper verifies the new bundle: Codex appears 24 seconds after the start.
+    vi.mocked(f.driver.isRunning).mockImplementation(
+      async () => startedAt > 0 && f.now() - startedAt >= 24_000,
+    );
+    f.driver.launcherRunning = vi.fn(async () => launcherAlive && f.now() - startedAt < 24_000);
+    expect((await f.manager.tick()).error).toBeNull();
+    expect(f.driver.reopen).toHaveBeenCalledOnce();
+
+    // A Launcher still starting after the confirmation window blocks a second start.
+    const g = await closedAndNotComingBack();
+    g.driver.launcherRunning = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(false) // Before the first start.
+      .mockResolvedValue(true);
+    expect((await g.manager.tick()).error).toBe("CODEX_REOPEN_FAILED");
+    expect(g.driver.reopen).toHaveBeenCalledOnce();
+  });
+
+  it("L4: stops retrying after 30 minutes and keeps the error", async () => {
+    const f = await closedAndNotComingBack();
+    for (let pass = 0; pass < 40; pass += 1) {
+      await f.manager.tick();
+      f.advance(61_000);
+    }
+    const calls = vi.mocked(f.driver.reopen).mock.calls.length;
+    expect(calls).toBeGreaterThan(2);
+    expect(calls).toBeLessThan(40);
+    for (let pass = 0; pass < 5; pass += 1) {
+      await f.manager.tick();
+      f.advance(61_000);
+    }
+    expect(vi.mocked(f.driver.reopen).mock.calls.length).toBe(calls);
+    expect(f.manager.status()).toMatchObject({ phase: "failed", error: "CODEX_REOPEN_FAILED" });
+    expect(await exists(sessionFile(f))).toBe(false);
+  });
+
+  it("L5: a failed hold publication in setEnabled is reported and recomputed by the next check", async () => {
+    const f = await fixture();
+    await f.manager.check();
+    expect(JSON.parse(await fs.readFile(policyFile(f), "utf8")).holdUpdates).toBe(true);
+    await fs.rm(policyFile(f));
+    await fs.mkdir(policyFile(f)); // rename onto a directory fails
+    expect(await f.manager.setEnabled(false)).toMatchObject({ error: "CODEX_STATE_FAILED" });
+    await fs.rm(policyFile(f), { recursive: true });
+    await f.manager.check();
+    expect(JSON.parse(await fs.readFile(policyFile(f), "utf8")).holdUpdates).toBe(false);
+  });
+
+  it("L6: a hold change before the Desktop version is known rewrites only holdUpdates", async () => {
+    const f = await fixture();
+    // An earlier Hub process left a held policy behind.
+    await fs.mkdir(path.dirname(policyFile(f)), { recursive: true });
+    const policy = { schemaVersion: 1, mode: "full", disabled: [] };
+    await fs.writeFile(
+      policyFile(f),
+      JSON.stringify({ desktopVersion: "26.1103.1.0", policy, holdUpdates: true }),
+    );
+    const catalog = new CodexCompatibilityCatalog({
+      environment: f.environment,
+      installRoot: f.root,
+      hubVersion: "0.11.40",
+    });
+    await catalog.setHoldUpdates(false);
+    expect(JSON.parse(await fs.readFile(policyFile(f), "utf8"))).toEqual({
+      desktopVersion: "26.1103.1.0",
+      policy,
+      holdUpdates: false,
+    });
+    // No file and nothing held: nothing is created (the launch environment policy still applies).
+    await fs.rm(policyFile(f));
+    const fresh = new CodexCompatibilityCatalog({
+      environment: f.environment,
+      installRoot: f.root,
+      hubVersion: "0.11.40",
+    });
+    await fresh.setHoldUpdates(false);
+    expect(await exists(policyFile(f))).toBe(false);
+    await fresh.setHoldUpdates(true);
+    expect(JSON.parse(await fs.readFile(policyFile(f), "utf8"))).toEqual({ holdUpdates: true });
+  });
+
+  it("L8: status reports reopening while a reopen pass runs", async () => {
+    const f = await fixture();
+    vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+    await f.manager.check();
+    f.advance(10);
+    await f.manager.tick();
+    let during: unknown;
+    vi.mocked(f.driver.reopen).mockImplementationOnce(async () => {
+      during = f.manager.status().reopening;
+      vi.mocked(f.driver.isRunning).mockResolvedValue(true);
+      return true;
+    });
+    expect(f.manager.status()).not.toHaveProperty("reopening");
+    const after = await f.manager.tick();
+    expect(during).toBe(true);
+    expect(after).not.toHaveProperty("reopening");
   });
 });
