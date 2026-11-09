@@ -128,7 +128,7 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
   it("shows a failure reason whole (not shortened) and offers a retry", async () => {
     const page = await card({ ...base, phase: "failed", error: "CODEX_UPDATE_CHECK_FAILED" });
     const note = [...page.root.walk()].find(
-      (el) => el.tag === "p" && el.textContent.includes("辅助功能"),
+      (el) => el.tag === "p" && el.textContent.includes("没能准备好更新"),
     );
     expect(note?.props["data-keep"]).toBe(true);
     const retry = page.find("重试")?.props.onclick;
@@ -180,6 +180,12 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
     expect(page.root.textContent).toContain("Codex 照常能用");
   });
 
+  it("does not show a newer feed version once the delivered one is installed", async () => {
+    const page = await card({ ...base, phase: "up-to-date", latestVersion: "26.1300.1.0" });
+    expect(page.root.textContent).toContain("已是适配好的最新版");
+    expect(page.root.textContent).not.toContain("26.1300");
+  });
+
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {
     const page = await card({
       ...base,
@@ -190,7 +196,7 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
 
   it("keeps reading status while an update is moving", async () => {
     const page = await card({ ...base, phase: "waiting-idle", latestVersion: "26.1200.1.0" });
-    expect(page.root.textContent).toContain("等你没在用 Codex 时自动更新");
+    expect(page.root.textContent).toContain("等你没在用 Codex 时开始更新");
   });
 
   it("shows the one-time notice only when pending, enabled and supported", async () => {

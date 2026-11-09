@@ -10,8 +10,7 @@
     CODEX_PREFERENCES_FAILED: "没能改 Codex 的更新设置，Mac 可能拦下了这次修改。",
     CODEX_APPCAST_FAILED: "查不到 Codex 的最新版本，可能是网络问题，稍后会自动再查。",
     CODEX_VERSION_UNAVAILABLE: "读不到本机 Codex 的版本，确认 Codex 已安装。",
-    CODEX_UPDATE_CHECK_FAILED:
-      "没能让 Codex 开始更新。Hub 需要“辅助功能”权限来点 Codex 的“检查更新”，可在 系统设置 → 隐私与安全性 → 辅助功能 里打开 RLY0 Hub。",
+    CODEX_UPDATE_CHECK_FAILED: "这次没能准备好更新，稍后会自动再试。",
     CODEX_DOWNLOAD_TIMEOUT: "新版下载太久没完成，这次先停下，稍后会再试。",
     CODEX_INSTALL_TIMEOUT:
       "Codex 退出后迟迟没装完，这次先停下，稍后会再试。如果 Codex 没有自己打开，请手动打开它。",
@@ -39,11 +38,11 @@
       case "waiting-compatibility":
         return ["hold", `Codex 出了新版 ${latest}，Hub 正在适配，适配好就自动更新`];
       case "downloading":
-        return ["wait", `${latest} 已适配，正在下载`];
+        return ["wait", `${latest} 已适配，Codex 正在后台下载`];
       case "waiting-idle":
-        return ["wait", `${latest} 已下载好，等你没在用 Codex 时自动更新`];
+        return ["wait", `${latest} 已适配，等你没在用 Codex 时开始更新`];
       case "installing":
-        return ["wait", `正在更新到 ${latest}，Codex 会重启一次`];
+        return ["wait", "正在更新，Codex 会自动重新打开"];
       case "health-check":
         return ["wait", "已更新，正在检查是否正常"];
       case "failed":
@@ -178,7 +177,7 @@
         h(
           "p",
           { class: "sub" },
-          `本机 ${v(s.currentVersion)}${s.latestVersion ? ` · 最新 ${v(s.latestVersion)}` : ""}`,
+          `本机 ${v(s.currentVersion)}${s.latestVersion && s.phase !== "up-to-date" ? ` · 最新 ${v(s.latestVersion)}` : ""}`,
         ),
         ...notes.map(([text, keep]) =>
           h("p", { class: "sub cu-note", "data-keep": keep || null }, text),
@@ -219,7 +218,7 @@
       h(
         "p",
         { class: "sub", "data-keep": "" },
-        "Codex 出新版后，Hub 先适配好再让它更新，避免装上就用不了。适配好后会在你没在用 Codex 时自动更新，Codex 会重启一次。",
+        "Codex 出新版后，Hub 先适配好再让它更新，避免装上就用不了。适配好后会在你没在用 Codex 时自动更新，期间 Codex 会自动重启。",
       ),
       h("p", { class: "sub", "data-keep": "" }, "不想要的话，可以在 设置 → 更新 里关掉。"),
     );
