@@ -315,7 +315,7 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
       return finish(
         "core-mode",
         "UNVERIFIED_VERSION",
-        "当前为核心模式，额度与余额服务可用，部分增强等待适配或已远程停用。",
+        "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。",
       );
     if (renderer.state === "disabled") {
       return finish(
@@ -336,7 +336,7 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
         return finish(
           "core-mode",
           "UNVERIFIED_VERSION",
-          "当前为核心模式，额度与余额服务可用，部分增强等待适配或已远程停用。",
+          "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。",
         );
       if (
         this.#saved.lastCompatibleVersion !== desktop.version ||

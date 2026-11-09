@@ -308,7 +308,7 @@ window.registerHubSystem = ({
       // Safe mode: a new Codex version opened without the Hub's interface additions (its message
       // already names the version). Not a fault, so it is neutral and not counted as a problem.
       const safeMode = Boolean(
-        d.desktopCompatibility && d.desktopCompatibility.state === "safe-mode",
+        d.desktopCompatibility && ["safe-mode", "core-mode"].includes(d.desktopCompatibility.state),
       );
       if (d.desktopCompatibility) {
         const connection = d.desktopCompatibility;
@@ -316,7 +316,9 @@ window.registerHubSystem = ({
           "Codex 界面连接",
           connection.state === "ready" || safeMode,
           `${connection.desktopVersion && !safeMode ? `v${connection.desktopVersion} · ` : ""}${connection.message}`,
-          ["not-running", "checking", "unverified", "safe-mode"].includes(connection.state),
+          ["not-running", "checking", "unverified", "safe-mode", "core-mode"].includes(
+            connection.state,
+          ),
         ]);
       }
       if (endpoint)
@@ -420,14 +422,9 @@ window.registerHubSystem = ({
         if (endpoint && endpoint.local)
           fixes.push(button("下载页", () => call("links.open", { target: "codexWebGpt" })));
       }
-      if (safeMode)
-        fixes.push(
-          confirmButton("以完整模式重启 Codex", async () => {
-            await restart({ fullMode: true });
-            if (alive()) await diagnose();
-          }),
-        );
-      else if (codex && codex.running && (problems.length || proxyDown || rejection))
+      // An unadapted Codex version stays in core/safe mode until the adapted list includes it;
+      // a restart would not change that, so none is offered for it.
+      if (!safeMode && codex && codex.running && (problems.length || proxyDown || rejection))
         fixes.push(confirmButton("重启 Codex", () => restart()));
       const count =
         problems.length + (proxyDown ? 1 : 0) + (endpointDown ? 1 : 0) + (rejection ? 1 : 0);
@@ -1032,6 +1029,7 @@ window.registerHubSystem = ({
     };
     root.append(
       h("section", { class: "m" }, h("h2", null, "RLY/0 Hub 更新"), result, actions, null),
+      window.renderCodexUpdates({ h, call, failed, button, alive }),
     );
     void check(false);
   };

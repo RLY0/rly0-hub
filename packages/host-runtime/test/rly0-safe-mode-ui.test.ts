@@ -119,7 +119,7 @@ async function maintenancePage(desktopCompatibility: unknown) {
 }
 
 describe("maintenance page safe-mode restart (synthetic)", () => {
-  it("offers a full-mode restart only in safe mode and sends the full-mode choice", async () => {
+  it("shows safe mode as neutral and offers no restart that cannot change it", async () => {
     const message =
       "Codex 新版本 v26.1200.1 还没经过 Hub 验证，已用安全模式打开：Codex 和叫 CC 干活都能正常用，Hub 的界面增强暂时关闭。";
     const page = await maintenancePage(compatibility("safe-mode", message));
@@ -131,12 +131,19 @@ describe("maintenance page safe-mode restart (synthetic)", () => {
     expect(row?.textContent).toBe(`Codex 界面连接${message}`);
     expect(page.root.textContent).toContain("一切正常");
     expect(page.find("重启 Codex")).toBeUndefined();
-    await page.click("以完整模式重启 Codex");
-    expect(page.calls).toContainEqual({
-      method: "maintenance.restartCodex",
-      params: { fullMode: true },
-    });
-    expect(page.toasts).toContain("Codex 正在重启");
+    expect(page.find("以完整模式重启 Codex")).toBeUndefined();
+  });
+
+  it("treats core mode the same way", async () => {
+    const message =
+      "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。";
+    const page = await maintenancePage(compatibility("core-mode", message));
+    const row = [...page.root.walk()].find(
+      (el) => el.tag === "li" && el.textContent.startsWith("Codex 界面连接"),
+    );
+    expect(row?.props?.class).toBe("neutral");
+    expect(page.root.textContent).toContain("一切正常");
+    expect(page.find("重启 Codex")).toBeUndefined();
   });
 
   it("does not offer it when the interface is connected", async () => {

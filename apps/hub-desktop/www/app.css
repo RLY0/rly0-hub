@@ -5641,3 +5641,60 @@ select.input,
     grid-auto-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- 设置 → 更新 → Codex 更新 ---------- */
+/* The status line always carries words; the dot's shape repeats the tone for a quick glance. */
+.cu-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--ink-950);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.cu-status b {
+  font-weight: 600;
+  min-width: 0;
+}
+.cu-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted-dark);
+}
+.cu-status.ok .cu-dot {
+  background: var(--ok);
+}
+/* Held back, waiting for us: a ring rather than a filled dot. */
+.cu-status.hold .cu-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--warn);
+}
+.cu-status.wait .cu-dot {
+  background: var(--brand);
+  animation: cu-pulse 1.6s ease-in-out infinite;
+}
+.cu-status.bad .cu-dot {
+  border-radius: 2px;
+  background: var(--brand);
+}
+.cu-status.off .cu-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--muted-dark);
+}
+.cu-note {
+  line-height: 1.6;
+}
+@keyframes cu-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cu-status.wait .cu-dot {
+    animation: none;
+  }
+}

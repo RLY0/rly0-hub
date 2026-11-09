@@ -1965,6 +1965,34 @@
         ],
       },
       "autostart.get": { supported: true, enabled: true },
+      // Synthetic preview state; ?cu=<phase> picks one (e.g. ?cu=failed&cuWin=1).
+      "codex.updates.status": (() => {
+        const q = new URLSearchParams(location.search);
+        const phase = q.get("cu") || "waiting-compatibility";
+        const win = q.get("cuWin") === "1";
+        return {
+          enabled: !win && phase !== "disabled",
+          defaulted: true,
+          noticePending: q.get("cuNotice") === "1",
+          supported: !win,
+          phase: win ? "unsupported" : phase,
+          currentVersion: "26.1103.1.0",
+          latestVersion: win || phase === "up-to-date" ? null : "26.1200.1.0",
+          error: phase === "failed" ? q.get("cuErr") || "CODEX_UPDATE_CHECK_FAILED" : null,
+          checkedAt: new Date().toISOString(),
+          compatibility: {
+            source: q.get("cuOffline") === "1" ? "cache" : "remote",
+            updatedAt: null,
+            error: q.get("cuOffline") === "1" ? "COMPAT_UNAVAILABLE" : null,
+            hubVersion: "0.11.40",
+          },
+          renderer: {
+            schemaVersion: 1,
+            mode: q.get("cuCore") === "1" ? "core" : "full",
+            disabled: [],
+          },
+        };
+      })(),
       "accounts.autoSwitchGet": { enabled: false, remain5h: 15, remainWeekly: 10, mode: "ask" },
       "alerts.settingsGet": { balanceUsd: 1, quotaUsedPercent: 90 },
       "instructions.state": {
@@ -2132,6 +2160,17 @@
       },
     };
     // The mock answers { __error: CODE } to exercise a failed call.
+    const cu = data["codex.updates.status"];
+    data["codex.updates.check"] = cu;
+    data["codex.updates.acknowledgeNotice"] = { ...cu, noticePending: false };
+    if (message.method === "codex.updates.setEnabled") {
+      const on = Boolean(message.params && message.params.enabled);
+      data["codex.updates.setEnabled"] = {
+        ...cu,
+        enabled: on,
+        phase: on ? "checking" : "disabled",
+      };
+    }
     const result = window.hubManagementMock(message) || data[message.method] || { ok: true };
     setTimeout(
       () =>
@@ -2234,6 +2273,7 @@
       if (!state.channelConsented) await channelGate();
       channelOn = true;
       checkHubAlert();
+      if (state.onboarded) void window.showCodexUpdatesNotice({ h, call, go });
       if (!state.onboarded) go("wizard");
     })
     .catch(() => undefined);
