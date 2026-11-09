@@ -13,10 +13,12 @@
     CODEX_UPDATE_CHECK_FAILED:
       "没能让 Codex 开始更新。Hub 需要“辅助功能”权限来点 Codex 的“检查更新”，可在 系统设置 → 隐私与安全性 → 辅助功能 里打开 RLY0 Hub。",
     CODEX_DOWNLOAD_TIMEOUT: "新版下载太久没完成，这次先停下，稍后会再试。",
-    CODEX_INSTALL_TIMEOUT: "Codex 退出后迟迟没装完，这次先停下，稍后会再试。",
+    CODEX_INSTALL_TIMEOUT:
+      "Codex 退出后迟迟没装完，这次先停下，稍后会再试。如果 Codex 没有自己打开，请手动打开它。",
     CODEX_UPDATE_TARGET_CHANGED: "OpenAI 刚又换了一个新版，这个版本还没适配，先不更新。",
     CODEX_REOPEN_FAILED: "Codex 已更新，但没能自动重新打开，请手动打开 Codex。",
-    CODEX_HEALTH_FAILED: "Codex 已更新，但检查发现有问题，部分增强已暂停，Codex 照常能用。",
+    CODEX_HEALTH_FAILED:
+      "Codex 已更新，但更新后的检查没通过。如果用起来有问题，可以在 维护 → 系统诊断 里看看。",
     CODEX_STATE_FAILED: "Hub 没能保存更新记录，稍后会再试。",
   };
 
@@ -208,8 +210,11 @@
   window.showCodexUpdatesNotice = async ({ h, call, go }) => {
     const s = await call("codex.updates.status").catch(() => null);
     if (!s || !s.noticePending || !s.enabled || s.supported === false) return;
-    const ui = window.HubUI.dialog({ title: "Hub 会帮你管 Codex 更新" });
-    const ack = () => call("codex.updates.acknowledgeNotice").catch(() => undefined);
+    // However the dialog closes (a button, Esc, ×), the notice counts as read.
+    const ui = window.HubUI.dialog({
+      title: "Hub 会帮你管 Codex 更新",
+      onClose: () => void call("codex.updates.acknowledgeNotice").catch(() => undefined),
+    });
     ui.body.append(
       h(
         "p",
@@ -225,7 +230,6 @@
           class: "btn quiet",
           type: "button",
           onclick: () => {
-            void ack();
             ui.close();
             go("updates");
           },
@@ -233,18 +237,7 @@
         "去设置",
       ),
       h("span", { class: "spacer" }),
-      h(
-        "button",
-        {
-          class: "btn paper",
-          type: "button",
-          onclick: () => {
-            void ack();
-            ui.close();
-          },
-        },
-        "知道了",
-      ),
+      h("button", { class: "btn paper", type: "button", onclick: () => ui.close() }, "知道了"),
     );
   };
 })();

@@ -1562,6 +1562,7 @@
       await call("hub.finishOnboarding").catch(() => undefined);
       if (openCodex) call("codex.open").catch(() => undefined);
       go("home");
+      void window.showCodexUpdatesNotice({ h, call, go });
     };
     const skip = () =>
       h("button", { class: "btn quiet", type: "button", onclick: () => finish(false) }, "跳过引导");

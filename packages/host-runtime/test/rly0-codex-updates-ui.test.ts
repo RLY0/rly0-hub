@@ -66,14 +66,16 @@ function load(status: Status) {
     new Element("button", { class: "btn", onclick: action }, [label]);
   const window: Record<string, unknown> = {
     HubUI: {
-      dialog: ({ title }: { title: string }) => {
+      dialog: ({ title, onClose }: { title: string; onClose?: () => void }) => {
         const ui = {
           title,
           body: new Element("div", null, []),
           foot: new Element("div", null, []),
           closed: false,
           close: () => {
+            if (ui.closed) return;
             ui.closed = true;
+            onClose?.();
           },
         };
         dialogs.push(Object.assign(new Element("dialog", null, [title]), { ui }));
@@ -209,5 +211,15 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
       expect(env.calls.map((c) => c.method)).toContain("codex.updates.acknowledgeNotice");
       expect(went).toEqual(["updates"]);
     }
+  });
+
+  it("counts the notice as read however the dialog is closed (Esc or ×)", async () => {
+    const env = load({ ...base, noticePending: true });
+    const show = env.window.showCodexUpdatesNotice as (api: unknown) => Promise<void>;
+    await show({ h: env.h, call: env.call, go: () => undefined });
+    const dialog = env.dialogs[0] as Element & { ui: { close: () => void } };
+    dialog.ui.close();
+    await tick();
+    expect(env.calls.filter((c) => c.method === "codex.updates.acknowledgeNotice")).toHaveLength(1);
   });
 });
