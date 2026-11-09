@@ -22,8 +22,22 @@
   };
 
   const v = (version) => (version ? `v${version}` : "未知");
-  // supported=false is Windows, or on a Mac a development/test Hub that leaves Codex alone.
   const isMac = () => Boolean(window.HubUI && window.HubUI.isMac);
+  /**
+   * Why the Hub does not manage Codex updates here (supported=false): [status line, switch note].
+   * `unsupportedReason` is optional; without it, the platform decides.
+   */
+  function unsupported(s) {
+    const reason = s.unsupportedReason || (isMac() ? "control-disabled" : "platform");
+    if (reason === "environment")
+      return [
+        "Hub 的数据位置改过，这台电脑上暂不管理 Codex 更新",
+        "数据放在默认位置的 Hub 才会管理",
+      ];
+    if (reason === "control-disabled")
+      return ["测试版 Hub 不管理 Codex 更新", "只有正式安装的 Hub 才会管理"];
+    return ["这台电脑上 Hub 拦不住 Codex 更新", "Windows 版 Codex 由微软商店负责更新"];
+  }
 
   /** One line in plain words for each phase, plus the tone of the status dot. */
   function describe(s) {
@@ -34,10 +48,7 @@
       case "disabled":
         return ["off", "已交给 Codex 自己更新"];
       case "unsupported":
-        return [
-          "off",
-          isMac() ? "测试版 Hub 不管理 Codex 更新" : "这台电脑上 Hub 拦不住 Codex 更新",
-        ];
+        return ["off", unsupported(s)[0]];
       case "up-to-date":
         return ["ok", "已是适配好的最新版"];
       case "waiting-compatibility":
@@ -163,15 +174,7 @@
             "div",
             { class: "who" },
             h("b", null, "由 Hub 管理 Codex 更新"),
-            h(
-              "span",
-              null,
-              mac
-                ? "新版 Codex 先等 Hub 适配好，再自动更新"
-                : isMac()
-                  ? "只有正式安装的 Hub 才会管理"
-                  : "Windows 版 Codex 由微软商店负责更新",
-            ),
+            h("span", null, mac ? "新版 Codex 先等 Hub 适配好，再自动更新" : unsupported(s)[1]),
           ),
           sw,
         ),

@@ -194,6 +194,15 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
     expect(page.switchEl()?.props.disabled).toBe(true);
   });
 
+  it("names a moved data folder rather than calling a real Hub a test build", async () => {
+    const page = await card(
+      { ...base, supported: false, phase: "unsupported", unsupportedReason: "environment" },
+      true,
+    );
+    expect(page.root.textContent).toContain("Hub 的数据位置改过");
+    expect(page.root.textContent).not.toContain("测试版");
+  });
+
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {
     const page = await card({
       ...base,
