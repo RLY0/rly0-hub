@@ -1,4 +1,4 @@
-import { restoreCodexCheckPreferences } from "./codex-check-preferences.js";
+import { defaultsValueMissing, restoreCodexCheckPreferences } from "./codex-check-preferences.js";
 import { parseLsappinfoBundlePath, readLauncherCodexBundle } from "./codex-bundle-location.js";
 import { createHash } from "node:crypto";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
@@ -90,6 +90,10 @@ export async function latestCodexAppcast(options: {
   }
 }
 
+/** A Launcher process line from `ps -axo args=`: `…/bin/codexhost` or `…/bin/codexhost launch …`. */
+export function codexLauncherProcess(line: string): boolean {
+  return /\/bin\/codexhost(?:\s+launch(?:\s.*)?)?$/u.test(line.trim());
+}
 export type SparkleExec = (file: string, args: string[]) => Promise<string>;
 function nativeExec(environment: NodeJS.ProcessEnv): SparkleExec {
   return (file, args) =>
@@ -193,7 +197,7 @@ export function createMacCodexUpdateDriver(options: {
     try {
       return await exec("/usr/bin/defaults", ["read", domain, key]);
     } catch (error) {
-      if (/does not exist/u.test(String((error as { stderr?: unknown }).stderr))) return null;
+      if (defaultsValueMissing((error as { stderr?: unknown }).stderr)) return null;
       throw error;
     }
   };
@@ -208,7 +212,7 @@ export function createMacCodexUpdateDriver(options: {
       try {
         await exec("/usr/bin/defaults", ["delete", domain, key]);
       } catch (error) {
-        if (!/does not exist/u.test(String((error as { stderr?: unknown }).stderr))) throw error;
+        if (!defaultsValueMissing((error as { stderr?: unknown }).stderr)) throw error;
       }
     } else
       await exec("/usr/bin/defaults", [
@@ -359,6 +363,12 @@ export function createMacCodexUpdateDriver(options: {
       ]);
     },
     isRunning,
+    async launcherRunning() {
+      // The development Hub's wrapper refuses to start while any `bin/codexhost launch` runs; the
+      // packaged Hub starts its Launcher as a bare `bin/codexhost`. Subcommands are short-lived.
+      const processes = await exec("/bin/ps", ["-axo", "args="]);
+      return processes.split("\n").some((line) => codexLauncherProcess(line));
+    },
     async installationStopped() {
       if (await isRunning()) return false;
       // Resolve the bundle recorded while it ran (or by the Launcher), never by a query that

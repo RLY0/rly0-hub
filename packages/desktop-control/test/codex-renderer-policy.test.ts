@@ -208,3 +208,42 @@ it("resolves a reused Launcher PID to the newest record (the Launcher inserts ne
   );
   expect(await readLauncherCodexVersion(f.environment, 4242)).toBe("26.1200.1");
 });
+
+it("carries Hub's update hold beside the policy, also when the policy falls back to core", async () => {
+  const f = await fixture();
+  const file = path.join(f.root, "codex-renderer-policy.json");
+  await fs.writeFile(
+    file,
+    JSON.stringify({
+      desktopVersion: "26.1103.1",
+      policy: { schemaVersion: 1, mode: "full", disabled: [] },
+      holdUpdates: true,
+    }),
+  );
+  expect(await readCodexRendererPolicy(f.environment)).toEqual({
+    schemaVersion: 1,
+    mode: "full",
+    disabled: [],
+    holdUpdates: true,
+  });
+  f.environment.CODEXHOST_CODEX_VERSION = "26.1200.1"; // An unexpected update happened.
+  expect(await readCodexRendererPolicy(f.environment)).toMatchObject({
+    mode: "core",
+    holdUpdates: true,
+  });
+  await fs.writeFile(file, JSON.stringify({ holdUpdates: "yes" }));
+  expect(await readCodexRendererPolicy(f.environment)).not.toHaveProperty("holdUpdates");
+  // A file from an older Hub has no hold: the renderer passes Codex's gates through.
+  await fs.writeFile(
+    file,
+    JSON.stringify({
+      desktopVersion: "26.1200.1",
+      policy: { schemaVersion: 1, mode: "full", disabled: [] },
+    }),
+  );
+  expect(await readCodexRendererPolicy(f.environment)).toEqual({
+    schemaVersion: 1,
+    mode: "full",
+    disabled: [],
+  });
+});

@@ -4,6 +4,7 @@ import {
   rendererPolicyBootstrap,
 } from "./codex-renderer-policy.js";
 import { createCoreRendererSession } from "./core-renderer-session.js";
+import { codexUpdateHoldPushExpression, codexUpdateHoldScript } from "./codex-update-hold.js";
 import type { CodexRendererPolicy } from "@codexhost/shared-contracts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -261,6 +262,14 @@ async function installProductionSession(
   throw new Error("Desktop Controller exhausted Renderer installation attempts");
 }
 
+/** The update hold changes without reinstalling the page integration. */
+function withoutHold(policy: CodexRendererPolicy): string {
+  return JSON.stringify({ ...policy, holdUpdates: undefined });
+}
+interface LiveUpdateHold {
+  holdUpdates: boolean;
+}
+
 /** Policy refresh tears down injected owners before a new mode starts; Desktop keeps running. */
 export async function runDesktopController(
   options: DesktopControllerOptions,
@@ -268,12 +277,15 @@ export async function runDesktopController(
   dependencies: DesktopControllerDependencies = defaultDependencies,
 ): Promise<void> {
   if (!dependencies.readPolicy)
-    return runDesktopControllerSession(options, signal, dependencies, {
-      schemaVersion: 1,
-      mode: "full",
-      disabled: [],
-    });
+    return runDesktopControllerSession(
+      options,
+      signal,
+      dependencies,
+      { schemaVersion: 1, mode: "full", disabled: [] },
+      { holdUpdates: false },
+    );
   let policy = await dependencies.readPolicy();
+  const live: LiveUpdateHold = { holdUpdates: policy.holdUpdates === true };
   while (!signal.aborted) {
     const transition = new AbortController();
     const combined = AbortSignal.any([signal, transition.signal]);
@@ -285,7 +297,8 @@ export async function runDesktopController(
       void dependencies
         .readPolicy?.()
         .then((candidate) => {
-          if (JSON.stringify(candidate) !== JSON.stringify(policy)) {
+          live.holdUpdates = candidate.holdUpdates === true;
+          if (withoutHold(candidate) !== withoutHold(policy)) {
             next = candidate;
             transition.abort();
           }
@@ -296,7 +309,7 @@ export async function runDesktopController(
         });
     }, 2000);
     try {
-      await runDesktopControllerSession(options, combined, dependencies, policy);
+      await runDesktopControllerSession(options, combined, dependencies, policy, live);
     } finally {
       clearInterval(timer);
     }
@@ -309,9 +322,14 @@ async function runDesktopControllerSession(
   options: DesktopControllerOptions,
   signal: AbortSignal,
   dependencies: DesktopControllerDependencies,
-  policy: CodexRendererPolicy,
+  sessionPolicy: CodexRendererPolicy,
+  live: LiveUpdateHold,
 ): Promise<void> {
   const now = dependencies.now ?? Date.now;
+  // Each new session is built with the current hold; later changes are pushed by the monitor loop.
+  const current = (): CodexRendererPolicy => ({ ...sessionPolicy, holdUpdates: live.holdUpdates });
+  const policy = sessionPolicy;
+  let pushedHold: boolean | null = null;
   let session: RendererCdpControlSession | undefined;
   let nextRecoveryAt = 0;
   let recoveryDelayMs = RECOVERY_RETRY_INITIAL_MS;
@@ -332,10 +350,11 @@ async function runDesktopControllerSession(
   };
   const createSession = async (): Promise<RendererCdpControlSession> => {
     status.installing();
+    pushedHold = live.holdUpdates;
     if (policy.mode === "core")
       return (dependencies.installCore ?? createCoreRendererSession)({
         rendererCdpEndpoint: options.rendererCdpEndpoint,
-        policy,
+        policy: current(),
       });
     startupTrace("reading Renderer bundle");
     const rendererSource = await dependencies.readRenderer(options.rendererPath);
@@ -344,7 +363,7 @@ async function runDesktopControllerSession(
     const installed = await installProductionSession(
       {
         rendererCdpEndpoint: options.rendererCdpEndpoint,
-        rendererSource: `${RENDERER_CSP_BOOTSTRAP}\n${rendererPolicyBootstrap(policy)}\n${rendererSource}`,
+        rendererSource: `${RENDERER_CSP_BOOTSTRAP}\n${rendererPolicyBootstrap(current())}\ntry { ${codexUpdateHoldScript(live.holdUpdates)} } catch {}\n${rendererSource}`,
         // External Agents are discovered from each target Host after installation.
         timeoutMs: PRODUCTION_INSTALL_TIMEOUT_MS,
         signal,
@@ -450,6 +469,16 @@ async function runDesktopControllerSession(
         if (coreFailed || (!session && now() < nextRecoveryAt)) return;
         try {
           const current = await recoverSession();
+          if (pushedHold !== live.holdUpdates) {
+            const hold = live.holdUpdates;
+            // Independent of the session's health: a failed push is retried on the next pass.
+            await current
+              .executeRenderer(codexUpdateHoldPushExpression(hold))
+              .then(() => {
+                pushedHold = hold;
+              })
+              .catch(() => undefined);
+          }
           if (policy.mode === "core" && dependencies.readCoreUsage) {
             const usage = await dependencies.readCoreUsage();
             await current.executeRenderer(

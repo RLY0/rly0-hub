@@ -21,6 +21,8 @@ export class CodexCompatibilityCatalog {
   #error: "COMPAT_UNAVAILABLE" | "COMPAT_INVALID" | "COMPAT_CACHE_WRITE_FAILED" | null = null;
   #pending: Promise<void> | null = null;
   #loaded = false;
+  #holdUpdates = false;
+  #publishedVersion: string | null = null;
   readonly file: string;
   constructor(
     readonly options: {
@@ -87,6 +89,10 @@ export class CodexCompatibilityCatalog {
       await fs.rm(temporary, { force: true }).catch(() => undefined);
     }
   }
+  /**
+   * `holdUpdates` sits beside `policy`, not inside it: older Controllers parse `policy` strictly and
+   * ignore unknown top-level keys. It applies to every Desktop version, not only the bound one.
+   */
   async publishPolicy(version: string | null): Promise<void> {
     if (!version) return; // A transient inspection failure must not replace a running policy.
     const file = path.join(path.dirname(this.file), "codex-renderer-policy.json");
@@ -94,10 +100,30 @@ export class CodexCompatibilityCatalog {
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     await fs.writeFile(
       temporary,
-      JSON.stringify({ desktopVersion: version, policy: this.policy(version) }),
+      JSON.stringify({
+        desktopVersion: version,
+        policy: this.policy(version),
+        holdUpdates: this.#holdUpdates,
+      }),
       { mode: 0o600 },
     );
     await fs.rename(temporary, file);
+    this.#publishedVersion = version;
+  }
+  /** Republishes the last version-bound policy when the update hold changes. */
+  async setHoldUpdates(hold: boolean): Promise<void> {
+    if (hold === this.#holdUpdates) return;
+    const previous = this.#holdUpdates;
+    this.#holdUpdates = hold;
+    try {
+      if (this.#publishedVersion) await this.publishPolicy(this.#publishedVersion);
+    } catch (error) {
+      this.#holdUpdates = previous; // A failed write is retried by the next change request.
+      throw error;
+    }
+  }
+  holdUpdates(): boolean {
+    return this.#holdUpdates;
   }
   verified(version: string | null): boolean {
     return codexVersionVerified(version, this.#hub, this.#manifest, compareSemanticVersions);

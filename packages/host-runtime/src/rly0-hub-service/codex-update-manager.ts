@@ -32,6 +32,9 @@ export interface CodexUpdateDriver {
   /** True only when Desktop and its Sparkle Autoupdate have exited. */
   installationStopped(): Promise<boolean>;
   isRunning(): Promise<boolean>;
+  /** A Launcher still exiting makes a new start a no-op; reopen waits for it (bounded). */
+  launcherRunning?(): Promise<boolean>;
+  /** Starts Codex; true only means the start was issued. The manager confirms isRunning. */
   reopen(): Promise<boolean>;
   healthy(): Promise<boolean>;
 }
@@ -79,6 +82,12 @@ export type CodexIdleDriver = () => Promise<boolean>;
 export function codexIdleFromBusy(busy: () => Promise<boolean | null>): CodexIdleDriver {
   return async () => (await busy()) === false;
 }
+/** Reopen confirmation: wait for an exiting Launcher, then confirm Codex runs, retrying the start. */
+const LAUNCHER_EXIT_WAIT_MS = 30_000;
+const REOPEN_CONFIRM_MS = 15_000;
+const REOPEN_ATTEMPTS = 4;
+const REOPEN_POLL_MS = 3_000;
+const REOPEN_RETRY_MS = 60_000;
 const ACTIVE = new Set<CodexUpdatePhase>([
   "downloading",
   "waiting-idle",
@@ -105,6 +114,7 @@ export class CodexUpdateManager {
   #staged = false;
   #backgroundStarted = false;
   #closedByHub = false;
+  #reopenRetryAt = 0;
   #quitReason: "background" | "install" | "recovery" = "install";
   #retryAt = 0;
   #retryStatus: { phase: "failed" | "up-to-date"; error: CodexUpdateError } = {
@@ -134,6 +144,7 @@ export class CodexUpdateManager {
       idleMs?: number;
       downloadTimeoutMs?: number;
       installTimeoutMs?: number;
+      sleep?: (ms: number) => Promise<void>;
     },
   ) {}
   #idle(): Promise<boolean> {
@@ -222,6 +233,8 @@ export class CodexUpdateManager {
       });
     }
     this.#armed = true;
+    // Release the renderer hold before the preference: the reopened Codex must download.
+    await this.#publishHold();
     this.#leaseTimer ??= setInterval(() => {
       if (!this.#armed || this.#renewing) return;
       this.#renewing = this.#lease()
@@ -237,6 +250,29 @@ export class CodexUpdateManager {
   }
   #now() {
     return (this.options.now ?? Date.now)();
+  }
+  #sleep(ms: number) {
+    return (
+      this.options.sleep ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay)))
+    )(ms);
+  }
+  /** Polls until the condition holds or the bounded wait ends; never waits without a limit. */
+  async #waitFor(condition: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
+    const started = this.#now();
+    for (;;) {
+      if (await condition()) return true;
+      if (this.#now() - started >= timeoutMs) return false;
+      await this.#sleep(REOPEN_POLL_MS);
+    }
+  }
+  /**
+   * The renderer forces Sparkle background downloads off while Hub manages updates and no release
+   * lease is armed. Released (armed), disabled or unsupported management passes Codex's gates through.
+   */
+  async #publishHold(): Promise<void> {
+    await this.options.catalog.setHoldUpdates(
+      this.options.driver !== null && this.#settings.enabled && !this.#armed,
+    );
   }
   #serial<T>(run: () => Promise<T>): Promise<T> {
     const next = this.#queue.then(run, run);
@@ -270,6 +306,7 @@ export class CodexUpdateManager {
     };
     if (!this.options.driver) {
       await this.options.state.update({ codexUpdates: this.#settings });
+      await this.#publishHold();
       this.#initialized = true;
       return;
     }
@@ -339,6 +376,7 @@ export class CodexUpdateManager {
         /* Absent/corrupt journal cannot trigger a restart. */
       }
     }
+    await this.#publishHold();
     this.#initialized = true;
   }
   start(): Promise<CodexUpdateStatus> {
@@ -355,7 +393,8 @@ export class CodexUpdateManager {
     this.#timer = undefined;
     return this.#serial(async () => {
       if (ACTIVE.has(this.#phase) || this.#armed) await this.#disarm();
-      await this.#recoverClosed();
+      // Shutdown has a short budget: issue the start without the bounded confirmation wait.
+      await this.#recoverClosed(false);
       await this.#releaseControl?.();
       this.#releaseControl = undefined;
       this.#controlReady = false;
@@ -428,6 +467,7 @@ export class CodexUpdateManager {
       } catch {
         this.#fail("CODEX_PREFERENCES_FAILED");
       }
+      await this.#publishHold().catch(() => undefined);
       return this.status();
     }).then(async (result) => (enabled && !result.error ? this.check() : result));
   }
@@ -565,24 +605,43 @@ export class CodexUpdateManager {
       this.#settings = settings;
     }
   }
-  async #recoverClosed() {
-    if (!this.#closedByHub || !this.options.driver) return;
-    try {
-      if (await this.options.driver.isRunning()) {
-        // Quit was cancelled/lost, or Sparkle already relaunched it. Never reopen a later user quit.
-        this.#closedByHub = false;
-        await fs.rm(this.#sessionFile(), { force: true });
-        return;
-      }
-      if (!(await this.options.driver.installationStopped())) return;
-      // Recovery is required even when disarming failed. Never strand an app we closed.
-      if (!(await this.options.driver.reopen())) {
-        this.#fail("CODEX_REOPEN_FAILED");
-        return;
-      }
+  async #recoverClosed(confirm = true) {
+    const driver = this.options.driver;
+    if (!this.#closedByHub || !driver || this.#now() < this.#reopenRetryAt) return;
+    const reopened = async () => {
       this.#closedByHub = false;
+      this.#reopenRetryAt = 0;
       await fs.rm(this.#sessionFile(), { force: true });
+    };
+    try {
+      if (await driver.isRunning()) {
+        // Quit was cancelled/lost, or Sparkle already relaunched it. Never reopen a later user quit.
+        await reopened();
+        return;
+      }
+      if (!(await driver.installationStopped())) return;
+      if (!confirm) {
+        if (await driver.reopen()) await reopened();
+        else this.#fail("CODEX_REOPEN_FAILED");
+        return;
+      }
+      // A start issued while the previous Launcher is still exiting can be silently dropped.
+      if (driver.launcherRunning)
+        await this.#waitFor(async () => !(await driver.launcherRunning?.()), LAUNCHER_EXIT_WAIT_MS);
+      // Recovery is required even when disarming failed. Never strand an app we closed, and never
+      // take an issued start as proof: only a running Codex ends the recovery.
+      for (let attempt = 0; attempt < REOPEN_ATTEMPTS; attempt += 1) {
+        if (!(await driver.reopen())) break;
+        if (await this.#waitFor(() => driver.isRunning(), REOPEN_CONFIRM_MS)) {
+          await reopened();
+          return;
+        }
+      }
+      // Keep ownership: the periodic tick retries the reopen after a pause.
+      this.#reopenRetryAt = this.#now() + REOPEN_RETRY_MS;
+      this.#fail("CODEX_REOPEN_FAILED");
     } catch {
+      this.#reopenRetryAt = this.#now() + REOPEN_RETRY_MS;
       this.#fail("CODEX_REOPEN_FAILED");
     }
   }
@@ -596,10 +655,16 @@ export class CodexUpdateManager {
       await this.options.driver?.writeAutoUpdate(false);
       await fs.rm(this.#leaseFile(), { force: true });
       await this.#restoreCheckPreferences();
-      if (this.#phase === "failed") await this.#saveAttempt();
     } catch {
       this.#fail("CODEX_PREFERENCES_FAILED");
     }
+    try {
+      await this.#publishHold();
+    } catch {
+      this.#fail("CODEX_STATE_FAILED");
+    }
+    // Backoff and timeout counts persist even when a preference restore failed.
+    if (this.#phase === "failed") await this.#saveAttempt().catch(() => undefined);
   }
   async #advance(): Promise<void> {
     const driver = this.options.driver;

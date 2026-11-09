@@ -12,6 +12,7 @@ import {
 import type { DesktopControllerStatusDocument } from "../src/controller-status.js";
 import type { RendererCdpControlSession } from "../src/renderer-cdp-control-session.js";
 import { CdpConnectionClosedError } from "../src/cdp-client.js";
+import { codexUpdateHoldPushExpression, codexUpdateHoldScript } from "../src/codex-update-hold.js";
 
 const attachmentNonce = "0123456789abcdef0123456789abcdef";
 
@@ -198,8 +199,7 @@ describe("production Desktop Controller", () => {
 
     expect(install).toHaveBeenCalledWith({
       rendererCdpEndpoint: "http://127.0.0.1:43123",
-      rendererSource:
-        'globalThis.__zod_globalConfig ??= {}; globalThis.__zod_globalConfig.jitless = true;\nglobalThis.__codexhostFeaturePolicyV1 = {"schemaVersion":1,"mode":"full","disabled":[]};\nproduction renderer',
+      rendererSource: `globalThis.__zod_globalConfig ??= {}; globalThis.__zod_globalConfig.jitless = true;\nglobalThis.__codexhostFeaturePolicyV1 = {"schemaVersion":1,"mode":"full","disabled":[],"holdUpdates":false};\ntry { ${codexUpdateHoldScript(false)} } catch {}\nproduction renderer`,
       timeoutMs: 90_000,
       signal: abort.signal,
     });
@@ -576,3 +576,60 @@ it.each([false, true])(
     if (!fail) expect(session.dispose).toHaveBeenCalledOnce();
   },
 );
+
+it("pushes an update-hold change into the running page without reinstalling the session", async () => {
+  const abort = new AbortController();
+  const executed: string[] = [];
+  const session: RendererCdpControlSession = {
+    snapshot: controllerSnapshot(),
+    ensureInstalled: vi.fn(async () => controllerSnapshot()),
+    activateDesktop: vi.fn(async () => 1),
+    executeRenderer: vi.fn(async (expression: string) => {
+      executed.push(expression);
+      return true as never;
+    }),
+    close: vi.fn(),
+    dispose: vi.fn(async () => undefined),
+  };
+  const coreInstall = vi.fn<
+    (options: {
+      policy: { holdUpdates?: boolean | undefined };
+    }) => Promise<RendererCdpControlSession>
+  >(async () => session);
+  // Hub releases the hold (an armed update) while Codex keeps running.
+  let hold = true;
+  let ticks = 0;
+  const realSetInterval = globalThis.setInterval;
+  const intervals: (() => void)[] = [];
+  vi.stubGlobal("setInterval", (callback: () => void) => {
+    intervals.push(callback);
+    return realSetInterval(() => undefined, 1_000_000);
+  });
+  try {
+    await runDesktopController(controllerOptions(), abort.signal, {
+      readPolicy: async () => ({ schemaVersion: 1, mode: "core", disabled: [], holdUpdates: hold }),
+      install: vi.fn(),
+      readRenderer: vi.fn(),
+      installCore: coreInstall,
+      startAttachmentServer: async () => attachmentServer(),
+      ready: vi.fn(),
+      sleep: async () => {
+        ticks += 1;
+        if (ticks === 2) {
+          hold = false;
+          for (const callback of intervals) callback();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        if (ticks > 4) abort.abort();
+      },
+      monitorIntervalMs: 1,
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  expect(coreInstall).toHaveBeenCalledOnce();
+  expect(coreInstall.mock.calls[0]?.[0].policy.holdUpdates).toBe(true);
+  expect(session.dispose).toHaveBeenCalledOnce(); // Only at shutdown, not on the hold change.
+  expect(executed).toContain(codexUpdateHoldPushExpression(false));
+  expect(executed).not.toContain(codexUpdateHoldPushExpression(true));
+});

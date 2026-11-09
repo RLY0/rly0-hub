@@ -1,4 +1,4 @@
-import { restoreCodexCheckPreferences } from "./codex-check-preferences.js";
+import { defaultsValueMissing, restoreCodexCheckPreferences } from "./codex-check-preferences.js";
 import { codexNativeUpdateControlAllowed } from "./codex-update-control.js";
 import type { CodexCheckPreferences } from "./codex-update-manager.js";
 import { execFile } from "node:child_process";
@@ -137,7 +137,7 @@ export async function runCodexUpdateWatchdog(
         try {
           return await exec(["read", "com.openai.codex", key]);
         } catch (error) {
-          if (/does not exist/u.test(String((error as { stderr?: unknown }).stderr))) return null;
+          if (defaultsValueMissing((error as { stderr?: unknown }).stderr)) return null;
           throw error;
         }
       };
@@ -155,10 +155,7 @@ export async function runCodexUpdateWatchdog(
                 ],
           );
         } catch (error) {
-          if (
-            value !== null ||
-            !/does not exist/u.test(String((error as { stderr?: unknown }).stderr))
-          )
+          if (value !== null || !defaultsValueMissing((error as { stderr?: unknown }).stderr))
             throw error;
         }
       };

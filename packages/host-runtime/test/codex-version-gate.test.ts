@@ -3,7 +3,10 @@ import {
   codexNativeUpdateControlBlocker,
   acquireCodexUpdateControl,
 } from "../src/rly0-hub-service/codex-update-control.js";
-import { restoreCodexCheckPreferences } from "../src/rly0-hub-service/codex-check-preferences.js";
+import {
+  defaultsValueMissing,
+  restoreCodexCheckPreferences,
+} from "../src/rly0-hub-service/codex-check-preferences.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +25,7 @@ import {
 } from "../src/rly0-hub-service/codex-update-manager.js";
 import { Rly0HubStateStore } from "../src/rly0-hub-service/hub-state.js";
 import {
+  codexLauncherProcess,
   createMacCodexUpdateDriver,
   latestCodexAppcast,
   parseCodexAppcast,
@@ -105,7 +109,11 @@ async function fixture() {
     healthy: vi.fn(async () => true),
   };
   const busy = vi.fn<() => Promise<boolean | null>>(async () => false);
-  const options = { environment, state, catalog, driver, busy, now: () => now, idleMs: 10 };
+  // Bounded waits (reopen confirmation, Launcher exit) advance the synthetic clock, not real time.
+  const sleep = vi.fn(async (ms: number) => {
+    now += ms;
+  });
+  const options = { environment, state, catalog, driver, busy, now: () => now, idleMs: 10, sleep };
   const manager = new CodexUpdateManager(options);
   managers.push(manager);
   return {
@@ -124,6 +132,12 @@ async function fixture() {
     install: () => {
       current = "26.1200.1.0";
     },
+    /** Codex exits (for example a quit whose reply was lost). */
+    exitCodex: () => {
+      running = false;
+    },
+    sleep,
+    now: () => now,
   };
 }
 
@@ -718,7 +732,7 @@ it.each(["timeout", "disarm failure", "lost quit reply"])(
     // The quit went through (Codex is gone) but its reply was lost.
     if (failure === "lost quit reply")
       vi.mocked(f.driver.quit).mockImplementationOnce(async () => {
-        vi.mocked(f.driver.isRunning).mockResolvedValue(false);
+        f.exitCodex();
         throw new Error("lost reply");
       });
     await f.manager.tick();
@@ -1686,5 +1700,251 @@ describe("review #3 fixes (synthetic commands only)", () => {
       signals.emit("SIGINT");
     });
     expect(code).toBe(1);
+  });
+});
+
+describe("live validation 2026-11-09 fixes (synthetic commands only)", () => {
+  /** Exact `defaults` stderr on macOS 27.2 (26B123), captured 2026-11-09 against a scratch plist. */
+  const missingKey = (key: string) =>
+    `Error: Could not find key '${key}' in domain 'com.openai.codex'.\n`;
+  const policyFile = (f: Awaited<ReturnType<typeof fixture>>) =>
+    path.join(f.environment.CODEXHOST_DATA_DIR, "codex-renderer-policy.json");
+  const readHold = async (f: Awaited<ReturnType<typeof fixture>>) =>
+    JSON.parse(await fs.readFile(policyFile(f), "utf8")).holdUpdates as unknown;
+
+  it("recognizes absent defaults keys in both the old and the macOS 27 wording only", () => {
+    expect(defaultsValueMissing(missingKey("SULastCheckTime"))).toBe(true);
+    expect(defaultsValueMissing("Error: Domain 'com.openai.codex' not found.\n")).toBe(true);
+    expect(
+      defaultsValueMissing(
+        "The domain/default pair of (com.openai.codex, SULastCheckTime) does not exist\n",
+      ),
+    ).toBe(true);
+    expect(defaultsValueMissing("Could not write domain com.openai.codex; exiting")).toBe(false);
+    expect(defaultsValueMissing(undefined)).toBe(false);
+  });
+
+  it("identifies only Launcher processes in `ps -axo args=` lines", () => {
+    expect(
+      codexLauncherProcess(
+        "/Volumes/RLY0Dev/Dev/Cache/npm-global/lib/node_modules/@codexhost/cli-darwin-arm64/bin/codexhost launch --node /Volumes/RLY0Dev/Dev/Cache/node-v24/bin/node --shim /x/libexec/codexhost-shim",
+      ),
+    ).toBe(true);
+    expect(
+      codexLauncherProcess("/Applications/RLY0 Hub.app/Contents/Resources/bin/codexhost"),
+    ).toBe(true);
+    expect(
+      codexLauncherProcess(
+        "/Applications/RLY0 Hub.app/Contents/Resources/bin/codexhost inspect --json",
+      ),
+    ).toBe(false);
+    expect(
+      codexLauncherProcess(
+        "/x/node /x/app/desktop-controller.mjs --renderer-cdp-endpoint http://127.0.0.1:43123",
+      ),
+    ).toBe(false);
+  });
+
+  it("waits for the old Launcher, then repeats a start the development wrapper silently dropped", async () => {
+    const f = await fixture();
+    vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+    await f.manager.check();
+    f.advance(10);
+    expect((await f.manager.tick()).phase).toBe("installing");
+    // The previous Launcher is still exiting for two polls; the wrapper's first start is a no-op.
+    f.driver.launcherRunning = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValue(false);
+    vi.mocked(f.driver.reopen).mockImplementationOnce(async () => true);
+    expect((await f.manager.tick()).phase).toBe("downloading");
+    expect(f.driver.launcherRunning).toHaveBeenCalledTimes(3);
+    expect(f.driver.reopen).toHaveBeenCalledTimes(2);
+    expect(await f.driver.isRunning()).toBe(true);
+    expect(f.manager.status().error).toBeNull();
+  });
+
+  it("reports a failed reopen after bounded retries and keeps retrying after a pause", async () => {
+    const f = await fixture();
+    vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+    await f.manager.check();
+    f.advance(10);
+    await f.manager.tick();
+    vi.mocked(f.driver.reopen).mockImplementation(async () => true); // Never actually starts.
+    const started = f.now();
+    expect(await f.manager.tick()).toMatchObject({ phase: "failed", error: "CODEX_REOPEN_FAILED" });
+    expect(f.driver.reopen).toHaveBeenCalledTimes(4);
+    expect(f.now() - started).toBeLessThanOrEqual(75_000);
+    await f.manager.tick();
+    expect(f.driver.reopen).toHaveBeenCalledTimes(4); // Paused.
+    f.advance(61_000);
+    vi.mocked(f.driver.reopen).mockImplementation(async () => {
+      vi.mocked(f.driver.isRunning).mockResolvedValue(true);
+      return true;
+    });
+    await f.manager.tick();
+    expect(f.driver.reopen).toHaveBeenCalledTimes(5);
+    vi.mocked(f.driver.reopen).mockClear();
+    f.advance(61_000);
+    await f.manager.tick();
+    expect(f.driver.reopen).not.toHaveBeenCalled(); // Confirmed running: ownership released.
+  });
+
+  it("publishes the renderer update hold: held while managed, released only while armed", async () => {
+    const f = await fixture();
+    vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+    let holdAtQuit: unknown;
+    vi.mocked(f.driver.quit).mockImplementationOnce(async () => {
+      holdAtQuit = await readHold(f);
+      f.exitCodex();
+    });
+    await f.manager.check();
+    expect(await readHold(f)).toBe(true);
+    f.advance(10);
+    await f.manager.tick();
+    expect(holdAtQuit).toBe(false); // The reopened Codex must be allowed to download.
+    expect((await f.manager.tick()).phase).toBe("downloading");
+    expect(await readHold(f)).toBe(false);
+    f.advance(31 * 60_000);
+    expect((await f.manager.tick()).error).toBe("CODEX_DOWNLOAD_TIMEOUT");
+    expect(await readHold(f)).toBe(true);
+    await f.manager.setEnabled(false);
+    expect(await readHold(f)).toBe(false); // Management off: Codex's own gates pass through.
+  });
+
+  it("an unsupported platform never asks the renderer to hold updates", async () => {
+    const f = await fixture();
+    const manager = new CodexUpdateManager({
+      ...f.options,
+      driver: null,
+      currentVersion: async () => "26.1103.1.0",
+    });
+    managers.push(manager);
+    await manager.check();
+    expect(await readHold(f)).toBe(false);
+  });
+
+  it("a failed hold publication is retried by the next request instead of being remembered", async () => {
+    const f = await fixture();
+    await f.catalog.publishPolicy("26.1103.1.0");
+    await fs.rm(policyFile(f));
+    await fs.mkdir(policyFile(f)); // rename onto a directory fails
+    await expect(f.catalog.setHoldUpdates(true)).rejects.toThrow();
+    expect(f.catalog.holdUpdates()).toBe(false);
+    await fs.rm(policyFile(f), { recursive: true });
+    await f.catalog.setHoldUpdates(true);
+    expect(await readHold(f)).toBe(true);
+  });
+
+  it("restores the deleted check date after a download timeout with macOS 27 defaults wording", async () => {
+    const f = await fixture();
+    await fs.mkdir(path.join(f.root, "Library/Application Support/com.openai.codex"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(
+        f.root,
+        "Library/Application Support/com.openai.codex/production-appcast-bootstrap.json",
+      ),
+      JSON.stringify({ installationId: "synthetic-installation" }),
+    );
+    const xml =
+      '<rss><channel><item><title>26.1200.1</title><sparkle:version>2120</sparkle:version><sparkle:shortVersionString>26.1200.1</sparkle:shortVersionString><enclosure url="https://example.test/Codex-26.1200.1.zip" length="1" type="application/octet-stream"/></item></channel></rss>';
+    // Values observed on the validation Mac before the 22:31 background restart (observe.jsonl).
+    const prefs = new Map<string, string>([
+      ["SUAutomaticallyUpdate", "1"],
+      ["SUEnableAutomaticChecks", "1"],
+      ["SULastCheckTime", "2026-11-08 16:55:14 +0000"],
+    ]);
+    let running = true;
+    const exec = vi.fn(async (file: string, args: string[]) => {
+      if (file === "/usr/bin/defaults") {
+        const key = args[2] ?? "";
+        if (args[0] !== "write" && !prefs.has(key))
+          throw Object.assign(new Error("CODEX_NATIVE_COMMAND_FAILED"), {
+            stderr: missingKey(key),
+          });
+        if (args[0] === "read") return prefs.get(key) ?? "";
+        if (args[0] === "delete") prefs.delete(key);
+        if (args[0] === "write")
+          prefs.set(key, args[3] === "-bool" ? (args[4] === "true" ? "1" : "0") : (args[4] ?? ""));
+        return "";
+      }
+      if (file === "/usr/bin/lsappinfo")
+        return running ? lsappinfoOutput("/Applications/ChatGPT.app") : "";
+      if (file === "/usr/bin/osascript") {
+        if (args[1]?.includes(" to quit")) running = false;
+        return args[1]?.includes(" to quit") ? "" : running ? "true" : "false";
+      }
+      if (file === "/bin/ps") return args[0] === "-o" ? "Mon Nov  9 20:00:00 2026" : "";
+      if (file === "/usr/bin/sw_vers") return "27.2";
+      throw new Error(`unexpected command ${file}`);
+    });
+    const driver = createMacCodexUpdateDriver({
+      environment: f.environment,
+      get: async () => async () => ({
+        status: 200,
+        headers: {},
+        body: (async function* () {
+          yield Buffer.from(xml);
+        })(),
+        cancel() {},
+      }),
+      currentVersion: async () => "26.1103.1.0",
+      reopen: async () => {
+        running = true;
+        return true;
+      },
+      healthy: async () => true,
+      exec,
+      startWatchdog: async () => undefined,
+    });
+    const manager = new CodexUpdateManager({ ...f.options, driver });
+    managers.push(manager);
+    await manager.check();
+    f.advance(10);
+    expect((await manager.tick()).phase).toBe("installing");
+    expect(prefs.has("SULastCheckTime")).toBe(false); // Hub cleared it for the background check.
+    expect((await manager.tick()).phase).toBe("downloading");
+    f.advance(31 * 60_000);
+    expect(await manager.tick()).toMatchObject({
+      phase: "failed",
+      error: "CODEX_DOWNLOAD_TIMEOUT",
+    });
+    expect(prefs.get("SULastCheckTime")).toBe("2026-11-08 16:55:14 +0000");
+    expect(prefs.get("SUEnableAutomaticChecks")).toBe("1");
+    expect(prefs.get("SUAutomaticallyUpdate")).toBe("0");
+    expect((await f.state.read()).codexUpdates?.originalCheckPreferences).toBeUndefined();
+    const attempt = JSON.parse(
+      await fs.readFile(
+        path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json"),
+        "utf8",
+      ),
+    );
+    expect(attempt).toMatchObject({
+      phase: "failed",
+      error: "CODEX_DOWNLOAD_TIMEOUT",
+      timeouts: 1,
+    });
+  });
+
+  it("reads an absent automatic-update preference as null with macOS 27 wording", async () => {
+    const f = await fixture();
+    const exec = vi.fn(async (_file: string, args: string[]) => {
+      throw Object.assign(new Error("CODEX_NATIVE_COMMAND_FAILED"), {
+        stderr: missingKey(args[2] ?? ""),
+      });
+    });
+    const driver = createMacCodexUpdateDriver({
+      environment: f.environment,
+      get: async () => response(manifest),
+      currentVersion: f.driver.currentVersion,
+      reopen: f.driver.reopen,
+      healthy: f.driver.healthy,
+      exec,
+    });
+    expect(await driver.readAutoUpdate()).toBeNull();
+    await expect(driver.writeAutoUpdate(null)).resolves.toBeUndefined();
   });
 });

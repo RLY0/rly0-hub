@@ -6,6 +6,8 @@ macOS 驱动在持续空闲后用正常重开触发 Sparkle 后台检查，不�
 
 未知版本进入 core，被动提供额度/余额数据；core 注入失败进入 safe（不注入增强）。已验证版本可按功能远程禁用；Controller 接收策略变化时释放旧 session 和脚本再安装。旧连接成功记录和用户旧完整模式选择不能绕过版本清单。
 
+Codex 自己的主进程会按服务器开关（渲染进程发送的 `electron-sparkle-gates-changed`）打开 Sparkle 后台下载，只写系统偏好压不住。因此 Hub 在 `codex-renderer-policy.json` 顶层下发 `holdUpdates`（管理开启、且不在放行租约中时为 true）。full 和 core 模式都会注入一段独立的小脚本：它监听 Codex 自己派发的 `codex-message-from-view` 事件，hold 时立即经同一桥发送 `disableSparkleAutodownload:true`、`disableInAppUpdates:null` 的纠正副本，不触碰每次启动的 latch；识别不了的形态什么也不发，只记入 `__codexhostFeatureFailuresV1`。safe 模式不注入，无法拦截；首条消息早于注入时，用页面存档的上一份开关补发，仍有启动瞬间的下载竞态。放行重开 Codex 前，Hub 会等待旧 Launcher 退出，重开后确认 Codex 确实在运行，否则重试，并在失败后定期再试。检查日期的恢复兼容 macOS 27 的 `defaults` 缺键报错文本。
+
 技术接口、枚举、缓存边界及尚未通过的真实系统路径见 [.pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md](../../.pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md)。显示层、发布与线上验收由 Claude 集成；当前文档不表示已发布或真机验收。
 
-空闲判定集中为可替换的 CodexIdleDriver，当前默认仍是连续 15 秒没有任务；N5 的最终规则待用户决定。Launcher 身份从实际 diagnostics 目录读取；辅助偏好损坏不丢失已保存的原自动更新值。第二次复查修复仅完成隔离自检，真实升级和修复后独立审查待验收。
+空闲判定集中为可替换的 CodexIdleDriver：心跳无任务且系统键鼠空闲 ≥5 分钟，再叠加连续 15 秒复核。Launcher 身份从实际 diagnostics 目录读取；辅助偏好损坏不丢失已保存的原自动更新值。第二次复查修复仅完成隔离自检，真实升级和修复后独立审查待验收。

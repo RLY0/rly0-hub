@@ -4,10 +4,13 @@ import {
   type RendererCdpControlSession,
 } from "./renderer-cdp-control-session.js";
 import type { CodexRendererPolicy } from "@codexhost/shared-contracts";
+import { codexUpdateHoldScript } from "./codex-update-hold.js";
 
 /** Passive data bridge for Claude's quota/balance view; no React discovery, RPC patch or composer. */
 export function coreRendererBootstrap(policy: CodexRendererPolicy): string {
-  return `(() => {
+  // The update hold is independent: its failure is recorded by itself and never stops the bridge.
+  return `try { ${codexUpdateHoldScript(policy.holdUpdates === true)} } catch {}
+  (() => {
     globalThis.__codexhostFeaturePolicyV1 = ${JSON.stringify(policy)};
     globalThis.__codexhostCoreUsageV1 = { available: false, checkedAt: null, quota: null, balance: null };
     globalThis.dispatchEvent(new CustomEvent('codexhost:core-usage'));

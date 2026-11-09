@@ -51,6 +51,11 @@ export interface CodexRendererPolicy {
   schemaVersion: 1;
   mode: "full" | "core" | "safe";
   disabled: CodexRendererFeature[];
+  /**
+   * Hub manages Codex updates and no release is in progress: the renderer forces Sparkle background
+   * downloads off. Delivered beside `policy` in codex-renderer-policy.json; absent means pass through.
+   */
+  holdUpdates?: boolean | undefined;
 }
 /** Numeric Desktop versions (not semver); Sparkle short versions have four components. */
 export function compareCodexVersions(a: string, b: string): number {
@@ -110,6 +115,7 @@ export const codexRendererPolicySchema = z
     schemaVersion: z.literal(1),
     mode: z.enum(["full", "core", "safe"]),
     disabled: z.array(z.enum(CODEX_RENDERER_FEATURES)),
+    holdUpdates: z.boolean().optional(),
   })
   .strict();
 export const codexUpdateSettingsSchema = z.object({

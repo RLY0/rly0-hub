@@ -51,16 +51,21 @@ export async function readCodexRendererPolicy(
       return CORE;
     }
   }
+  if (bytes.length > 16 * 1024) return CORE;
+  let value: unknown;
   try {
-    if (bytes.length > 16 * 1024) return CORE;
-    const value: unknown = JSON.parse(bytes.toString("utf8"));
-    if (
-      typeof value !== "object" ||
-      value === null ||
-      !("policy" in value) ||
-      !("desktopVersion" in value)
-    )
-      return CORE;
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    return CORE;
+  }
+  if (typeof value !== "object" || value === null) return CORE;
+  // The update hold is not bound to a Desktop version: keep it even when the policy falls to core.
+  const hold =
+    "holdUpdates" in value && typeof value.holdUpdates === "boolean"
+      ? { holdUpdates: value.holdUpdates }
+      : {};
+  try {
+    if (!("policy" in value) || !("desktopVersion" in value)) return { ...CORE, ...hold };
     // A current Launcher identity takes precedence over a possibly inherited Hub environment.
     const expected = (await readVersion()) ?? environment.CODEXHOST_CODEX_VERSION;
     if (
@@ -68,10 +73,10 @@ export async function readCodexRendererPolicy(
       typeof value.desktopVersion !== "string" ||
       compareCodexVersions(value.desktopVersion, expected) !== 0
     )
-      return CORE;
-    return codexRendererPolicySchema.parse(value.policy);
+      return { ...CORE, ...hold };
+    return { ...codexRendererPolicySchema.parse(value.policy), ...hold };
   } catch {
-    return CORE;
+    return { ...CORE, ...hold };
   }
 }
 /** Startup defaults to core; transient filesystem errors during a session preserve its policy. */
