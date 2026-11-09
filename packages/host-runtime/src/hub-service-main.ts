@@ -13,6 +13,9 @@ const HUB_SERVICE_VERSION = "1";
 
 async function main(): Promise<void> {
   const environment = process.env;
+  // The shell closes its end of stdout while shutdown is still releasing; a late write must not
+  // turn into an unhandled 'error' that kills the release halfway.
+  process.stdout.on("error", () => undefined);
   const installRoot = environment.RLY0_HUB_INSTALL_ROOT || resolveRly0InstallRoot(process.execPath);
   const autostartCommand = resolveRly0HubAutostartCommand(installRoot);
   const service = new Rly0HubService({
@@ -21,7 +24,7 @@ async function main(): Promise<void> {
     killCodexProcesses: () => killCodexProcesses({ environment, installRoot }),
     // Quota / balance updates for the window (the shell forwards them to the page).
     onEvent: (event, params) => {
-      process.stdout.write(`${JSON.stringify({ event, params })}\n`);
+      if (process.stdout.writable) process.stdout.write(`${JSON.stringify({ event, params })}\n`);
     },
     ...(autostartCommand ? { autostartCommand } : {}),
   });

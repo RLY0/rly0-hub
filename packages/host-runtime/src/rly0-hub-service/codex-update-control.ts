@@ -44,7 +44,8 @@ export function readProcessStart(pid: number): Promise<string | null> {
     execFile(
       "/bin/ps",
       ["-o", "lstart=", "-p", String(pid)],
-      { timeout: 5_000, maxBuffer: 16 * 1024 },
+      // Locale-free, so Hubs started with different locales read the same start time.
+      { timeout: 5_000, maxBuffer: 16 * 1024, env: { ...process.env, LC_ALL: "C" } },
       (error, stdout) => {
         const value = stdout.trim();
         resolve(error || !value ? null : value);

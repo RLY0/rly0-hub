@@ -105,7 +105,8 @@ function nativeExec(environment: NodeJS.ProcessEnv): SparkleExec {
         {
           env: environment,
           timeout: file === "/usr/bin/codesign" ? 120_000 : 15_000,
-          maxBuffer: 256 * 1024,
+          // `ps -axo args=` lists every process with its full command line.
+          maxBuffer: 8 * 1024 * 1024,
         },
         (error, stdout, stderr) => {
           if (error) reject(Object.assign(new Error("CODEX_NATIVE_COMMAND_FAILED"), { stderr }));
@@ -229,10 +230,10 @@ export function createMacCodexUpdateDriver(options: {
   let bundle: string | null = null;
   const runningBundle = async () => {
     try {
-      const found = parseLsappinfoBundlePath(
+      // A successful but empty answer means Codex is not running: nothing to quit.
+      return parseLsappinfoBundlePath(
         await exec("/usr/bin/lsappinfo", ["info", "-only", "bundlepath", "-app", domain]),
       );
-      if (found) return found;
     } catch {
       /* Fall back to the Launcher's record of the inspected bundle. */
     }
@@ -242,7 +243,8 @@ export function createMacCodexUpdateDriver(options: {
     acquireControl: () =>
       acquireCodexUpdateControl(resolveRly0DataDir(options.environment), {
         processStart: (pid) =>
-          exec("/bin/ps", ["-o", "lstart=", "-p", String(pid)]).then(
+          // Locale-free (LC_ALL=C) so Hubs started with different locales compare equal.
+          exec("/usr/bin/env", ["LC_ALL=C", "/bin/ps", "-o", "lstart=", "-p", String(pid)]).then(
             (started) => started || null,
             () => null,
           ),

@@ -719,9 +719,26 @@ export class CodexUpdateManager {
           this.#idleSince = null;
           return;
         }
+        // Codex may have quit on its own since the idle check: then there is nothing for the Hub
+        // to close, and it must not later reopen a Codex the user closed.
+        if (!(await driver.isRunning())) {
+          await this.#disarm();
+          this.#backgroundStarted = false;
+          this.#idleSince = null;
+          return;
+        }
         await this.#recordSession();
         this.#closedByHub = true; // quit may succeed even if its reply is lost.
-        await driver.quit();
+        try {
+          await driver.quit();
+        } catch (error) {
+          // Thrown before the quit event was sent: Codex was not closed by the Hub.
+          if (error instanceof Error && error.message === "CODEX_INSTALLATION_UNAVAILABLE") {
+            this.#closedByHub = false;
+            await fs.rm(this.#sessionFile(), { force: true });
+          }
+          throw error;
+        }
         this.#phase = "installing";
         this.#stageAt = this.#now();
         this.#idleSince = null;

@@ -79,6 +79,8 @@ async function fixture() {
   let now = 1000;
   let current = "26.1103.1.0";
   const preference: (boolean | null)[] = [];
+  // Like a real Desktop: running until a quit, running again once reopened.
+  let running = true;
   const driver: CodexUpdateDriver = {
     watchLease: vi.fn(async () => undefined),
     readAutoUpdate: vi.fn(async () => true),
@@ -91,10 +93,15 @@ async function fixture() {
     restoreCheckPreferences: vi.fn(async () => undefined),
     requestCheck: vi.fn(async () => undefined),
     downloadReady: vi.fn(async () => true),
-    quit: vi.fn(async () => undefined),
+    quit: vi.fn(async () => {
+      running = false;
+    }),
     installationStopped: vi.fn(async () => true),
-    isRunning: vi.fn(async () => false),
-    reopen: vi.fn(async () => true),
+    isRunning: vi.fn(async () => running),
+    reopen: vi.fn(async () => {
+      running = true;
+      return true;
+    }),
     healthy: vi.fn(async () => true),
   };
   const busy = vi.fn<() => Promise<boolean | null>>(async () => false);
@@ -708,8 +715,12 @@ it.each(["timeout", "disarm failure", "lost quit reply"])(
     const f = await fixture();
     await f.manager.check();
     f.advance(10);
+    // The quit went through (Codex is gone) but its reply was lost.
     if (failure === "lost quit reply")
-      vi.mocked(f.driver.quit).mockRejectedValueOnce(new Error("lost reply"));
+      vi.mocked(f.driver.quit).mockImplementationOnce(async () => {
+        vi.mocked(f.driver.isRunning).mockResolvedValue(false);
+        throw new Error("lost reply");
+      });
     await f.manager.tick();
     if (failure === "disarm failure") {
       f.install();
@@ -1392,6 +1403,57 @@ describe("review #3 fixes (synthetic commands only)", () => {
     });
     expect(await driver.installationStopped()).toBe(false);
     expect(JSON.stringify(exec.mock.calls)).not.toContain("path to application");
+  });
+
+  it("treats an empty lsappinfo answer as not running; only a failing lsappinfo uses the Launcher record", async () => {
+    const f = await fixture();
+    const diagnostics = path.join(f.environment.CODEXHOST_DATA_DIR, "diagnostics");
+    await fs.mkdir(diagnostics, { recursive: true });
+    await fs.writeFile(
+      path.join(diagnostics, "launcher-startup-v1.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        records: [
+          {
+            id: "1762700000000-4242",
+            pid: 4242,
+            launcherVersion: "0.11.40",
+            startedAtMs: 1762700000000,
+            finishedAtMs: 1762700000900,
+            outcome: "ready",
+            error: null,
+            stages: [],
+            desktop: {
+              version: "26.1103.1",
+              build: "2120",
+              installRoot: "/Applications/ChatGPT.app",
+            },
+          },
+        ],
+      }),
+    );
+    let lsappinfoFails = false;
+    const exec = vi.fn(async (file: string, args: string[]): Promise<string> => {
+      if (file === "/usr/bin/lsappinfo") {
+        if (lsappinfoFails) throw new Error("lsappinfo unavailable");
+        return "";
+      }
+      if (file === "/usr/bin/osascript") return args[1]?.includes(" to quit") ? "" : "true";
+      return "";
+    });
+    const driver = createMacCodexUpdateDriver({
+      environment: f.environment,
+      get: async () => response({}),
+      currentVersion: f.driver.currentVersion,
+      reopen: f.driver.reopen,
+      healthy: f.driver.healthy,
+      exec,
+    });
+    await expect(driver.quit()).rejects.toThrow("CODEX_INSTALLATION_UNAVAILABLE");
+    expect(exec.mock.calls.some(([, args]) => String(args).includes(" to quit"))).toBe(false);
+    lsappinfoFails = true;
+    await driver.quit();
+    expect(exec.mock.calls.some(([, args]) => String(args).includes(" to quit"))).toBe(true);
   });
 
   it("a complete background-check + install cycle never issues a launching query", async () => {
