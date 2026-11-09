@@ -1,5 +1,6 @@
 import {
   codexNativeUpdateControlAllowed,
+  codexNativeUpdateControlBlocker,
   acquireCodexUpdateControl,
 } from "../src/rly0-hub-service/codex-update-control.js";
 import { restoreCodexCheckPreferences } from "../src/rly0-hub-service/codex-check-preferences.js";
@@ -27,6 +28,12 @@ import {
   stagedSparkleUpdate,
 } from "../src/rly0-hub-service/codex-sparkle.js";
 import type { UpdateHttpGet } from "../src/rly0-hub-service/hub-update-net.js";
+import {
+  parseLsappinfoBundlePath,
+  readLauncherCodexBundle,
+} from "../src/rly0-hub-service/codex-bundle-location.js";
+import { createHubServiceShutdown } from "../src/rly0-hub-service/shutdown.js";
+import { EventEmitter } from "node:events";
 import { Rly0CodexControl } from "../src/rly0-hub-service/codex-control.js";
 
 const roots: string[] = [];
@@ -113,6 +120,19 @@ async function fixture() {
   };
 }
 
+/** Injected `ps -o lstart=` reader: no system command runs in tests. */
+const probe = { processStart: async () => "Mon Nov  9 20:00:00 2026" };
+/** Real `lsappinfo info -only bundlepath -app com.openai.codex` output shape (macOS 26, 2026-11-09). */
+function lsappinfoOutput(bundle: string) {
+  return [
+    "[ NULL ]  ASN:0x0-0xd10d1: (in front) ",
+    "    bundleID=[ NULL ] ",
+    `    bundle path="${bundle}"`,
+    "    executable path=[ NULL ] ",
+    " !cgsConnection !signalled type=[ NULL ]  flavor=[ NULL ]  Version=[ NULL ]  Arch=!!none ",
+    "",
+  ].join("\n");
+}
 describe("compatibility manifest (synthetic)", () => {
   it("accepts future fields/feature ids but rejects wrong known types", () => {
     expect(codexCompatManifestSchema.parse({ ...manifest, future: 1 }).verified).toHaveLength(1);
@@ -795,19 +815,26 @@ it.each([
   ],
 ])("scopes installer recovery to Codex processes: %s", async (processes, stopped) => {
   const f = await fixture();
+  const bundle = processes.includes("/Codex Renamed.app/")
+    ? "/Applications/Codex Renamed.app"
+    : processes.includes("/Codex.app/")
+      ? "/Applications/Codex.app"
+      : "/Applications/ChatGPT.app";
+  let quitSent = false;
   const exec = vi.fn(async (file: string, args: string[]) => {
+    if (file === "/usr/bin/lsappinfo") return quitSent ? "" : lsappinfoOutput(bundle);
     if (file === "/usr/bin/osascript") {
+      if (args[1]?.includes(" to quit")) {
+        quitSent = true;
+        return "";
+      }
       if (args[1]?.includes("is running"))
-        return /\/(?:Codex\.app\/Contents\/MacOS\/Codex|ChatGPT\.app\/Contents\/MacOS\/ChatGPT)$/u.test(
-          processes,
-        )
+        return !quitSent ||
+          /\/(?:Codex\.app\/Contents\/MacOS\/Codex|ChatGPT\.app\/Contents\/MacOS\/ChatGPT)$/u.test(
+            processes,
+          )
           ? "true"
           : "false";
-      return processes.includes("/Codex Renamed.app/")
-        ? "/Applications/Codex Renamed.app/"
-        : processes.includes("/Codex.app/")
-          ? "/Applications/Codex.app/"
-          : "/Applications/ChatGPT.app/";
     }
     return processes;
   });
@@ -819,7 +846,9 @@ it.each([
     healthy: f.driver.healthy,
     exec,
   });
+  await driver.quit();
   expect(await driver.installationStopped()).toBe(stopped);
+  expect(JSON.stringify(exec.mock.calls)).not.toContain("path to application");
   if (stopped) expect(exec).toHaveBeenCalledWith("/bin/ps", ["-axo", "args="]);
 });
 it("caches successful staging signatures, revalidates on quit, and invalidates changed identities", async () => {
@@ -1008,6 +1037,49 @@ it("allows production control only at the real default directory", () => {
   expect(codexNativeUpdateControlAllowed(env, "darwin", "/synthetic/real")).toBe(true);
   expect(codexNativeUpdateControlAllowed(env, "win32", "/synthetic/real")).toBe(false);
 });
+it("reports why native control is unmounted, separating development/opt-out from production environment", async () => {
+  const real = { HOME: "/synthetic/real", CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub" };
+  expect(codexNativeUpdateControlBlocker(real, "darwin", "/synthetic/real")).toBeNull();
+  expect(codexNativeUpdateControlBlocker(real, "win32", "/synthetic/real")).toBe("platform");
+  // The macOS shell's development mode injects RLY0_CODEX_UPDATE_CONTROL=0 with its own data dir.
+  expect(
+    codexNativeUpdateControlBlocker(
+      {
+        ...real,
+        RLY0_CODEX_UPDATE_CONTROL: "0",
+        CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub-macos-dev/data",
+      },
+      "darwin",
+      "/synthetic/real",
+    ),
+  ).toBe("control-disabled");
+  expect(
+    codexNativeUpdateControlBlocker({ ...real, NODE_ENV: "test" }, "darwin", "/synthetic/real"),
+  ).toBe("control-disabled");
+  // A production Hub whose data dir the person moved to an external volume.
+  expect(
+    codexNativeUpdateControlBlocker(
+      { ...real, CODEXHOST_DATA_DIR: "/Volumes/RLY0Dev/.rly0-hub" },
+      "darwin",
+      "/synthetic/real",
+    ),
+  ).toBe("environment");
+  const f = await fixture();
+  const unmounted = new CodexUpdateManager({
+    ...f.options,
+    driver: null,
+    unsupportedReason: "environment",
+  });
+  managers.push(unmounted);
+  expect(await unmounted.check()).toMatchObject({
+    supported: false,
+    unsupportedReason: "environment",
+  });
+  expect(f.manager.status()).not.toHaveProperty("unsupportedReason");
+  const mounted = new CodexUpdateManager({ ...f.options, unsupportedReason: "environment" });
+  managers.push(mounted);
+  expect(mounted.status()).not.toHaveProperty("unsupportedReason");
+});
 it("a damaged originalCheckPreferences preserves originalAutoUpdate and the selected management state", async () => {
   const f = await fixture();
   await f.state.update({
@@ -1077,16 +1149,16 @@ it("uses a replaceable idle driver for every quit check without changing the def
 });
 it("the native control lock prevents two Hubs sharing a directory from taking ownership", async () => {
   const f = await fixture();
-  const release = await acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR);
+  const release = await acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR, probe);
   try {
-    await expect(acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR)).rejects.toThrow(
-      "CODEX_UPDATE_OWNER_BUSY",
-    );
+    await expect(
+      acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR, probe),
+    ).rejects.toThrow("CODEX_UPDATE_OWNER_BUSY");
   } finally {
     await release();
   }
   await (
-    await acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR)
+    await acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR, probe)
   )();
 });
 it("preserves Sparkle's newer check date, restoring only Hub-written values", async () => {
@@ -1249,10 +1321,308 @@ it("reclaims an exited owner's native lock while admitting only one concurrent s
     JSON.stringify({ id: "synthetic-dead", pid: child.pid }),
   );
   const results = await Promise.allSettled([
-    acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR),
-    acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR),
+    acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR, probe),
+    acquireCodexUpdateControl(f.environment.CODEXHOST_DATA_DIR, probe),
   ]);
   expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
   expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
   for (const result of results) if (result.status === "fulfilled") await result.value();
+});
+
+describe("review #3 fixes (synthetic commands only)", () => {
+  it("parses both lsappinfo bundle path forms and rejects non-bundle output", () => {
+    expect(parseLsappinfoBundlePath(lsappinfoOutput("/Applications/ChatGPT.app"))).toBe(
+      "/Applications/ChatGPT.app",
+    );
+    expect(parseLsappinfoBundlePath('"LSBundlePath"="/Applications/Codex Renamed.app"\n')).toBe(
+      "/Applications/Codex Renamed.app",
+    );
+    expect(parseLsappinfoBundlePath("")).toBeNull();
+    expect(parseLsappinfoBundlePath('bundle path="relative/ChatGPT.app"')).toBeNull();
+    expect(parseLsappinfoBundlePath('bundle path="/Applications/ChatGPT"')).toBeNull();
+  });
+
+  it("falls back to the Launcher's newest recorded bundle, and refuses to quit without one", async () => {
+    const f = await fixture();
+    const exec = vi.fn(async (file: string, args: string[]): Promise<string> => {
+      if (file === "/usr/bin/lsappinfo") return ""; // lsappinfo prints nothing for no match
+      if (file === "/usr/bin/osascript") return args[1]?.includes(" to quit") ? "" : "false";
+      return "";
+    });
+    const driver = createMacCodexUpdateDriver({
+      environment: f.environment,
+      get: async () => response({}),
+      currentVersion: f.driver.currentVersion,
+      reopen: f.driver.reopen,
+      healthy: f.driver.healthy,
+      exec,
+    });
+    await expect(driver.quit()).rejects.toThrow("CODEX_INSTALLATION_UNAVAILABLE");
+    expect(exec.mock.calls.some(([file]) => file === "/usr/bin/osascript")).toBe(false);
+    await expect(driver.installationStopped()).rejects.toThrow("CODEX_INSTALLATION_UNAVAILABLE");
+    const diagnostics = path.join(f.environment.CODEXHOST_DATA_DIR, "diagnostics");
+    await fs.mkdir(diagnostics, { recursive: true });
+    const record = (startedAtMs: number, installRoot: string, version: string) => ({
+      id: `${startedAtMs}-4242`,
+      pid: 4242,
+      launcherVersion: "0.11.40",
+      startedAtMs,
+      finishedAtMs: startedAtMs + 900,
+      outcome: "ready",
+      error: null,
+      stages: [{ name: "desktop-discovered", elapsedMs: 120 }],
+      desktop: { version, build: "2120", installRoot },
+    });
+    await fs.writeFile(
+      path.join(diagnostics, "launcher-startup-v1.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        records: [
+          record(1762700000000, "/Applications/Codex Renamed.app", "26.1200.1"),
+          record(1762600000000, "/Applications/ChatGPT.app", "26.1103.1"),
+        ],
+      }),
+    );
+    expect(await readLauncherCodexBundle(f.environment)).toBe("/Applications/Codex Renamed.app");
+    exec.mockImplementation(async (file: string, args: string[]) => {
+      if (file === "/usr/bin/osascript") return args[1]?.includes(" to quit") ? "" : "false";
+      if (file === "/bin/ps")
+        return "/Applications/Codex Renamed.app/Contents/Frameworks/Sparkle.framework/Autoupdate";
+      return "";
+    });
+    expect(await driver.installationStopped()).toBe(false);
+    expect(JSON.stringify(exec.mock.calls)).not.toContain("path to application");
+  });
+
+  it("a complete background-check + install cycle never issues a launching query", async () => {
+    const f = await fixture();
+    await fs.mkdir(path.join(f.root, "Library/Application Support/com.openai.codex"), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(
+        f.root,
+        "Library/Application Support/com.openai.codex/production-appcast-bootstrap.json",
+      ),
+      JSON.stringify({ installationId: "synthetic-installation" }),
+    );
+    const xml =
+      '<rss><channel><item><title>26.1200.1</title><sparkle:version>2120</sparkle:version><sparkle:shortVersionString>26.1200.1</sparkle:shortVersionString><sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion><enclosure url="https://example.test/Codex-26.1200.1.zip" length="1" type="application/octet-stream"/></item></channel></rss>';
+    const staged = path.join(
+      f.root,
+      "Library/Caches/com.openai.codex/org.sparkle-project.Sparkle/Installation/synthetic/ChatGPT.app",
+    );
+    const prefs = new Map<string, string>([["SUAutomaticallyUpdate", "0"]]);
+    let running = true;
+    let installed = "26.1103.1.0";
+    let reopens = 0;
+    const exec = vi.fn(async (file: string, args: string[]) => {
+      if (file === "/usr/bin/defaults") {
+        const key = args[2] ?? "";
+        if (args[0] === "read") {
+          if (!prefs.has(key))
+            throw Object.assign(new Error("missing"), { stderr: "does not exist" });
+          return prefs.get(key) ?? "";
+        }
+        if (args[0] === "delete") prefs.delete(key);
+        if (args[0] === "write")
+          prefs.set(key, args[4] === "true" ? "1" : args[4] === "false" ? "0" : (args[4] ?? ""));
+        return "";
+      }
+      if (file === "/usr/bin/lsappinfo")
+        return running ? lsappinfoOutput("/Applications/ChatGPT.app") : "";
+      if (file === "/usr/bin/osascript") {
+        if (args[1]?.includes(" to quit")) {
+          running = false;
+          // Sparkle installs a staged update when the app quits with automatic installs on.
+          if (
+            prefs.get("SUAutomaticallyUpdate") === "1" &&
+            (await fs.stat(staged).catch(() => null))
+          )
+            installed = "26.1200.1.0";
+          return "";
+        }
+        return running ? "true" : "false";
+      }
+      if (file === "/bin/ps") return args[0] === "-o" ? "Mon Nov  9 20:00:00 2026" : "";
+      if (file === "/usr/bin/sw_vers") return "15.5";
+      if (file === "/usr/bin/plutil")
+        return args.includes("CFBundleIdentifier") ? "com.openai.codex" : "26.1200.1";
+      if (file === "/usr/bin/codesign") return "";
+      throw new Error(`unexpected command ${file}`);
+    });
+    const driver = createMacCodexUpdateDriver({
+      environment: f.environment,
+      get: async () => async () => ({
+        status: 200,
+        headers: {},
+        body: (async function* () {
+          yield Buffer.from(xml);
+        })(),
+        cancel() {},
+      }),
+      currentVersion: async () => installed,
+      reopen: async () => {
+        running = true;
+        reopens += 1;
+        // The first reopen runs Sparkle's scheduled background check, which stages the update.
+        if (reopens === 1) await fs.mkdir(staged, { recursive: true });
+        return true;
+      },
+      healthy: async () => true,
+      exec,
+      startWatchdog: async () => undefined,
+    });
+    const manager = new CodexUpdateManager({ ...f.options, driver });
+    managers.push(manager);
+    // The driver throttles failed staging probes by wall clock; advance it with the manager clock.
+    let wall = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => wall);
+    const phases: string[] = [];
+    try {
+      await manager.check();
+      for (let step = 0; step < 40 && manager.status().phase !== "up-to-date"; step++) {
+        f.advance(31_000);
+        wall += 31_000;
+        phases.push((await manager.tick()).phase);
+      }
+    } finally {
+      clock.mockRestore();
+    }
+    expect(manager.status()).toMatchObject({ phase: "up-to-date", error: null });
+    expect(installed).toBe("26.1200.1.0");
+    expect(phases).toContain("downloading");
+    expect(reopens).toBe(2);
+    const commands = exec.mock.calls.map(([file, args]) => `${file} ${args.join(" ")}`);
+    expect(commands.join("\n")).not.toContain("path to application");
+    for (const command of commands.filter((line) => line.includes("tell application")))
+      expect(command).toContain('if application id "com.openai.codex" is running then tell');
+    expect(commands.filter((line) => line.startsWith("/usr/bin/lsappinfo")).length).toBe(2);
+    expect(prefs.get("SUAutomaticallyUpdate")).toBe("0");
+  });
+
+  it("a late exit from an earlier lease's watchdog does not disarm the current lease", async () => {
+    const f = await fixture();
+    const exits: (() => void)[] = [];
+    vi.mocked(f.driver.watchLease).mockImplementation(async (_file, _id, onExit) => {
+      if (onExit) exits.push(onExit);
+    });
+    await backgroundRestart(f);
+    exits[0]?.(); // current lease's watchdog exits: re-arm with a new lease
+    await f.manager.tick();
+    expect(f.driver.watchLease).toHaveBeenCalledTimes(2);
+    const [first, second] = vi.mocked(f.driver.watchLease).mock.calls.map(([, id]) => id);
+    expect(first).not.toBe(second);
+    exits[0]?.(); // the old worker's duplicate/late exit
+    await f.manager.tick();
+    expect(f.driver.watchLease).toHaveBeenCalledTimes(2);
+    exits[1]?.();
+    await f.manager.tick();
+    expect(f.driver.watchLease).toHaveBeenCalledTimes(3);
+  });
+
+  it("treats a reused owner PID (different start time), EPERM and this PID with a foreign id as stale", async () => {
+    const f = await fixture();
+    const directory = f.environment.CODEXHOST_DATA_DIR;
+    const owner = path.join(directory, "codex-update-owner.json");
+    await fs.mkdir(directory, { recursive: true });
+    const write = (value: unknown) => fs.writeFile(owner, JSON.stringify(value));
+    const started = new Map<number, string>([
+      [4242, "Mon Nov  9 21:15:02 2026"],
+      [process.pid, "Mon Nov  9 21:30:00 2026"],
+    ]);
+    const alive = {
+      processStart: async (pid: number) => started.get(pid) ?? null,
+      signal: () => undefined,
+    };
+    // Same PID, recorded start time differs: the PID was reused.
+    await write({ id: "old-hub", pid: 4242, startedAt: "Mon Nov  9 08:00:00 2026" });
+    await (
+      await acquireCodexUpdateControl(directory, alive)
+    )();
+    // Same PID and same start time: still the owner.
+    await write({ id: "live-hub", pid: 4242, startedAt: "Mon Nov  9 21:15:02 2026" });
+    await expect(acquireCodexUpdateControl(directory, alive)).rejects.toThrow(
+      "CODEX_UPDATE_OWNER_BUSY",
+    );
+    // Unreadable start time is not proof of reuse.
+    await expect(
+      acquireCodexUpdateControl(directory, { ...alive, processStart: async () => null }),
+    ).rejects.toThrow("CODEX_UPDATE_OWNER_BUSY");
+    // A root process now owns the PID: EPERM is stale, not a permanent failure.
+    const eperm = {
+      ...alive,
+      signal: () => {
+        throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+      },
+    };
+    await (
+      await acquireCodexUpdateControl(directory, eperm)
+    )();
+    // This process's own PID with an id it does not hold came from an earlier process.
+    await write({ id: "previous-hub", pid: process.pid, startedAt: "Mon Nov  9 08:00:00 2026" });
+    const release = await acquireCodexUpdateControl(directory, alive);
+    expect(JSON.parse(await fs.readFile(owner, "utf8"))).toMatchObject({
+      pid: process.pid,
+      startedAt: "Mon Nov  9 21:30:00 2026",
+    });
+    // ...but an id this process holds is a live owner.
+    await expect(acquireCodexUpdateControl(directory, alive)).rejects.toThrow(
+      "CODEX_UPDATE_OWNER_BUSY",
+    );
+    await release();
+    await expect(fs.stat(owner)).rejects.toMatchObject({ code: "ENOENT" });
+    // Other probe failures still surface instead of evicting an owner.
+    await write({ id: "live-hub", pid: 4242, startedAt: "Mon Nov  9 21:15:02 2026" });
+    await expect(
+      acquireCodexUpdateControl(directory, {
+        ...alive,
+        signal: () => {
+          throw Object.assign(new Error("synthetic"), { code: "EINVAL" });
+        },
+      }),
+    ).rejects.toThrow("synthetic");
+  });
+
+  it("SIGTERM disposes the service once, releasing the native control lock before exit", async () => {
+    const f = await fixture();
+    const directory = f.environment.CODEXHOST_DATA_DIR;
+    const manager = new CodexUpdateManager({
+      ...f.options,
+      driver: { ...f.driver, acquireControl: () => acquireCodexUpdateControl(directory, probe) },
+    });
+    managers.push(manager);
+    await manager.check();
+    const owner = path.join(directory, "codex-update-owner.json");
+    expect(JSON.parse(await fs.readFile(owner, "utf8"))).toMatchObject({ pid: process.pid });
+    const signals = new EventEmitter();
+    const dispose = vi.fn(() => manager.stop());
+    const exited = new Promise<number>((resolve) => {
+      const shutdown = createHubServiceShutdown({
+        dispose,
+        exit: resolve,
+        signals: signals as unknown as Pick<NodeJS.Process, "once">,
+      });
+      signals.emit("SIGTERM");
+      void shutdown(); // stdin EOF racing the signal shares the same disposal
+    });
+    expect(await exited).toBe(0);
+    expect(dispose).toHaveBeenCalledOnce();
+    await expect(fs.stat(owner)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(signals.listenerCount("SIGINT")).toBe(1);
+  });
+
+  it("a stuck disposal still exits, with a failure code", async () => {
+    const signals = new EventEmitter();
+    const code = await new Promise<number>((resolve) => {
+      createHubServiceShutdown({
+        dispose: () => new Promise<void>(() => undefined),
+        exit: resolve,
+        signals: signals as unknown as Pick<NodeJS.Process, "once">,
+        timeoutMs: 20,
+      });
+      signals.emit("SIGINT");
+    });
+    expect(code).toBe(1);
+  });
 });

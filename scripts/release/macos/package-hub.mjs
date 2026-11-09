@@ -281,6 +281,7 @@ export async function packageMacHub(options) {
   await buildHubServiceBundle({
     repositoryRoot,
     outputPath: path.join(resources, "app", "hub-service.mjs"),
+    platform: "darwin",
   });
   await cp(
     path.join(repositoryRoot, "apps/hub-desktop/www"),
@@ -320,7 +321,7 @@ export async function packageMacHub(options) {
   if (launcherVersion.trim() !== version) {
     throw new Error(`bundled codexhost reports ${launcherVersion.trim()}, expected ${version}`);
   }
-  await auditHubServiceBundle(path.join(resources, "app"));
+  await auditHubServiceBundle(path.join(resources, "app"), "darwin");
   const hits = await findPrivatePaths(app);
   if (hits.length > 0) {
     throw new Error(`private paths in the package: ${JSON.stringify(hits.slice(0, 10))}`);

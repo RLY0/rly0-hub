@@ -113,6 +113,7 @@ it("builds audited service payload with a working independent watchdog (syntheti
       await buildHubServiceBundle({
         repositoryRoot: path.resolve(import.meta.dirname, "../.."),
         outputPath: path.join(directory, "hub-service.mjs"),
+        platform: "darwin",
       });
     }
     await auditHubServiceBundle(directory);

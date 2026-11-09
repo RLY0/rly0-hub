@@ -89,6 +89,7 @@ export async function prepareMacHubKit({ outputDirectory, root = repositoryRoot,
   await buildHubServiceBundle({
     repositoryRoot: root,
     outputPath: path.join(output, "payload/app/hub-service.mjs"),
+    platform: "darwin",
   });
   const manifest = {
     schemaVersion: 1,

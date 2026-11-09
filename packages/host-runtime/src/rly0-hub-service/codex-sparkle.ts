@@ -1,4 +1,5 @@
 import { restoreCodexCheckPreferences } from "./codex-check-preferences.js";
+import { parseLsappinfoBundlePath, readLauncherCodexBundle } from "./codex-bundle-location.js";
 import { createHash } from "node:crypto";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import {
@@ -225,8 +226,27 @@ export function createMacCodexUpdateDriver(options: {
     if (result !== "true" && result !== "false") throw new Error("CODEX_PROCESS_STATE_INVALID");
     return result === "true";
   };
+  let bundle: string | null = null;
+  const runningBundle = async () => {
+    try {
+      const found = parseLsappinfoBundlePath(
+        await exec("/usr/bin/lsappinfo", ["info", "-only", "bundlepath", "-app", domain]),
+      );
+      if (found) return found;
+    } catch {
+      /* Fall back to the Launcher's record of the inspected bundle. */
+    }
+    return readLauncherCodexBundle(options.environment);
+  };
   return {
-    acquireControl: () => acquireCodexUpdateControl(resolveRly0DataDir(options.environment)),
+    acquireControl: () =>
+      acquireCodexUpdateControl(resolveRly0DataDir(options.environment), {
+        processStart: (pid) =>
+          exec("/bin/ps", ["-o", "lstart=", "-p", String(pid)]).then(
+            (started) => started || null,
+            () => null,
+          ),
+      }),
     watchLease:
       options.startWatchdog ??
       ((file, id, exited) =>
@@ -326,20 +346,23 @@ export function createMacCodexUpdateDriver(options: {
       return ready;
     },
     async quit() {
-      await exec("/usr/bin/osascript", ["-e", 'tell application id "com.openai.codex" to quit']);
+      // Record the running bundle before quitting; after quit only non-launching sources remain.
+      const app = await runningBundle();
+      if (!app) throw new Error("CODEX_INSTALLATION_UNAVAILABLE");
+      bundle = app;
+      // The guard keeps a Desktop that already exited from being launched by the quit event.
+      await exec("/usr/bin/osascript", [
+        "-e",
+        'if application id "com.openai.codex" is running then tell application id "com.openai.codex" to quit',
+      ]);
     },
     isRunning,
     async installationStopped() {
       if (await isRunning()) return false;
-      // Resolve the registered bundle, not its marketing name or a fixed /Applications path.
-      const app = (
-        await exec("/usr/bin/osascript", [
-          "-e",
-          'POSIX path of (path to application id "com.openai.codex")',
-        ])
-      ).replace(/\/$/u, "");
-      if (!path.isAbsolute(app) || !app.endsWith(".app"))
-        throw new Error("CODEX_INSTALLATION_UNAVAILABLE");
+      // Resolve the bundle recorded while it ran (or by the Launcher), never by a query that
+      // can launch the application, such as AppleScript `path to application`.
+      const app = bundle ?? (await readLauncherCodexBundle(options.environment));
+      if (!app) throw new Error("CODEX_INSTALLATION_UNAVAILABLE");
       const processes = await exec("/bin/ps", ["-axo", "args="]);
       return !processes
         .split("\n")

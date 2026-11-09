@@ -18,6 +18,10 @@ import {
 } from "../../scripts/release/prepare-payload.mjs";
 import { releaseTarget } from "../../scripts/release/targets.mjs";
 import { preinstalledHarnessPluginPaths } from "../../scripts/release/harness-plugins.mjs";
+import {
+  auditHubServiceBundle,
+  buildHubServiceBundle,
+} from "../../packages/host-runtime/scripts/build-hub-service.mjs";
 
 async function temporaryDirectory() {
   return mkdtemp(path.join(os.tmpdir(), "codexhost-payload-"));
@@ -213,6 +217,42 @@ describe("release Payload", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+});
+
+describe("Hub service bundle per platform", () => {
+  it("a Windows build passes the Payload allowlist; the macOS-only watchdog would not", async () => {
+    const root = await temporaryDirectory();
+    const target = releaseTarget("windows-x64");
+    const repositoryRoot = path.resolve(import.meta.dirname, "../..");
+    try {
+      await createPayload(root, target);
+      const service = path.join(root, "app", "hub-service.mjs");
+      await rm(service);
+      // A stale macOS build output in the same directory is removed by the Windows build.
+      await writeFile(path.join(root, "app", "codex-update-watchdog.js"), "stale");
+      await buildHubServiceBundle({ repositoryRoot, outputPath: service, platform: "win32" });
+      await auditHubServiceBundle(path.join(root, "app"), "win32");
+      expect((await readFile(service, "utf8")).length).toBeGreaterThan(0);
+      // The real repository path also proves the bundle carries no source-tree reference.
+      expect(await validatePayload({ payloadRoot: root, target, root: repositoryRoot })).toEqual(
+        expectedPayloadPaths(target),
+      );
+      expect(expectedPayloadPaths(target)).not.toContain("app/codex-update-watchdog.js");
+
+      await buildHubServiceBundle({ repositoryRoot, outputPath: service, platform: "darwin" });
+      await expect(auditHubServiceBundle(path.join(root, "app"), "win32")).rejects.toThrow(
+        "macOS-only file: codex-update-watchdog.js",
+      );
+      await expect(
+        validatePayload({ payloadRoot: root, target, root: "/repo/source" }),
+      ).rejects.toThrow("non-allowlist files: app/codex-update-watchdog.js");
+      await expect(
+        buildHubServiceBundle({ repositoryRoot, outputPath: service, platform: "linux" }),
+      ).rejects.toThrow("unsupported platform");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
 
 describe("RLY/0 Hub window files", () => {

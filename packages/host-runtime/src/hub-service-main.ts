@@ -6,6 +6,7 @@ import {
 } from "./rly0-appearance/hub-autostart.js";
 import { killCodexProcesses } from "./rly0-hub-service/codex-processes.js";
 import { Rly0HubService } from "./rly0-hub-service/service.js";
+import { createHubServiceShutdown } from "./rly0-hub-service/shutdown.js";
 import { serveRly0HubStdio } from "./rly0-hub-service/stdio-server.js";
 
 const HUB_SERVICE_VERSION = "1";
@@ -24,10 +25,14 @@ async function main(): Promise<void> {
     },
     ...(autostartCommand ? { autostartCommand } : {}),
   });
+  const dispose = createHubServiceShutdown({
+    dispose: () => service.dispose(),
+    exit: (code) => process.exit(code),
+  });
   await service.start().catch(() => undefined);
   process.stdout.write(`${JSON.stringify({ event: "ready", version: HUB_SERVICE_VERSION })}\n`);
   await serveRly0HubStdio(service, process.stdin, process.stdout);
-  await service.dispose().catch(() => undefined);
+  await dispose();
 }
 
 main().then(

@@ -180,3 +180,31 @@ it("matches the Launcher's default ~/.codexhost/diagnostics location, ignoring t
     ),
   ).toBe("26.1200.1");
 });
+
+it("resolves a reused Launcher PID to the newest record (the Launcher inserts newest first)", async () => {
+  const { readLauncherCodexVersion } = await import("../src/codex-renderer-policy.js");
+  const f = await fixture();
+  const record = (id: string, startedAtMs: number, version: string, build: string) => ({
+    id,
+    pid: 4242,
+    launcherVersion: "0.11.40",
+    startedAtMs,
+    finishedAtMs: startedAtMs + 900,
+    outcome: "ready",
+    error: null,
+    stages: [{ name: "desktop-discovered", elapsedMs: 120 }],
+    desktop: { version, build, installRoot: "/Applications/ChatGPT.app" },
+  });
+  await fs.mkdir(path.join(f.root, "diagnostics"), { recursive: true });
+  await fs.writeFile(
+    path.join(f.root, "diagnostics", "launcher-startup-v1.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      records: [
+        record("1762700000000-4242", 1762700000000, "26.1200.1", "2120"),
+        record("1762600000000-4242", 1762600000000, "26.1103.1", "2010"),
+      ],
+    }),
+  );
+  expect(await readLauncherCodexVersion(f.environment, 4242)).toBe("26.1200.1");
+});

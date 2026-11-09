@@ -44,7 +44,7 @@ $ui = Join-Path $payload 'app/hub-ui'
 if (Test-Path -LiteralPath $ui) { Remove-Item -LiteralPath $ui -Recurse -Force }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'www') -Destination $ui -Recurse
 
-& node (Join-Path $repo 'packages/host-runtime/scripts/build-hub-service.mjs') --output (Join-Path $payload 'app/hub-service.mjs')
+& node (Join-Path $repo 'packages/host-runtime/scripts/build-hub-service.mjs') --output (Join-Path $payload 'app/hub-service.mjs') --platform win32
 if ($LASTEXITCODE -ne 0) { throw 'Hub service bundle failed' }
 $licenses = Join-Path $payload 'licenses'
 $null = New-Item -ItemType Directory -Path $licenses -Force

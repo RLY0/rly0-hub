@@ -1,4 +1,4 @@
-import { codexNativeUpdateControlAllowed } from "./codex-update-control.js";
+import { codexNativeUpdateControlBlocker } from "./codex-update-control.js";
 import { CodexCompatibilityCatalog } from "./codex-compat.js";
 import { CodexUpdateManager } from "./codex-update-manager.js";
 import { codexIdleFromBusyAndInput, macInputIdleMs } from "./codex-input-idle.js";
@@ -403,6 +403,10 @@ export class Rly0HubService {
     const currentVersion = () =>
       compatibility.installedVersion?.call(compatibility) ??
       compatibility.check().then((result) => result.desktopVersion);
+    const unsupportedReason = codexNativeUpdateControlBlocker(
+      environment,
+      options.platform ?? process.platform,
+    );
     this.#codexUpdates = new CodexUpdateManager({
       environment,
       state: this.#state,
@@ -411,7 +415,8 @@ export class Rly0HubService {
       busy: () => codexHeartbeatBusy(dataDirectory),
       // No task running AND keyboard/mouse untouched for five minutes (user decision 2026-11-09).
       idle: codexIdleFromBusyAndInput(() => codexHeartbeatBusy(dataDirectory), macInputIdleMs()),
-      driver: codexNativeUpdateControlAllowed(environment, options.platform ?? process.platform)
+      unsupportedReason,
+      driver: !unsupportedReason
         ? createMacCodexUpdateDriver({
             environment,
             currentVersion,

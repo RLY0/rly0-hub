@@ -58,6 +58,7 @@ export async function verifyValidationKit(root) {
     "hub/build-on-mac.sh",
     "hub/sources/Rly0Hub.swift",
     "hub/payload/app/hub-service.mjs",
+    "hub/payload/app/codex-update-watchdog.js",
   ]) {
     if (!seen.has(required)) throw new Error(`KIT_FILE_MISSING: ${required}`);
   }

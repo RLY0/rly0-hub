@@ -6,6 +6,7 @@ import { compareCodexVersions, type CodexUpdateSettings } from "@codexhost/share
 import type { CodexCompatibilityCatalog } from "./codex-compat.js";
 import type { Rly0HubStateStore } from "./hub-state.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
+import type { CodexUpdateUnsupportedReason } from "./codex-update-control.js";
 
 export interface CodexCheckPreferences {
   automaticChecks: boolean | null;
@@ -62,6 +63,8 @@ export interface CodexUpdateStatus {
   enabled: boolean;
   defaulted: boolean;
   supported: boolean;
+  /** Present only when supported=false and the reason is known. */
+  unsupportedReason?: CodexUpdateUnsupportedReason;
   noticePending: boolean;
   phase: CodexUpdatePhase;
   currentVersion: string | null;
@@ -123,6 +126,7 @@ export class CodexUpdateManager {
       state: Rly0HubStateStore;
       catalog: CodexCompatibilityCatalog;
       driver: CodexUpdateDriver | null;
+      unsupportedReason?: CodexUpdateUnsupportedReason | null;
       currentVersion?: () => Promise<string | null>;
       busy: () => Promise<boolean | null>;
       idle?: CodexIdleDriver;
@@ -210,10 +214,13 @@ export class CodexUpdateManager {
       this.#leaseId = randomUUID();
     }
     await this.#lease(); // Durable lease BEFORE opening the preference, not after it.
-    if (!this.#armed)
-      await driver.watchLease(this.#leaseFile(), this.#leaseId, () => {
-        this.#armed = false;
+    if (!this.#armed) {
+      const id = this.#leaseId;
+      // A late exit of an earlier lease's watchdog must not disarm the current lease.
+      await driver.watchLease(this.#leaseFile(), id, () => {
+        if (this.#leaseId === id) this.#armed = false;
       });
+    }
     this.#armed = true;
     this.#leaseTimer ??= setInterval(() => {
       if (!this.#armed || this.#renewing) return;
@@ -241,6 +248,9 @@ export class CodexUpdateManager {
       enabled: this.#settings.enabled,
       defaulted: this.#settings.defaulted,
       supported: this.options.driver !== null,
+      ...(this.options.driver === null && this.options.unsupportedReason
+        ? { unsupportedReason: this.options.unsupportedReason }
+        : {}),
       noticePending: this.#settings.defaulted && this.#settings.noticeAcknowledged !== true,
       phase: this.#phase,
       currentVersion: this.#current,

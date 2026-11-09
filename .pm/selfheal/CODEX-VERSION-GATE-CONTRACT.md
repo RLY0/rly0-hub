@@ -115,3 +115,16 @@ N5 未决：默认仍为连续 15 秒 fresh busy=false，不把它认定为最�
 
 ## v3.1（Claude，2026-11-09 20:30）：N5 用户定稿已接入
 “没在用 Codex”= 心跳 busy=false **且** 系统键盘鼠标空闲 ≥5 分钟（`ioreg -c IOHIDSystem` 的 HIDIdleTime）；任一读不到按“在用”。实现：`codex-input-idle.ts` 的 `codexIdleFromBusyAndInput`，由 service.ts 作为 `options.idle` 注入；manager 原有连续 15 秒复核仍叠加其上，退出前复查经同一驱动。界面：waiting-idle 显示“等你离开电脑 5 分钟后开始更新”；Mac 上 supported=false 显示“测试版 Hub 不管理 Codex 更新”，不再误称 Windows。
+
+## v3.2（Claude，2026-11-09）：第三轮复查修复
+
+基线 a937545e。复查报告 CODEX-VERSION-GATE-REVIEW-3.md 第 1、2、3、5、6 条已修，第 4 条只做后台原因字段。仅 self_verified（隔离离线测试），未经独立复查与真机验收。
+
+- **安装目录解析（#1）**：任何阶段不再使用会启动应用的查询（`path to application`、无保护的 `tell application`）。退出前 Codex 仍在运行时执行 `/usr/bin/lsappinfo info -only bundlepath -app com.openai.codex`，同时解析 `"LSBundlePath"="…"` 与 `bundle path="…"`（本机 2026-11-09 只读实测为后者）；取不到时后备 `<CODEXHOST_DATA_DIR 或 ~/.codexhost>/diagnostics/launcher-startup-v1.json` 中最新一条 `desktop.installRoot`（`.app` 绝对路径）。两者都没有则不退出，报 CODEX_UPDATE_CHECK_FAILED。Hub 重启后的恢复只能用 Launcher 记录。quit 改为 `if application id "com.openai.codex" is running then tell … to quit`，Codex 已退出时不会被拉起。
+- **watchdog 打包（#2）**：`buildHubServiceBundle` / `auditHubServiceBundle` 增加平台参数（darwin|win32，命令行 `--platform` 必填）；只在 darwin 产出 `app/codex-update-watchdog.js`，win32 构建删除同目录残留并在审计时拒绝它。Windows `build.ps1` 显式传 `--platform win32`；Mac 开发包与正式包传 darwin。Mac 验证包 `verify-kit.mjs` 必备清单加入 watchdog。Windows 载荷白名单未改。
+- **停服务与控制锁（#3）**：服务入口处理 SIGTERM/SIGINT，与 stdin 关闭共用同一次 `dispose`（停 manager、释放 `codex-update-owner.json`）后退出 0；释放卡住 10 秒退出 1。owner 记录新增可选 `startedAt`（`ps -o lstart=` 原文，经驱动注入的 exec 读取）。判定已失效：kill(pid,0) 得 ESRCH 或 EPERM；记录的 startedAt 与该 pid 当前启动时间不同；pid 等于本进程但 id 不是本进程持有的锁。读不到启动时间时按仍存活处理；其他探测错误照常抛出。
+- **watchdog 退出回调（#5）**：回调绑定启动它的租约 id，只有该 id 仍是当前租约时才清除 armed。
+- **渲染策略记录（#6）**：按父 pid 找 Launcher 记录时取数组中第一条（Launcher 新记录插在最前），pid 复用时得到最新记录。
+- **不支持原因（#4 后台部分）**：status 在 supported=false 且原因已知时带可选 `unsupportedReason`：`platform`（非 macOS）、`control-disabled`（开发/测试模式或显式 `RLY0_CODEX_UPDATE_CONTROL=0`；macOS 开发壳注入此变量，因此与用户手动关闭无法区分）、`environment`（正式 Hub 但 HOME 或数据目录不是登录用户默认位置，如数据目录改到外接盘）。supported=true 时不出现该字段。RPC 方法、phase、错误码不变。“环境由允许变不允许后之前写入的 false 不恢复”未处理，界面文案交 Claude 界面工作另做（本轮未改 apps/hub-desktop/www）。
+
+仍需真机：lsappinfo 在 Codex 退出过程中的输出、Launcher 记录在真实安装上是否为 `.app` 路径、正式包 SIGTERM 后锁文件确实删除、Windows 实际 `build.ps1` 打包、第 7 条各项（appcast 是否有缺 shortVersionString 条目、锁屏/睡眠下 HIDIdleTime、Deskflow、Sparkle 2 安装进程命令行形态）。

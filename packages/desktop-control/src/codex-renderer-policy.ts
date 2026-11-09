@@ -22,7 +22,8 @@ export async function readLauncherCodexVersion(
     if (bytes.length > 256 * 1024) return null;
     const raw = JSON.parse(bytes.toString("utf8"));
     if (raw.schemaVersion !== 1 || !Array.isArray(raw.records)) return null;
-    const record = [...raw.records].reverse().find((record) => record.pid === parentPid);
+    // The Launcher inserts newest first; a reused PID must resolve to the newest record.
+    const record = raw.records.find((record: { pid?: unknown }) => record.pid === parentPid);
     const version: unknown = record?.desktop?.version;
     return typeof version === "string" && /^\d+(?:\.\d+)+$/u.test(version) ? version : null;
   } catch {
