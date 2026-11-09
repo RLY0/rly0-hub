@@ -1,3 +1,4 @@
+import { recordRendererFeatureFailure } from "./renderer-feature-failures.js";
 import {
   CdpClient,
   CdpConnectionClosedError,
@@ -264,13 +265,17 @@ async function removeRendererScript(renderer: RendererCdpClient, scriptId?: stri
       .command("Page.removeScriptToEvaluateOnNewDocument", { identifier: scriptId })
       .catch(() => undefined);
 }
-async function disposeRendererOwners(renderer: RendererCdpClient): Promise<void> {
+export async function disposeRendererOwners(renderer: RendererCdpClient): Promise<void> {
   await renderer
     .evaluate(
       `(() => {
-    const owners = [window.__codexhostRendererBindingProbeV1, window.__codexhostRpcSteeringV1, window.__codexhostHostRoutingV1];
-    for (const owner of owners) { try { if (owner?.release) owner.release(); else owner?.dispose(); } catch {} }
-    delete window.__codexhostRendererBindingProbeV1;
+    const keys = ['__codexhostRendererBindingProbeV1', '__codexhostRpcSteeringV1', '__codexhostNativeRpcRemoteControlV1', '__codexhostHostRoutingV1', '__codexhostDraftPrewarmPolicyV1'];
+    for (const key of keys) {
+      const owner = window[key];
+      try { if (owner?.release) owner.release(); else owner?.dispose(); } catch {}
+      delete window[key];
+    }
+    delete window.__codexhostNativeRpcDiscoveryV1;
     return true;
   })()`,
     )
@@ -428,6 +433,18 @@ class InstalledRendererCdpControlSession implements RendererCdpControlSession {
   }
 }
 
+export async function installOptionalRendererFeature(
+  renderer: RendererCdpClient,
+  feature: "native-rpc" | "rpc-steering",
+  install: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await install();
+  } catch {
+    await recordRendererFeatureFailure(renderer, feature);
+  }
+}
+
 const defaultOperations: RendererCdpControlOperations = {
   listTargets: (endpoint, signal) => listCdpTargets(endpoint, fetch, signal),
   connect: (webSocketDebuggerUrl) => CdpClient.connect(webSocketDebuggerUrl),
@@ -436,20 +453,14 @@ const defaultOperations: RendererCdpControlOperations = {
     const disabled = await renderer.evaluate<string[]>(
       "globalThis.__codexhostFeaturePolicyV1?.disabled ?? []",
     );
-    if (!disabled.includes("native-rpc")) {
-      try {
-        await installNativeRpcRemoteControlDirect(renderer);
-      } catch {
-        /* Isolated optional feature. */
-      }
-    }
-    if (!disabled.includes("rpc-steering") && !disabled.includes("native-rpc")) {
-      try {
-        await installRendererRpcSteeringDirect(renderer);
-      } catch {
-        /* Isolated optional feature. */
-      }
-    }
+    if (!disabled.includes("native-rpc"))
+      await installOptionalRendererFeature(renderer, "native-rpc", () =>
+        installNativeRpcRemoteControlDirect(renderer),
+      );
+    if (!disabled.includes("rpc-steering") && !disabled.includes("native-rpc"))
+      await installOptionalRendererFeature(renderer, "rpc-steering", () =>
+        installRendererRpcSteeringDirect(renderer),
+      );
     return status;
   },
 };

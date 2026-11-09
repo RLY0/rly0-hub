@@ -1,0 +1,14 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> codexhost@0.11.39 test:e2e
+> playwright test --config tests/e2e/playwright.config.js renderer-version-gate.spec.ts --browser=webkit
+
+
+Running 1 test using 1 worker
+
+(node:48147) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [webkit] › tests/e2e/renderer-version-gate.spec.ts:23:1 › synthetic DOM: remote disable skips optional installers while remaining binding survives (700ms)
+
+  1 passed (2.0s)
+[runner] exit_code=0

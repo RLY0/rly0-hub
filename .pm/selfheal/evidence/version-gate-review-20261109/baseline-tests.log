@@ -1,0 +1,10 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+ RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109
+
+
+ Test Files  7 passed (7)
+      Tests  105 passed (105)
+   Start at  15:30:17
+   Duration  3.61s (transform 1.42s, setup 0ms, import 2.16s, tests 2.99s, environment 0ms)
+[runner] exit_code=0

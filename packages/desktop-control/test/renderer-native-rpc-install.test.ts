@@ -135,3 +135,14 @@ it("does not propagate an initial CDP evaluation failure or prevent a later prob
   expect(evaluate).toHaveBeenCalledTimes(2);
   expect(command).not.toHaveBeenCalled();
 });
+
+it("records an unavailable native install but does not label a deduplicated ready probe as failed", async () => {
+  const f = retryFixture();
+  await installNativeRpcRemoteControlDirect(f.renderer);
+  expect(f.target.__codexhostFeatureFailuresV1).toEqual(["native-rpc"]);
+  const ready = retryFixture();
+  ready.discovery.mockResolvedValue(true);
+  await installNativeRpcRemoteControlDirect(ready.renderer);
+  await installNativeRpcRemoteControlDirect(ready.renderer);
+  expect(ready.target.__codexhostFeatureFailuresV1).toBeUndefined();
+});

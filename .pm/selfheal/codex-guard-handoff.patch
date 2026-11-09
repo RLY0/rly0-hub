@@ -1,18 +1,32 @@
 --- a/tools/selfheal/codex_guard.py
 +++ b/tools/selfheal/codex_guard.py
-@@ -11,2 +11,3 @@
+@@ -11,2 +11,4 @@
  import json
 +import os
++import time
  import subprocess
-@@ -23,2 +24,11 @@
+@@ -23,2 +25,24 @@
  def main():
-+    # Hub owns this preference after the user opted into (or kept the default) management.
++    # While managed, legacy compatibility data must never independently enable updates.
 +    hub_data = Path(os.environ.get('CODEXHOST_DATA_DIR', str(Path.home() / '.rly0-hub')))
 +    try:
 +        hub = json.loads((hub_data / 'hub-desktop.json').read_text())
 +    except (OSError, ValueError):
 +        hub = {}
 +    if hub.get('codexUpdates', {}).get('enabled') is True:
-+        print(json.dumps({'status': 'managed_by_hub'}))
++        armed = False
++        try:
++            lease = json.loads((hub_data / 'codex-update-armed.json').read_text())
++            pid, at = lease.get('pid'), lease.get('at')
++            age = time.time() * 1000 - at
++            if type(pid) is int and pid > 0 and type(at) in (int, float) and 0 <= age <= 60000:
++                os.kill(pid, 0)
++                armed = True
++        except (OSError, ValueError, TypeError):
++            pass
++        if not armed:
++            subprocess.run(['/usr/bin/defaults', 'write', 'com.openai.codex',
++                            'SUAutomaticallyUpdate', '-bool', 'false'], check=True)
++        print(json.dumps({'status': 'managed_by_hub', 'armed': armed}))
 +        return 0
      state_file = STATE / 'nightly-state.json'

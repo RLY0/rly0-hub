@@ -1,4 +1,5 @@
-import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { execFile, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,6 +22,7 @@ export async function latestCodexAppcast(options: {
   current: string;
   get: UpdateHttpGet;
   arch?: string;
+  onVersions?: (versions: string[]) => void;
 }): Promise<string> {
   const home = options.environment.HOME ?? os.homedir();
   const bootstrap: unknown = JSON.parse(
@@ -57,7 +59,9 @@ export async function latestCodexAppcast(options: {
       if (size > 1024 * 1024) throw new Error("CODEX_APPCAST_FAILED");
       chunks.push(Buffer.from(chunk));
     }
-    const latest = parseCodexAppcast(Buffer.concat(chunks).toString("utf8"))[0];
+    const versions = parseCodexAppcast(Buffer.concat(chunks).toString("utf8"));
+    options.onVersions?.(versions);
+    const latest = versions[0];
     if (!latest) throw new Error("CODEX_APPCAST_FAILED");
     return latest;
   } finally {
@@ -77,7 +81,11 @@ function nativeExec(environment: NodeJS.ProcessEnv): SparkleExec {
       execFile(
         file,
         args,
-        { env: environment, timeout: 15_000, maxBuffer: 256 * 1024 },
+        {
+          env: environment,
+          timeout: file === "/usr/bin/codesign" ? 120_000 : 15_000,
+          maxBuffer: 256 * 1024,
+        },
         (error, stdout, stderr) => {
           if (error) reject(Object.assign(new Error("CODEX_NATIVE_COMMAND_FAILED"), { stderr }));
           else resolve(stdout.trim());
@@ -90,6 +98,7 @@ export async function stagedSparkleUpdate(
   home: string,
   version: string,
   exec: SparkleExec,
+  cache?: Map<string, string>,
 ): Promise<boolean> {
   const root = path.join(
     home,
@@ -110,16 +119,27 @@ export async function stagedSparkleUpdate(
             "com.openai.codex"
           )
             continue;
-          if (
-            (await exec("/usr/bin/plutil", [
-              "-extract",
-              "CFBundleShortVersionString",
-              "raw",
-              plist,
-            ])) !== version
-          )
-            continue;
-          await exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", child]);
+          const stagedVersion = await exec("/usr/bin/plutil", [
+            "-extract",
+            "CFBundleShortVersionString",
+            "raw",
+            plist,
+          ]);
+          if (compareCodexVersions(stagedVersion, version) !== 0) continue;
+          const stat = await fs.stat(child);
+          const info = await fs.stat(plist).catch(() => null);
+          const fingerprint = JSON.stringify([
+            stat.dev,
+            stat.ino,
+            stat.mtimeMs,
+            info?.mtimeMs,
+            info?.size,
+            stagedVersion,
+          ]);
+          if (cache?.get(child) !== fingerprint) {
+            await exec("/usr/bin/codesign", ["--verify", "--deep", "--strict", child]);
+            cache?.set(child, fingerprint);
+          }
           return true;
         } catch {
           /* Incomplete staging is not readiness. */
@@ -137,66 +157,142 @@ export function createMacCodexUpdateDriver(options: {
   reopen: () => Promise<boolean>;
   healthy: () => Promise<boolean>;
   exec?: SparkleExec;
+  startWatchdog?: (file: string, id: string) => Promise<void>;
 }): CodexUpdateDriver {
   const exec = options.exec ?? nativeExec(options.environment);
-  const defaults = ["com.openai.codex", "SUAutomaticallyUpdate"];
-  return {
-    async readAutoUpdate() {
+  const domain = "com.openai.codex";
+  const cache = new Map<string, string>();
+  let versions: string[] = [];
+  const lastFailedProbes = new Map<string, number>();
+  const read = async (key: string): Promise<string | null> => {
+    try {
+      return await exec("/usr/bin/defaults", ["read", domain, key]);
+    } catch (error) {
+      if (/does not exist/u.test(String((error as { stderr?: unknown }).stderr))) return null;
+      throw error;
+    }
+  };
+  const readBoolean = async (key: string) => {
+    const value = await read(key);
+    if (value === null) return null;
+    if (value !== "0" && value !== "1") throw new Error("CODEX_PREFERENCES_FAILED");
+    return value === "1";
+  };
+  const write = async (key: string, value: string | boolean | null) => {
+    if (value === null) {
       try {
-        const value = await exec("/usr/bin/defaults", ["read", ...defaults]);
-        if (value !== "0" && value !== "1") throw new Error("CODEX_PREFERENCES_FAILED");
-        return value === "1";
+        await exec("/usr/bin/defaults", ["delete", domain, key]);
       } catch (error) {
-        const stderr = (error as { stderr?: unknown }).stderr;
-        if (typeof stderr === "string" && /does not exist/u.test(stderr)) return null;
-        throw error;
+        if (!/does not exist/u.test(String((error as { stderr?: unknown }).stderr))) throw error;
       }
+    } else
+      await exec("/usr/bin/defaults", [
+        "write",
+        domain,
+        key,
+        typeof value === "boolean" ? "-bool" : "-date",
+        String(value),
+      ]);
+  };
+  return {
+    watchLease:
+      options.startWatchdog ??
+      ((file, id) =>
+        new Promise<void>((resolve, reject) => {
+          if (process.env.VITEST || process.env.NODE_ENV === "test") {
+            reject(new Error("CODEX_UPDATER_TEST_ISOLATION"));
+            return;
+          }
+          const child = spawn(
+            process.execPath,
+            [fileURLToPath(new URL("./codex-update-watchdog.js", import.meta.url)), file, id],
+            {
+              env: options.environment,
+              detached: true,
+              stdio: ["ignore", "ignore", "ignore", "ipc"],
+            },
+          );
+          const timer = setTimeout(() => {
+            if (child.connected) child.disconnect();
+            child.unref();
+            reject(new Error("CODEX_WATCHDOG_UNAVAILABLE"));
+          }, 10_000);
+          child.once("error", () => {
+            clearTimeout(timer);
+            reject(new Error("CODEX_WATCHDOG_UNAVAILABLE"));
+          });
+          child.once("exit", () => {
+            clearTimeout(timer);
+            reject(new Error("CODEX_WATCHDOG_UNAVAILABLE"));
+          });
+          child.once("message", (message) => {
+            if (
+              typeof message === "object" &&
+              message !== null &&
+              "ready" in message &&
+              message.ready === true
+            ) {
+              clearTimeout(timer);
+              child.unref();
+              resolve();
+            }
+          });
+        })),
+    readAutoUpdate: () => readBoolean("SUAutomaticallyUpdate"),
+    writeAutoUpdate: (value) => write("SUAutomaticallyUpdate", value),
+    async readCheckPreferences() {
+      return {
+        automaticChecks: await readBoolean("SUEnableAutomaticChecks"),
+        lastCheckTime: await read("SULastCheckTime"),
+      };
     },
-    async writeAutoUpdate(value) {
-      if (value === null) {
-        // Deleting an already absent key is idempotent; other errors must remain visible.
-        try {
-          await exec("/usr/bin/defaults", ["delete", ...defaults]);
-        } catch (error) {
-          if (!/does not exist/u.test(String((error as { stderr?: unknown }).stderr))) throw error;
-        }
-      } else await exec("/usr/bin/defaults", ["write", ...defaults, "-bool", String(value)]);
+    async restoreCheckPreferences(value) {
+      await write("SUEnableAutomaticChecks", value.automaticChecks);
+      await write("SULastCheckTime", value.lastCheckTime);
     },
     currentVersion: options.currentVersion,
     latestVersion: async (current) =>
-      latestCodexAppcast({ environment: options.environment, current, get: await options.get() }),
+      latestCodexAppcast({
+        environment: options.environment,
+        current,
+        get: await options.get(),
+        onVersions: (offered) => {
+          versions = offered;
+        },
+      }),
+    availableVersions: async () => versions,
     async requestCheck() {
-      // Codex has no documented update CLI. Invoke its real menu command, without fake arguments.
-      // Missing menu / Accessibility permission is an explicit failure; no force launch fallback.
-      await exec("/usr/bin/osascript", [
-        "-e",
-        `tell application "System Events"
-set apps to every application process whose bundle identifier is "com.openai.codex"
-if (count of apps) is not 1 then error "Codex not running"
-tell item 1 of apps
-set candidates to every menu item of menu 1 of menu bar item 1 of menu bar 1 whose name contains "Check for Updates"
-if (count of candidates) is 0 then set candidates to every menu item of menu 1 of menu bar item 1 of menu bar 1 whose name contains "检查更新"
-if (count of candidates) is not 1 then error "Codex update command unavailable"
-click item 1 of candidates
-end tell
-end tell`,
-      ]);
+      // Sparkle's documented scheduled-check path. No menu/foreground check, fake
+      // launch argument or App bundle edit. Manager waits idle, then quits/reopens.
+      await write("SUEnableAutomaticChecks", true);
+      await write("SULastCheckTime", null);
     },
-    downloadReady: (version) =>
-      stagedSparkleUpdate(options.environment.HOME ?? os.homedir(), version, exec),
+    async downloadReady(version, revalidate = false) {
+      if (revalidate) cache.clear();
+      if (!revalidate && Date.now() - (lastFailedProbes.get(version) ?? -Infinity) < 30_000)
+        return false;
+      const ready = await stagedSparkleUpdate(
+        options.environment.HOME ?? os.homedir(),
+        version,
+        exec,
+        cache,
+      );
+      if (!ready) lastFailedProbes.set(version, Date.now());
+      return ready;
+    },
     async quit() {
       await exec("/usr/bin/osascript", ["-e", 'tell application id "com.openai.codex" to quit']);
     },
+    async isRunning() {
+      return /(?:^|\n)[^\n]*\/Codex\.app\/Contents\/MacOS\/Codex(?:\s|$)/u.test(
+        await exec("/bin/ps", ["-axo", "args="]),
+      );
+    },
     async installationStopped() {
       const processes = await exec("/bin/ps", ["-axo", "args="]);
-      if (
-        /(?:^|\n).*\/(?:ChatGPT|Codex)\.app\/Contents\/MacOS\/(?:ChatGPT|Codex)(?:\s|$)/u.test(
-          processes,
-        )
-      )
-        return false;
-      // A different Sparkle installer may delay recovery; never reopen during an installer.
-      return !/(?:^|\n).*\/(?:Autoupdate|Updater\.app\/Contents\/MacOS\/Updater)(?:\s|$)/u.test(
+      if (/(?:^|\n).*\/Codex\.app\/Contents\/MacOS\/Codex(?:\s|$)/u.test(processes)) return false;
+      // Only this bundle's installer blocks recovery; another app's updater is unrelated.
+      return !/(?:^|\n)[^\n]*(?:\/Codex\.app\/Contents\/[^\n]*\/(?:Autoupdate|Updater\.app\/Contents\/MacOS\/Updater)|\/com\.openai\.codex\/org\.sparkle-project\.Sparkle\/[^\n]*\/(?:Autoupdate|Updater\.app\/Contents\/MacOS\/Updater))(?:\s|$)/u.test(
         processes,
       );
     },

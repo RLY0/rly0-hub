@@ -1,0 +1,11 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> codexhost@0.11.39 lint
+> eslint . && node tools/check-boundaries.mjs
+
+
+/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109/packages/host-runtime/test/rly0-hub-promo.test.ts
+  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+✖ 1 problem (1 error, 0 warnings)
+[runner] exit_code=1

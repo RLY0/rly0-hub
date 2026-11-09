@@ -1,6 +1,6 @@
 export const STATUS_SCHEMA_VERSION = 1;
-export const SEMVER_PATTERN =
-  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+import { SEMVER_PATTERN } from "@codexhost/shared-contracts";
+export { SEMVER_PATTERN } from "@codexhost/shared-contracts";
 
 export type BackgroundUpdateInstallation = "npm" | "windows-installer" | "macos-dmg";
 export type BackgroundUpdatePhase =

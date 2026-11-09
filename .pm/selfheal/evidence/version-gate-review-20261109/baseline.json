@@ -1,0 +1,19 @@
+{
+  "head": "2d795e9c33d33992b911c4374924bb41ba840dcc",
+  "working_tree": "clean before edits",
+  "typecheck": {
+    "exit_code": 2,
+    "existing_error": "packages/host-runtime/test/rly0-codex-updates-ui.test.ts:134 TS2349 onclick is not callable"
+  },
+  "lint": {
+    "exit_code": 1,
+    "existing_error": "packages/host-runtime/test/rly0-hub-promo.test.ts:11 forbidden non-null assertion"
+  },
+  "focused": {
+    "exit_code": 0,
+    "files": 7,
+    "passed": 105
+  },
+  "node": "v24.22.2",
+  "npm": "11.19.1"
+}

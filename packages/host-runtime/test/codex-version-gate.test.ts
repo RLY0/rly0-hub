@@ -67,16 +67,20 @@ async function fixture() {
   let current = "26.1103.1.0";
   const preference: (boolean | null)[] = [];
   const driver: CodexUpdateDriver = {
+    watchLease: vi.fn(async () => undefined),
     readAutoUpdate: vi.fn(async () => true),
     writeAutoUpdate: vi.fn(async (value) => {
       preference.push(value);
     }),
     currentVersion: vi.fn(async () => current),
     latestVersion: vi.fn(async () => "26.1200.1.0"),
+    readCheckPreferences: vi.fn(async () => ({ automaticChecks: null, lastCheckTime: null })),
+    restoreCheckPreferences: vi.fn(async () => undefined),
     requestCheck: vi.fn(async () => undefined),
     downloadReady: vi.fn(async () => true),
     quit: vi.fn(async () => undefined),
     installationStopped: vi.fn(async () => true),
+    isRunning: vi.fn(async () => false),
     reopen: vi.fn(async () => true),
     healthy: vi.fn(async () => true),
   };
@@ -201,7 +205,7 @@ describe("managed Codex updates (synthetic driver, never OS defaults)", () => {
     async (original) => {
       const f = await fixture();
       vi.mocked(f.driver.readAutoUpdate).mockResolvedValue(original);
-      expect((await f.manager.check()).phase).toBe("downloading");
+      expect((await f.manager.check()).phase).toBe("waiting-idle");
       expect(f.preference[0]).toBe(false);
       expect(await f.state.read()).toMatchObject({
         codexUpdates: { defaulted: true, enabled: true, originalAutoUpdate: original },
@@ -258,26 +262,20 @@ describe("managed Codex updates (synthetic driver, never OS defaults)", () => {
     expect(f.preference.at(-1)).toBe(false);
     expect((await f.manager.tick()).phase).toBe("up-to-date");
   });
-  it("disarms on native command failure, timeout and an appcast target change without quitting", async () => {
+  it("disarms an appcast target change without quitting", async () => {
     const f = await fixture();
-    vi.mocked(f.driver.requestCheck).mockRejectedValueOnce(new Error("permission denied"));
-    expect((await f.manager.check()).error).toBe("CODEX_UPDATE_CHECK_FAILED");
-    expect(f.preference.at(-1)).toBe(false);
     await f.manager.check();
-    f.advance(31 * 60_000);
-    expect((await f.manager.tick()).error).toBe("CODEX_DOWNLOAD_TIMEOUT");
-    await f.manager.check();
-    await f.manager.tick();
     f.advance(10);
     vi.mocked(f.driver.latestVersion).mockResolvedValueOnce("26.1300.1");
     expect((await f.manager.tick()).error).toBe("CODEX_UPDATE_TARGET_CHANGED");
+    expect(f.preference.at(-1)).toBe(false);
     expect(f.driver.quit).not.toHaveBeenCalled();
   });
   it("serializes concurrent initialization and retains the original after interrupted release", async () => {
     const f = await fixture();
     await Promise.all([f.manager.check(), f.manager.check()]);
     expect(f.driver.readAutoUpdate).toHaveBeenCalledTimes(1);
-    expect(f.driver.requestCheck).toHaveBeenCalledTimes(1);
+    expect(f.driver.requestCheck).not.toHaveBeenCalled();
     const restarted = new CodexUpdateManager(f.options);
     managers.push(restarted);
     await restarted.check();
@@ -450,11 +448,11 @@ it("recovers a completed install after Hub interruption without reissuing native
   f.advance(10);
   expect((await f.manager.tick()).phase).toBe("installing");
   f.install();
-  await f.manager.stop();
+  // Synthetic abrupt interruption: do not call stop(), which deliberately recovers.
   const restarted = new CodexUpdateManager(f.options);
   managers.push(restarted);
   expect((await restarted.check()).phase).toBe("health-check");
-  expect(f.driver.requestCheck).toHaveBeenCalledOnce();
+  expect(f.driver.requestCheck).not.toHaveBeenCalled();
   expect(f.driver.reopen).toHaveBeenCalledOnce();
   expect(f.preference.at(-1)).toBe(false);
 });
@@ -502,4 +500,432 @@ it("unsupported restart never submits a partial quit to the running Launcher", a
   });
   expect(await codex.restart()).toEqual({ ok: false });
   await expect(fs.access(path.join(directory, "desktop-control-request.json"))).rejects.toThrow();
+});
+
+// Independent-review regressions. All processes and preferences below are synthetic.
+it.each(["0.11.40-.", "1.0.0-a..b", "1.0.0+."])(
+  "rejects comparison-invalid manifest version %s before caching",
+  async (minHub) => {
+    const f = await fixture();
+    await f.catalog.refresh();
+    const catalog = new CodexCompatibilityCatalog({
+      environment: f.environment,
+      installRoot: f.root,
+      hubVersion: "0.11.40",
+      get: async () => response({ ...manifest, verified: [{ family: "26.1200", minHub }] }),
+    });
+    await catalog.refresh();
+    expect(catalog.status().error).toBe("COMPAT_INVALID");
+    expect(catalog.verified("26.1200.1")).toBe(true);
+    expect(JSON.parse(await fs.readFile(catalog.file, "utf8"))).toEqual(manifest);
+  },
+);
+it("comparison exceptions cannot escape status or check and never widen compatibility", async () => {
+  const f = await fixture();
+  expect(
+    codexVersionVerified("26.1200.1", "bad", codexCompatManifestSchema.parse(manifest), () => {
+      throw new Error("bad");
+    }),
+  ).toBe(false);
+  vi.spyOn(f.catalog, "refresh").mockRejectedValueOnce(new Error("unexpected failure"));
+  expect((await f.manager.check()).error).toBe("CODEX_UPDATE_CHECK_FAILED");
+  expect(() => f.manager.status()).not.toThrow();
+});
+it("invalid persisted manifests are discarded instead of repeatedly crashing startup", async () => {
+  const f = await fixture();
+  await fs.mkdir(path.dirname(f.catalog.file), { recursive: true });
+  await fs.writeFile(
+    f.catalog.file,
+    JSON.stringify({ ...manifest, verified: [{ family: "26.1200", minHub: "1.0.0-a..b" }] }),
+  );
+  const catalog = new CodexCompatibilityCatalog({
+    environment: f.environment,
+    installRoot: f.root,
+    hubVersion: "bad",
+  });
+  await catalog.load();
+  expect(catalog.verified("26.1200.1")).toBe(false);
+  expect(catalog.policy("26.1200.1").mode).toBe("core");
+});
+it("transient version inspection failure preserves the version-bound running policy", async () => {
+  const f = await fixture();
+  await f.manager.check();
+  const file = path.join(f.environment.CODEXHOST_DATA_DIR, "codex-renderer-policy.json");
+  const original = await fs.readFile(file, "utf8");
+  vi.mocked(f.driver.currentVersion).mockRejectedValue(new Error("transient read"));
+  await f.manager.check();
+  expect(f.manager.status().currentVersion).toBe("26.1103.1.0");
+  expect(await fs.readFile(file, "utf8")).toBe(original);
+  await f.catalog.publishPolicy(null);
+  expect(await fs.readFile(file, "utf8")).toBe(original);
+});
+it("tolerates future/invalid optional state fields while retaining opt-out and original preference", async () => {
+  const f = await fixture();
+  await f.state.update({
+    codexUpdates: { defaulted: true, enabled: false, originalAutoUpdate: true },
+  });
+  const file = path.join(f.environment.CODEXHOST_DATA_DIR, "hub-desktop.json");
+  const raw = JSON.parse(await fs.readFile(file, "utf8"));
+  raw.codexUpdates.futureField = 1;
+  raw.codexUpdates.noticeAcknowledged = "broken";
+  await fs.writeFile(file, JSON.stringify(raw));
+  expect((await f.state.read()).codexUpdates).toMatchObject({
+    enabled: false,
+    originalAutoUpdate: true,
+  });
+  expect((await f.manager.check()).enabled).toBe(false);
+  expect(f.driver.readAutoUpdate).not.toHaveBeenCalled();
+});
+it.each([true, null])(
+  "waits indefinitely for idle (%s), without arming or restarting",
+  async (busy) => {
+    const f = await fixture();
+    f.busy.mockResolvedValue(busy);
+    vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+    await f.manager.check();
+    f.advance(48 * 60 * 60_000);
+    expect((await f.manager.tick()).phase).toBe("waiting-idle");
+    expect(f.preference).not.toContain(true);
+    expect(f.driver.requestCheck).not.toHaveBeenCalled();
+    expect(f.driver.quit).not.toHaveBeenCalled();
+  },
+);
+it("a ready staged update waits through prolonged work without a download timeout or repeated check", async () => {
+  const f = await fixture();
+  f.busy.mockResolvedValue(true);
+  await f.manager.check();
+  f.advance(48 * 60 * 60_000);
+  expect((await f.manager.tick()).phase).toBe("waiting-idle");
+  expect(f.driver.downloadReady).toHaveBeenCalledOnce();
+  expect(f.driver.requestCheck).not.toHaveBeenCalled();
+});
+async function backgroundRestart(f: Awaited<ReturnType<typeof fixture>>) {
+  vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+  await f.manager.check();
+  f.advance(10);
+  expect((await f.manager.tick()).phase).toBe("installing");
+  expect((await f.manager.tick()).phase).toBe("downloading");
+}
+it("starts scheduled background checking only after idle, with durable original preferences and live lease", async () => {
+  const f = await fixture();
+  await backgroundRestart(f);
+  expect(f.driver.requestCheck).toHaveBeenCalledOnce();
+  expect(f.driver.reopen).toHaveBeenCalledOnce();
+  expect((await f.state.read()).codexUpdates?.originalCheckPreferences).toEqual({
+    automaticChecks: null,
+    lastCheckTime: null,
+  });
+  const lease = JSON.parse(
+    await fs.readFile(
+      path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-armed.json"),
+      "utf8",
+    ),
+  );
+  expect(lease).toMatchObject({ pid: process.pid, target: "26.1200.1.0" });
+  f.advance(2000);
+  await f.manager.tick();
+  expect(
+    JSON.parse(
+      await fs.readFile(
+        path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-armed.json"),
+        "utf8",
+      ),
+    ),
+  ).toHaveProperty("at", lease.at + 2000);
+  await f.manager.setEnabled(false);
+  expect(f.driver.restoreCheckPreferences).toHaveBeenCalledWith({
+    automaticChecks: null,
+    lastCheckTime: null,
+  });
+  await expect(
+    fs.access(path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-armed.json")),
+  ).rejects.toThrow();
+});
+it("native background preparation failure disarms before any quit and backs off", async () => {
+  const f = await fixture();
+  vi.mocked(f.driver.downloadReady).mockResolvedValue(false);
+  vi.mocked(f.driver.requestCheck).mockRejectedValue(new Error("synthetic denial"));
+  await f.manager.check();
+  f.advance(10);
+  expect((await f.manager.tick()).error).toBe("CODEX_UPDATE_CHECK_FAILED");
+  expect(f.preference.at(-1)).toBe(false);
+  expect(f.driver.quit).not.toHaveBeenCalled();
+  f.advance(5 * 60_000);
+  await f.manager.check();
+  expect(f.driver.requestCheck).toHaveBeenCalledOnce();
+});
+it("download timeout backs off across checks and process restarts, restoring scheduled-check keys", async () => {
+  const f = await fixture();
+  await backgroundRestart(f);
+  f.advance(31 * 60_000);
+  expect((await f.manager.tick()).error).toBe("CODEX_DOWNLOAD_TIMEOUT");
+  expect(f.driver.restoreCheckPreferences).toHaveBeenCalledOnce();
+  f.advance(5 * 60_000);
+  await f.manager.check();
+  const restarted = new CodexUpdateManager(f.options);
+  managers.push(restarted);
+  await restarted.check();
+  expect(f.driver.requestCheck).toHaveBeenCalledOnce();
+});
+it("all feed candidates must be verified even if Sparkle picks an older OS/rollout candidate", async () => {
+  const f = await fixture();
+  f.driver.availableVersions = vi.fn(async () => ["26.1200.1.0", "26.1199.1.0"]);
+  await f.manager.check();
+  f.advance(10);
+  expect((await f.manager.tick()).phase).toBe("waiting-compatibility");
+  expect(f.preference).not.toContain(true);
+  expect(f.driver.quit).not.toHaveBeenCalled();
+});
+it.each(["timeout", "disarm failure", "lost quit reply"])(
+  "reopens a Codex closed by Hub after %s",
+  async (failure) => {
+    const f = await fixture();
+    await f.manager.check();
+    f.advance(10);
+    if (failure === "lost quit reply")
+      vi.mocked(f.driver.quit).mockRejectedValueOnce(new Error("lost reply"));
+    await f.manager.tick();
+    if (failure === "disarm failure") {
+      f.install();
+      vi.mocked(f.driver.writeAutoUpdate).mockRejectedValueOnce(new Error("denied"));
+    } else if (failure === "timeout") f.advance(6 * 60_000);
+    await f.manager.tick();
+    expect(f.driver.reopen).toHaveBeenCalledOnce();
+    expect(f.manager.status().phase).toBe("failed");
+  },
+);
+it("does not reopen during its own installer, but recovers once that installer exits", async () => {
+  const f = await fixture();
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  vi.mocked(f.driver.installationStopped).mockResolvedValue(false);
+  f.advance(6 * 60_000);
+  await f.manager.tick();
+  expect(f.driver.reopen).not.toHaveBeenCalled();
+  vi.mocked(f.driver.installationStopped).mockResolvedValue(true);
+  await f.manager.tick();
+  expect(f.driver.reopen).toHaveBeenCalledOnce();
+});
+it("accepts numeric-equivalent installed version formatting", async () => {
+  const f = await fixture();
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  vi.mocked(f.driver.currentVersion).mockResolvedValue("26.1200.1");
+  expect((await f.manager.tick()).phase).toBe("health-check");
+  expect(f.driver.reopen).toHaveBeenCalledOnce();
+});
+it("normal quit is cancelled if the final idle check becomes unknown", async () => {
+  const f = await fixture();
+  await f.manager.check();
+  f.advance(10);
+  f.busy.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(null);
+  await f.manager.tick();
+  expect(f.driver.quit).not.toHaveBeenCalled();
+  expect(f.preference.at(-1)).toBe(false);
+});
+
+it("background driver uses only documented preferences, with no menu or fake launch parameters", async () => {
+  const f = await fixture();
+  const exec = vi.fn(async (_file: string, args: string[]) => {
+    if (args[0] === "read")
+      return args[2] === "SUEnableAutomaticChecks" ? "0" : "2026-01-01 00:00:00 +0000";
+    return "";
+  });
+  const driver = createMacCodexUpdateDriver({
+    environment: f.environment,
+    get: async () => response({}),
+    currentVersion: f.driver.currentVersion,
+    reopen: f.driver.reopen,
+    healthy: f.driver.healthy,
+    exec,
+  });
+  const original = await driver.readCheckPreferences();
+  await driver.requestCheck();
+  await driver.restoreCheckPreferences(original);
+  expect(exec.mock.calls.every(([file]) => file === "/usr/bin/defaults")).toBe(true);
+  expect(exec.mock.calls).toContainEqual([
+    "/usr/bin/defaults",
+    ["delete", "com.openai.codex", "SULastCheckTime"],
+  ]);
+  expect(exec.mock.calls).toContainEqual([
+    "/usr/bin/defaults",
+    ["write", "com.openai.codex", "SUEnableAutomaticChecks", "-bool", "true"],
+  ]);
+  expect(exec.mock.calls).toContainEqual([
+    "/usr/bin/defaults",
+    ["write", "com.openai.codex", "SUEnableAutomaticChecks", "-bool", "false"],
+  ]);
+  expect(exec.mock.calls).toContainEqual([
+    "/usr/bin/defaults",
+    ["write", "com.openai.codex", "SULastCheckTime", "-date", original.lastCheckTime],
+  ]);
+});
+it.each([
+  ["/Applications/Other.app/Contents/Frameworks/Sparkle.framework/Autoupdate", true],
+  ["/Applications/Codex.app/Contents/Frameworks/Sparkle.framework/Autoupdate", false],
+  [
+    "/tmp/com.openai.codex/org.sparkle-project.Sparkle/Installation/a/Updater.app/Contents/MacOS/Updater",
+    false,
+  ],
+  ["/Applications/Codex.app/Contents/MacOS/Codex", false],
+])("scopes installer recovery to Codex processes: %s", async (processes, stopped) => {
+  const f = await fixture();
+  const exec = vi.fn(async () => processes);
+  const driver = createMacCodexUpdateDriver({
+    environment: f.environment,
+    get: async () => response({}),
+    currentVersion: f.driver.currentVersion,
+    reopen: f.driver.reopen,
+    healthy: f.driver.healthy,
+    exec,
+  });
+  expect(await driver.installationStopped()).toBe(stopped);
+  expect(exec).toHaveBeenCalledWith("/bin/ps", ["-axo", "args="]);
+});
+it("caches successful staging signatures, revalidates on quit, and invalidates changed identities", async () => {
+  const f = await fixture();
+  const app = path.join(
+    f.root,
+    "Library/Caches/com.openai.codex/org.sparkle-project.Sparkle/Installation/synthetic/Codex.app",
+  );
+  await fs.mkdir(app, { recursive: true });
+  const exec = vi.fn(async (file: string, args: string[]) =>
+    file === "/usr/bin/plutil"
+      ? args.includes("CFBundleIdentifier")
+        ? "com.openai.codex"
+        : "26.1200.1"
+      : "",
+  );
+  const driver = createMacCodexUpdateDriver({
+    environment: f.environment,
+    get: async () => response({}),
+    currentVersion: f.driver.currentVersion,
+    reopen: f.driver.reopen,
+    healthy: f.driver.healthy,
+    exec,
+  });
+  expect(await driver.downloadReady("26.1200.1.0")).toBe(true);
+  expect(await driver.downloadReady("26.1200.1.0")).toBe(true);
+  expect(exec.mock.calls.filter(([file]) => file === "/usr/bin/codesign")).toHaveLength(1);
+  expect(await driver.downloadReady("26.1200.1.0", true)).toBe(true);
+  expect(exec.mock.calls.filter(([file]) => file === "/usr/bin/codesign")).toHaveLength(2);
+  await fs.rm(app, { recursive: true });
+  expect(await driver.downloadReady("26.1200.1.0", true)).toBe(false);
+});
+it("guard handoff yields only for a fresh lease with a live Hub; otherwise writes false", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const patch = await fs.readFile(path.resolve(".pm/selfheal/codex-guard-handoff.patch"), "utf8");
+  const body = patch
+    .split("\n")
+    .filter((line) => line.startsWith("+    "))
+    .map((line) => line.slice(1))
+    .join("\n");
+  const f = await fixture();
+  const program = `import json, os, time, subprocess\nfrom pathlib import Path\nfrom unittest.mock import patch\nroot = Path(${JSON.stringify(f.root)})\n(root / 'hub-desktop.json').write_text(json.dumps({'codexUpdates': {'enabled': True}}))\nos.environ['CODEXHOST_DATA_DIR'] = str(root)\ndef main():\n${body}\n    raise AssertionError('legacy guard must never execute while managed')\nfor lease, alive, expected in [({'pid':123,'at':100000},True,0), ({'pid':123,'at':100000},False,1), ({'pid':123,'at':1},True,1), ({'pid':123,'at':200000},True,1), ({'pid':True,'at':100000},True,1), ({'pid':123,'at':'bad'},True,1), ({},True,1)]:\n    (root / 'codex-update-armed.json').write_text(json.dumps(lease))\n    with patch('time.time', return_value=100), patch('os.kill', side_effect=None if alive else ProcessLookupError()), patch('subprocess.run') as run:\n        assert main() == 0\n        assert run.call_count == expected\n        if expected: assert run.call_args.args[0][-1] == 'false'\n`;
+  expect(() =>
+    execFileSync("/usr/bin/python3", ["-B", "-c", program], {
+      env: f.environment,
+      encoding: "utf8",
+    }),
+  ).not.toThrow();
+});
+it("accepts Sparkle's signed lower rollout choice only if offered and verified, without a five-minute restart loop", async () => {
+  const f = await fixture();
+  f.driver.availableVersions = vi.fn(async () => ["26.1200.1.0", "26.1200.0.9"]);
+  vi.mocked(f.driver.downloadReady).mockImplementation(
+    async (version) => version === "26.1200.0.9",
+  );
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  vi.mocked(f.driver.currentVersion).mockResolvedValue("26.1200.0.9.0");
+  expect((await f.manager.tick()).phase).toBe("health-check");
+  expect((await f.manager.tick()).phase).toBe("up-to-date");
+  expect(f.manager.status().latestVersion).toBe("26.1200.1.0");
+  expect(f.driver.reopen).toHaveBeenCalledOnce();
+  f.advance(5 * 60_000);
+  await f.manager.check();
+  expect(f.driver.quit).toHaveBeenCalledOnce();
+});
+it.each([null, "broken", { defaulted: "bad", enabled: false, originalAutoUpdate: true }])(
+  "damaged settings do not reacquire Hub's own preference as the original: %s",
+  async (raw) => {
+    const f = await fixture();
+    const file = path.join(f.environment.CODEXHOST_DATA_DIR, "hub-desktop.json");
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, JSON.stringify({ codexUpdates: raw }));
+    expect((await f.manager.check()).enabled).toBe(false);
+    expect(f.driver.readAutoUpdate).not.toHaveBeenCalled();
+  },
+);
+
+it("does not later reopen a Codex whose normal quit was cancelled or already relaunched", async () => {
+  const f = await fixture();
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  vi.mocked(f.driver.isRunning).mockResolvedValue(true);
+  vi.mocked(f.driver.installationStopped).mockResolvedValue(false);
+  f.advance(6 * 60_000);
+  await f.manager.tick();
+  vi.mocked(f.driver.isRunning).mockResolvedValue(false);
+  vi.mocked(f.driver.installationStopped).mockResolvedValue(true);
+  await f.manager.tick();
+  expect(f.driver.reopen).not.toHaveBeenCalled();
+});
+
+it("persists lease and starts its independent watchdog before enabling automatic updates", async () => {
+  const f = await fixture();
+  const calls: string[] = [];
+  vi.mocked(f.driver.watchLease).mockImplementation(async (file, id) => {
+    const lease = JSON.parse(await fs.readFile(file, "utf8"));
+    expect(lease).toMatchObject({ id, pid: process.pid });
+    calls.push("watchdog-ready");
+  });
+  vi.mocked(f.driver.writeAutoUpdate).mockImplementation(async (value) => {
+    if (value === true) calls.push("enabled");
+  });
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  expect(calls).toEqual(["watchdog-ready", "enabled"]);
+});
+it("does not enable updates or quit when the independent watchdog cannot start", async () => {
+  const f = await fixture();
+  vi.mocked(f.driver.watchLease).mockRejectedValue(new Error("unavailable"));
+  await f.manager.check();
+  f.advance(10);
+  await f.manager.tick();
+  expect(f.preference).not.toContain(true);
+  expect(f.driver.quit).not.toHaveBeenCalled();
+});
+it("cancels when Sparkle's staged rollout choice disappears from the refreshed feed", async () => {
+  const f = await fixture();
+  const offered = vi.fn(async () => ["26.1200.1.0", "26.1200.0.9"]);
+  f.driver.availableVersions = offered;
+  vi.mocked(f.driver.downloadReady).mockImplementation(
+    async (version) => version === "26.1200.0.9",
+  );
+  await f.manager.check();
+  offered.mockResolvedValue(["26.1200.1.0"]);
+  f.advance(10);
+  expect((await f.manager.tick()).error).toBe("CODEX_UPDATE_TARGET_CHANGED");
+  expect(f.driver.quit).not.toHaveBeenCalled();
+});
+it("the Mac watchdog process starter can be injected without spawning a process", async () => {
+  const f = await fixture();
+  const startWatchdog = vi.fn(async () => undefined);
+  const driver = createMacCodexUpdateDriver({
+    environment: f.environment,
+    get: async () => response({}),
+    currentVersion: f.driver.currentVersion,
+    reopen: f.driver.reopen,
+    healthy: f.driver.healthy,
+    exec: vi.fn(async () => ""),
+    startWatchdog,
+  });
+  await driver.watchLease("/synthetic/lease.json", "synthetic-id");
+  expect(startWatchdog).toHaveBeenCalledWith("/synthetic/lease.json", "synthetic-id");
 });

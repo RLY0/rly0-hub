@@ -50,9 +50,14 @@ function clean(value: unknown): Rly0HubState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const raw = value as Record<string, unknown>;
   return {
-    ...(codexUpdateSettingsSchema.safeParse(raw.codexUpdates).success
-      ? { codexUpdates: codexUpdateSettingsSchema.parse(raw.codexUpdates) }
-      : {}),
+    ...(raw.codexUpdates === undefined
+      ? {}
+      : {
+          codexUpdates: codexUpdateSettingsSchema.safeParse(raw.codexUpdates).data ?? {
+            defaulted: true,
+            enabled: false,
+          },
+        }),
     ...(raw.autostartDefaulted === true ? { autostartDefaulted: true } : {}),
     ...(raw.onboarded === true ? { onboarded: true } : {}),
     ...(raw.channelConsented === true ? { channelConsented: true } : {}),

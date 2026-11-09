@@ -1,0 +1,5 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> codexhost@0.11.39 typecheck
+> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false
+[runner] exit_code=0

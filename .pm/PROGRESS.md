@@ -1,11 +1,11 @@
 # 隔离候选进度
 
-2026-11-09，HUB-CODEX-VERSION-GATE；工作树 codex-version-gate-20261109，分支 feat/codex-version-gate，基线 79fc26e8。
+2026-11-09，HUB-CODEX-VERSION-GATE；worktree codex-version-gate-20261109 / feat/codex-version-gate。原实现 81720dcd；Claude 界面 d4552531、2d795e9c；本轮复查修复以 2d795e9c 为固定基线。
 
-A/B/C 非视觉实现已完成；技术契约在 `.pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md`，待 Claude 核对冻结。设置页、提示条、核心数据桥的显示层、版本号、打包、资产上传和发布均未执行，归 Claude。
+Codex 已完成复查必修 1–5 与建议 6/7/9/10；11 的 restart 影响保持并记入契约。菜单检查入口已移除，改为持续空闲后的 Sparkle 后台调度与正常重开；新增独立租约 watchdog。显示层文件未改，契约更新 v2，具体语义交 Claude。
 
-本记录仅属于隔离候选；主集成人员串行汇总到主工作区，不能用它覆盖主看板其他工单。
+当前 self_verified：204 pass、1 既有 skip、0 fail；typecheck/边界/renderer build/WebKit/改动格式通过，lint 保留基线同一错误。修复后未再次独立审查、未 accepted。证据见 .pm/selfheal/evidence/version-gate-review-20261109/RESULTS.md。
 
-状态、命令和限制见 `.pm/selfheal/evidence/version-gate-20261109/RESULTS.md`；不是 reviewed / accepted 或上线放行。
+本记录只属隔离候选，不覆盖主工作区其他工单。无真实系统偏好、进程、guard、发布变更。
 
-next_action：Claude 核对契约并接界面；另开可用审查会话完成独立复核；集成人员应用 guard 交接补丁；授权后另做系统真实升级验收。
+next_action：独立复查本轮修复；Claude 核对 CONTRACT v2 文案；实际 guard 部署与独立真机验收（watchdog/后台下载静默程度/安装恢复/Windows）后再由 Claude 按既定归属处理发布。本轮不构成发布放行。

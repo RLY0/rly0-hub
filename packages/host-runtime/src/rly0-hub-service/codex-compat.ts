@@ -88,6 +88,7 @@ export class CodexCompatibilityCatalog {
     }
   }
   async publishPolicy(version: string | null): Promise<void> {
+    if (!version) return; // A transient inspection failure must not replace a running policy.
     const file = path.join(path.dirname(this.file), "codex-renderer-policy.json");
     const temporary = `${file}.${randomUUID()}.tmp`;
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });

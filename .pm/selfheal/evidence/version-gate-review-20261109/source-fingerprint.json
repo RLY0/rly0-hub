@@ -1,0 +1,26 @@
+{
+  "base": "2d795e9c33d33992b911c4374924bb41ba840dcc",
+  "sha256": {
+    ".pm/selfheal/codex-guard-handoff.patch": "52a86c6b408331aa05a062a089d20b9b55ec02fbbfe7de2e6bc5a8118e06ebfa",
+    "packages/desktop-control/src/codex-renderer-policy.ts": "1869bd3fcd8c798ea1a88b9d2c61fec348db14c365e02edbc65dd97b9ad11842",
+    "packages/desktop-control/src/production-controller.ts": "d4e35ac3495f5ef25bcdf40b93cca01f7637fe16b181f844404b824db2c2f0b6",
+    "packages/desktop-control/src/renderer-cdp-control-session.ts": "086b40689efe57552b6f4f4b1ad688d4eda3cc87cd626506baaa1dca0cae2d51",
+    "packages/desktop-control/src/renderer-feature-failures.ts": "4e0a322b863d626dadbb537dd9a12ca5a7a0c5d88cba5d9b7010a58de75cf4bb",
+    "packages/desktop-control/src/renderer-native-rpc-install.ts": "9ef32cd2196fe7c4a45e28c0163f233f2db5347e3a2b2893b0419dfb295ef65c",
+    "packages/desktop-control/src/renderer-rpc-steering.ts": "f44f27ff6ffa8339dc09cc8ee1999fff6bd08c5bdb9914128ca78fc3d2c05b0f",
+    "packages/desktop-control/test/codex-renderer-policy.test.ts": "2c5003f092d1fe6fe3f3086ce1d181f19d7e48848b561f4524d977481e63b002",
+    "packages/desktop-control/test/renderer-cdp-control-session.test.ts": "bc4b6e4d3df4b603e2798884ee3f70de5bcac9ed5f65431ed619641d90d073ee",
+    "packages/desktop-control/test/renderer-native-rpc-install.test.ts": "42cc3d2edd14f031f0ee9b3641ad3866bcaea68b820f336d420e04dc62cee033",
+    "packages/desktop-control/test/renderer-rpc-steering.test.ts": "fefe1a62685fe8f90a81e44b7792fb0e6be4e3c38d2c4769f6858f68c4811abb",
+    "packages/host-runtime/src/rly0-hub-service/codex-compat.ts": "b0c7de3184caa787b3df32dbc6d467e3a56a3572119cbad8df58b5d3d9fbd10b",
+    "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts": "210802b3dbb82d80948ff5ae1fae580388a11d01a04fe74ba766dddf7f39ce1f",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts": "8f786e268d09824586e48e79ec83e17c6f8ef3ec64df085569e8b15df9673d70",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-watchdog.ts": "613acbd920b8296b3569dace0bc01cd75cf546f4dcc4e67e88a07d2d95bdc059",
+    "packages/host-runtime/src/rly0-hub-service/hub-state.ts": "760eec29e0075b694217219093c8417c2623723863b0353d7c36b73dfc6f11da",
+    "packages/host-runtime/test/codex-update-watchdog.test.ts": "5211919c74fc323ae4f1a89873befae166144e822eda2b49eb55775ddf622d34",
+    "packages/host-runtime/test/codex-version-gate.test.ts": "8ebcb032269484ddb6c803afed0383a0bc926ec4abfd0b774d8209996e0c95f3",
+    "packages/host-runtime/test/rly0-codex-updates-ui.test.ts": "31d8e378bb84058580ff89a852bd5638ddc38daa10c2e82e3660646e9264ca77",
+    "packages/shared-contracts/src/codex-version-gate.ts": "e85d002c8b95e3b7d250966584eaa3b756c399911a1e4c2a0ca891bf515d603f",
+    "packages/update-manager/src/status.ts": "b9bfe860e91580bcbf93c064882919eaece9f1ed36a97b2cc981391f8648a26b"
+  }
+}

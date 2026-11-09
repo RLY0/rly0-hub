@@ -84,3 +84,53 @@ it("bounds, validates and expires passive quota/balance snapshots", async () => 
   await fs.writeFile(file, JSON.stringify({ ...value, quota: { usedPercent: "fake" } }));
   expect(await readCoreUsageSnapshot(f.environment, 2000)).toMatchObject({ available: false });
 });
+
+it("uses this Launcher's inspected Desktop identity when Hub did not open Codex", async () => {
+  const { readLauncherCodexVersion } = await import("../src/codex-renderer-policy.js");
+  const f = await fixture();
+  await fs.writeFile(
+    path.join(f.root, "launcher-startup-v1.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      records: [
+        { pid: 100, desktop: { version: "26.1200.1" } },
+        { pid: 200, desktop: { version: "26.1103.1" } },
+      ],
+    }),
+  );
+  expect(await readLauncherCodexVersion(f.environment, 100)).toBe("26.1200.1");
+  expect(await readLauncherCodexVersion(f.environment, 300)).toBeNull();
+  await fs.writeFile(
+    path.join(f.root, "codex-renderer-policy.json"),
+    JSON.stringify({
+      desktopVersion: "26.1200.1.0",
+      policy: { schemaVersion: 1, mode: "full", disabled: [] },
+    }),
+  );
+  delete (f.environment as NodeJS.ProcessEnv).CODEXHOST_CODEX_VERSION;
+  expect(
+    (
+      await readCodexRendererPolicy(f.environment, () =>
+        readLauncherCodexVersion(f.environment, 100),
+      )
+    ).mode,
+  ).toBe("full");
+});
+it("retains running policy on transient I/O errors, defaults core only at startup", async () => {
+  const { createCodexRendererPolicyReader } = await import("../src/codex-renderer-policy.js");
+  let fail = true;
+  const read = createCodexRendererPolicyReader(async () => {
+    if (fail) throw Object.assign(new Error("synthetic IO"), { code: "EACCES" });
+    return { schemaVersion: 1, mode: "full", disabled: [] };
+  });
+  expect((await read()).mode).toBe("core");
+  fail = false;
+  expect((await read()).mode).toBe("full");
+  fail = true;
+  expect((await read()).mode).toBe("full");
+});
+it("the policy filesystem reader exposes non-ENOENT failures instead of publishing core", async () => {
+  const f = await fixture();
+  await fs.mkdir(path.join(f.root, "codex-renderer-policy.json"));
+  await expect(readCodexRendererPolicy(f.environment)).rejects.toThrow();
+});

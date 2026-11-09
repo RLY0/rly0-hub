@@ -357,3 +357,42 @@ it("removes the registered new-document script and releases all renderer owners 
   );
   expect(client.close).toHaveBeenCalledOnce();
 });
+
+it("disposes direct CDP owners and clears their discovery state on full-to-core transition", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const { disposeRendererOwners } = await import("../src/renderer-cdp-control-session.js");
+  const keys = [
+    "__codexhostRendererBindingProbeV1",
+    "__codexhostRpcSteeringV1",
+    "__codexhostNativeRpcRemoteControlV1",
+    "__codexhostHostRoutingV1",
+    "__codexhostDraftPrewarmPolicyV1",
+  ];
+  const released: string[] = [];
+  const window: Record<string, unknown> = { __codexhostNativeRpcDiscoveryV1: { state: "ready" } };
+  for (const key of keys) window[key] = { dispose: () => released.push(key) };
+  const client = rendererClient();
+  client.evaluateSpy.mockImplementation(async (expression: string) =>
+    runInNewContext(expression, { window }),
+  );
+  await disposeRendererOwners(client);
+  expect(released).toEqual(keys);
+  expect(Object.keys(window)).toEqual([]);
+});
+it("records thrown optional native/steering failures without treating skipped installs as failures", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const { installOptionalRendererFeature } = await import("../src/renderer-cdp-control-session.js");
+  const context: Record<string, unknown> = {};
+  const client = rendererClient();
+  client.evaluateSpy.mockImplementation(async (expression: string) =>
+    runInNewContext(expression, context),
+  );
+  await installOptionalRendererFeature(client, "native-rpc", async () => {
+    throw new Error("synthetic");
+  });
+  await installOptionalRendererFeature(client, "rpc-steering", async () => {
+    throw new Error("synthetic");
+  });
+  await installOptionalRendererFeature(client, "native-rpc", async () => false);
+  expect(context.__codexhostFeatureFailuresV1).toEqual(["native-rpc", "rpc-steering"]);
+});

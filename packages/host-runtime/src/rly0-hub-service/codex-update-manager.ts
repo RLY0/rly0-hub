@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { compareCodexVersions, type CodexUpdateSettings } from "@codexhost/shared-contracts";
@@ -5,17 +6,27 @@ import type { CodexCompatibilityCatalog } from "./codex-compat.js";
 import type { Rly0HubStateStore } from "./hub-state.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 
+export interface CodexCheckPreferences {
+  automaticChecks: boolean | null;
+  lastCheckTime: string | null;
+}
 export interface CodexUpdateDriver {
+  watchLease(file: string, id: string): Promise<void>;
   readAutoUpdate(): Promise<boolean | null>;
   writeAutoUpdate(value: boolean | null): Promise<void>;
   currentVersion(): Promise<string | null>;
   latestVersion(current: string): Promise<string>;
+  readCheckPreferences(): Promise<CodexCheckPreferences>;
+  restoreCheckPreferences(value: CodexCheckPreferences): Promise<void>;
+  /** Prepare the next launch for a scheduled background check; never click a menu. */
   requestCheck(): Promise<void>;
-  downloadReady(version: string): Promise<boolean>;
+  availableVersions?(current: string): Promise<string[]>;
+  downloadReady(version: string, revalidate?: boolean): Promise<boolean>;
   /** No force kill: saves Codex state through its own normal quit. */
   quit(): Promise<void>;
   /** True only when Desktop and its Sparkle Autoupdate have exited. */
   installationStopped(): Promise<boolean>;
+  isRunning(): Promise<boolean>;
   reopen(): Promise<boolean>;
   healthy(): Promise<boolean>;
 }
@@ -67,11 +78,21 @@ export class CodexUpdateManager {
   #phase: CodexUpdatePhase = "checking";
   #current: string | null = null;
   #latest: string | null = null;
+  #target: string | null = null;
+  #candidates: string[] = [];
   #error: CodexUpdateError = null;
   #checkedAt: string | null = null;
   #stageAt = 0;
   #idleSince: number | null = null;
   #initialized = false;
+  #armed = false;
+  #leaseId = randomUUID();
+  #staged = false;
+  #backgroundStarted = false;
+  #closedByHub = false;
+  #quitReason: "background" | "install" | "recovery" = "install";
+  #retryAt = 0;
+  #failures = 0;
   #stopped = false;
   #queue: Promise<unknown> = Promise.resolve();
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -92,13 +113,40 @@ export class CodexUpdateManager {
   #sessionFile() {
     return path.join(resolveRly0DataDir(this.options.environment), "codex-update-session.json");
   }
-  async #recordSession() {
-    const file = this.#sessionFile();
+  async #writeRecord(file: string, value: unknown) {
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    await fs.writeFile(`${file}.tmp`, JSON.stringify({ target: this.#latest, at: this.#now() }), {
-      mode: 0o600,
-    });
+    await fs.writeFile(`${file}.tmp`, JSON.stringify(value), { mode: 0o600 });
     await fs.rename(`${file}.tmp`, file);
+  }
+  async #recordSession() {
+    await this.#writeRecord(this.#sessionFile(), {
+      target: this.#target ?? this.#latest,
+      at: this.#now(),
+      closedByHub: true,
+    });
+  }
+  #leaseFile() {
+    return path.join(resolveRly0DataDir(this.options.environment), "codex-update-armed.json");
+  }
+  #attemptFile() {
+    return path.join(resolveRly0DataDir(this.options.environment), "codex-update-attempt.json");
+  }
+  async #lease() {
+    await this.#writeRecord(this.#leaseFile(), {
+      id: this.#leaseId,
+      pid: process.pid,
+      at: this.#now(),
+      target: this.#target ?? this.#latest,
+    });
+  }
+  async #arm() {
+    const driver = this.options.driver;
+    if (!driver) throw new Error("CODEX_UPDATE_UNSUPPORTED");
+    if (!this.#armed) this.#leaseId = randomUUID();
+    await this.#lease(); // Durable lease BEFORE opening the preference, not after it.
+    if (!this.#armed) await driver.watchLease(this.#leaseFile(), this.#leaseId);
+    this.#armed = true;
+    await driver.writeAutoUpdate(true);
   }
   #now() {
     return (this.options.now ?? Date.now)();
@@ -144,8 +192,15 @@ export class CodexUpdateManager {
         };
         await this.options.state.update({ codexUpdates: this.#settings });
       }
-      // Also disarms a release interrupted by a Hub crash.
-      await this.options.driver.writeAutoUpdate(false);
+      // Also restores scheduled-check preferences interrupted by a Hub crash.
+      await this.#disarm();
+      try {
+        const attempt = JSON.parse(await fs.readFile(this.#attemptFile(), "utf8"));
+        if (Number.isFinite(attempt.retryAt) && attempt.retryAt > this.#now())
+          this.#retryAt = Math.min(attempt.retryAt, this.#now() + 24 * 60 * 60_000);
+      } catch {
+        /* No attempt history. */
+      }
       try {
         const record: unknown = JSON.parse(await fs.readFile(this.#sessionFile(), "utf8"));
         if (
@@ -156,11 +211,15 @@ export class CodexUpdateManager {
           typeof record.target === "string" &&
           typeof record.at === "number" &&
           this.#now() >= record.at &&
-          this.#now() - record.at < 30 * 60_000 &&
-          (await this.options.driver.currentVersion()) === record.target
+          this.#now() - record.at < 24 * 60 * 60_000 &&
+          "closedByHub" in record &&
+          record.closedByHub === true
         ) {
           this.#latest = record.target;
-          this.#current = record.target;
+          this.#target = record.target;
+          this.#current = await this.options.driver.currentVersion().catch(() => null);
+          this.#closedByHub = true;
+          this.#quitReason = "recovery";
           this.#phase = "installing";
           this.#stageAt = this.#now();
         }
@@ -173,7 +232,7 @@ export class CodexUpdateManager {
   start(): Promise<CodexUpdateStatus> {
     this.#stopped = false;
     this.#timer ??= setInterval(() => {
-      if (ACTIVE.has(this.#phase)) void this.tick();
+      if (ACTIVE.has(this.#phase) || this.#closedByHub) void this.tick();
     }, 2000);
     this.#timer.unref();
     return this.check();
@@ -183,7 +242,8 @@ export class CodexUpdateManager {
     clearInterval(this.#timer);
     this.#timer = undefined;
     return this.#serial(async () => {
-      if (ACTIVE.has(this.#phase)) await this.#disarm();
+      if (ACTIVE.has(this.#phase) || this.#armed) await this.#disarm();
+      await this.#recoverClosed();
     });
   }
   acknowledgeNotice(): Promise<CodexUpdateStatus> {
@@ -236,7 +296,10 @@ export class CodexUpdateManager {
           // Persist disabled only after restoration succeeds. A failed restore can be retried.
           if (driver && this.#settings.originalAutoUpdate !== undefined)
             await driver.writeAutoUpdate(this.#settings.originalAutoUpdate);
-          await fs.rm(this.#sessionFile(), { force: true });
+          await this.#restoreCheckPreferences();
+          this.#armed = false;
+          await fs.rm(this.#leaseFile(), { force: true });
+          await this.#recoverClosed();
           this.#settings = { defaulted: true, enabled: false, noticeAcknowledged: true };
           await this.options.state.update({ codexUpdates: this.#settings });
         }
@@ -258,71 +321,86 @@ export class CodexUpdateManager {
         this.#fail("CODEX_PREFERENCES_FAILED");
         return this.status();
       }
-      await this.options.catalog.refresh();
-      this.#current =
-        (await (this.options.currentVersion ?? this.options.driver?.currentVersion)?.().catch(
-          () => null,
-        )) ?? null;
       try {
-        await this.options.catalog.publishPolicy(this.#current);
-      } catch {
-        this.#fail("CODEX_STATE_FAILED");
-        return this.status();
-      }
-      if (!this.#settings.enabled) {
-        this.#phase = "disabled";
-        return this.status();
-      }
-      const driver = this.options.driver;
-      if (!driver) {
-        this.#phase = "unsupported";
-        return this.status();
-      }
-      if (ACTIVE.has(this.#phase)) {
-        await this.#advance();
-        return this.status();
-      }
-      this.#error = null;
-      this.#idleSince = null;
-      try {
-        await driver.writeAutoUpdate(false);
-      } catch {
-        this.#fail("CODEX_PREFERENCES_FAILED");
-        return this.status();
-      }
-      this.#current = await driver.currentVersion().catch(() => null);
-      this.#checkedAt = new Date(this.#now()).toISOString();
-      if (!this.#current || !/^\d+(?:\.\d+)+$/u.test(this.#current)) {
-        this.#fail("CODEX_VERSION_UNAVAILABLE");
-        return this.status();
-      }
-      try {
-        this.#latest = await driver.latestVersion(this.#current);
-      } catch {
-        this.#fail("CODEX_APPCAST_FAILED");
-        return this.status();
-      }
-      if (!this.options.catalog.verified(this.#latest)) this.#phase = "waiting-compatibility";
-      else if (compareCodexVersions(this.#latest, this.#current) <= 0) this.#phase = "up-to-date";
-      else {
-        this.#phase = "downloading";
-        this.#stageAt = this.#now();
+        await this.options.catalog.refresh();
+        const observed = await (
+          this.options.currentVersion ?? this.options.driver?.currentVersion
+        )?.().catch(() => null);
+        if (observed) this.#current = observed;
         try {
-          if (this.#stopped) return this.status();
-          await driver.writeAutoUpdate(true);
-          await driver.requestCheck();
+          await this.options.catalog.publishPolicy(this.#current);
         } catch {
-          this.#fail("CODEX_UPDATE_CHECK_FAILED");
-          await this.#disarm();
+          this.#fail("CODEX_STATE_FAILED");
+          return this.status();
         }
+        if (!this.#settings.enabled) {
+          this.#phase = "disabled";
+          return this.status();
+        }
+        const driver = this.options.driver;
+        if (!driver) {
+          this.#phase = "unsupported";
+          return this.status();
+        }
+        if (ACTIVE.has(this.#phase)) {
+          await this.#advance();
+          return this.status();
+        }
+        if (this.#closedByHub) {
+          await this.#recoverClosed();
+          return this.status();
+        }
+        if (this.#now() < this.#retryAt) return this.status();
+        this.#error = null;
+        this.#idleSince = null;
+        try {
+          await driver.writeAutoUpdate(false);
+        } catch {
+          this.#fail("CODEX_PREFERENCES_FAILED");
+          return this.status();
+        }
+        this.#checkedAt = new Date(this.#now()).toISOString();
+        if (!this.#current || !/^\d+(?:\.\d+)+$/u.test(this.#current)) {
+          this.#fail("CODEX_VERSION_UNAVAILABLE");
+          return this.status();
+        }
+        try {
+          this.#latest = await driver.latestVersion(this.#current);
+        } catch {
+          this.#fail("CODEX_APPCAST_FAILED");
+          return this.status();
+        }
+        if (!this.options.catalog.verified(this.#latest)) this.#phase = "waiting-compatibility";
+        else if (compareCodexVersions(this.#latest, this.#current) <= 0) this.#phase = "up-to-date";
+        else {
+          this.#phase = "downloading";
+          this.#stageAt = this.#now();
+          this.#backgroundStarted = false;
+          this.#staged = false;
+          this.#target = null;
+          this.#candidates = (await driver.availableVersions?.(this.#current)) ?? [this.#latest];
+          if (!this.#candidates.includes(this.#latest)) this.#candidates.push(this.#latest);
+          await this.#advance();
+        }
+      } catch {
+        this.#fail("CODEX_UPDATE_CHECK_FAILED");
+        await this.#disarm();
+        await this.#recoverClosed();
       }
       return this.status();
     });
   }
   tick(): Promise<CodexUpdateStatus> {
     return this.#serial(async () => {
-      if (this.#initialized && this.#settings.enabled && ACTIVE.has(this.#phase))
-        await this.#advance();
+      try {
+        if (this.#initialized && this.#settings.enabled && ACTIVE.has(this.#phase))
+          await this.#advance();
+        else if (this.#closedByHub) await this.#recoverClosed();
+      } catch {
+        this.#fail("CODEX_UPDATE_CHECK_FAILED");
+        await this.#disarm();
+        await this.#recoverClosed();
+      }
       return this.status();
     });
   }
@@ -330,10 +408,47 @@ export class CodexUpdateManager {
     this.#phase = "failed";
     this.#error = error;
     this.#idleSince = null;
+    this.#retryAt =
+      this.#now() + Math.min(24, 6 * 2 ** Math.min(this.#failures++, 2)) * 60 * 60_000;
+  }
+  async #restoreCheckPreferences() {
+    if (this.#settings.originalCheckPreferences) {
+      await this.options.driver?.restoreCheckPreferences(this.#settings.originalCheckPreferences);
+      const settings = { ...this.#settings };
+      delete settings.originalCheckPreferences;
+      await this.options.state.update({ codexUpdates: settings });
+      this.#settings = settings;
+    }
+  }
+  async #recoverClosed() {
+    if (!this.#closedByHub || !this.options.driver) return;
+    try {
+      if (await this.options.driver.isRunning()) {
+        // Quit was cancelled/lost, or Sparkle already relaunched it. Never reopen a later user quit.
+        this.#closedByHub = false;
+        await fs.rm(this.#sessionFile(), { force: true });
+        return;
+      }
+      if (!(await this.options.driver.installationStopped())) return;
+      // Recovery is required even when disarming failed. Never strand an app we closed.
+      if (!(await this.options.driver.reopen())) {
+        this.#fail("CODEX_REOPEN_FAILED");
+        return;
+      }
+      this.#closedByHub = false;
+      await fs.rm(this.#sessionFile(), { force: true });
+    } catch {
+      this.#fail("CODEX_REOPEN_FAILED");
+    }
   }
   async #disarm() {
     try {
       await this.options.driver?.writeAutoUpdate(false);
+      this.#armed = false;
+      await fs.rm(this.#leaseFile(), { force: true });
+      await this.#restoreCheckPreferences();
+      if (this.#phase === "failed")
+        await this.#writeRecord(this.#attemptFile(), { retryAt: this.#retryAt });
     } catch {
       this.#fail("CODEX_PREFERENCES_FAILED");
     }
@@ -346,6 +461,7 @@ export class CodexUpdateManager {
       return;
     }
     try {
+      if (this.#armed) await this.#lease();
       if (
         !this.options.catalog.verified(this.#latest) &&
         this.#phase !== "installing" &&
@@ -356,70 +472,163 @@ export class CodexUpdateManager {
         return;
       }
       if (this.#phase === "downloading" || this.#phase === "waiting-idle") {
-        if (this.#now() - this.#stageAt > (this.options.downloadTimeoutMs ?? 30 * 60_000)) {
-          this.#fail("CODEX_DOWNLOAD_TIMEOUT");
-          await this.#disarm();
+        if (!this.#staged) {
+          // Observe Sparkle's actual signed choice; OS and rollout eligibility are its decision.
+          for (const candidate of this.#candidates) {
+            if (
+              compareCodexVersions(candidate, this.#current ?? "0.0") <= 0 ||
+              !this.options.catalog.verified(candidate)
+            )
+              continue;
+            if (await driver.downloadReady(candidate)) {
+              this.#target = candidate;
+              this.#staged = true;
+              break;
+            }
+          }
+        }
+        this.#phase = this.#staged || !this.#backgroundStarted ? "waiting-idle" : "downloading";
+        // Download time excludes the unlimited wait for fresh idle heartbeats.
+        if (!this.#staged && this.#backgroundStarted) {
+          if (this.#now() - this.#stageAt > (this.options.downloadTimeoutMs ?? 30 * 60_000)) {
+            this.#fail("CODEX_DOWNLOAD_TIMEOUT");
+            await this.#disarm();
+          }
           return;
         }
-        if (!(await driver.downloadReady(this.#latest))) {
-          this.#phase = "downloading";
-          this.#idleSince = null;
-          return;
-        }
-        this.#phase = "waiting-idle";
-        // Fresh false heartbeats throughout the interval; unknown/stale/busy resets the gate.
         if ((await this.options.busy()) !== false) {
           this.#idleSince = null;
           return;
         }
         this.#idleSince ??= this.#now();
         if (this.#now() - this.#idleSince < (this.options.idleMs ?? 15_000)) return;
-        // Re-query immediately before quit: Sparkle must never install a newer, unverified target.
-        if ((await driver.latestVersion(this.#current ?? "")) !== this.#latest) {
+        if (
+          compareCodexVersions(await driver.latestVersion(this.#current ?? ""), this.#latest) !== 0
+        ) {
           this.#fail("CODEX_UPDATE_TARGET_CHANGED");
           await this.#disarm();
           return;
         }
-        if ((await this.options.busy()) !== false) {
-          this.#idleSince = null;
-          return;
-        }
-        if (this.#stopped) {
+        // Sparkle selects using OS/rollout rules unavailable to Hub. Conservatively require
+        // every newer feed candidate verified, not only the numerically greatest version.
+        const candidates = await driver.availableVersions?.(this.#current ?? "");
+        if (
+          this.#staged &&
+          candidates &&
+          !candidates.some(
+            (version) => compareCodexVersions(version, this.#target ?? this.#latest ?? "0.0") === 0,
+          )
+        ) {
+          this.#fail("CODEX_UPDATE_TARGET_CHANGED");
           await this.#disarm();
           return;
         }
+        if (
+          candidates?.some(
+            (v) =>
+              compareCodexVersions(v, this.#current ?? "0.0") > 0 &&
+              !this.options.catalog.verified(v),
+          )
+        ) {
+          await this.#disarm();
+          this.#phase = "waiting-compatibility";
+          return;
+        }
+        if ((await this.options.busy()) !== false || this.#stopped) {
+          this.#idleSince = null;
+          return;
+        }
+        if (!this.#staged) {
+          // Persist backoff BEFORE a restart so a crash cannot cause a restart loop.
+          this.#retryAt = this.#now() + 6 * 60 * 60_000;
+          await this.#writeRecord(this.#attemptFile(), { retryAt: this.#retryAt });
+          if (!this.#settings.originalCheckPreferences) {
+            this.#settings = {
+              ...this.#settings,
+              originalCheckPreferences: await driver.readCheckPreferences(),
+            };
+            await this.options.state.update({ codexUpdates: this.#settings });
+          }
+          await this.#arm();
+          await driver.requestCheck();
+          this.#quitReason = "background";
+          this.#backgroundStarted = true;
+        } else {
+          // Recheck cache identity before quitting; driver caches successful codesign per fingerprint.
+          if (!(await driver.downloadReady(this.#target ?? this.#latest, true))) {
+            this.#staged = false;
+            this.#idleSince = null;
+            return;
+          }
+          await this.#arm();
+          this.#quitReason = "install";
+        }
+        // Check again after command / filesystem awaits, immediately before normal quit.
+        if ((await this.options.busy()) !== false || this.#stopped) {
+          await this.#disarm();
+          this.#backgroundStarted = false;
+          this.#idleSince = null;
+          return;
+        }
         await this.#recordSession();
+        this.#closedByHub = true; // quit may succeed even if its reply is lost.
         await driver.quit();
         this.#phase = "installing";
         this.#stageAt = this.#now();
+        this.#idleSince = null;
         return;
       }
       if (this.#phase === "installing") {
         if (this.#now() - this.#stageAt > (this.options.installTimeoutMs ?? 5 * 60_000)) {
           this.#fail("CODEX_INSTALL_TIMEOUT");
           await this.#disarm();
+          await this.#recoverClosed();
           return;
         }
         if (!(await driver.installationStopped())) return;
         const installed = await driver.currentVersion();
-        if (installed !== this.#latest) return;
-        this.#current = installed;
-        await this.options.catalog.publishPolicy(installed);
-        await this.#disarm();
-        if (this.#error) return;
-        if (this.#stopped) return;
-        if (!(await driver.reopen())) {
-          this.#fail("CODEX_REOPEN_FAILED");
+        if (installed && compareCodexVersions(installed, this.#target ?? this.#latest) === 0) {
+          this.#current = installed;
+          await this.options.catalog.publishPolicy(installed);
+          await this.#disarm();
+          await this.#recoverClosed();
+          if (this.#error || this.#closedByHub) return;
+          this.#phase = "health-check";
+          this.#stageAt = this.#now();
           return;
         }
-        await fs.rm(this.#sessionFile(), { force: true });
-        this.#phase = "health-check";
-        this.#stageAt = this.#now();
+        if (this.#quitReason === "background") {
+          await this.#recoverClosed();
+          if (this.#error || this.#closedByHub) {
+            await this.#disarm();
+            return;
+          }
+          this.#phase = "downloading";
+          this.#stageAt = this.#now();
+          return;
+        }
+        if (this.#quitReason === "recovery") {
+          this.#fail("CODEX_INSTALL_TIMEOUT");
+          await this.#recoverClosed();
+        }
         return;
       }
       if (this.#phase === "health-check") {
         if (await driver.healthy()) {
           this.#phase = "up-to-date";
+          this.#failures = 0;
+          if (
+            !this.#current ||
+            !this.#latest ||
+            compareCodexVersions(this.#current, this.#latest) >= 0
+          ) {
+            this.#retryAt = 0;
+            await fs.rm(this.#attemptFile(), { force: true });
+          } else {
+            // A rollout/OS-selected lower version is success, not permission to restart every 5 min.
+            this.#retryAt = this.#now() + 6 * 60 * 60_000;
+            await this.#writeRecord(this.#attemptFile(), { retryAt: this.#retryAt });
+          }
           return;
         }
         if (this.#now() - this.#stageAt > 60_000) this.#fail("CODEX_HEALTH_FAILED");
@@ -427,6 +636,7 @@ export class CodexUpdateManager {
     } catch {
       this.#fail("CODEX_UPDATE_CHECK_FAILED");
       await this.#disarm();
+      await this.#recoverClosed();
     }
   }
 }

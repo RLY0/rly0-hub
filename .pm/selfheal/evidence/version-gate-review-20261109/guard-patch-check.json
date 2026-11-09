@@ -1,0 +1,8 @@
+{
+  "exit_code": 0,
+  "source_sha256": "6bb39aa83d2aece7a10631f9a9dbf92a8ae26e8127c2d0af123689b01d5681ec",
+  "output": "patching file 'tools/selfheal/codex_guard.py'\n",
+  "actual_guard_modified": false,
+  "git_apply_check_exit_code": 0,
+  "git_apply_output": ""
+}

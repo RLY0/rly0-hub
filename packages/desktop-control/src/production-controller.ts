@@ -1,5 +1,8 @@
 import { readCoreUsageSnapshot } from "./core-usage-snapshot.js";
-import { readCodexRendererPolicy, rendererPolicyBootstrap } from "./codex-renderer-policy.js";
+import {
+  createCodexRendererPolicyReader,
+  rendererPolicyBootstrap,
+} from "./codex-renderer-policy.js";
 import { createCoreRendererSession } from "./core-renderer-session.js";
 import type { CodexRendererPolicy } from "@codexhost/shared-contracts";
 import { readFile } from "node:fs/promises";
@@ -122,7 +125,7 @@ async function bringRendererToFront(rendererCdpEndpoint: string): Promise<void> 
 export const RENDERER_DISABLED_MESSAGE = "Renderer integration is disabled in safe mode";
 
 const defaultDependencies: DesktopControllerDependencies = {
-  readPolicy: () => readCodexRendererPolicy(),
+  readPolicy: createCodexRendererPolicyReader(),
   readCoreUsage: () => readCoreUsageSnapshot(),
   readRenderer: (filePath) => readFile(filePath, "utf8"),
   install: installRendererCdpControlSession,

@@ -131,7 +131,9 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
       (el) => el.tag === "p" && el.textContent.includes("辅助功能"),
     );
     expect(note?.props["data-keep"]).toBe(true);
-    page.find("重试")?.props.onclick?.();
+    const retry = page.find("重试")?.props.onclick;
+    expect(retry).toBeTypeOf("function");
+    if (typeof retry === "function") retry();
     await tick();
     expect(page.calls.map((c) => c.method)).toContain("codex.updates.check");
   });

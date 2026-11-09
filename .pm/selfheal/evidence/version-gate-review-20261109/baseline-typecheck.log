@@ -1,0 +1,8 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> codexhost@0.11.39 typecheck
+> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false
+
+packages/host-runtime/test/rly0-codex-updates-ui.test.ts(134,28): error TS2349: This expression is not callable.
+  Type '{}' has no call signatures.
+[runner] exit_code=2

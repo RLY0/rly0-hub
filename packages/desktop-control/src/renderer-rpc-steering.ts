@@ -1,3 +1,4 @@
+import { recordRendererFeatureFailure } from "./renderer-feature-failures.js";
 import { nativeRpcObjectShape } from "./renderer-native-rpc-discovery.js";
 import { findRendererAppScopeStore } from "./renderer-host-rpc-discovery.js";
 
@@ -58,9 +59,11 @@ export async function installRendererRpcSteeringDirect(
         `codexhost native steering discovery failed (attempt ${attempts}):`,
         error instanceof Error ? error.message : String(error),
       );
+      await recordRendererFeatureFailure(client, "rpc-steering");
       return false;
     }
   } catch {
+    await recordRendererFeatureFailure(client, "rpc-steering");
     return false;
   }
 }

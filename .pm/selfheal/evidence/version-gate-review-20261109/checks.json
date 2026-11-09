@@ -1,0 +1,108 @@
+{
+  "base": "2d795e9c",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/codex-version-gate-20261109",
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR, RLY0_SKIP_LEGACY_IMPORT=1; all updater OS calls injected",
+  "results": [
+    {
+      "name": "typecheck",
+      "command": ["npm", "run", "typecheck"],
+      "exit_code": 0
+    },
+    {
+      "name": "focused",
+      "command": [
+        "node_modules/.bin/vitest",
+        "run",
+        "--config",
+        "tests/vitest.config.js",
+        "packages/host-runtime/test/codex-version-gate.test.ts",
+        "packages/host-runtime/test/codex-update-watchdog.test.ts",
+        "packages/host-runtime/test/rly0-codex-updates-ui.test.ts",
+        "packages/host-runtime/test/rly0-hub-service.test.ts",
+        "packages/host-runtime/test/rly0-maintenance/desktop-compatibility.test.ts",
+        "packages/desktop-control/test/codex-renderer-policy.test.ts",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/renderer-cdp-control-session.test.ts",
+        "packages/desktop-control/test/renderer-native-rpc-install.test.ts",
+        "packages/desktop-control/test/renderer-rpc-steering.test.ts",
+        "packages/renderer-extension/test/renderer-feature-gate.test.ts",
+        "packages/update-manager/test/update-manager.test.ts",
+        "packages/update-manager/test/operation-state.test.ts",
+        "packages/update-manager/test/github-release.test.ts"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "lint",
+      "command": ["npm", "run", "lint"],
+      "exit_code": 1
+    },
+    {
+      "name": "boundaries",
+      "command": ["node", "tools/check-boundaries.mjs"],
+      "exit_code": 0
+    },
+    {
+      "name": "renderer-build",
+      "command": ["npm", "run", "build:renderer"],
+      "exit_code": 0
+    },
+    {
+      "name": "webkit",
+      "command": [
+        "npm",
+        "run",
+        "test:e2e",
+        "--",
+        "renderer-version-gate.spec.ts",
+        "--browser=webkit"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "format",
+      "command": [
+        "node_modules/.bin/prettier",
+        "--check",
+        ".pm/BOARD.json",
+        ".pm/PROGRESS.md",
+        ".pm/PROGRESS_CODEX.md",
+        ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md",
+        ".pm/selfheal/evidence/version-gate-review-20261109/LIVE-VALIDATION.md",
+        ".pm/selfheal/evidence/version-gate-review-20261109/RESULTS.md",
+        ".pm/selfheal/evidence/version-gate-review-20261109/baseline.json",
+        ".pm/selfheal/evidence/version-gate-review-20261109/checks.json",
+        ".pm/selfheal/evidence/version-gate-review-20261109/guard-patch-check.json",
+        ".pm/selfheal/evidence/version-gate-review-20261109/source-fingerprint.json",
+        "docs/features/codex-version-gate.md",
+        "packages/desktop-control/src/codex-renderer-policy.ts",
+        "packages/desktop-control/src/production-controller.ts",
+        "packages/desktop-control/src/renderer-cdp-control-session.ts",
+        "packages/desktop-control/src/renderer-feature-failures.ts",
+        "packages/desktop-control/src/renderer-native-rpc-install.ts",
+        "packages/desktop-control/src/renderer-rpc-steering.ts",
+        "packages/desktop-control/test/codex-renderer-policy.test.ts",
+        "packages/desktop-control/test/renderer-cdp-control-session.test.ts",
+        "packages/desktop-control/test/renderer-native-rpc-install.test.ts",
+        "packages/desktop-control/test/renderer-rpc-steering.test.ts",
+        "packages/host-runtime/src/rly0-hub-service/codex-compat.ts",
+        "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts",
+        "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts",
+        "packages/host-runtime/src/rly0-hub-service/codex-update-watchdog.ts",
+        "packages/host-runtime/src/rly0-hub-service/hub-state.ts",
+        "packages/host-runtime/test/codex-update-watchdog.test.ts",
+        "packages/host-runtime/test/codex-version-gate.test.ts",
+        "packages/host-runtime/test/rly0-codex-updates-ui.test.ts",
+        "packages/shared-contracts/src/codex-version-gate.ts",
+        "packages/update-manager/src/status.ts",
+        "老板看这里.md"
+      ],
+      "exit_code": 0
+    },
+    {
+      "name": "diff-check",
+      "command": ["git", "diff", "--cached", "--check"],
+      "exit_code": 0
+    }
+  ]
+}

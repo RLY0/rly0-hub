@@ -22,6 +22,7 @@ export async function installNativeRpcRemoteControlDirect(
   const probeId = crypto.randomUUID();
   try {
     attempt = await renderer.evaluate<string | null>(`(() => {
+    try {
     if (window.__codexhostNativeRpcRemoteControlV1) return null;
     const routing = window.__codexhostHostRoutingV1;
     const owner = routing?.forHost('local')?.manager;
@@ -37,6 +38,11 @@ export async function installNativeRpcRemoteControlDirect(
       key, owner, token, state: 'discovering', attempts: sameOwner ? previous.attempts + 1 : 1,
     };
     return token;
+    } catch {
+      const failures = window.__codexhostFeatureFailuresV1 ??= [];
+      if (!failures.includes('native-rpc')) failures.push('native-rpc');
+      return null;
+    }
     })()`);
   } catch {
     return false;
@@ -73,6 +79,10 @@ export async function installNativeRpcRemoteControlDirect(
       const status = window.__codexhostNativeRpcDiscoveryV1;
       if (status?.token === ${JSON.stringify(attempt)}) {
         status.state = ${JSON.stringify(installed ? "ready" : "unavailable")};
+        if (!${JSON.stringify(installed)}) {
+          const failures = window.__codexhostFeatureFailuresV1 ??= [];
+          if (!failures.includes('native-rpc')) failures.push('native-rpc');
+        }
         status.nextRetryAt = Date.now() + 5000 * 2 ** (status.attempts - 1);
       }
     })()`,

@@ -170,3 +170,24 @@ describe("native RPC steering owner discovery", () => {
     await expect(installRendererRpcSteeringDirect(client)).resolves.toBe(false);
   });
 });
+
+it("records steering discovery failures, but leaves an unneeded steering install unmarked", async () => {
+  const calls: string[] = [];
+  const client = {
+    async evaluate<T>(expression: string): Promise<T> {
+      calls.push(expression);
+      return true as T;
+    },
+    async command(): Promise<unknown> {
+      throw new Error("synthetic failure");
+    },
+  };
+  expect(await installRendererRpcSteeringDirect(client)).toBe(false);
+  expect(calls.some((expression) => expression.includes("__codexhostFeatureFailuresV1"))).toBe(
+    true,
+  );
+  calls.length = 0;
+  const skipped = { ...client, evaluate: async <T>() => false as T };
+  expect(await installRendererRpcSteeringDirect(skipped)).toBe(false);
+  expect(calls).toEqual([]);
+});

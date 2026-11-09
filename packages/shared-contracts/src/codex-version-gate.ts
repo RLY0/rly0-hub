@@ -16,7 +16,20 @@ export const CODEX_RENDERER_FEATURES = [
 ] as const;
 export type CodexRendererFeature = (typeof CODEX_RENDERER_FEATURES)[number];
 const family = z.string().regex(/^\d+\.\d+$/u);
-const hubVersion = z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u);
+export const SEMVER_PATTERN =
+  /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
+const hubVersion = z.string().regex(SEMVER_PATTERN);
+function safeCompare(
+  compare: (a: string, b: string) => number,
+  a: string,
+  b: string,
+): number | null {
+  try {
+    return compare(a, b);
+  } catch {
+    return null;
+  }
+}
 /** Unknown keys and future feature ids are accepted; invalid known fields reject the document. */
 export const codexCompatManifestSchema = z.object({
   schemaVersion: z.literal(1),
@@ -62,7 +75,8 @@ export function codexVersionVerified(
     isVerifiedDesktopVersionFamily(version) ||
     !!manifest?.verified.some(
       (entry) =>
-        entry.family === desktopVersionFamily(version) && compareHub(hub, entry.minHub) >= 0,
+        entry.family === desktopVersionFamily(version) &&
+        (safeCompare(compareHub, hub, entry.minHub) ?? -1) >= 0,
     )
   );
 }
@@ -79,7 +93,7 @@ export function codexRendererPolicy(
         (!entry.codexFamilies ||
           (version !== null &&
             entry.codexFamilies.includes(desktopVersionFamily(version) ?? ""))) &&
-        (!entry.hubBelow || compareHub(hub, entry.hubBelow) < 0),
+        (!entry.hubBelow || (safeCompare(compareHub, hub, entry.hubBelow) ?? -1) < 0),
     ),
   );
   const full = codexVersionVerified(version, hub, manifest, compareHub);
@@ -98,12 +112,16 @@ export const codexRendererPolicySchema = z
     disabled: z.array(z.enum(CODEX_RENDERER_FEATURES)),
   })
   .strict();
-export const codexUpdateSettingsSchema = z
-  .object({
-    defaulted: z.boolean(),
-    enabled: z.boolean(),
-    noticeAcknowledged: z.boolean().optional(),
-    originalAutoUpdate: z.boolean().nullable().optional(),
-  })
-  .strict();
+export const codexUpdateSettingsSchema = z.object({
+  defaulted: z.boolean().catch(true),
+  enabled: z.boolean().catch(false),
+  noticeAcknowledged: z.boolean().optional().catch(undefined),
+  originalAutoUpdate: z.boolean().nullable().optional().catch(undefined),
+  originalCheckPreferences: z
+    .object({
+      automaticChecks: z.boolean().nullable(),
+      lastCheckTime: z.string().max(100).nullable(),
+    })
+    .optional(),
+});
 export type CodexUpdateSettings = z.infer<typeof codexUpdateSettingsSchema>;

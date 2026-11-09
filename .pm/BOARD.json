@@ -9,12 +9,16 @@
       "owner": "codex",
       "collaborators": ["claude"],
       "status": "self_verified",
-      "review": "pending-unavailable",
+      "review": "review-1-fixed-pending-independent-recheck",
       "accepted": false,
-      "scope": "A/B/C nonvisual; no package, release or live process changes",
+      "scope": "Review fixes 1-5, 6/7/9/10; nonvisual background Sparkle/watchdog; no package/release/live process changes",
       "contract": ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md",
-      "evidence_files": [".pm/selfheal/evidence/version-gate-20261109/RESULTS.md"],
-      "next_action": "Claude 核对接口并接显示层；补独立复查、guard 实际部署与真机升级验收"
+      "evidence_files": [
+        ".pm/selfheal/evidence/version-gate-20261109/RESULTS.md",
+        ".pm/selfheal/evidence/version-gate-review-20261109/RESULTS.md"
+      ],
+      "next_action": "独立复查修复；Claude 核对 CONTRACT v2 文案；独立真机/guard 部署验收后再决定发布",
+      "base": "2d795e9c33d33992b911c4374924bb41ba840dcc"
     }
   ]
 }

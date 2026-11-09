@@ -1,0 +1,10 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> codexhost@0.11.39 build:renderer
+> npm run build --workspace=@codexhost/renderer-extension
+
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> @codexhost/renderer-extension@0.0.0 build
+> node scripts/build.mjs
+[runner] exit_code=0
