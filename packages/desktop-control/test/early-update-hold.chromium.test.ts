@@ -65,6 +65,10 @@ describe.skipIf(!enabled)("early update hold on a real Chromium", () => {
       CHROME,
       [
         "--headless=new",
+        // Without these, Chrome under a temporary HOME asks macOS for its keychain and the user
+        // sees a "找不到用于储存 Chrome 的钥匙串" dialog.
+        "--use-mock-keychain",
+        "--password-store=basic",
         `--user-data-dir=${profile}`,
         "--remote-debugging-port=0",
         "--no-first-run",
