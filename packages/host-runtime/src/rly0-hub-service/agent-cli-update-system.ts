@@ -27,8 +27,12 @@ export async function assertCliWritable(
       : [p.dirname(plan.executable), plan.executable];
   try {
     for (const directory of directories) await check(directory, constants.W_OK);
-  } catch {
-    throw new Error("COMMAND_PERMISSION_DENIED");
+  } catch (error) {
+    throw new Error(
+      platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM"
+        ? "COMMAND_FILE_IN_USE"
+        : "COMMAND_PERMISSION_DENIED",
+    );
   }
 }
 

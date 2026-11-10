@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from "node:child_process";
 import { readFileSync, readdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 
@@ -8,40 +8,57 @@ export interface CliOwnerProbe {
 }
 
 /** OS start identity, rather than PID alone (which can be reused after a crash). */
-let selfStartedAt: string | null = null;
-export const cliOwnerProbe: CliOwnerProbe = {
-  signal: (pid) => {
-    process.kill(pid, 0);
-  },
-  start: (pid) => {
-    if (pid === process.pid && selfStartedAt) return selfStartedAt;
-    try {
-      const windows = process.platform === "win32";
-      const text = execFileSync(
-        windows ? "powershell.exe" : "/bin/ps",
-        windows
-          ? [
-              "-NoProfile",
-              "-NonInteractive",
-              "-Command",
-              `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`,
-            ]
-          : ["-o", "lstart=", "-p", String(pid)],
-        {
-          encoding: "utf8",
-          timeout: 3_000,
-          windowsHide: true,
-          env: { ...process.env, LC_ALL: "C" },
-          stdio: ["ignore", "pipe", "ignore"],
-        },
-      ).trim();
-      if (pid === process.pid) selfStartedAt = text || null;
-      return text || null;
-    } catch {
-      return null;
-    }
-  },
-};
+export function createCliOwnerProbe(
+  options: {
+    exec?: (
+      command: string,
+      args: readonly string[],
+      options: ExecFileSyncOptionsWithStringEncoding,
+    ) => string;
+    environment?: NodeJS.ProcessEnv;
+    platform?: NodeJS.Platform;
+  } = {},
+): CliOwnerProbe {
+  let selfStartedAt: string | null = null;
+  return {
+    signal: (pid) => {
+      process.kill(pid, 0);
+    },
+    start: (pid) => {
+      if (pid === process.pid && selfStartedAt) return selfStartedAt;
+      try {
+        const windows = (options.platform ?? process.platform) === "win32";
+        const text = (options.exec ?? execFileSync)(
+          windows ? "powershell.exe" : "/bin/ps",
+          windows
+            ? [
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                `(Get-Process -Id ${pid} -ErrorAction Stop).StartTime.ToUniversalTime().Ticks`,
+              ]
+            : ["-o", "lstart=", "-p", String(pid)],
+          {
+            encoding: "utf8",
+            timeout: 3_000,
+            windowsHide: true,
+            env: { ...(options.environment ?? process.env), LC_ALL: "C", TZ: "UTC" },
+            stdio: ["ignore", "pipe", "ignore"],
+          },
+        ).trim();
+        if (pid === process.pid) selfStartedAt = text || null;
+        return text || null;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+export const cliOwnerProbe = createCliOwnerProbe();
+
+// Cache only a confirmed matching owner, never a PID's mismatching start identity. A reused PID
+// with a new owner/file must be probed afresh. signal(0) still detects dead owners immediately.
+const verifiedOwners = new Map<string, number>();
 
 export const heldCliOwners = new Set<string>();
 
@@ -76,9 +93,18 @@ export function liveCliOwners(directory: string, probe: CliOwnerProbe = cliOwner
         else {
           try {
             probe.signal(pid);
-            const start = probe.start(pid);
+            const key = `${file}:${pid}:${owner.id}:${owner.startedAt}`;
+            const now = Date.now();
+            const start = (verifiedOwners.get(key) ?? 0) > now ? owner.startedAt : probe.start(pid);
             // Unknown identity is not evidence that a known live owner died.
             alive = start === null || start === owner.startedAt;
+            if (start === owner.startedAt) {
+              if (verifiedOwners.size > 256)
+                for (const [key, expiry] of verifiedOwners)
+                  if (expiry <= now) verifiedOwners.delete(key);
+              // Reading a cache hit must not extend its original validation lifetime.
+              if ((verifiedOwners.get(key) ?? 0) <= now) verifiedOwners.set(key, now + 1_000);
+            }
           } catch (error) {
             const code = (error as NodeJS.ErrnoException).code;
             if (code !== "ESRCH" && code !== "EPERM") throw error;

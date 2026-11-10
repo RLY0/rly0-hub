@@ -1,0 +1,33 @@
+{
+  "name": "format-source",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/prettier/bin/prettier.cjs",
+    "--write",
+    "packages/harness-discovery/src/installation-command.ts",
+    "packages/harness-discovery/src/installation.ts",
+    "packages/harness-discovery/test/installation-command-driver.test.ts",
+    "packages/harness-discovery/test/installation-process-group.test.ts",
+    "packages/harness-discovery/test/installation.test.ts",
+    "packages/host-runtime/src/app-server-host.ts",
+    "packages/host-runtime/src/external-thread-idle-release.ts",
+    "packages/host-runtime/src/rly0-agents/cli-update-admission.ts",
+    "packages/host-runtime/src/rly0-agents/cli-update-owner.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-system.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts",
+    "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+    "packages/host-runtime/test/agent-cli-update-host.test.ts",
+    "packages/host-runtime/test/agent-cli-update-system.test.ts",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/cli-update-owner.test.ts",
+    "packages/host-runtime/test/external-thread-idle-release.test.ts",
+    "packages/shared-contracts/src/agent-cli-updates.ts",
+    "packages/shared-contracts/src/console.ts"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 555,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "packages/harness-discovery/src/installation-command.ts 34ms (unchanged)\npackages/harness-discovery/src/installation.ts 9ms (unchanged)\npackages/harness-discovery/test/installation-command-driver.test.ts 16ms (unchanged)\npackages/harness-discovery/test/installation-process-group.test.ts 5ms\npackages/harness-discovery/test/installation.test.ts 6ms (unchanged)\npackages/host-runtime/src/app-server-host.ts 258ms (unchanged)\npackages/host-runtime/src/external-thread-idle-release.ts 8ms (unchanged)\npackages/host-runtime/src/rly0-agents/cli-update-admission.ts 8ms (unchanged)\npackages/host-runtime/src/rly0-agents/cli-update-owner.ts 4ms (unchanged)\npackages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts 11ms (unchanged)\npackages/host-runtime/src/rly0-hub-service/agent-cli-update-system.ts 4ms (unchanged)\npackages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts 15ms (unchanged)\npackages/host-runtime/test/agent-cli-update-driver.test.ts 15ms\npackages/host-runtime/test/agent-cli-update-host.test.ts 12ms (unchanged)\npackages/host-runtime/test/agent-cli-update-system.test.ts 4ms (unchanged)\npackages/host-runtime/test/agent-cli-updates.test.ts 30ms\npackages/host-runtime/test/cli-update-owner.test.ts 4ms (unchanged)\npackages/host-runtime/test/external-thread-idle-release.test.ts 12ms (unchanged)\npackages/shared-contracts/src/agent-cli-updates.ts 2ms (unchanged)\npackages/shared-contracts/src/console.ts 2ms (unchanged)\n"
+}

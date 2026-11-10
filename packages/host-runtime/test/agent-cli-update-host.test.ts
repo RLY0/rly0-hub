@@ -3,7 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeHarnessAdapter } from "@codexhost/harness-adapter/testing";
-import { harnessIdSchema, AGENT_CLI_BUSY_METHOD } from "@codexhost/shared-contracts";
+import {
+  harnessIdSchema,
+  AGENT_CLI_BUSY_METHOD,
+  AGENT_CLI_RELEASE_METHOD,
+  AGENT_CLI_INSPECT_METHOD,
+} from "@codexhost/shared-contracts";
 import {
   AgentCliUpdateAdmission,
   acquireAgentCliFence,
@@ -47,6 +52,83 @@ async function isolated() {
   };
 }
 describe("Host CLI update admission", () => {
+  it("requires the update fence, releases idle sessions with default idle release disabled, and fences public inspection", async () => {
+    const env = await isolated();
+    const f = createFixture({ environment: env });
+    let release: (() => Promise<void>) | null = null;
+    try {
+      await startPiThread(f);
+      const close = vi.spyOn(required(f.adapter.sessions[0]), "close");
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "pi" }),
+      ).toMatchObject({ error: { code: -32072 } });
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_INSPECT_METHOD, { agent: "pi" }),
+      ).toMatchObject({ error: { code: -32072 } });
+      expect(close).not.toHaveBeenCalled();
+      release = await acquireAgentCliFence(env, "pi", syntheticOwner);
+      expect(await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "pi" })).toEqual({
+        result: { guarded: true, busy: false },
+      });
+      expect(close).toHaveBeenCalledTimes(1);
+      const before = f.adapter.inspectionCalls;
+      expect(
+        await f.host.handleConsoleRequest("codexhost/harness/inspect", {
+          harnessId: "pi",
+          refresh: true,
+        }),
+      ).toMatchObject({
+        error: { code: -32072, message: expect.stringContaining("AGENT_CLI_UPDATE_BUSY") },
+      });
+      expect(f.adapter.inspectionCalls).toBe(before);
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_INSPECT_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { status: "ready" } });
+      expect(f.adapter.inspectionCalls).toBe(before + 1);
+    } finally {
+      await release?.();
+      await stopFixture(f);
+    }
+  });
+  it("never closes a running turn or a session doing native background work, and ignores other assistants", async () => {
+    const env = await isolated();
+    const f = createFixture({ environment: env });
+    let release: (() => Promise<void>) | null = null;
+    try {
+      const thread = await startPiThread(f);
+      const session = required(f.adapter.sessions[0]);
+      const close = vi.spyOn(session, "close");
+      await startPiTurn(f, thread);
+      release = await acquireAgentCliFence(env, "pi", syntheticOwner);
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { busy: true } });
+      expect(close).not.toHaveBeenCalled();
+      session.succeedTurn();
+      await vi.waitFor(async () =>
+        expect(
+          await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" }),
+        ).toMatchObject({ result: { busy: false } }),
+      );
+      Object.assign(session, { hasBackgroundWork: () => true });
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { busy: true } });
+      expect(close).not.toHaveBeenCalled();
+      const other = await acquireAgentCliFence(env, "opencode", syntheticOwner);
+      try {
+        expect(
+          await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "opencode" }),
+        ).toMatchObject({ result: { busy: false } });
+        expect(close).not.toHaveBeenCalled();
+      } finally {
+        await other?.();
+      }
+    } finally {
+      await release?.();
+      await stopFixture(f);
+    }
+  });
   it("reports running turns per harness, blocks a new turn under its fence, then admits it after release", async () => {
     const env = await isolated();
     const f = createFixture({ environment: env });

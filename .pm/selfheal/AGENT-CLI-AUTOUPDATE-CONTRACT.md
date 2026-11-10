@@ -133,3 +133,47 @@ owner 使用唯一 ID、PID 与 OS 启动身份，完整文件写好后原子链
 ### 交接与验收边界
 
 本轮仅 isolated synthetic 测试和本地构建/类型/静态检查；没有真实 npm/CLI 安装、真机账号连接、Hub 服务启动或日常程序重启。Claude 需补新增状态映射、等待色和回退失败的实际可用操作；修复后独立复核、Mac/Windows 的权限、占用、超时进程树、代理与 UI 联调仍未验收。原生 updater 的固定版本回退缺口仍保留。
+
+## v3：独立复查 #2 修复与 Claude 接线变更（2026-11-10）
+
+本节覆盖 v1/v2 中的安装超时分钟重试、Host 空闲常驻进程一直阻止更新、旧版也不 ready 仍保留拉黑，以及恢复一律回装的语义。用户既定流程保持：Hub 自动更新助手 CLI，更新后做原生连接检查，非 ready 回退并跳过确定的坏版本，默认开启且可关闭。后台与测试归 Codex；本轮未改 `apps/hub-desktop/www`，界面及发布交 Claude。
+
+### 新字段和错误码
+
+管理 RPC 请求与 Result 枚举不变。每个 entry 新增以下字段；读取旧状态文件时有兼容默认值，状态文件 schemaVersion 仍为 1。
+
+| 字段/错误码 | 后台语义 | Claude 显示建议 |
+| --- | --- | --- |
+| `previousVersion: string \| null`（默认 null） | 最近事务保存的原版本；回退/恢复完成后保留，用于判断 `currentVersion === previousVersion` | 结合 result、recoveryPending 和 errorCode 判断是否已恢复原版，不仅凭错误码 |
+| `recoveryPending: boolean`（默认 false；存在遗留事务时由日志推导） | 还有待核验或待回退的事务，可能正在等待工作结束/进程退出 | 优先显示“更新恢复待处理，等待助手空闲”，不能写“有新版，等空闲更新” |
+| `INSTALL_TIMEOUT` | 只用于安装命令超时；与查询/连接检查超时分开。可能完全未改版本，也可能已回退 | “本次安装超时，下次每日检查或手动检查再试”；已读回原版时显示已恢复/保留原版 |
+| `INSTALL_FILE_BUSY` | Windows EPERM 单独分类；可能是文件被占用，W_OK 不能证明 Windows ACL 可写 | “安装文件可能被占用，请关闭外部助手进程后重试”；不能直接断言原目录没权限 |
+| `PRE_UPDATE_VERSION_MISMATCH` | 安装前版本已变，完全未安装；和安装后的 VERSION_MISMATCH 分开 | “更新前版本已变化，本次已跳过”，不能写“装完版本对不上” |
+
+`PERMISSION_DENIED` 保留给明确 EACCES 或 POSIX 权限错误；Windows W_OK 仅为预检，真实安装仍按脱敏错误判定。原始 stderr、命令输出和凭据不会写入状态。
+
+`CHECK_TIMEOUT` 只代表读版本/连接等检查超时，可以分钟重试；`INSTALL_TIMEOUT`、`INSTALL_FAILED`、`INSTALL_FILE_BUSY` 不进入分钟安装重试，等每日或手动检查。若 `recoveryPending=false` 且 `currentVersion === previousVersion`，`failed / CHECK_TIMEOUT`、HOST_UNAVAILABLE、BASELINE_NOT_READY 都必须显示“旧版本已恢复，等待连接检查”；`rolled-back / CHECK_TIMEOUT` 表示原版已经重新 ready，可显示“旧版本已恢复，本次检查超时”。
+
+### 空闲释放、连接围栏和按需重开
+
+拿到该助手围栏后，驱动先向所有本机 Host 请求 `codexhost/harness/cli-update-release-idle`，参数 `{agent}`，返回 `{guarded:true,busy:boolean}`。Host 只释放该助手能安全关闭的空闲会话：没有运行回合/activeTurn、后台工作、子任务、待审批/问题、待执行命令、正在进行的操作或持久化异常，并且原生会话身份已保存。调用在该 thread 的现有队列内再次检查条件，确认 close、输出消费及持久化完成才移除会话；任一未释放会话使 busy=true。绝不取消、杀掉或重启正在工作的会话。
+
+该释放不依赖用户“自动空闲释放”开关或超时，也不改变该偏好。Host 线程和已保存的原生身份保留；安装完成后没有预先重开会话，下次用户使用时走现有 resume 机制按需恢复。其他助手不受影响。释放后和每次安装/回退前仍扫描外部进程；外部终端/serve 不属于 Host 的空闲释放范围，只等待用户结束它们。
+
+普通 `codexhost/harness/inspect`、adapter.inspect 以及版本检查在更新围栏内返回 AGENT_CLI_UPDATE_BUSY/-32072，不启动原生 CLI。更新器改用 `codexhost/harness/cli-update-inspect`，参数 `{agent}`，结果仍为原 `HarnessInspection`，底层是同一 adapter 的 `inspect({refresh:true})`。两个新增 Host 方法都要求该助手存在有效围栏，缺围栏拒绝；没有 Host、旧 Host 不支持或格式不符时 fail closed。新增 Host 方法供后台使用，界面继续使用原连接检查入口。
+
+### 拉黑、恢复、锁和命令生命周期
+
+更新前 ready、新版非 ready/版本不一致时仍回退并先暂存 quarantine。读回旧版后再做连接检查：旧版也非 ready、检查异常或超时即撤销该目标版的拉黑，保留其他坏版本；以后环境恢复可再试。只有新版失效、旧版恢复 ready 的有效对照才保留 quarantine；旧日志缺 quarantine 时不保留无证据的拉黑。回退安装尚未成功时保留日志和暂存 quarantine，不能宣称原版已恢复。
+
+恢复时当前就是目标版、未判坏且刷新检查 ready，则保留目标版、清日志并返回 recovered，即使开关已关也不主动降级。`recovered` 因而也可表示“已保留检查正常的更新版本”；Claude 用 previousVersion/currentVersion 区分原版已恢复与目标版保留。非 ready 仍等空闲后回退；外部换装的第三版本仍保留。
+
+POSIX 启动身份探针统一 `TZ=UTC, LC_ALL=C`；本进程启动身份缓存及 Host 的探针保持同一格式。已核实匹配的 owner 最多缓存 1 秒，每次仍检查进程存活，不延长缓存期限；新 owner/新启动身份重新查 OS，未知身份保守等待。这样减少更新期间每次准入的同步 ps/PowerShell 调用；首次/到期探针仍为同步，最多 3 秒，异步改造未在本轮承诺。
+
+POSIX 安装命令通过 spawn(detached=true) 建立自有进程组，超时/取消对该组 kill(-pgid)，不靠父子树快照；组终止失败仍尝试直接子进程，并保留 COMMAND_TREE_STOP_FAILED 阻止并发回退。Windows 仍使用 taskkill /T /F 并等 close；taskkill 与正常退出竞争而 close 已确认时不误报树终止失败。没有放宽到杀同名或无关进程。
+
+另一个 Hub 持有 coordinator 或本轮正在释放 coordinator 时，手动检查保留在队列，锁空出后执行；停服清队列并中止等待。Hub 选择“直连”时保留既有 ALL_PROXY/.npmrc/环境代理，这是继续沿用原 npm 环境的有意取舍；“直连”在此不保证绕过继承代理。
+
+### 验收边界
+
+本轮只做临时用户目录的 synthetic 协议、状态机与注入驱动测试；POSIX 进程组/时区探针仅使用自己启动的无害 sleep 子进程。真实 npm 前缀无 install/uninstall、日常 Codex/Hub 无退出重启、未另起 hub-service、未推送发布。Mac/Windows 的真实助手会话释放/按需 resume、真实安装/回退/连接、Windows ACL 与锁文件、原生后台工作和外部进程竞争仍需获准独立真机验收。新增界面字段/错误码由 Claude 实现并验收。

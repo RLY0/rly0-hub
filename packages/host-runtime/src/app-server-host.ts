@@ -1,5 +1,10 @@
-import { AgentCliUpdateAdmission } from "./rly0-agents/cli-update-admission.js";
-import { AGENT_CLI_BUSY_METHOD, agentCliBusyParamsSchema } from "@codexhost/shared-contracts";
+import { AgentCliUpdateAdmission, fenceOwnerAlive } from "./rly0-agents/cli-update-admission.js";
+import {
+  AGENT_CLI_BUSY_METHOD,
+  AGENT_CLI_RELEASE_METHOD,
+  AGENT_CLI_INSPECT_METHOD,
+  agentCliBusyParamsSchema,
+} from "@codexhost/shared-contracts";
 
 import { parse as parseToml } from "smol-toml";
 import {
@@ -1961,27 +1966,53 @@ export class AppServerHost {
     if (this.#closeRequested || this.#desktopInputEnded) {
       return { error: { code: -32090, message: "Codex Desktop is closing" } };
     }
-    if (method === AGENT_CLI_BUSY_METHOD) {
+    if (
+      [AGENT_CLI_BUSY_METHOD, AGENT_CLI_RELEASE_METHOD, AGENT_CLI_INSPECT_METHOD].includes(method)
+    ) {
       const parsed = agentCliBusyParamsSchema.safeParse(params);
       if (!parsed.success) return { error: { code: -32602, message: "Invalid CLI busy request" } };
       const agent = parsed.data.agent;
+      const busy = () =>
+        this.#agentCliAdmission.busy(agent) ||
+        this.#agentInstaller.status(agent).state === "running" ||
+        this.#externalRuntime
+          .values()
+          .some(
+            (thread) =>
+              thread.harnessId === agent &&
+              (this.#externalThreadBusy(thread) ||
+                thread.activeTurnId !== null ||
+                this.#pendingExternalCommandRequests.has(thread.id) ||
+                this.#hasRunningSubagents(thread.id) ||
+                thread.session.hasBackgroundWork?.() === true),
+          );
+      if (method !== AGENT_CLI_BUSY_METHOD) {
+        if (!(await fenceOwnerAlive(this.#options.environment ?? process.env, agent)))
+          return { error: { code: -32072, message: "CLI update fence is required" } };
+        await this.#waitForPlugins();
+        if (method === AGENT_CLI_INSPECT_METHOD) {
+          const adapter = [...this.#externalAdapters.values()].find((a) => a.harnessId === agent);
+          if (!adapter || busy()) return { error: { code: -32072, message: "Harness is busy" } };
+          try {
+            return {
+              result: jsonValueSchema.parse(
+                harnessInspectionSchema.parse(
+                  await this.#agentCliAdmission.inspectForUpdate(adapter),
+                ),
+              ),
+            };
+          } catch {
+            return { error: { code: -32077, message: "CLI update inspection failed" } };
+          }
+        }
+        if (busy()) return { result: { guarded: true, busy: true } };
+        const released = await this.#externalRuntime.idleRelease.releaseForUpdate(agent);
+        return { result: { guarded: true, busy: !released || busy() } };
+      }
       return {
         result: {
           guarded: true,
-          busy:
-            this.#agentCliAdmission.busy(agent) ||
-            this.#agentInstaller.status(agent).state === "running" ||
-            this.#externalRuntime
-              .values()
-              .some(
-                (thread) =>
-                  thread.harnessId === agent &&
-                  (this.#externalThreadBusy(thread) ||
-                    thread.activeTurnId !== null ||
-                    this.#pendingExternalCommandRequests.has(thread.id) ||
-                    this.#hasRunningSubagents(thread.id) ||
-                    thread.session.hasBackgroundWork?.() === true),
-              ),
+          busy: busy(),
         },
       };
     }
@@ -5221,7 +5252,13 @@ export class AppServerHost {
       });
     } catch (error) {
       await this.#writer.json(
-        rpcError(request, -32077, `Harness inspection failed: ${errorMessage(error)}`),
+        rpcError(
+          request,
+          error instanceof Error && error.message.includes("AGENT_CLI_UPDATE_BUSY")
+            ? -32072
+            : -32077,
+          `Harness inspection failed: ${errorMessage(error)}`,
+        ),
       );
       return;
     }

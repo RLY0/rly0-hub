@@ -12,15 +12,15 @@
 
 Hub 启动和每 24 小时检查一次助手 CLI，默认开启。管理接口是 `agents.cliUpdates.status`、`agents.cliUpdates.setEnabled`、`agents.cliUpdates.check`；手动检查启动后台任务后立即返回，状态接口用于轮询。界面接线由 Claude 负责，字段、枚举和错误码见 [CLI 自动更新契约](../../.pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md)。关闭后不检查或更新；已开始的安装仍完成验证及必要回退，未完成事务的恢复也继续。
 
-npm 安装复用 Harness discovery 对真实包路径和全局 prefix 的识别；查询使用同一 npm 的 `view --prefix <原位置> <包>@latest version --json`，与安装共用 registry、.npmrc 和代理环境。Hub 没有显式代理时不清空 npm 用户代理。安装和回退均指定原 prefix 与精确版本，不卸载、不提权、不迁往另一位置；安装前检查原 prefix、bin 和包目录写权限。Windows 保留 `npm.cmd` 调用包装。DeepSeek 等 recipe 明确锁版本的包报告 `VERSION_PINNED`，不自动越锁。Host 启动路径设置优先于 PATH，保存但未被 Host 加载的路径与无法统一解析的安装目录均保守报 `ORIGINAL_INSTALLER`。
+npm 安装复用 Harness discovery 对真实包路径和全局 prefix 的识别；查询使用同一 npm 的 `view --prefix <原位置> <包>@latest version --json`，与安装共用 registry、.npmrc 和代理环境。Hub 没有显式代理时不清空 npm 用户代理；“直连”仍可继承 ALL_PROXY/.npmrc 配置。安装和回退均指定原 prefix 与精确版本，不卸载、不提权、不迁往另一位置；安装前检查原 prefix、bin 和包目录写权限。Windows 保留 `npm.cmd` 调用包装。DeepSeek 等 recipe 明确锁版本的包报告 `VERSION_PINNED`，不自动越锁。Host 启动路径设置优先于 PATH，保存但未被 Host 加载的路径与无法统一解析的安装目录均保守报 `ORIGINAL_INSTALLER`。
 
-更新前持有跨进程文件围栏，确认所有本机 Host 和原可执行文件/包目录没有占用，随后先检查原版本 ready。未登录等基线非 ready 时返回 `skipped-not-ready / BASELINE_NOT_READY`，不安装；无 Host、插件未加载或超时返回等待状态 `HOST_UNAVAILABLE`。busy、基线非 ready 与 Host 不可用每分钟重试；手动请求按助手排队，保留“检查全部”的新查询，未变化的状态不反复写盘。owner 文件带 PID、启动身份和唯一 ID，原子发布；启动与 Host 准入均清理死锁、PID 复用和损坏锁。两个 Hub 的检查及状态写入分别串行化，开关操作保留磁盘上的坏版本和事务。
+更新前持有跨进程文件围栏，请所有本机 Host 通过 cli-update-release-idle 释放该助手的空闲会话，再检查外部进程占用和原版本 ready。释放只关闭没有运行回合、后台工作、子任务、审批/问题、正在进行的操作或持久化异常且身份已保存的会话，复用原队列再次核验；不受自动空闲回收偏好限制，不取消正在工作的对话。关闭后保留线程和原生身份，下次用户使用时按需 resume。未登录等基线非 ready 时返回 `skipped-not-ready / BASELINE_NOT_READY`，不安装；无 Host、插件未加载或超时返回等待状态 `HOST_UNAVAILABLE`。busy、基线非 ready、Host 不可用与读版本/连接检查超时每分钟重试；安装超时另报 INSTALL_TIMEOUT，只等每日或手动检查，避免分钟重装；手动请求按助手排队，保留“检查全部”的新查询，未变化的状态不反复写盘。owner 文件带 PID、统一 UTC/C locale 的启动身份和唯一 ID，原子发布；存活匹配身份最多缓存 1 秒且每次仍检查存活，新 owner 重新探测；启动与 Host 准入均清理死锁、PID 复用和损坏锁。两个 Hub 的检查及状态写入分别串行化，开关操作保留磁盘上的坏版本和事务。
 
-新版安装后核对精确版本，并调用每个本机 Host 的 `codexhost/harness/inspect`（`refresh: true`，与选择器和 Hub 的连接检查相同）。基线 ready 而新版不 ready 时回退并拉黑；Host 消失/超时等临时故障也恢复旧版，但不据此拉黑。npm 非零退出后先读回：仍为原版则清日志、不重装、不拉黑。旧版读回成功但连接尚未恢复时单独报告连接问题，不留下导致每次重启重装旧版的日志。
+新版安装后核对精确版本，并调用每个本机 Host 的 `codexhost/harness/cli-update-inspect`（要求更新围栏，底层仍为与选择器相同的 adapter.inspect，refresh=true）。基线 ready 而新版不 ready 时回退；只有旧版重新 ready 的有效对照才保留目标版拉黑，旧版也不 ready/异常/超时则撤销该目标版拉黑；Host 消失/超时等临时故障也恢复旧版，但不据此拉黑。npm 非零退出后先读回：仍为原版则清日志、不重装、不拉黑。旧版读回成功但连接尚未恢复时单独报告连接问题，不留下导致每次重启重装旧版的日志。
 
-异常恢复先读版本：已是原版则只清日志并返回 `recovered`；既非原版也非目标版则保留用户外部换装并放弃日志；目标版或不可读才等空闲后回退。停服取消排队及当前命令，Windows 等待进程树终止并确认关闭，不并发启动回退；中断事务保留到下次启动先核验。不能确认终止时报 `COMMAND_TREE_STOP_FAILED`，不声称已经恢复。
+异常恢复先读版本：已是原版则只清日志并返回 `recovered`；既非原版也非目标版则保留用户外部换装并放弃日志；目标版未判坏且重新 ready 时保留该版并清日志，即使开关已关也不降级；否则与不可读状态一起等空闲后回退。previousVersion 和 recoveryPending 用于区分旧版已恢复、正常目标版已保留和恢复待执行。停服取消排队及当前命令，POSIX 使用自有 detached 进程组整体终止，Windows 等待进程树终止并确认关闭（与正常退出竞争时不误报），不并发启动回退；中断事务保留到下次启动先核验。不能确认终止时报 `COMMAND_TREE_STOP_FAILED`，不声称已经恢复。
 
-围栏覆盖 Host 新会话、恢复、回合、命令、Web UI 和账号检查，以及 Hub 登录入口；拒绝提供可读状态并允许之后重试，其他助手不受影响。外部终端和空闲的原生常驻服务通过 OS 扫描检测，无法原子阻止扫描后外部新启动的进程。Claude Code、Codex、ZCode、WorkBuddy 与 Antigravity 桌面应用不在范围，`antigravity` 仅代表独立 `agy` CLI。
+围栏覆盖 Host 新会话、恢复、回合、命令、Web UI、普通连接/版本检查和账号检查，以及 Hub 登录入口；拒绝提供可读状态并允许之后重试，其他助手不受影响。外部终端和空闲的原生常驻服务通过 OS 扫描检测，无法原子阻止扫描后外部新启动的进程。Claude Code、Codex、ZCode、WorkBuddy 与 Antigravity 桌面应用不在范围，`antigravity` 仅代表独立 `agy` CLI。
 
 原生 OpenCode 标准路径支持官方精确版本升级/回退；Pi、Grok、Cursor、OMP、Qoder、Hermes、Kimi、agy 原生安装缺少已核实固定版本回退能力时仍只检测并报 `ROLLBACK_UNSUPPORTED`；Kiro/Devin 等未核实入口报 `NO_OFFICIAL_UPDATER`。真实安装、Mac/Windows 占用和权限、代理、连接/回退、停服时长、界面与发布均需独立验收。本地 synthetic 测试不能替代这些结果。
 

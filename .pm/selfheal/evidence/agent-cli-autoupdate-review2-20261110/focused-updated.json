@@ -1,0 +1,24 @@
+{
+  "name": "focused-updated",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "tests/vitest.config.js",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+    "packages/host-runtime/test/agent-cli-update-host.test.ts",
+    "packages/host-runtime/test/agent-cli-update-system.test.ts",
+    "packages/host-runtime/test/cli-update-owner.test.ts",
+    "packages/host-runtime/test/external-thread-idle-release.test.ts",
+    "packages/harness-discovery/test/installation.test.ts",
+    "packages/harness-discovery/test/installation-command-driver.test.ts",
+    "packages/harness-discovery/test/installation-process-group.test.ts"
+  ],
+  "exitCode": 1,
+  "elapsedMs": 1714,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "\n RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate\n\n ❯ packages/harness-discovery/test/installation-process-group.test.ts (1 test | 1 failed) 13ms\n   × kills a reparented sleep in its owned POSIX group and preserves an unrelated sibling 12ms\n ❯ packages/host-runtime/test/agent-cli-updates.test.ts (47 tests | 1 failed) 1018ms\n     × retains a manual request while another Hub owns the coordinator 159ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  packages/harness-discovery/test/installation-process-group.test.ts > kills a reparented sleep in its owned POSIX group and preserves an unrelated sibling\nAssertionError: expected [Function] to throw error including 'timed out' but got 'Harness command failed; check the nat…'\n\nExpected: \"timed out\"\nReceived: \"Harness command failed; check the native installation and retry\"\n\n ❯ packages/harness-discovery/test/installation-process-group.test.ts:29:178\n\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯\n\n FAIL  packages/host-runtime/test/agent-cli-updates.test.ts > review 2 transaction regressions (synthetic, native error shapes) > retains a manual request while another Hub owns the coordinator\nAssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:\n\n  1st vi.fn() call:\n\n    Array [\n      \"pi\",\n      undefined,\n    ]\n\n\nNumber of calls: 1\n\n ❯ packages/host-runtime/test/agent-cli-updates.test.ts:638:27\n    636|     try {\n    637|       await vi.waitFor(async () => expect((await second.status()).chec…\n    638|       expect(inspect).not.toHaveBeenCalled();\n       |                           ^\n    639|     } finally { gate.resolve(); }\n    640|     await Promise.all([first, queued]);\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯\n\n\n Test Files  2 failed | 7 passed (9)\n      Tests  2 failed | 161 passed (163)\n   Start at  21:21:12\n   Duration  1.46s (transform 1.97s, setup 0ms, import 2.70s, tests 1.37s, environment 0ms)\n\n"
+}

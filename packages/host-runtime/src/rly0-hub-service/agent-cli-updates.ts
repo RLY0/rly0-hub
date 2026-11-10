@@ -38,6 +38,8 @@ const initial = (agent: AgentCliUpdateId): AgentCliUpdateEntry => ({
   agent,
   currentVersion: null,
   latestVersion: null,
+  previousVersion: null,
+  recoveryPending: false,
   lastCheckedAt: null,
   lastUpdatedAt: null,
   phase: "idle",
@@ -51,12 +53,13 @@ const initial = (agent: AgentCliUpdateId): AgentCliUpdateEntry => ({
 function code(error: unknown, fallback: AgentCliUpdateError): AgentCliUpdateError {
   const message = error instanceof Error ? error.message : "";
   if (message === "COMMAND_PERMISSION_DENIED") return "PERMISSION_DENIED";
+  if (message === "COMMAND_FILE_IN_USE") return "INSTALL_FILE_BUSY";
   if (
     message === "Harness command timed out" ||
     message === "COMMAND_TIMEOUT" ||
     (error instanceof Error && error.name === "TimeoutError")
   )
-    return "CHECK_TIMEOUT";
+    return fallback === "INSTALL_FAILED" ? "INSTALL_TIMEOUT" : "CHECK_TIMEOUT";
   if (
     [
       "HOST_UNAVAILABLE",
@@ -128,6 +131,11 @@ export class AgentCliUpdates {
     this.#pending.clear();
     for (const [agent, pending] of Object.entries(stored.pending))
       this.#pending.set(agentCliUpdateIdSchema.parse(agent), pending);
+    for (const entry of this.#entries.values()) {
+      entry.recoveryPending = this.#pending.has(entry.agent);
+      const pending = this.#pending.get(entry.agent);
+      if (pending) entry.previousVersion = pending.previous;
+    }
   }
   #load(): Promise<void> {
     return (this.#loaded ??= (async () => {
@@ -161,6 +169,7 @@ export class AgentCliUpdates {
         if (agent) {
           const entry = this.#entries.get(agent);
           if (!entry) throw new Error("STATE_INVALID");
+          entry.recoveryPending = this.#pending.has(agent);
           state.agents = state.agents
             .filter((e) => e.agent !== agent)
             .concat(entry)
@@ -267,13 +276,17 @@ export class AgentCliUpdates {
     if (this.#stopped) return;
     for (const id of agent ? [agent] : agentCliUpdateIdSchema.options)
       this.#queue.set(id, this.#queue.has(id) ? !!this.#queue.get(id) && cached : cached);
-    if (this.#checking) return this.#checking;
-    this.#checking = (async () => {
-      const release = await this.#fence("coordinator");
-      if (!release) {
-        this.#queue.clear();
-        return;
+    // Requests arriving while the coordinator is held elsewhere or being released stay queued.
+    while (this.#queue.size && !this.#stopped) await this.#drainQueue();
+  }
+  #drainQueue(): Promise<void> {
+    return (this.#checking ??= (async () => {
+      let release: (() => Promise<void>) | null = null;
+      while (!release && !this.#stopped) {
+        release = await this.#fence("coordinator");
+        if (!release) await delay(100);
       }
+      if (!release) return;
       try {
         await this.#refresh();
         while (this.#queue.size && !this.#stopped) {
@@ -287,8 +300,7 @@ export class AgentCliUpdates {
       }
     })().finally(() => {
       this.#checking = undefined;
-    });
-    return this.#checking;
+    }));
   }
   async #checkOne(agent: AgentCliUpdateId, cached: boolean): Promise<void> {
     const entry = this.#entries.get(agent);
@@ -312,6 +324,7 @@ export class AgentCliUpdates {
     let release: (() => Promise<void>) | null = null;
     try {
       if (interrupted) {
+        entry.previousVersion = interrupted.previous;
         release = await this.#fence(agent);
         if (!release) {
           await finish("skipped-busy", "BUSY");
@@ -325,7 +338,7 @@ export class AgentCliUpdates {
           (current !== null && current !== interrupted.target)
         ) {
           this.#pending.delete(agent);
-          if (!interrupted.quarantine)
+          if (!interrupted.quarantine || !(await driver.ready(agent).catch(() => false)))
             entry.badVersions = entry.badVersions.filter((v) => v !== interrupted.target);
           entry.causeCode = "INTERRUPTED";
           await finish(
@@ -334,11 +347,22 @@ export class AgentCliUpdates {
           );
           return;
         }
-        if (await driver.busy(agent, interrupted.plan)) {
+        if (await driver.busy(agent, interrupted.plan, true)) {
           await finish("skipped-busy", "BUSY");
           return;
         }
         entry.causeCode = "INTERRUPTED";
+        if (
+          current === interrupted.target &&
+          !interrupted.quarantine &&
+          !entry.badVersions.includes(interrupted.target) &&
+          (await driver.ready(agent).catch(() => false))
+        ) {
+          this.#pending.delete(agent);
+          entry.lastUpdatedAt = this.#now();
+          await finish("recovered");
+          return;
+        }
       } else {
         if (!cached || entry.lastCheckedAt === null) entry.lastCheckedAt = this.#now();
         const installation = await driver.inspect(
@@ -381,7 +405,7 @@ export class AgentCliUpdates {
           return;
         }
         release = await this.#fence(agent);
-        if (!release || (await driver.busy(agent, installation.plan))) {
+        if (!release || (await driver.busy(agent, installation.plan, true))) {
           await finish("skipped-busy", "BUSY");
           return;
         }
@@ -390,7 +414,7 @@ export class AgentCliUpdates {
           return;
         }
         if ((await driver.version(installation.plan)) !== installation.currentVersion) {
-          await finish("failed", "VERSION_MISMATCH");
+          await finish("failed", "PRE_UPDATE_VERSION_MISMATCH");
           return;
         }
         if (!this.#enabled || this.#stopped) {
@@ -404,6 +428,7 @@ export class AgentCliUpdates {
           baselineReady: true,
           quarantine: false,
         };
+        entry.previousVersion = pending.previous;
         this.#pending.set(agent, pending);
         entry.phase = "updating";
         await this.#save(agent);
@@ -483,13 +508,17 @@ export class AgentCliUpdates {
       }
       // Once the saved version is back, never reinstall it on every restart because auth/Host failed.
       this.#pending.delete(agent);
-      let restored = !pending.baselineReady;
+      let restored = false;
       let connectionError: AgentCliUpdateError = "BASELINE_NOT_READY";
       try {
         restored = await driver.ready(agent);
       } catch (error) {
         connectionError = code(error, "HOST_UNAVAILABLE");
       }
+      // The saved version failing the same check is environmental evidence, not a bad release.
+      // Legacy journals default quarantine=false and never justify a persistent blacklist.
+      if (!restored || !pending.quarantine)
+        entry.badVersions = entry.badVersions.filter((v) => v !== pending.target);
       try {
         await finish(
           restored ? "rolled-back" : "failed",

@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createInstallationManager,
@@ -6,8 +8,8 @@ import {
   runInstallationCommand,
 } from "../src/installation.js";
 
-const commandMocks = vi.hoisted(() => ({ exec: vi.fn() }));
-vi.mock("node:child_process", () => ({ execFile: commandMocks.exec }));
+const commandMocks = vi.hoisted(() => ({ spawn: vi.fn() }));
+vi.mock("node:child_process", () => ({ spawn: commandMocks.spawn, execFile: vi.fn() }));
 afterEach(() => vi.useRealTimers());
 
 const state = (current = "1.0.0", canUpdate = true) => ({
@@ -80,28 +82,35 @@ describe("Harness installation versions", () => {
   });
 
   it("bounds native commands and does not leak stderr into failures", async () => {
-    commandMocks.exec.mockImplementation((_command, _args, _options, callback) => {
-      queueMicrotask(() =>
-        callback(
-          Object.assign(new Error("synthetic-secret"), { code: 1 }),
-          "",
-          "synthetic-secret-token",
-        ),
-      );
-      return { stdin: { end: vi.fn() } };
+    const child = Object.assign(new EventEmitter(), {
+      pid: 424242,
+      stdin: { end: vi.fn() },
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    commandMocks.spawn.mockImplementationOnce(() => {
+      queueMicrotask(() => {
+        child.stderr.write("synthetic-secret-token");
+        child.emit("close", 1);
+      });
+      return child;
     });
     await expect(
       runInstallationCommand("/synthetic/node", ["--version"], { HOME: "/synthetic" }),
     ).rejects.toThrow("Harness command failed; check the native installation and retry");
     vi.useFakeTimers();
-    commandMocks.exec.mockReturnValue({ pid: 424242, stdin: { end: vi.fn() } });
+    commandMocks.spawn.mockReturnValue(child);
     const timed = runInstallationCommand(
       "/synthetic/node",
       ["--version"],
       { HOME: "/synthetic" },
       100,
       "darwin",
-      { killTree: vi.fn(async () => undefined) },
+      {
+        killTree: vi.fn(async () => {
+          child.emit("close", null, "SIGKILL");
+        }),
+      },
     );
     const checked = expect(timed).rejects.toThrow("timed out");
     await vi.advanceTimersByTimeAsync(100);

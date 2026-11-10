@@ -40,6 +40,13 @@ async function fixture(platform: NodeJS.Platform = "darwin") {
   return { env, plan, p, prefix };
 }
 describe("CLI update OS preflights with injected commands and filesystem", () => {
+  it("does not claim Windows EPERM proves an ACL permission failure", async () => {
+    const f = await fixture("win32");
+    const access = vi.fn(async () => {
+      throw Object.assign(new Error("synthetic"), { code: "EPERM" });
+    });
+    await expect(assertCliWritable(f.plan, "win32", access)).rejects.toThrow("COMMAND_FILE_IN_USE");
+  });
   it.each(["darwin", "win32"] as const)(
     "checks writable original %s prefix and bin/package directories",
     async (platform) => {
@@ -110,6 +117,10 @@ describe("CLI update OS preflights with injected commands and filesystem", () =>
   it("preserves npmrc proxy fallback when Hub has no explicit proxy", async () => {
     const f = await fixture();
     expect(cliUpdateProxyEnvironment(f.env, null)).toEqual(f.env);
+    expect(
+      cliUpdateProxyEnvironment({ ...f.env, ALL_PROXY: "socks5://synthetic-proxy:1080" }, null)
+        .ALL_PROXY,
+    ).toBe("socks5://synthetic-proxy:1080");
     expect(
       cliUpdateProxyEnvironment({ ...f.env, npm_config_proxy: "http://synthetic-user-proxy" }, null)
         .npm_config_proxy,

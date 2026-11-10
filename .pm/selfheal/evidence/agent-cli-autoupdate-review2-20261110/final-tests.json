@@ -1,0 +1,31 @@
+{
+  "name": "final-tests",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "tests/vitest.config.js",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+    "packages/host-runtime/test/agent-cli-update-system.test.ts",
+    "packages/host-runtime/test/agent-cli-update-host.test.ts",
+    "packages/host-runtime/test/agent-cli-update-rpc.test.ts",
+    "packages/harness-discovery/test/installation-command-driver.test.ts",
+    "packages/harness-discovery/test/installation.test.ts",
+    "packages/harness-discovery/test/npm-installation.test.ts",
+    "packages/host-runtime/test/grok-add-login.test.ts",
+    "packages/host-runtime/test/rly0-agent-installer.test.ts",
+    "packages/host-runtime/test/app-server-host.installation.test.ts",
+    "packages/host-runtime/test/harness-installation-tasks.test.ts",
+    "packages/host-runtime/test/rly0-agent-cli-updates-ui.test.ts",
+    "packages/host-runtime/test/external-thread-idle-release.test.ts",
+    "packages/host-runtime/test/cli-update-owner.test.ts",
+    "packages/harness-discovery/test/installation-process-group.test.ts"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 3015,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "\n RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate\n\n\n Test Files  16 passed (16)\n      Tests  233 passed (233)\n   Start at  21:28:14\n   Duration  2.71s (transform 2.54s, setup 0ms, import 4.63s, tests 4.67s, environment 1ms)\n\n"
+}

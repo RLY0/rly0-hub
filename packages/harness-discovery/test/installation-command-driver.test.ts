@@ -1,10 +1,37 @@
 import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ exec: vi.fn() }));
-vi.mock("node:child_process", () => ({ execFile: mocks.exec }));
+const mocks = vi.hoisted(() => ({ exec: vi.fn(), spawn: vi.fn() }));
+vi.mock("node:child_process", () => ({ execFile: mocks.exec, spawn: mocks.spawn }));
 import { runInstallationCommand } from "../src/installation.js";
 
-beforeEach(() => vi.resetAllMocks());
+function syntheticChild() {
+  return Object.assign(new EventEmitter(), {
+    pid: 424242,
+    stdin: { end: vi.fn() },
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+  });
+}
+beforeEach(() => {
+  vi.resetAllMocks();
+  // Bridge the existing callback fixtures to spawn events; every OS command stays injected.
+  mocks.spawn.mockImplementation((command, args, options) => {
+    const child = syntheticChild();
+    const native = mocks.exec(
+      command,
+      args,
+      options,
+      (error: NodeJS.ErrnoException | null, stdout: string, stderr: string) => {
+        if (stdout) child.stdout.write(stdout);
+        if (stderr) child.stderr.write(stderr);
+        if (error && typeof error.code === "string") child.emit("error", error);
+        child.emit("close", error ? 1 : 0);
+      },
+    );
+    return native?.once ? native : child;
+  });
+});
 afterEach(() => vi.useRealTimers());
 describe("injected native command transport", () => {
   it("executes Windows npm.cmd with cmd quoting and an explicit prefix without a real subprocess", async () => {
@@ -88,6 +115,8 @@ describe("review 1 command errors and cancellation (injected subprocesses)", () 
         finishKill = () => {
           killed = true;
           callback(null, "", "");
+          const child = mocks.spawn.mock.results[0]?.value;
+          child?.emit("close", null, "SIGKILL");
         };
       return { pid: 424242, stdin: { end: vi.fn() } };
     });
@@ -120,7 +149,10 @@ describe("review 1 command errors and cancellation (injected subprocesses)", () 
     const controller = new AbortController();
     const gate = Promise.withResolvers<undefined>();
     mocks.exec.mockReturnValue({ pid: 424242, stdin: { end: vi.fn() } });
-    const killTree = vi.fn(() => gate.promise);
+    const killTree = vi.fn(async () => {
+      await gate.promise;
+      mocks.spawn.mock.results[0]?.value.emit("close", null, "SIGKILL");
+    });
     const pending = runInstallationCommand(
       "/synthetic/npm",
       ["install"],
@@ -180,4 +212,70 @@ it("does not resolve cancellation until the native process closes after the tree
   expect(settled).toBe(false);
   child.emit("close", null, "SIGKILL");
   await checked;
+});
+
+describe("review 2 detached group and Windows exit regressions (synthetic)", () => {
+  it("kills only its own POSIX process group without invoking ps", async () => {
+    vi.useFakeTimers();
+    const child = syntheticChild();
+    const spawn = vi.fn(() => child);
+    mocks.spawn.mockImplementation(spawn);
+    const kill = vi.fn(() => {
+      child.emit("close", null, "SIGKILL");
+      return true as const;
+    });
+    const pending = runInstallationCommand("/synthetic/npm", [], {}, 100, "darwin", { kill });
+    const checked = expect(pending).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(100);
+    await checked;
+    expect(mocks.spawn.mock.calls[0]?.[2]).toMatchObject({ detached: true });
+    expect(kill.mock.calls).toEqual([[-424242, "SIGKILL"]]);
+    expect(mocks.exec).not.toHaveBeenCalled();
+  });
+  it("at least kills its direct child when group signalling fails, preserving failure", async () => {
+    vi.useFakeTimers();
+    const child = syntheticChild();
+    mocks.spawn.mockReturnValue(child);
+    const kill = vi.fn((pid: number) => {
+      if (pid < 0) throw Object.assign(new Error("synthetic"), { code: "EPERM" });
+      child.emit("close", null, "SIGKILL");
+      return true as const;
+    });
+    const pending = runInstallationCommand("/synthetic/npm", [], {}, 100, "darwin", { kill });
+    const checked = expect(pending).rejects.toThrow("COMMAND_TREE_STOP_FAILED");
+    await vi.advanceTimersByTimeAsync(100);
+    await checked;
+    expect(kill.mock.calls).toEqual([
+      [-424242, "SIGKILL"],
+      [424242, "SIGKILL"],
+    ]);
+  });
+  it("accepts taskkill losing the race to a confirmed native close", async () => {
+    vi.useFakeTimers();
+    const child = syntheticChild();
+    mocks.spawn.mockReturnValue(child);
+    mocks.exec.mockImplementation((_command, _args, _options, callback) => {
+      child.emit("close", 0);
+      callback(new Error("ERROR: The process '424242' not found."));
+    });
+    const pending = runInstallationCommand("C:\\Synthetic\\npm.cmd", [], {}, 100, "win32");
+    const checked = expect(pending).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(100);
+    await checked;
+  });
+  it("distinguishes Windows npm EPERM rename failure from EACCES", async () => {
+    mocks.exec.mockImplementation((_command, _args, _options, callback) => {
+      queueMicrotask(() =>
+        callback(
+          Object.assign(new Error("synthetic"), { code: 1 }),
+          "",
+          "npm error code EPERM\nnpm error syscall rename",
+        ),
+      );
+      return { stdin: { end: vi.fn() } };
+    });
+    await expect(
+      runInstallationCommand("C:\\Synthetic\\npm.cmd", ["install"], {}, 100, "win32"),
+    ).rejects.toThrow("COMMAND_FILE_IN_USE");
+  });
 });

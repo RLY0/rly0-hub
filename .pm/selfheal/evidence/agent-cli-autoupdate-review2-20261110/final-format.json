@@ -1,0 +1,33 @@
+{
+  "name": "final-format",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/prettier/bin/prettier.cjs",
+    "--check",
+    "packages/harness-discovery/src/installation-command.ts",
+    "packages/harness-discovery/src/installation.ts",
+    "packages/harness-discovery/test/installation-command-driver.test.ts",
+    "packages/harness-discovery/test/installation-process-group.test.ts",
+    "packages/harness-discovery/test/installation.test.ts",
+    "packages/host-runtime/src/app-server-host.ts",
+    "packages/host-runtime/src/external-thread-idle-release.ts",
+    "packages/host-runtime/src/rly0-agents/cli-update-admission.ts",
+    "packages/host-runtime/src/rly0-agents/cli-update-owner.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-system.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts",
+    "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+    "packages/host-runtime/test/agent-cli-update-host.test.ts",
+    "packages/host-runtime/test/agent-cli-update-system.test.ts",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/cli-update-owner.test.ts",
+    "packages/host-runtime/test/external-thread-idle-release.test.ts",
+    "packages/shared-contracts/src/agent-cli-updates.ts",
+    "packages/shared-contracts/src/console.ts"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 660,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "Checking formatting...\nAll matched files use Prettier code style!\n"
+}

@@ -22,6 +22,9 @@ export type AgentCliUpdateId = z.infer<typeof agentCliUpdateIdSchema>;
 export const agentCliUpdateErrorSchema = z.enum([
   "CHECK_FAILED",
   "INSTALL_FAILED",
+  "INSTALL_TIMEOUT",
+  "INSTALL_FILE_BUSY",
+  "PRE_UPDATE_VERSION_MISMATCH",
   "VERSION_MISMATCH",
   "CONNECTION_NOT_READY",
   "ROLLBACK_FAILED",
@@ -60,6 +63,8 @@ export const agentCliUpdateEntrySchema = z.strictObject({
   agent: agentCliUpdateIdSchema,
   currentVersion: z.string().max(128).nullable(),
   latestVersion: z.string().max(128).nullable(),
+  previousVersion: z.string().max(128).nullable().default(null),
+  recoveryPending: z.boolean().default(false),
   lastCheckedAt: z.number().int().nonnegative().nullable(),
   lastUpdatedAt: z.number().int().nonnegative().nullable(),
   phase: z.enum(["idle", "checking", "updating", "verifying", "rolling-back"]),
@@ -83,6 +88,8 @@ export const agentCliUpdateCheckParamsSchema = z.strictObject({
   agent: agentCliUpdateIdSchema.optional(),
 });
 export const AGENT_CLI_BUSY_METHOD = "codexhost/harness/cli-update-busy";
+export const AGENT_CLI_RELEASE_METHOD = "codexhost/harness/cli-update-release-idle";
+export const AGENT_CLI_INSPECT_METHOD = "codexhost/harness/cli-update-inspect";
 export const agentCliBusyParamsSchema = z.strictObject({ agent: agentCliUpdateIdSchema });
 export const agentCliBusyResultSchema = z.strictObject({
   busy: z.boolean(),

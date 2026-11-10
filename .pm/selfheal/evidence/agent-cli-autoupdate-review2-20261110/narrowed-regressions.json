@@ -1,0 +1,18 @@
+{
+  "name": "narrowed-regressions",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "tests/vitest.config.js",
+    "packages/harness-discovery/test/installation-process-group.test.ts",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/cli-update-owner.test.ts"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 1308,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "\n RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate\n\n\n Test Files  3 passed (3)\n      Tests  53 passed (53)\n   Start at  21:23:08\n   Duration  1.15s (transform 246ms, setup 0ms, import 351ms, tests 1.60s, environment 0ms)\n\n"
+}

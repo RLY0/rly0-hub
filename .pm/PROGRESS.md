@@ -1,3 +1,17 @@
+# HUB-AGENT-CLI-AUTOUPDATE 复查 #2 修复：self_verified
+
+2026-11-10；feat/agent-cli-autoupdate；固定输入 `62f2bdcc1e1fbf1eba0b2ed68f14742e5ee2628a`。阻断 1、重要 1–4 的后台修复及对应回归完成；次要项已处理，owner 同步探针以 1 秒缓存缓解，未改全异步。仅自检，修复后的 reviewed/accepted 仍未完成。
+
+最终验证：16 文件、233 pass、0 fail、0 skip；build:typescript、typecheck、依赖边界、改动源文件格式通过。全仓 lint exit 1，仅输入已存在的 rly0-hub-promo.test.ts:11，本轮新增 0。证据及逐条实现/测试行号见 [RESULTS](selfheal/evidence/agent-cli-autoupdate-review2-20261110/RESULTS.md)，源码指纹见同目录 source-sha256.json。
+
+修复：安装超时 INSTALL_TIMEOUT 不进分钟重装；围栏内只释放该助手满足全部安全条件的空闲会话，活动回合/后台/审批/持久化保护保持，之后按需 resume；旧版也非 ready/异常/超时撤销目标拉黑；锁身份 UTC/C；POSIX 自有 detached 进程组覆盖重挂父进程后代，不误杀无关进程。次要队列、普通 inspect 围栏、Windows EPERM 与 taskkill 退出竞争、保留 ready 中断目标版、旧日志误拉黑和代理契约同步处理。
+
+[契约 v3](selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md) 新增 previousVersion/recoveryPending、INSTALL_TIMEOUT/INSTALL_FILE_BUSY/PRE_UPDATE_VERSION_MISMATCH，以及两个要求有效围栏的内部 Host 方法。没有修改 apps/hub-desktop/www，没有真实全局 npm install/uninstall、另起 hub-service、日常 Codex/Hub 退出重启、打包、推送或发布。POSIX 原生探针只操作自建的固定无害 shell/sleep 并清理。
+
+next_action：修复后独立复核；Claude 接契约 v3 的恢复/超时文案和字段；获准隔离真机验收原生会话释放与按需恢复、活动回合保护、真实更新/回退/连接、Windows ACL/占用和进程树。同步探针首次/到期最多 3 秒、外部进程最后扫描竞争、脱离进程组的第三方守护程序与原生固定版本回退缺口保留；本轮不自批真机或发布。界面、打包及发布仍归 Claude。
+
+---
+
 # HUB-AGENT-CLI-AUTOUPDATE 复查 #1 修复：self_verified
 
 2026-11-10；feat/agent-cli-autoupdate；固定输入 `976c0194`（保留 Claude 界面提交）。B1/B2、重要 1–5 和次要项均完成后台修补与针对性回归。仅自检，修复后独立复核与 accepted 未完成。

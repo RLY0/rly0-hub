@@ -32,17 +32,18 @@
         "claude"
       ],
       "status": "self_verified",
-      "review": "review-1-fixed-self-verified-pending-independent-review",
+      "review": "review-2-fixed-self-verified-pending-independent-review",
       "accepted": false,
       "base": "9dfd747c",
-      "scope": "Review #1 B1/B2, important 1-5 and minor backend fixes; 13 isolated synthetic files/174 pass. UI unchanged; no real npm installs/service launch/process restart/package/push/release.",
+      "scope": "Review #2 B1 and important 1-4 fixed; minor queue, inspection fence, Windows error/exit, recovery, legacy quarantine fixes; owner-probe cache mitigation. 16 isolated synthetic/native-harmless-process files, 233 pass. No UI/live npm/service launch/daily process restart/package/push/release.",
       "contract": ".pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md",
       "evidence_files": [
         ".pm/selfheal/evidence/agent-cli-autoupdate-20261110/RESULTS.md",
-        ".pm/selfheal/evidence/agent-cli-autoupdate-review1-20261110/RESULTS.md"
+        ".pm/selfheal/evidence/agent-cli-autoupdate-review1-20261110/RESULTS.md",
+        ".pm/selfheal/evidence/agent-cli-autoupdate-review2-20261110/RESULTS.md"
       ],
-      "next_action": "修复后独立复核；Claude 同步契约 v2 新状态与文案；获准独立环境验证 Mac/Windows 权限、占用、超时进程树、代理、连接与回退。正式发布归 Claude。",
-      "review_base": "976c0194c3fefc47d51f6cf00440256ec6fb1619"
+      "next_action": "修复后独立复核；Claude 按 CONTRACT v3 接字段/错误码与文案；获准隔离真机验证 Mac/Windows 原生空闲释放、按需 resume、活动回合保护、真实安装/回退/连接、ACL/进程组。界面、打包和发布归 Claude。",
+      "review_base": "62f2bdcc1e1fbf1eba0b2ed68f14742e5ee2628a"
     }
   ]
 }

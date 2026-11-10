@@ -1,0 +1,17 @@
+{
+  "ticket": "HUB-AGENT-CLI-AUTOUPDATE",
+  "review": 2,
+  "base": "62f2bdcc1e1fbf1eba0b2ed68f14742e5ee2628a",
+  "branch": "feat/agent-cli-autoupdate",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "report": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/AGENT-CLI-AUTOUPDATE-REVIEW-2.md",
+  "reportSha256": "6ca1e1731019b0f7dd5e421671a2dbd8747b0e20a2444b5fa965dc68ce82de23",
+  "toolchain": {
+    "node": "v24.22.2",
+    "executable": "/Volumes/RLY0Dev/Dev/Cache/node-v24/bin/node",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "macOS": "27.2",
+  "scope": "Backend, tests, contract v3, evidence and project status only. No UI, live npm install/uninstall, service start, daily process stop/restart, push or release."
+}

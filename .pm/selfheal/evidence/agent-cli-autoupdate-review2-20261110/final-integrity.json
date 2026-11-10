@@ -1,0 +1,33 @@
+{
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "head": "62f2bdcc1e1fbf1eba0b2ed68f14742e5ee2628a",
+  "branch": "feat/agent-cli-autoupdate",
+  "checks": [
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--exit-code",
+        "62f2bdcc",
+        "--",
+        "apps/hub-desktop/www"
+      ],
+      "exitCode": 0,
+      "output": ""
+    }
+  ],
+  "sourceFingerprintFiles": 22,
+  "sourceFingerprintMismatches": [],
+  "missingEvidenceLinks": [],
+  "status": "self_verified",
+  "accepted": false
+}

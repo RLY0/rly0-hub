@@ -90,6 +90,47 @@ afterEach(() => {
 });
 
 describe("external Thread idle release", () => {
+  it("releases an idle session for CLI update and resumes its persisted identity only on demand", async () => {
+    const f = await fixture();
+    expect(f.idle.list()[0]).toMatchObject({ reason: "disabled" });
+    expect(await f.idle.releaseForUpdate("opencode")).toBe(true);
+    expect(f.close).not.toHaveBeenCalled();
+    expect(await f.idle.releaseForUpdate("pi")).toBe(true);
+    expect(f.close).toHaveBeenCalledTimes(1);
+    expect(f.open).not.toHaveBeenCalled();
+    expect(f.runtime.get(f.id)).toBeUndefined();
+    const restored = await f.runtime.resolve(f.id);
+    expect(restored.kind).toBe("external");
+    expect(f.open).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "resume", nativeRef: f.thread.record.nativeSessionRef }),
+    );
+    if (restored.kind === "external") await restored.thread.session.close();
+    f.idle.stop();
+  });
+  it.each(["running", "activeTurn", "background", "persistence", "operation", "closeFailure"])(
+    "keeps %s work or an unconfirmed session fenced during CLI release",
+    async (state) => {
+      const f = await fixture();
+      const gate = deferred();
+      let pending: Promise<void> | undefined;
+      if (state === "running") f.thread.running = true;
+      if (state === "activeTurn")
+        f.thread.activeTurnId = hostTurnIdSchema.parse("synthetic-active");
+      if (state === "background") f.canRelease.mockReturnValue(false);
+      if (state === "persistence")
+        f.thread.persistenceError = new Error("synthetic persistence failure");
+      if (state === "operation") pending = f.idle.runOperation(f.id, () => gate.promise);
+      if (state === "closeFailure")
+        f.close.mockRejectedValueOnce(new Error("synthetic close failure"));
+      expect(await f.idle.releaseForUpdate("pi")).toBe(false);
+      expect(f.runtime.get(f.id)).toBe(f.thread);
+      if (state !== "closeFailure") expect(f.close).not.toHaveBeenCalled();
+      gate.resolve();
+      await pending;
+      f.idle.stop();
+      await f.thread.session.close();
+    },
+  );
   it("is disabled by default; validates settings before applying them", async () => {
     const f = await fixture();
     await vi.advanceTimersByTimeAsync(31 * MINUTE);

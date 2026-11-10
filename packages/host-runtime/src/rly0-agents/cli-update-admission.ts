@@ -95,6 +95,7 @@ export function cleanAgentCliFences(environment: NodeJS.ProcessEnv, probe?: CliO
 export class AgentCliUpdateAdmission {
   readonly #environment: NodeJS.ProcessEnv;
   readonly #pending = new Map<string, number>();
+  readonly #originals = new WeakMap<HarnessAdapter, HarnessAdapter>();
   constructor(environment: NodeJS.ProcessEnv) {
     this.#environment = environment;
   }
@@ -110,6 +111,12 @@ export class AgentCliUpdateAdmission {
       this.#pending.set(agent, (this.#pending.get(agent) ?? 1) - 1);
     }
   }
+  /** Only the Host's fenced updater RPC may bypass ordinary inspection admission. */
+  inspectForUpdate(adapter: HarnessAdapter): ReturnType<HarnessAdapter["inspect"]> {
+    const original = this.#originals.get(adapter);
+    if (!original) throw new Error("HOST_UNAVAILABLE");
+    return original.inspect({ refresh: true });
+  }
   wrap(adapter: HarnessAdapter): HarnessAdapter {
     const agent = adapter.harnessId;
     if (!agentCliUpdateIdSchema.safeParse(agent).success) return adapter;
@@ -121,8 +128,11 @@ export class AgentCliUpdateAdmission {
         error: { code: "unavailable" as const, message: error.message, retryable: true },
       };
     };
-    return new Proxy(adapter, {
+    const wrapped = new Proxy(adapter, {
       get: (target, property) => {
+        if (property === "inspect")
+          return (input: Parameters<HarnessAdapter["inspect"]>[0]) =>
+            this.run(agent, () => target.inspect(input));
         if (property === "open")
           return (input: Parameters<HarnessAdapter["open"]>[0]) =>
             this.run(agent, async () => {
@@ -135,9 +145,7 @@ export class AgentCliUpdateAdmission {
           return () => this.run(agent, () => install.call(target));
         if (property === "installation" && installation)
           return (action: "check" | "update") =>
-            action === "check"
-              ? installation.call(target, action)
-              : this.run(agent, () => installation.call(target, action));
+            this.run(agent, () => installation.call(target, action));
         if (property === "webUi" && target.webUi) {
           const webUi = target.webUi;
           return { ...webUi, open: () => this.run(agent, () => webUi.open()).catch(unavailable) };
@@ -158,6 +166,8 @@ export class AgentCliUpdateAdmission {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
+    this.#originals.set(wrapped, adapter);
+    return wrapped;
   }
   #session(agent: string, session: HarnessSession): HarnessSession {
     const unavailable = (error: unknown) => {

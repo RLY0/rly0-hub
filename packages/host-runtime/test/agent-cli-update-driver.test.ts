@@ -7,6 +7,8 @@ import {
   harnessIdSchema,
   agentCliUpdateIdSchema,
   AGENT_CLI_BUSY_METHOD,
+  AGENT_CLI_RELEASE_METHOD,
+  AGENT_CLI_INSPECT_METHOD,
   HARNESS_LAUNCH_SETTINGS_GET_METHOD,
 } from "@codexhost/shared-contracts";
 import { createAgentCliUpdateDriver } from "../src/rly0-hub-service/agent-cli-update-driver.js";
@@ -85,7 +87,9 @@ async function fixture(
         ),
         restartRequired: false,
       };
-    return method === AGENT_CLI_BUSY_METHOD ? { guarded: true, busy: false } : adapter.inspect();
+    return [AGENT_CLI_BUSY_METHOD, AGENT_CLI_RELEASE_METHOD].includes(method)
+      ? { guarded: true, busy: false }
+      : adapter.inspect();
   });
   const env: NodeJS.ProcessEnv = {
     HOME: root,
@@ -137,6 +141,36 @@ async function fixture(
   };
 }
 describe("injected CLI update drivers", () => {
+  it("reports Windows EPERM separately from a prefix permission failure", async () => {
+    const f = await fixture("win32");
+    f.writable.mockRejectedValue(
+      Object.assign(new Error("EPERM: operation not permitted, rename"), { code: "EPERM" }),
+    );
+    expect(await f.driver.inspect("pi")).toMatchObject({
+      canUpdate: false,
+      reason: "INSTALL_FILE_BUSY",
+    });
+    expect(f.run.mock.calls.some((call) => ["view", "install"].includes(call[1][0] ?? ""))).toBe(
+      false,
+    );
+  });
+  it("asks every Host to release idle sessions before checking for remaining external processes", async () => {
+    const f = await fixture();
+    const installation = required(await f.driver.inspect("pi"));
+    f.occupied.mockImplementation(async () => {
+      expect(f.host).toHaveBeenCalledWith(
+        AGENT_CLI_RELEASE_METHOD,
+        { agent: "pi" },
+        expect.any(AbortSignal),
+      );
+      return false;
+    });
+    expect(await f.driver.busy("pi", installation.plan, true)).toBe(false);
+    f.host.mockResolvedValue({ guarded: true, busy: true });
+    f.occupied.mockClear();
+    expect(await f.driver.busy("pi", installation.plan, true)).toBe(true);
+    expect(f.occupied).not.toHaveBeenCalled();
+  });
   it.each(["darwin", "win32"] as const)(
     "identifies %s npm at the actual prefix and pins both forward and rollback versions",
     async (platform) => {
@@ -221,17 +255,15 @@ describe("injected CLI update drivers", () => {
     async (status) => {
       const f = await fixture();
       f.host.mockResolvedValue({
+        ...(await f.adapter.inspect()),
         status,
         error: { code: "unavailable", message: "synthetic", retryable: true },
       });
       // Invalid statuses also fail closed through the same runtime schema.
       await expect(f.driver.ready("pi").catch(() => false)).resolves.toBe(false);
       expect(f.host).toHaveBeenCalledWith(
-        "codexhost/harness/inspect",
-        {
-          harnessId: "pi",
-          refresh: true,
-        },
+        AGENT_CLI_INSPECT_METHOD,
+        { agent: "pi" },
         expect.any(AbortSignal),
       );
     },

@@ -13,6 +13,8 @@ import {
 } from "@codexhost/harness-discovery";
 import {
   AGENT_CLI_BUSY_METHOD,
+  AGENT_CLI_RELEASE_METHOD,
+  AGENT_CLI_INSPECT_METHOD,
   agentCliBusyResultSchema,
   harnessInspectionSchema,
   HARNESS_LAUNCH_SETTINGS_GET_METHOD,
@@ -46,7 +48,7 @@ export interface AgentCliUpdateDriver {
   inspect(agent: AgentCliUpdateId, cachedLatest?: string): Promise<AgentCliInstallation | null>;
   version(plan: AgentCliPlan): Promise<string>;
   install(plan: AgentCliPlan, version: string): Promise<void>;
-  busy(agent: AgentCliUpdateId, plan?: AgentCliPlan): Promise<boolean>;
+  busy(agent: AgentCliUpdateId, plan?: AgentCliPlan, releaseIdle?: boolean): Promise<boolean>;
   ready(agent: AgentCliUpdateId): Promise<boolean>;
   cancel?(): void;
 }
@@ -217,13 +219,16 @@ export function createAgentCliUpdateDriver(options: {
           };
         try {
           await assertCliWritable(plan, platform, options.writable);
-        } catch {
+        } catch (error) {
           return {
             currentVersion,
             latestVersion: null,
             plan,
             canUpdate: false,
-            reason: "PERMISSION_DENIED",
+            reason:
+              error instanceof Error && error.message === "COMMAND_FILE_IN_USE"
+                ? "INSTALL_FILE_BUSY"
+                : "PERMISSION_DENIED",
           };
         }
         return {
@@ -394,8 +399,18 @@ export function createAgentCliUpdateDriver(options: {
         await run(plan.executable, ["upgrade", selected, "--method", "curl"], env, 300_000);
       } else throw new Error("ORIGINAL_INSTALLER");
     },
-    async busy(agent, plan) {
+    async busy(agent, plan, releaseIdle = false) {
       if (options.installing(agent)) return true;
+      const states = await Promise.all(
+        (await hosts()).map(async (host) =>
+          agentCliBusyResultSchema.parse(
+            await hostCall(host, releaseIdle ? AGENT_CLI_RELEASE_METHOD : AGENT_CLI_BUSY_METHOD, {
+              agent,
+            }),
+          ),
+        ),
+      );
+      if (states.some((state) => state.busy)) return true;
       if (
         plan &&
         (await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(
@@ -404,23 +419,13 @@ export function createAgentCliUpdateDriver(options: {
         ))
       )
         return true;
-      const states = await Promise.all(
-        (await hosts()).map(async (host) =>
-          agentCliBusyResultSchema.parse(await hostCall(host, AGENT_CLI_BUSY_METHOD, { agent })),
-        ),
-      );
-      return states.some((state) => state.busy);
+      return false;
     },
     async ready(agent) {
       const states = await Promise.all(
         (await hosts()).map(async (host) =>
           harnessInspectionSchema
-            .parseAsync(
-              await hostCall(host, "codexhost/harness/inspect", {
-                harnessId: agent,
-                refresh: true,
-              }),
-            )
+            .parseAsync(await hostCall(host, AGENT_CLI_INSPECT_METHOD, { agent }))
             .catch(() => {
               throw new Error("HOST_UNAVAILABLE");
             }),

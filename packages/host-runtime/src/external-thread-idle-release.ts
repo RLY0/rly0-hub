@@ -175,11 +175,11 @@ export class ExternalThreadIdleRelease {
     });
   }
 
-  #eligible(thread: ExternalThread): boolean {
+  #eligible(thread: ExternalThread, forUpdate = false): boolean {
     const state = this.#activity.get(thread);
     return (
       !this.#stopped &&
-      this.#settings.enabled &&
+      (forUpdate || this.#settings.enabled) &&
       !!state &&
       !state.outputFailed &&
       !state.closeFailed &&
@@ -193,8 +193,33 @@ export class ExternalThreadIdleRelease {
       !thread.running &&
       !thread.activeTurnId &&
       this.options.canRelease(thread) &&
-      Date.now() - state.lastActivity >= this.#settings.timeoutMinutes * 60_000
+      (forUpdate || Date.now() - state.lastActivity >= this.#settings.timeoutMinutes * 60_000)
     );
+  }
+
+  /** The caller holds this Harness's CLI fence. Preserve running work and all release guards. */
+  async releaseForUpdate(harnessId: string): Promise<boolean> {
+    for (const thread of this.options.threads().filter((t) => t.harnessId === harnessId)) {
+      if (!this.#eligible(thread, true)) continue;
+      const task = this.options.queue.run(thread.id, async () => {
+        if (!this.#eligible(thread, true)) return;
+        const closing = this.#close(thread);
+        this.#closing.set(thread.id, closing);
+        try {
+          await closing;
+        } finally {
+          this.#closing.delete(thread.id);
+        }
+      });
+      this.#pending.add(task);
+      try {
+        await task;
+      } finally {
+        this.#pending.delete(task);
+      }
+    }
+    // A failed, running, or otherwise non-releasable Session must keep the update deferred.
+    return !this.options.threads().some((thread) => thread.harnessId === harnessId);
   }
 
   check(): void {
