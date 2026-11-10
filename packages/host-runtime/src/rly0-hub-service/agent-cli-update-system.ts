@@ -43,6 +43,7 @@ export async function cliProcessBusy(
   platform: NodeJS.Platform,
   run: typeof runInstallationCommand,
   canonical: (file: string) => Promise<string> = realpath,
+  idleHostPids: readonly number[] = [],
 ): Promise<boolean> {
   const p = platform === "win32" ? path.win32 : path.posix;
   const normalize = (text: string) =>
@@ -68,24 +69,47 @@ export async function cliProcessBusy(
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "@(Get-CimInstance Win32_Process | Select-Object ProcessId,ExecutablePath,CommandLine) | ConvertTo-Json -Compress",
+            "@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,ExecutablePath,CommandLine) | ConvertTo-Json -Compress",
           ],
           environment,
           5_000,
         )
-      : await run("/bin/ps", ["-ww", "-axo", "pid=,comm=,args="], environment, 5_000);
-  const rows: { pid: number; text: string }[] =
+      : await run("/bin/ps", ["-ww", "-axo", "pid=,ppid=,comm=,args="], environment, 5_000);
+  const rows: { pid: number; parent: number; text: string }[] =
     platform === "win32"
-      ? ([] as { ProcessId: number; ExecutablePath?: string; CommandLine?: string }[])
+      ? (
+          [] as {
+            ProcessId: number;
+            ParentProcessId?: number;
+            ExecutablePath?: string;
+            CommandLine?: string;
+          }[]
+        )
           .concat(JSON.parse(output))
           .map((r) => ({
             pid: r.ProcessId,
+            parent: r.ParentProcessId ?? 0,
             text: `${r.ExecutablePath ?? ""} ${r.CommandLine ?? ""}`,
           }))
       : output.split("\n").map((line) => {
-          const m = line.match(/^\s*(\d+)\s+(.*)$/);
-          return { pid: Number(m?.[1]), text: m?.[2] ?? "" };
+          const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+          return { pid: Number(m?.[1]), parent: Number(m?.[2]), text: m?.[3] ?? "" };
         });
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  const idleHosts = new Set(idleHostPids);
+  const ownedByIdleHost = (pid: number): boolean => {
+    const seen = new Set<number>();
+    while (pid > 0 && !seen.has(pid)) {
+      seen.add(pid);
+      const branch = byPid.get(pid);
+      if (!branch) return false;
+      // Exclude only a CLI-rooted branch. A tool in another agent's session may itself run
+      // this CLI; that is an external owner even though both descend from the same Host.
+      if (idleHosts.has(branch.parent)) return matchesCli(branch.text);
+      pid = branch.parent;
+    }
+    return false;
+  };
   const contains = (text: string, target: string) => {
     let at = text.indexOf(target);
     while (at >= 0) {
@@ -98,9 +122,8 @@ export async function cliProcessBusy(
     }
     return false;
   };
-  return rows.some((row) => {
-    if (row.pid === process.pid || !Number.isSafeInteger(row.pid) || row.pid <= 0) return false;
-    const text = normalize(row.text);
+  const matchesCli = (commandLine: string): boolean => {
+    const text = normalize(commandLine);
     // Some native CLIs rewrite argv[0]/their process title to the bare command name.
     const shortName = normalize(p.basename(plan.executable)).replace(/\.(?:cmd|exe|bat)$/i, "");
     return (
@@ -109,7 +132,15 @@ export async function cliProcessBusy(
         contains(text, target),
       )
     );
-  });
+  };
+  return rows.some(
+    (row) =>
+      row.pid !== process.pid &&
+      Number.isSafeInteger(row.pid) &&
+      row.pid > 0 &&
+      matchesCli(row.text) &&
+      !ownedByIdleHost(row.pid),
+  );
 }
 
 /** An absent explicit Hub proxy must leave npm's .npmrc/environment configuration intact. */

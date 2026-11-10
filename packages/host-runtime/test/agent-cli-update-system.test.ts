@@ -92,7 +92,7 @@ describe("CLI update OS preflights with injected commands and filesystem", () =>
           ? JSON.stringify([
               { ProcessId: 424242, ExecutablePath: "C:\\Node\\node.exe", CommandLine: text },
             ])
-          : `424242 /some/node ${text}`;
+          : `424242 1 /some/node ${text}`;
       const run = vi.fn<typeof runInstallationCommand>(async () => output);
       expect(await cliProcessBusy(f.plan, f.env, platform, run, async () => entry)).toBe(true);
       expect(run).toHaveBeenCalledWith(
@@ -106,11 +106,11 @@ describe("CLI update OS preflights with injected commands and filesystem", () =>
   it("finds a selected shim while ignoring similarly named packages and an unrelated Node under the same prefix", async () => {
     const f = await fixture();
     const run = vi.fn<typeof runInstallationCommand>(
-      async () => `424242 ${f.plan.executable} auth login`,
+      async () => `424242 1 ${f.plan.executable} auth login`,
     );
     expect(await cliProcessBusy(f.plan, f.env, "darwin", run, async (v) => v)).toBe(true);
     run.mockResolvedValue(
-      `424242 ${f.prefix}/bin/node /else/hub-service.mjs\n424243 ${f.plan.executable}-other\n424244 ${f.prefix}/lib/node_modules/opencode-ai-other/bin/run`,
+      `424242 1 ${f.prefix}/bin/node /else/hub-service.mjs\n424243 1 ${f.plan.executable}-other\n424244 1 ${f.prefix}/lib/node_modules/opencode-ai-other/bin/run`,
     );
     expect(await cliProcessBusy(f.plan, f.env, "darwin", run, async (v) => v)).toBe(false);
   });
@@ -135,6 +135,45 @@ describe("CLI update OS preflights with injected commands and filesystem", () =>
 
 it("defers a native process which rewrote its title to opencode serve", async () => {
   const f = await fixture();
-  const run = vi.fn<typeof runInstallationCommand>(async () => "424242 opencode serve --port 8080");
+  const run = vi.fn<typeof runInstallationCommand>(
+    async () => "424242 1 opencode serve --port 8080",
+  );
   expect(await cliProcessBusy(f.plan, f.env, "darwin", run, async (v) => v)).toBe(true);
 });
+
+it.each(["darwin", "win32"] as const)(
+  "excludes only idle Host descendants before release on %s, never external owners",
+  async (platform) => {
+    const f = await fixture(platform);
+    const rows = [
+      { ProcessId: 424240, ParentProcessId: 1, CommandLine: "node /synthetic/host-runtime.mjs" },
+      {
+        ProcessId: 424241,
+        ParentProcessId: 424240,
+        CommandLine: `${f.plan.executable} --host-session`,
+      },
+      { ProcessId: 424242, ParentProcessId: 424241, CommandLine: `${f.plan.executable} serve` },
+    ];
+    const output = () =>
+      platform === "win32"
+        ? JSON.stringify(rows)
+        : rows.map((r) => `${r.ProcessId} ${r.ParentProcessId} ${r.CommandLine}`).join("\n");
+    const run = vi.fn<typeof runInstallationCommand>(async () => output());
+    const canonical = async (v: string) => v;
+    expect(await cliProcessBusy(f.plan, f.env, platform, run, canonical, [424240])).toBe(false);
+    expect(await cliProcessBusy(f.plan, f.env, platform, run, canonical)).toBe(true);
+    rows[1] = {
+      ProcessId: 424241,
+      ParentProcessId: 424240,
+      CommandLine: "node /synthetic/other-agent.js",
+    };
+    expect(await cliProcessBusy(f.plan, f.env, platform, run, canonical, [424240])).toBe(true);
+    rows[1] = {
+      ProcessId: 424241,
+      ParentProcessId: 424240,
+      CommandLine: `${f.plan.executable} --host-session`,
+    };
+    rows.push({ ProcessId: 424243, ParentProcessId: 1, CommandLine: `${f.plan.executable} serve` });
+    expect(await cliProcessBusy(f.plan, f.env, platform, run, canonical, [424240])).toBe(true);
+  },
+);

@@ -48,7 +48,12 @@ export interface AgentCliUpdateDriver {
   inspect(agent: AgentCliUpdateId, cachedLatest?: string): Promise<AgentCliInstallation | null>;
   version(plan: AgentCliPlan): Promise<string>;
   install(plan: AgentCliPlan, version: string): Promise<void>;
-  busy(agent: AgentCliUpdateId, plan?: AgentCliPlan, releaseIdle?: boolean): Promise<boolean>;
+  busy(
+    agent: AgentCliUpdateId,
+    plan?: AgentCliPlan,
+    releaseIdle?: boolean,
+    targetVersion?: string,
+  ): Promise<boolean>;
   ready(agent: AgentCliUpdateId): Promise<boolean>;
   cancel?(): void;
 }
@@ -81,10 +86,16 @@ export function createAgentCliUpdateDriver(options: {
   discover?: (agent: AgentCliUpdateId, env: NodeJS.ProcessEnv) => string | null;
   npmOptions?: NpmInstallationOptions;
   writable?: typeof access;
-  occupied?: (plan: AgentCliPlan, environment: NodeJS.ProcessEnv) => Promise<boolean>;
+  occupied?: (
+    plan: AgentCliPlan,
+    environment: NodeJS.ProcessEnv,
+    idleHostPids?: readonly number[],
+  ) => Promise<boolean>;
+  now?: () => number;
 }): AgentCliUpdateDriver {
   const { platform } = options;
   const controller = new AbortController();
+  const lastRelease = new Map<string, number>();
   const run =
     options.run ??
     ((command, args, env, timeout) =>
@@ -399,27 +410,44 @@ export function createAgentCliUpdateDriver(options: {
         await run(plan.executable, ["upgrade", selected, "--method", "curl"], env, 300_000);
       } else throw new Error("ORIGINAL_INSTALLER");
     },
-    async busy(agent, plan, releaseIdle = false) {
+    async busy(agent, plan, releaseIdle = false, targetVersion) {
       if (options.installing(agent)) return true;
+      const clients = await hosts();
       const states = await Promise.all(
-        (await hosts()).map(async (host) =>
-          agentCliBusyResultSchema.parse(
-            await hostCall(host, releaseIdle ? AGENT_CLI_RELEASE_METHOD : AGENT_CLI_BUSY_METHOD, {
-              agent,
-            }),
-          ),
+        clients.map(async (host) =>
+          agentCliBusyResultSchema.parse(await hostCall(host, AGENT_CLI_BUSY_METHOD, { agent })),
         ),
       );
       if (states.some((state) => state.busy)) return true;
+      const occupied =
+        options.occupied ??
+        ((p, env, hostPids) => cliProcessBusy(p, env, platform, run, realpath, hostPids));
+      const env = await envFor();
+      // Idle Host-owned CLI processes are releasable; external terminals/other owners are not.
       if (
         plan &&
-        (await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(
+        (await occupied(
           plan,
-          await envFor(),
+          env,
+          releaseIdle ? states.flatMap((s) => (s.hostPid ? [s.hostPid] : [])) : [],
         ))
       )
         return true;
-      return false;
+      if (!releaseIdle) return false;
+      const key = JSON.stringify([agent, plan?.executable, targetVersion]);
+      const now = (options.now ?? Date.now)();
+      const previous = lastRelease.get(key);
+      if (previous !== undefined && now - previous < 15 * 60_000) return true;
+      // Count attempts as well as successes: a failed close must not be retried every minute.
+      lastRelease.set(key, now);
+      const released = await Promise.all(
+        clients.map(async (host) =>
+          agentCliBusyResultSchema.parse(await hostCall(host, AGENT_CLI_RELEASE_METHOD, { agent })),
+        ),
+      );
+      if (released.some((state) => state.busy) || options.installing(agent)) return true;
+      // Do not exclude any Host processes after release, or immediately before install.
+      return plan ? occupied(plan, env, []) : false;
     },
     async ready(agent) {
       const states = await Promise.all(

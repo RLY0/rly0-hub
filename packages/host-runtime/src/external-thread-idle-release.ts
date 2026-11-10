@@ -36,6 +36,7 @@ export class ExternalThreadIdleRelease {
       remove(id: string): void;
       canRelease(thread: ExternalThread): boolean;
       onClosed?(thread: ExternalThread): Promise<void>;
+      closeForUpdate?(thread: ExternalThread): Promise<void>;
       queue: DesktopRequestQueue;
       diagnose(error: unknown): void;
     },
@@ -187,6 +188,7 @@ export class ExternalThreadIdleRelease {
       !this.#closing.has(thread.id) &&
       !this.#operations.has(thread.id) &&
       !thread.record.subagent &&
+      (!forUpdate || !thread.unsubmittedPrewarm) &&
       thread.record.state === "ready" &&
       !!thread.record.nativeSessionRef &&
       !thread.persistenceError &&
@@ -198,12 +200,25 @@ export class ExternalThreadIdleRelease {
   }
 
   /** The caller holds this Harness's CLI fence. Preserve running work and all release guards. */
+  busyForUpdate(harnessId: string): boolean {
+    return this.options
+      .threads()
+      .some(
+        (thread) =>
+          thread.harnessId === harnessId &&
+          !thread.record.subagent &&
+          !this.#eligible(thread, true),
+      );
+  }
+
   async releaseForUpdate(harnessId: string): Promise<boolean> {
+    // A provisional draft or any unsafe session prevents closing otherwise idle peers.
+    if (this.busyForUpdate(harnessId)) return false;
     for (const thread of this.options.threads().filter((t) => t.harnessId === harnessId)) {
       if (!this.#eligible(thread, true)) continue;
       const task = this.options.queue.run(thread.id, async () => {
         if (!this.#eligible(thread, true)) return;
-        const closing = this.#close(thread);
+        const closing = this.#close(thread, true);
         this.#closing.set(thread.id, closing);
         try {
           await closing;
@@ -219,7 +234,9 @@ export class ExternalThreadIdleRelease {
       }
     }
     // A failed, running, or otherwise non-releasable Session must keep the update deferred.
-    return !this.options.threads().some((thread) => thread.harnessId === harnessId);
+    return !this.options
+      .threads()
+      .some((thread) => thread.harnessId === harnessId && !thread.record.subagent);
   }
 
   check(): void {
@@ -245,14 +262,17 @@ export class ExternalThreadIdleRelease {
     }
   }
 
-  async #close(thread: ExternalThread): Promise<void> {
+  async #close(thread: ExternalThread, forUpdate = false): Promise<void> {
     const state = this.#activity.get(thread);
     if (!state) return;
     let timeout: NodeJS.Timeout | undefined;
     // Only the bounded waiter may retire the instance. Late underlying completion cannot do so.
     const closed = Promise.resolve().then(async () => {
-      await thread.session.close();
-      await thread.outputTask;
+      if (forUpdate && this.options.closeForUpdate) await this.options.closeForUpdate(thread);
+      else {
+        await thread.session.close();
+        await thread.outputTask;
+      }
       await this.options.onClosed?.(thread);
     });
     try {
@@ -277,7 +297,11 @@ export class ExternalThreadIdleRelease {
       if (this.options.get(thread.id) !== thread) throw new Error("Session changed during release");
       this.options.remove(thread.id);
     } catch (error) {
-      state.closeFailed = true;
+      if (forUpdate && this.options.closeForUpdate) {
+        // The lifecycle retains any in-flight close and retries rejected closes on next use.
+        // Never reuse or replace a Session before close + output drain have been confirmed.
+        thread.sessionUnavailable = true;
+      } else state.closeFailed = true;
       this.options.diagnose(error);
     } finally {
       if (timeout) clearTimeout(timeout);

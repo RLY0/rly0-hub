@@ -7,9 +7,7 @@
       "stage": "M1",
       "milestone": "2-好用",
       "owner": "codex",
-      "collaborators": [
-        "claude"
-      ],
+      "collaborators": ["claude"],
       "status": "self_verified",
       "review": "review-2-fixed-self-verified-pending-independent-review",
       "accepted": false,
@@ -28,22 +26,21 @@
       "stage": "M1",
       "milestone": "2-好用",
       "owner": "codex",
-      "collaborators": [
-        "claude"
-      ],
+      "collaborators": ["claude"],
       "status": "self_verified",
-      "review": "review-2-fixed-self-verified-pending-independent-review",
+      "review": "review-3-fixed-self-verified-pending-independent-review",
       "accepted": false,
       "base": "9dfd747c",
-      "scope": "Review #2 B1 and important 1-4 fixed; minor queue, inspection fence, Windows error/exit, recovery, legacy quarantine fixes; owner-probe cache mitigation. 16 isolated synthetic/native-harmless-process files, 233 pass. No UI/live npm/service launch/daily process restart/package/push/release.",
+      "scope": "Review #3 N1/N2/N3 and four minor items fixed; 16 isolated synthetic test files, 244 pass; freshly compiled state-machine probes pass. No www/live npm/service listener/daily process restart/package/push/release.",
       "contract": ".pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md",
       "evidence_files": [
         ".pm/selfheal/evidence/agent-cli-autoupdate-20261110/RESULTS.md",
         ".pm/selfheal/evidence/agent-cli-autoupdate-review1-20261110/RESULTS.md",
-        ".pm/selfheal/evidence/agent-cli-autoupdate-review2-20261110/RESULTS.md"
+        ".pm/selfheal/evidence/agent-cli-autoupdate-review2-20261110/RESULTS.md",
+        ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/RESULTS.md"
       ],
-      "next_action": "修复后独立复核；Claude 按 CONTRACT v3 接字段/错误码与文案；获准隔离真机验证 Mac/Windows 原生空闲释放、按需 resume、活动回合保护、真实安装/回退/连接、ACL/进程组。界面、打包和发布归 Claude。",
-      "review_base": "62f2bdcc1e1fbf1eba0b2ed68f14742e5ee2628a"
+      "next_action": "修复后独立复核；Claude 核对 CONTRACT v4 等待状态；获准独立环境做真实 Mac/Windows 升级/回退/连接、空闲关闭重试、只读子代理/预热、进程归属及 ACL/文件锁/UI 验收。界面、打包和发布归 Claude。",
+      "review_base": "bc3fd9a1a2ee46484b6fed843adef14a2e9bf28f"
     }
   ]
 }

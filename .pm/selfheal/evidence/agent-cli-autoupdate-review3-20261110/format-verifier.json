@@ -1,0 +1,14 @@
+{
+  "name": "format-verifier",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/prettier/bin/prettier.cjs",
+    "--write",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/verify-delivery.mjs"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 76,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/verify-delivery.mjs 19ms\n"
+}

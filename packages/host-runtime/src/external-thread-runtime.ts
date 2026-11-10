@@ -252,6 +252,8 @@ export class ExternalThreadRuntime {
       get: (id) => this.get(id),
       // Idle release detaches only the Native Session. Host Thread state survives restoration.
       remove: (id) => this.#detach(id),
+      closeForUpdate: (thread) =>
+        this.#lifecycle.release(thread.id, thread.session, thread.outputTask),
       queue: input.idleRelease?.queue ?? new DesktopRequestQueue(),
       canRelease: (thread) =>
         !thread.sessionUnavailable &&

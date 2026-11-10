@@ -21,3 +21,7 @@
 ## 独立复查 #1 修复（2026-11-10）
 
 输入 976c0194，B1/B2、重要 1–5 与次要后台项已修；13 文件 174 项隔离 synthetic 回归通过，未执行真实安装。当前 self_verified，修复后 reviewed/accepted 待完成。契约以 v2 新节为准；逐条文件行号、命令与结果见 [RESULTS](evidence/agent-cli-autoupdate-review1-20261110/RESULTS.md)。Claude 既有界面保留，新增状态映射及发布交 Claude。
+
+## 独立复查 #3 修复（2026-11-10）
+
+输入 `bc3fd9a1`。N1 回退后分钟级重装、N2 外部占用反复释放、N3 只读子代理阻塞均修复；关闭失败可重试、INSTALL_FILE_BUSY 等待分类、连接报告中文状态和协调锁退避一并处理。16 文件 244 项隔离 synthetic 回归、编译产物四场景验证通过；没有真实安装。当前 self_verified，修复后的 reviewed/accepted 待完成。契约以 v4 新节为准，v3 显示优先级已更正；逐条文件行号及命令见 [RESULTS](evidence/agent-cli-autoupdate-review3-20261110/RESULTS.md)。保留 Claude 界面，未打包、推送或发布。

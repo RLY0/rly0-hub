@@ -1,0 +1,12 @@
+{
+  "name": "final-integrity",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/verify-delivery.mjs"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 80,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "{\n  \"base\": \"bc3fd9a1a2ee46484b6fed843adef14a2e9bf28f\",\n  \"branch\": \"feat/agent-cli-autoupdate\",\n  \"currentHead\": \"bc3fd9a1a2ee46484b6fed843adef14a2e9bf28f\",\n  \"sourceFilesVerified\": 37,\n  \"workingTreeSha256\": \"9fac6b6f8a41490a27e6cd4f8929c92d21bbb3e6a73f80772fbf6e18ba68d7b8\",\n  \"evidenceLinksVerified\": 17,\n  \"uiDiff\": \"unchanged from bc3fd9a1\",\n  \"inputReport\": \"SHA-256 matches\",\n  \"preexistingLint\": \"same file SHA-256 as input\",\n  \"contractV3AndV4\": \"verified\",\n  \"status\": \"self_verified; independent review and real-machine acceptance pending\"\n}\n"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "format-evidence",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/prettier/bin/prettier.cjs",
+    "--write",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/RESULTS.md",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/input.json",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/preexisting-lint.json",
+    ".pm/BOARD.json"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 68,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/input.json 9ms (unchanged)\n.pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/preexisting-lint.json 1ms (unchanged)\n.pm/BOARD.json 2ms\n"
+}

@@ -1,0 +1,12 @@
+{
+  "name": "final-compiled",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/compiled-state-machine.mjs"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 573,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "{\"name\":\"N1-COMMAND_TIMEOUT\",\"minuteInstallCounts\":[2,2,2,2,2],\"entry\":{\"agent\":\"pi\",\"currentVersion\":\"1.0.0\",\"latestVersion\":\"1.1.0\",\"previousVersion\":\"1.0.0\",\"recoveryPending\":false,\"lastCheckedAt\":0,\"lastUpdatedAt\":null,\"phase\":\"idle\",\"result\":\"failed\",\"errorCode\":\"CHECK_TIMEOUT\",\"causeCode\":\"CHECK_TIMEOUT\",\"badVersions\":[],\"installKind\":\"npm\",\"canUpdate\":true}}\n{\"name\":\"N1-HOST_UNAVAILABLE\",\"minuteInstallCounts\":[2,2,2,2,2],\"entry\":{\"agent\":\"pi\",\"currentVersion\":\"1.0.0\",\"latestVersion\":\"1.1.0\",\"previousVersion\":\"1.0.0\",\"recoveryPending\":false,\"lastCheckedAt\":0,\"lastUpdatedAt\":null,\"phase\":\"idle\",\"result\":\"failed\",\"errorCode\":\"HOST_UNAVAILABLE\",\"causeCode\":\"CHECK_TIMEOUT\",\"badVersions\":[],\"installKind\":\"npm\",\"canUpdate\":true}}\n{\"name\":\"N2\",\"agents\":16,\"rounds\":6,\"releases\":0,\"scans\":96,\"installs\":0}\n{\"name\":\"N3-child\",\"released\":true,\"remaining\":[\"child\"],\"nativeOpens\":1}\n{\n  \"synthetic\": true,\n  \"results\": [\n    {\n      \"name\": \"N1-COMMAND_TIMEOUT\",\n      \"pass\": true,\n      \"minuteInstallCounts\": [\n        2,\n        2,\n        2,\n        2,\n        2\n      ],\n      \"afterDaily\": 4,\n      \"afterManual\": 6\n    },\n    {\n      \"name\": \"N1-HOST_UNAVAILABLE\",\n      \"pass\": true,\n      \"minuteInstallCounts\": [\n        2,\n        2,\n        2,\n        2,\n        2\n      ],\n      \"afterDaily\": 4,\n      \"afterManual\": 6\n    },\n    {\n      \"name\": \"N2-external-occupancy-16-agents-6-rounds\",\n      \"pass\": true,\n      \"agents\": 16,\n      \"rounds\": 6,\n      \"releases\": 0,\n      \"scans\": 96,\n      \"installs\": 0\n    },\n    {\n      \"name\": \"N3-real-readonly-snapshot-and-prewarm\",\n      \"pass\": true,\n      \"released\": true,\n      \"remaining\": [\n        \"child\"\n      ],\n      \"nativeOpens\": 1,\n      \"realPrewarmBlocks\": true\n    }\n  ]\n}\n"
+}

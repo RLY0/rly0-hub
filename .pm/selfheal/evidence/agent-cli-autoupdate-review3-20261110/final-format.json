@@ -1,0 +1,33 @@
+{
+  "name": "final-format",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/prettier/bin/prettier.cjs",
+    "--check",
+    "packages/shared-contracts/src/agent-cli-updates.ts",
+    "packages/host-runtime/src/app-server-host.ts",
+    "packages/host-runtime/src/external-thread-runtime.ts",
+    "packages/host-runtime/src/external-thread-idle-release.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-system.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-connection-hint.ts",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+    "packages/host-runtime/test/agent-cli-update-system.test.ts",
+    "packages/host-runtime/test/agent-cli-update-host.test.ts",
+    "packages/host-runtime/test/external-thread-idle-release.test.ts",
+    "packages/host-runtime/test/agent-connection-hint.test.ts",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/run-check.mjs",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/compiled-state-machine.mjs",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/verify-delivery.mjs",
+    ".pm/BOARD.json",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/input.json",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/preexisting-lint.json"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 567,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "Checking formatting...\nAll matched files use Prettier code style!\n"
+}

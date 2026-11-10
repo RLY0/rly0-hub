@@ -12,7 +12,10 @@ import type {
   AgentCliPlan,
   AgentCliInstallation,
 } from "../src/rly0-hub-service/agent-cli-update-driver.js";
-import { assertAgentCliAvailable } from "../src/rly0-agents/cli-update-admission.js";
+import {
+  acquireAgentCliFence,
+  assertAgentCliAvailable,
+} from "../src/rly0-agents/cli-update-admission.js";
 
 const syntheticOwner = { start: () => "synthetic-start", signal: () => undefined };
 const roots: string[] = [];
@@ -829,4 +832,125 @@ it("restores but does not quarantine when post-install version readback times ou
   expect(f.driver.install.mock.calls.map((c) => c[1])).toEqual(["1.1.0", "1.0.0"]);
   await f.manager.check("pi", true);
   expect(await f.entry()).toMatchObject({ result: "updated", badVersions: [] });
+});
+
+describe("review 3 retries and contention (synthetic)", () => {
+  it.each([
+    "both-first-launch-timeout",
+    "old-HOST_UNAVAILABLE",
+    "old-COMMAND_TIMEOUT",
+    "old-ready",
+    "timeout-old-ready",
+  ])(
+    "N1 does not re-install on four minute ticks after rollback (%s), but allows daily/manual checks",
+    async (scenario) => {
+      const f = await fixture();
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      const inspect = f.driver.inspect.getMockImplementation();
+      f.driver.inspect.mockImplementation(async (agent) =>
+        agent === "pi" ? requiredInspection(await inspect?.(agent)) : null,
+      );
+      let fresh = false;
+      f.driver.install.mockImplementation(async (_plan, version) => {
+        f.setCurrent(version);
+        fresh = true;
+      });
+      f.driver.ready.mockImplementation(async () => {
+        if (!fresh) return true;
+        fresh = false;
+        if (scenario === "both-first-launch-timeout") throw new Error("COMMAND_TIMEOUT");
+        if ((await f.driver.version()) === "1.1.0") {
+          if (scenario === "timeout-old-ready") throw new Error("COMMAND_TIMEOUT");
+          return false;
+        }
+        if (scenario === "timeout-old-ready") return true;
+        if (scenario !== "old-ready") throw new Error(scenario.slice(4));
+        return true;
+      });
+      const manager = new AgentCliUpdates({
+        environment: f.env,
+        driver: f.driver,
+        ownerProbe: syntheticOwner,
+      });
+      managers.push(manager);
+      const idle = () =>
+        vi.waitFor(async () => expect((await manager.status()).checking).toBe(false));
+      await manager.start();
+      await idle();
+      expect(f.driver.install.mock.calls.map((call) => call[1])).toEqual(["1.1.0", "1.0.0"]);
+      const entry = (await manager.status()).agents.find((a) => a.agent === "pi");
+      expect(entry).toMatchObject({ currentVersion: "1.0.0", recoveryPending: false });
+      expect(entry?.causeCode).not.toBeNull();
+      for (let minute = 0; minute < 4; minute++) {
+        await vi.advanceTimersByTimeAsync(60_000);
+        await idle();
+        expect(f.driver.install).toHaveBeenCalledTimes(2);
+        expect(() => assertAgentCliAvailable(f.env, "pi", syntheticOwner)).not.toThrow();
+      }
+      // An established bad release stays quarantined; transient failures may be retried daily.
+      if (scenario === "old-ready") return;
+      expect(entry?.badVersions).toEqual([]);
+      await vi.advanceTimersByTimeAsync(AGENT_CLI_CHECK_INTERVAL_MS - 4 * 60_000);
+      await idle();
+      expect(f.driver.install).toHaveBeenCalledTimes(4);
+      await manager.check("pi");
+      expect(f.driver.install).toHaveBeenCalledTimes(6);
+    },
+  );
+  it("retries an INSTALL_FILE_BUSY preflight as waiting work without releasing or installing until writable", async () => {
+    const f = await fixture();
+    vi.useFakeTimers();
+    const inspect = f.driver.inspect.getMockImplementation();
+    let writable = false;
+    f.driver.inspect.mockImplementation(async (agent) => {
+      if (agent !== "pi") return null;
+      const installation = requiredInspection(await inspect?.(agent));
+      return writable
+        ? installation
+        : { ...installation, canUpdate: false, reason: "INSTALL_FILE_BUSY" };
+    });
+    await f.manager.start();
+    await vi.waitFor(async () => expect((await f.manager.status()).checking).toBe(false));
+    expect(await f.entry()).toMatchObject({
+      result: "skipped-busy",
+      errorCode: "INSTALL_FILE_BUSY",
+    });
+    expect(f.driver.busy).not.toHaveBeenCalled();
+    expect(f.driver.install).not.toHaveBeenCalled();
+    writable = true;
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(async () => {
+      expect((await f.manager.status()).checking).toBe(false);
+      expect(await f.entry()).toMatchObject({ result: "updated" });
+    });
+    expect(f.driver.install).toHaveBeenCalledTimes(1);
+  });
+  it("backs off coordinator contention and cancels the wait immediately on stop", async () => {
+    const f = await fixture();
+    const release = await acquireAgentCliFence(f.env, "coordinator", syntheticOwner);
+    expect(release).not.toBeNull();
+    const start = vi.fn(() => "synthetic-start");
+    const manager = new AgentCliUpdates({
+      environment: f.env,
+      driver: f.driver,
+      ownerProbe: { ...syntheticOwner, start },
+    });
+    managers.push(manager);
+    const queued = manager.check("pi");
+    try {
+      await vi.waitFor(async () => expect((await manager.status()).checking).toBe(true));
+      await vi.waitFor(() => expect(start.mock.calls.length).toBeGreaterThanOrEqual(2));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Each contender attempt queries its own start identity. The old 100ms spin exceeded
+      // this bound; exponential backoff makes at most 3-4 attempts in this interval.
+      expect(start.mock.calls.length).toBeLessThanOrEqual(5);
+      expect(f.driver.inspect).not.toHaveBeenCalled();
+      await manager.stop();
+      await queued;
+      expect((await manager.status()).checking).toBe(false);
+    } finally {
+      await release?.();
+    }
+  });
 });

@@ -94,4 +94,6 @@ export const agentCliBusyParamsSchema = z.strictObject({ agent: agentCliUpdateId
 export const agentCliBusyResultSchema = z.strictObject({
   busy: z.boolean(),
   guarded: z.literal(true),
+  // Only used to exclude this idle Host's descendants during the pre-release process scan.
+  hostPid: z.number().int().positive().optional(),
 });

@@ -95,6 +95,7 @@ export class AgentCliUpdates {
   #timer: NodeJS.Timeout | undefined;
   #stopped = false;
   #nextDaily = 0;
+  #queueWait = new AbortController();
 
   constructor(options: {
     environment: NodeJS.ProcessEnv;
@@ -238,6 +239,7 @@ export class AgentCliUpdates {
   async start(): Promise<void> {
     if (this.#timer) return;
     this.#stopped = false;
+    if (this.#queueWait.signal.aborted) this.#queueWait = new AbortController();
     await this.#load();
     if (this.#stopped || this.#timer) return;
     void this.check().catch(() => undefined);
@@ -250,10 +252,12 @@ export class AgentCliUpdates {
       } else {
         const deferred = [...this.#entries.values()].filter(
           (entry) =>
-            entry.result === "skipped-busy" ||
-            entry.result === "skipped-not-ready" ||
-            entry.errorCode === "HOST_UNAVAILABLE" ||
-            entry.errorCode === "CHECK_TIMEOUT",
+            // A completed rollback must never become a minute-by-minute trial install loop.
+            (entry.causeCode === null || entry.recoveryPending) &&
+            (entry.result === "skipped-busy" ||
+              entry.result === "skipped-not-ready" ||
+              entry.errorCode === "HOST_UNAVAILABLE" ||
+              entry.errorCode === "CHECK_TIMEOUT"),
         );
         void Promise.all(deferred.map((entry) => this.check(entry.agent, true))).catch(
           () => undefined,
@@ -264,6 +268,7 @@ export class AgentCliUpdates {
   }
   async stop(): Promise<void> {
     this.#stopped = true;
+    this.#queueWait.abort();
     this.#queue.clear();
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = undefined;
@@ -282,9 +287,17 @@ export class AgentCliUpdates {
   #drainQueue(): Promise<void> {
     return (this.#checking ??= (async () => {
       let release: (() => Promise<void>) | null = null;
+      let backoff = 250;
       while (!release && !this.#stopped) {
         release = await this.#fence("coordinator");
-        if (!release) await delay(100);
+        if (!release) {
+          await delay(backoff + Math.floor(Math.random() * backoff * 0.2), undefined, {
+            signal: this.#queueWait.signal,
+          }).catch((error: unknown) => {
+            if (!this.#queueWait.signal.aborted) throw error;
+          });
+          backoff = Math.min(backoff * 2, 10_000);
+        }
       }
       if (!release) return;
       try {
@@ -347,7 +360,7 @@ export class AgentCliUpdates {
           );
           return;
         }
-        if (await driver.busy(agent, interrupted.plan, true)) {
+        if (await driver.busy(agent, interrupted.plan, true, interrupted.target)) {
           await finish("skipped-busy", "BUSY");
           return;
         }
@@ -386,7 +399,10 @@ export class AgentCliUpdates {
           canUpdate: installation.canUpdate,
         });
         if (!installation.canUpdate) {
-          await finish("skipped-unsupported", installation.reason);
+          await finish(
+            installation.reason === "INSTALL_FILE_BUSY" ? "skipped-busy" : "skipped-unsupported",
+            installation.reason,
+          );
           return;
         }
         if (
@@ -405,7 +421,10 @@ export class AgentCliUpdates {
           return;
         }
         release = await this.#fence(agent);
-        if (!release || (await driver.busy(agent, installation.plan, true))) {
+        if (
+          !release ||
+          (await driver.busy(agent, installation.plan, true, installation.latestVersion))
+        ) {
           await finish("skipped-busy", "BUSY");
           return;
         }

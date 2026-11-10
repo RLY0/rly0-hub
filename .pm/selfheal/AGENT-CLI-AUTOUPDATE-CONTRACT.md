@@ -145,7 +145,7 @@ owner 使用唯一 ID、PID 与 OS 启动身份，完整文件写好后原子链
 | 字段/错误码 | 后台语义 | Claude 显示建议 |
 | --- | --- | --- |
 | `previousVersion: string \| null`（默认 null） | 最近事务保存的原版本；回退/恢复完成后保留，用于判断 `currentVersion === previousVersion` | 结合 result、recoveryPending 和 errorCode 判断是否已恢复原版，不仅凭错误码 |
-| `recoveryPending: boolean`（默认 false；存在遗留事务时由日志推导） | 还有待核验或待回退的事务，可能正在等待工作结束/进程退出 | 优先显示“更新恢复待处理，等待助手空闲”，不能写“有新版，等空闲更新” |
+| `recoveryPending: boolean`（默认 false；存在遗留事务时由日志推导） | 还有待核验或待回退的事务，可能正在等待工作结束/进程退出 | 除 `ROLLBACK_FAILED`、`COMMAND_TREE_STOP_FAILED`、`STATE_WRITE_FAILED` 外，优先显示“更新恢复待处理，等待助手空闲”，不能写“有新版，等空闲更新” |
 | `INSTALL_TIMEOUT` | 只用于安装命令超时；与查询/连接检查超时分开。可能完全未改版本，也可能已回退 | “本次安装超时，下次每日检查或手动检查再试”；已读回原版时显示已恢复/保留原版 |
 | `INSTALL_FILE_BUSY` | Windows EPERM 单独分类；可能是文件被占用，W_OK 不能证明 Windows ACL 可写 | “安装文件可能被占用，请关闭外部助手进程后重试”；不能直接断言原目录没权限 |
 | `PRE_UPDATE_VERSION_MISMATCH` | 安装前版本已变，完全未安装；和安装后的 VERSION_MISMATCH 分开 | “更新前版本已变化，本次已跳过”，不能写“装完版本对不上” |
@@ -177,3 +177,38 @@ POSIX 安装命令通过 spawn(detached=true) 建立自有进程组，超时/取
 ### 验收边界
 
 本轮只做临时用户目录的 synthetic 协议、状态机与注入驱动测试；POSIX 进程组/时区探针仅使用自己启动的无害 sleep 子进程。真实 npm 前缀无 install/uninstall、日常 Codex/Hub 无退出重启、未另起 hub-service、未推送发布。Mac/Windows 的真实助手会话释放/按需 resume、真实安装/回退/连接、Windows ACL 与锁文件、原生后台工作和外部进程竞争仍需获准独立真机验收。新增界面字段/错误码由 Claude 实现并验收。
+
+
+## v4：独立复查 #3 修复与后台接线（2026-11-10）
+
+本节覆盖 v2/v3 的分钟重试、释放顺序与失败处理。用户既定方案保持：Hub 自动更新 AI 助手 CLI、更新后检查连接、非 ready 回退并按有效新旧版对照拉黑，默认开且可关。后台与测试由 Codex 完成；保留 `bc3fd9a1` 的 Claude 界面，未修改 `apps/hub-desktop/www`。界面和发布继续归 Claude。
+
+### 字段和状态
+
+- 内部 `cli-update-busy` / `cli-update-release-idle` 结果新增可选 `hostPid: number`（正整数）。新 Host 返回自身 PID。旧 Host 缺该字段时不推断归属，其 CLI 进程继续保守算占用。管理 RPC 请求、更新 entry 字段、Result 和 ErrorCode 枚举均未新增。
+- AI 助手连接报告新增明确的 code 值 `AGENT_CLI_UPDATE_BUSY`，使用现有 `status: "unavailable"`、中文 message“该 AI 助手正在更新，请稍后重试（AGENT_CLI_UPDATE_BUSY）”，后台 hint 为“该 AI 助手正在更新，完成后请重新检测连接”。这是暂时等待状态，不是连接故障；不启动被围栏拦住的原生检查。围栏释放后用户再次检测按原流程执行，不自动重放用户请求。Claude 可按 code 映射等待显示。
+- `INSTALL_FILE_BUSY` 的安装前可写性预检改为 `skipped-busy / INSTALL_FILE_BUSY`，每分钟可重试检查；预检期间不释放会话、不安装。实际安装过程中出现同码时仍按事务读回/恢复，不能用每分钟检查变成反复安装。
+- v3 的 `recoveryPending` 显示规则已修为：**除 `ROLLBACK_FAILED`、`COMMAND_TREE_STOP_FAILED`、`STATE_WRITE_FAILED` 外**优先显示恢复待处理。上述三个故障必须优先保留具体失败，不能被等待文案覆盖（Claude 已在 `bc3fd9a1` 接好）。
+
+### N1：回退后的分钟重试边界
+
+分钟重试只处理 `causeCode === null` 的检查/等待结果，或仍有实际恢复事务的 `recoveryPending=true` 条目。完成回退且日志已清、`causeCode` 非空的结果，包括旧版检查超时、Host 暂不在、以及原版恢复 ready 后携带 CHECK_TIMEOUT 的 rolled-back，均不再进入分钟级试装；等待每日或显式手动检查。启动时保留原有检查流程。未完成恢复仍可等待空闲继续恢复，绝不据此再试装新版。临时故障仍不永久拉黑；确定新版不 ready 而旧版 ready 时保留坏版本。
+
+### N2/N3：先只读占用预检，再有限频率释放
+
+1. 拿到助手围栏后，对**所有**本机 Host 调用只读 busy；Host 将活动回合、后台/子任务、审批、操作/关闭、持久化或身份不完整、真实预热草稿等不可安全释放会话都算 busy。只读子代理快照不占 CLI，Host 忙碌和最终“还有会话”判定均忽略它们；父会话实际子任务保护保留。
+2. 全部 Host 都空闲后扫描外部进程。释放前仅排除这些 Host 下、以当前 CLI 命令/原可执行文件/包目录为根的进程分支；其他助手的工具分支即使由同一 Host 派生也继续算外部占用。未知归属、外部终端、其他 Host 未确认的进程只等待，不释放空闲会话。
+3. 全部检查通过才请求 Host 释放安全空闲会话。按助手、原可执行文件、目标版本，在同一驱动实例内每 15 分钟最多一次释放尝试（成功、失败均计入；Hub 重启会重建该内存限频）。分钟重试在限频期返回 busy，不重关会话；不同目标单独计数。
+4. 释放后重新扫描，**不再排除 Host 进程**；任何残留或新启动的进程都使更新等待。实际安装/回退前仍再次完整扫描。所有扫描只读，绝不杀外部进程；最后扫描后的外部启动竞争仍需真机验收。
+
+### 更新释放失败和协调锁
+
+更新触发的 close 复用现有 `ExternalThreadLifecycle.release`，保留当前会话所有权与未完成关闭，不再写永久 closeFailed。关闭失败/60 秒超时后标记 sessionUnavailable；下一次用户使用可重试确认旧会话关闭及输出排空，再按原身份恢复，无须仅因该失败强制重启 Desktop。关闭仍在进行时复用同一 close Promise，不并发关第二次，也不提前开新 writer；始终无法确认的关闭仍会返回可重试错误并阻止恢复。手动开启的普通“自动空闲释放”原有失败保护未改。
+
+另一个 Hub 持有 coordinator 时保留请求队列，使用 250ms 起、指数增长至 10 秒的等待，加最多 20% 抖动；不再每 100ms 写锁。stop 中止该等待、清队列，并继续按既有规则等待自身事务停止。没有修改全局进程或关闭保护。
+
+### 验收与交接
+
+本轮 compiled dist + 假驱动覆盖 N1 四次分钟 tick 不再循环、N2 16 助手乘 6 轮持续外部占用零释放、N3 实际 ReadonlySnapshotSession 不阻塞而真实预热仍阻塞；另有关闭失败/超时恢复、跨 Host、限频、进程分支、INSTALL_FILE_BUSY、连接报告与协调锁回归。均为临时用户目录的 synthetic 数据，不是真实 CLI 或账号验收。
+
+修复后的独立复核/accepted、真实 Mac/Windows CLI 升级回退及 ready、文件占用/ACL、原生会话历史与按需恢复、跨 Host 进程归属和 UI 联调仍待独立环境确认。证据和精确命令见 `evidence/agent-cli-autoupdate-review3-20261110/RESULTS.md`。未运行真实全局 install/uninstall、未退出重启用户 Codex/Hub、未另起 hub-service、未推送发布。

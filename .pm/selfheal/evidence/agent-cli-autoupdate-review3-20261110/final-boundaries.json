@@ -1,0 +1,12 @@
+{
+  "name": "final-boundaries",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "tools/check-boundaries.mjs"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 2218,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": ""
+}

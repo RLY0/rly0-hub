@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeHarnessAdapter } from "@codexhost/harness-adapter/testing";
 import {
   harnessIdSchema,
+  hostThreadIdSchema,
   AGENT_CLI_BUSY_METHOD,
   AGENT_CLI_RELEASE_METHOD,
   AGENT_CLI_INSPECT_METHOD,
@@ -21,9 +22,12 @@ import { AgentInstaller } from "../src/rly0-agents/agent-installer.js";
 import { GrokAddLogin } from "../src/rly0-hub-service/grok-add-login.js";
 import { createHubHostRequests } from "../src/rly0-hub-service/host-console-routes.js";
 import { consoleHostDescriptorDirectory } from "../src/console-control-server.js";
+import { ExternalThreadRepository } from "../src/external-thread-repository.js";
+import { requestAgentCheck } from "../src/rly0-maintenance/backend-reload-channel.js";
 import {
   createFixture,
   startPiThread,
+  startExternalThread,
   startPiTurn,
   stopFixture,
   writeRequest,
@@ -52,6 +56,104 @@ async function isolated() {
   };
 }
 describe("Host CLI update admission", () => {
+  it("N3 leaves a restored read-only child view open without blocking its idle parent's CLI update", async () => {
+    const env = await isolated();
+    const adapter = Object.assign(new FakeHarnessAdapter(harnessIdSchema.parse("pi")), {
+      subagents: { readSnapshot: vi.fn(async () => ({ ok: true as const, value: { turns: [] } })) },
+    });
+    const f = createFixture({ environment: env, externalAdapters: new Map([["pi", adapter]]) });
+    let release: (() => Promise<void>) | null = null;
+    try {
+      const parentId = hostThreadIdSchema.parse(await startPiThread(f));
+      const parent = required(await f.mappingStore.getThread(parentId));
+      const childId = hostThreadIdSchema.parse("synthetic-update-child");
+      await f.mappingStore.createProvisional({
+        harnessId: parent.harnessId,
+        cwd: parent.cwd,
+        transportModelId: parent.transportModelId,
+        ephemeral: parent.ephemeral,
+        historyMode: parent.historyMode,
+        hostThreadId: childId,
+        createRequestId: "synthetic-update-child",
+        subagent: { parentHostThreadId: parentId, nativeSubagentId: "synthetic-child" },
+      });
+      await new ExternalThreadRepository(f.mappingStore).commitNative(
+        childId,
+        required(parent.nativeSessionRef),
+      );
+      writeRequest(f.desktopInput, {
+        id: 30,
+        method: "thread/read",
+        params: { threadId: childId, includeTurns: true },
+      });
+      expect(await f.collector.waitFor((message) => requestId(message, 30))).not.toHaveProperty(
+        "error",
+      );
+      expect(adapter.subagents.readSnapshot).toHaveBeenCalled();
+      expect(adapter.sessions).toHaveLength(1);
+      const close = vi.spyOn(required(adapter.sessions[0]), "close");
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { busy: false } });
+      release = await acquireAgentCliFence(env, "pi", syntheticOwner);
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { busy: false } });
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { busy: false } });
+    } finally {
+      await release?.();
+      await stopFixture(f);
+    }
+  });
+  it("reports a prewarm as busy before closing another idle session", async () => {
+    const env = await isolated();
+    const f = createFixture({ environment: env });
+    let release: (() => Promise<void>) | null = null;
+    try {
+      await startPiThread(f);
+      const close = vi.spyOn(required(f.adapter.sessions[0]), "close");
+      await startExternalThread(f, "codexhost/pi-native", 31, { codexhostPrewarm: true });
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { busy: true } });
+      release = await acquireAgentCliFence(env, "pi", syntheticOwner);
+      expect(
+        await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "pi" }),
+      ).toMatchObject({ result: { busy: true } });
+      expect(close).not.toHaveBeenCalled();
+    } finally {
+      await release?.();
+      await stopFixture(f);
+    }
+  });
+  it("writes a readable updating status for the AI assistant page without inspecting the fenced CLI", async () => {
+    const env = await isolated();
+    const f = createFixture({ environment: env });
+    let release: (() => Promise<void>) | null = null;
+    try {
+      await f.ready;
+      // Let the file channel discard any request predating this synthetic Host.
+      await new Promise((resolve) => setTimeout(resolve, 2100));
+      release = await acquireAgentCliFence(env, "pi", syntheticOwner);
+      const before = f.adapter.inspectionCalls;
+      const report = await requestAgentCheck(env.CODEXHOST_DATA_DIR, {
+        timeoutMs: 5000,
+        pollMs: 20,
+      });
+      expect(report?.agents.pi).toEqual({
+        status: "unavailable",
+        code: "AGENT_CLI_UPDATE_BUSY",
+        message: "该 AI 助手正在更新，请稍后重试（AGENT_CLI_UPDATE_BUSY）",
+      });
+      expect(f.adapter.inspectionCalls).toBe(before);
+    } finally {
+      await release?.();
+      await stopFixture(f);
+    }
+  }, 10000);
   it("requires the update fence, releases idle sessions with default idle release disabled, and fences public inspection", async () => {
     const env = await isolated();
     const f = createFixture({ environment: env });
@@ -68,7 +170,7 @@ describe("Host CLI update admission", () => {
       expect(close).not.toHaveBeenCalled();
       release = await acquireAgentCliFence(env, "pi", syntheticOwner);
       expect(await f.host.handleConsoleRequest(AGENT_CLI_RELEASE_METHOD, { agent: "pi" })).toEqual({
-        result: { guarded: true, busy: false },
+        result: { guarded: true, busy: false, hostPid: process.pid },
       });
       expect(close).toHaveBeenCalledTimes(1);
       const before = f.adapter.inspectionCalls;
@@ -134,16 +236,18 @@ describe("Host CLI update admission", () => {
     const f = createFixture({ environment: env });
     try {
       const thread = await startPiThread(f);
-      expect(await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" })).toEqual({
-        result: { guarded: true, busy: false },
-      });
+      await vi.waitFor(async () =>
+        expect(await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" })).toEqual({
+          result: { guarded: true, busy: false, hostPid: process.pid },
+        }),
+      );
       await startPiTurn(f, thread);
       expect(await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" })).toEqual({
-        result: { guarded: true, busy: true },
+        result: { guarded: true, busy: true, hostPid: process.pid },
       });
       expect(
         await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "opencode" }),
-      ).toEqual({ result: { guarded: true, busy: false } });
+      ).toEqual({ result: { guarded: true, busy: false, hostPid: process.pid } });
       required(f.adapter.sessions[0]).succeedTurn();
       await vi.waitFor(async () =>
         expect(

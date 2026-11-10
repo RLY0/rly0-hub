@@ -11,6 +11,7 @@ export function describeAgentConnection(
   entry: AgentConnectionStatus,
 ): string | null {
   if (entry.status === "ready") return null;
+  if (entry.code === "AGENT_CLI_UPDATE_BUSY") return "该 AI 助手正在更新，完成后请重新检测连接";
   const name = agent?.name ?? "这个助手";
   if (entry.status === "notInstalled") {
     if (agent?.desktopOnly)

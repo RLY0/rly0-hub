@@ -90,6 +90,95 @@ afterEach(() => {
 });
 
 describe("external Thread idle release", () => {
+  it("N3 ignores a read-only child snapshot when checking and releasing an idle parent", async () => {
+    const f = await fixture();
+    const childId = hostThreadIdSchema.parse("synthetic-child");
+    const session = new FakeHarnessSession(harnessIdSchema.parse("pi"));
+    const close = vi.spyOn(session, "close");
+    const child = f.runtime.register({
+      record: {
+        ...f.thread.record,
+        hostThreadId: childId,
+        subagent: { parentHostThreadId: f.id, nativeSubagentId: "synthetic-child" },
+      },
+      session,
+      sessionId: childId,
+      thread: { id: childId },
+      turns: [],
+    });
+    // Snapshot status may still say running: its parent owns the actual native work.
+    child.running = true;
+    expect(f.idle.busyForUpdate("pi")).toBe(false);
+    expect(await f.idle.releaseForUpdate("pi")).toBe(true);
+    expect(f.close).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+    expect(f.runtime.values()).toEqual([child]);
+    expect(f.idle.busyForUpdate("pi")).toBe(false);
+    f.idle.stop();
+    await session.close();
+  });
+  it("N3 keeps a real prewarm session busy without closing its idle parent", async () => {
+    const f = await fixture();
+    const draftId = hostThreadIdSchema.parse("synthetic-prewarm");
+    const session = new FakeHarnessSession(harnessIdSchema.parse("pi"));
+    const draft = f.runtime.register({
+      record: {
+        ...f.thread.record,
+        hostThreadId: draftId,
+        state: "creating",
+        nativeSessionRef: undefined,
+      },
+      session,
+      sessionId: draftId,
+      thread: { id: draftId },
+      turns: [],
+    });
+    expect(f.idle.busyForUpdate("pi")).toBe(true);
+    expect(await f.idle.releaseForUpdate("pi")).toBe(false);
+    // A draft retaining a real persisted native identity must also keep its peer open.
+    draft.record = { ...f.thread.record, hostThreadId: draftId };
+    draft.unsubmittedPrewarm = true;
+    expect(f.idle.busyForUpdate("pi")).toBe(true);
+    expect(await f.idle.releaseForUpdate("pi")).toBe(false);
+    expect(f.close).not.toHaveBeenCalled();
+    f.idle.stop();
+    await session.close();
+    await f.thread.session.close();
+  });
+  it.each(["reject", "timeout"])(
+    "recovers an update-triggered %s without a Desktop restart or a duplicate writer",
+    async (failure) => {
+      const f = await fixture();
+      const late = deferred();
+      if (failure === "reject") f.close.mockRejectedValueOnce(new Error("synthetic close failure"));
+      else
+        f.close.mockImplementationOnce(async () => {
+          await late.promise;
+          await FakeHarnessSession.prototype.close.call(f.thread.session);
+        });
+      const releasing = f.idle.releaseForUpdate("pi");
+      if (failure === "timeout") await vi.advanceTimersByTimeAsync(MINUTE);
+      expect(await releasing).toBe(false);
+      expect(f.idle.failure(f.thread)).toBeUndefined();
+      expect(f.runtime.get(f.id)).toBe(f.thread);
+      expect(f.thread.sessionUnavailable).toBe(true);
+      expect(await f.idle.releaseForUpdate("pi")).toBe(false);
+      expect(f.close).toHaveBeenCalledTimes(1);
+      const recovery = f.runtime.resolve(f.id);
+      if (failure === "timeout") {
+        await vi.advanceTimersByTimeAsync(1);
+        expect(f.open).not.toHaveBeenCalled();
+        expect(f.close).toHaveBeenCalledTimes(1);
+        late.resolve();
+      }
+      const restored = await recovery;
+      expect(restored.kind).toBe("external");
+      expect(f.open).toHaveBeenCalledTimes(1);
+      expect(f.close).toHaveBeenCalledTimes(failure === "reject" ? 2 : 1);
+      f.idle.stop();
+      if (restored.kind === "external") await restored.thread.session.close();
+    },
+  );
   it("releases an idle session for CLI update and resumes its persisted identity only on demand", async () => {
     const f = await fixture();
     expect(f.idle.list()[0]).toMatchObject({ reason: "disabled" });

@@ -1,3 +1,17 @@
+# HUB-AGENT-CLI-AUTOUPDATE 复查 #3 修复：self_verified
+
+2026-11-10；feat/agent-cli-autoupdate；输入 `bc3fd9a1a2ee46484b6fed843adef14a2e9bf28f`（保留 Claude 界面）。N1/N2/N3 和四个次要项已实现并补测试。本轮仅自检，修复后的 reviewed/accepted 未完成。
+
+验证：16 文件、244 pass、0 fail、0 skip；compiled dist + 假驱动四场景通过。N1 四次分钟 tick 安装数均为 2，之后每日/手动仍可重试；N2 16 助手乘 6 轮外部占用 96 次检查、0 次释放、0 次安装；N3 实际只读快照不阻塞，真实预热仍阻塞。build:typescript、typecheck、依赖边界、改动源文件 lint/格式通过。全仓 lint exit 1，仅输入已有的 rly0-hub-promo.test.ts:11（文件哈希与输入相同），本轮新增 0。
+
+[契约 v4](selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md) 增加内部 hostPid、连接报告 AGENT_CLI_UPDATE_BUSY，明确两步预检/释放后复查、同目标 15 分钟释放限频、回退后的分钟重试边界、失败关闭可重试和协调锁退避。v3 已更正三类严重故障优先于 recoveryPending。逐条源码/测试行号、命令、输出和限制见 [RESULTS](selfheal/evidence/agent-cli-autoupdate-review3-20261110/RESULTS.md)。
+
+没有改 apps/hub-desktop/www；所有被测 npm/系统命令注入驱动，临时用户/数据/记忆目录隔离。未执行真实全局 install/uninstall，未退出重启用户 Codex/Hub，未另起 hub-service，未打包推送发布。本轮测试没有启动原生 CLI 或需要清理的外部测试服务/进程。
+
+next_action：修复后独立复核；Claude 核对 v4 的等待状态接线；在获准独立环境验证 Mac/Windows 原生会话关闭失败/超时重试、子代理/预热、进程归属、真实升级回退/连接、文件占用/ACL 与 UI。原生固定版本回退缺口、外部最后扫描竞争和第三方脱离进程组等既有局限保留。界面、打包和发布归 Claude。
+
+---
+
 # HUB-AGENT-CLI-AUTOUPDATE 复查 #2 修复：self_verified
 
 2026-11-10；feat/agent-cli-autoupdate；固定输入 `62f2bdcc1e1fbf1eba0b2ed68f14742e5ee2628a`。阻断 1、重要 1–4 的后台修复及对应回归完成；次要项已处理，owner 同步探针以 1 秒缓存缓解，未改全异步。仅自检，修复后的 reviewed/accepted 仍未完成。

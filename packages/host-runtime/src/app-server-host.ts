@@ -1,4 +1,8 @@
-import { AgentCliUpdateAdmission, fenceOwnerAlive } from "./rly0-agents/cli-update-admission.js";
+import {
+  AgentCliUpdateAdmission,
+  AGENT_CLI_UPDATE_BUSY_MESSAGE,
+  fenceOwnerAlive,
+} from "./rly0-agents/cli-update-admission.js";
 import {
   AGENT_CLI_BUSY_METHOD,
   AGENT_CLI_RELEASE_METHOD,
@@ -1592,7 +1596,14 @@ export class AppServerHost {
               };
             }
           } catch (error) {
-            agents[id] = { status: "error", message: errorMessage(error).slice(0, 600) };
+            agents[id] =
+              error instanceof Error && error.message.includes("AGENT_CLI_UPDATE_BUSY")
+                ? {
+                    status: "unavailable",
+                    code: "AGENT_CLI_UPDATE_BUSY",
+                    message: AGENT_CLI_UPDATE_BUSY_MESSAGE,
+                  }
+                : { status: "error", message: errorMessage(error).slice(0, 600) };
           }
         }),
     );
@@ -1975,11 +1986,13 @@ export class AppServerHost {
       const busy = () =>
         this.#agentCliAdmission.busy(agent) ||
         this.#agentInstaller.status(agent).state === "running" ||
+        this.#externalRuntime.idleRelease.busyForUpdate(agent) ||
         this.#externalRuntime
           .values()
           .some(
             (thread) =>
               thread.harnessId === agent &&
+              !thread.record.subagent &&
               (this.#externalThreadBusy(thread) ||
                 thread.activeTurnId !== null ||
                 this.#pendingExternalCommandRequests.has(thread.id) ||
@@ -2005,14 +2018,15 @@ export class AppServerHost {
             return { error: { code: -32077, message: "CLI update inspection failed" } };
           }
         }
-        if (busy()) return { result: { guarded: true, busy: true } };
+        if (busy()) return { result: { guarded: true, busy: true, hostPid: process.pid } };
         const released = await this.#externalRuntime.idleRelease.releaseForUpdate(agent);
-        return { result: { guarded: true, busy: !released || busy() } };
+        return { result: { guarded: true, busy: !released || busy(), hostPid: process.pid } };
       }
       return {
         result: {
           guarded: true,
           busy: busy(),
+          hostPid: process.pid,
         },
       };
     }

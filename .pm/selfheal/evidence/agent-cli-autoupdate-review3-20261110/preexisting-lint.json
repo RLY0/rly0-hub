@@ -1,0 +1,9 @@
+{
+  "file": "packages/host-runtime/test/rly0-hub-promo.test.ts",
+  "base": "bc3fd9a1",
+  "baseSha256": "ffda9088fbf18a02d9990616cee66705446f66f1ea38f201f917062131893caa",
+  "currentSha256": "ffda9088fbf18a02d9990616cee66705446f66f1ea38f201f917062131893caa",
+  "unchanged": true,
+  "error": "11:20 @typescript-eslint/no-non-null-assertion",
+  "sourceLine": "      const next = bodies[Math.min(calls++, bodies.length - 1)]!;"
+}

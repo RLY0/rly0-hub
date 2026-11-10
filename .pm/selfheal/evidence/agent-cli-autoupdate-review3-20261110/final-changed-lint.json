@@ -1,0 +1,26 @@
+{
+  "name": "final-changed-lint",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/eslint/bin/eslint.js",
+    "packages/shared-contracts/src/agent-cli-updates.ts",
+    "packages/host-runtime/src/app-server-host.ts",
+    "packages/host-runtime/src/external-thread-runtime.ts",
+    "packages/host-runtime/src/external-thread-idle-release.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-cli-update-system.ts",
+    "packages/host-runtime/src/rly0-hub-service/agent-connection-hint.ts",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+    "packages/host-runtime/test/agent-cli-update-system.test.ts",
+    "packages/host-runtime/test/agent-cli-update-host.test.ts",
+    "packages/host-runtime/test/external-thread-idle-release.test.ts",
+    "packages/host-runtime/test/agent-connection-hint.test.ts"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 945,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": ""
+}

@@ -1,0 +1,18 @@
+{
+  "ticket": "HUB-AGENT-CLI-AUTOUPDATE",
+  "review": 3,
+  "base": "bc3fd9a1a2ee46484b6fed843adef14a2e9bf28f",
+  "branch": "feat/agent-cli-autoupdate",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "report": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/AGENT-CLI-AUTOUPDATE-REVIEW-3.md",
+  "reportSha256": "2deb62cf1cfb68f8073d7c4f1055e92eb25227f5665f96b2288073c223e1ffb4",
+  "toolchain": {
+    "node": "v24.22.2",
+    "npm": "11.19.1",
+    "platform": "Darwin",
+    "arch": "arm64",
+    "osVersion": "27.2"
+  },
+  "scope": "Backend/tests/contract v4/evidence/project progress only; no www edits, real CLI/npm install/uninstall, daily user process stop/restart, Hub listener start, package, push or release.",
+  "baselineCompiled": "Preexisting dist before this turn rebuilt it; baseline probe is reproduction evidence, not a claimed clean rebuild of bc3fd9a1."
+}

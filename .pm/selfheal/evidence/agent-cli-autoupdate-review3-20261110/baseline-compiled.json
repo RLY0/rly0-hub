@@ -1,0 +1,12 @@
+{
+  "name": "baseline-compiled",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    ".pm/selfheal/evidence/agent-cli-autoupdate-review3-20261110/compiled-state-machine.mjs"
+  ],
+  "exitCode": 1,
+  "elapsedMs": 373,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "{\"name\":\"N1-COMMAND_TIMEOUT\",\"minuteInstallCounts\":[2,4,6,8,10],\"entry\":{\"agent\":\"pi\",\"currentVersion\":\"1.0.0\",\"latestVersion\":\"1.1.0\",\"previousVersion\":\"1.0.0\",\"recoveryPending\":false,\"lastCheckedAt\":0,\"lastUpdatedAt\":null,\"phase\":\"idle\",\"result\":\"failed\",\"errorCode\":\"CHECK_TIMEOUT\",\"causeCode\":\"CHECK_TIMEOUT\",\"badVersions\":[],\"installKind\":\"npm\",\"canUpdate\":true}}\n{\"name\":\"N1-HOST_UNAVAILABLE\",\"minuteInstallCounts\":[2,4,6,8,10],\"entry\":{\"agent\":\"pi\",\"currentVersion\":\"1.0.0\",\"latestVersion\":\"1.1.0\",\"previousVersion\":\"1.0.0\",\"recoveryPending\":false,\"lastCheckedAt\":0,\"lastUpdatedAt\":null,\"phase\":\"idle\",\"result\":\"failed\",\"errorCode\":\"HOST_UNAVAILABLE\",\"causeCode\":\"CHECK_TIMEOUT\",\"badVersions\":[],\"installKind\":\"npm\",\"canUpdate\":true}}\n{\"name\":\"N2\",\"agents\":16,\"rounds\":6,\"releases\":96,\"scans\":96,\"installs\":0}\n{\"name\":\"N3-child\",\"released\":false,\"remaining\":[\"child\"],\"nativeOpens\":1}\n{\n  \"synthetic\": true,\n  \"results\": [\n    {\n      \"name\": \"N1-COMMAND_TIMEOUT\",\n      \"pass\": false,\n      \"error\": \"Expected values to be strictly deep-equal:\\n+ actual - expected\\n\\n  [\\n    2,\\n+   4,\\n+   6,\\n+   8,\\n+   10\\n-   2,\\n-   2,\\n-   2,\\n-   2\\n  ]\\n\"\n    },\n    {\n      \"name\": \"N1-HOST_UNAVAILABLE\",\n      \"pass\": false,\n      \"error\": \"Expected values to be strictly deep-equal:\\n+ actual - expected\\n\\n  [\\n    2,\\n+   4,\\n+   6,\\n+   8,\\n+   10\\n-   2,\\n-   2,\\n-   2,\\n-   2\\n  ]\\n\"\n    },\n    {\n      \"name\": \"N2-external-occupancy-16-agents-6-rounds\",\n      \"pass\": false,\n      \"error\": \"Expected values to be strictly equal:\\n\\n96 !== 0\\n\"\n    },\n    {\n      \"name\": \"N3-real-readonly-snapshot-and-prewarm\",\n      \"pass\": false,\n      \"error\": \"Expected values to be strictly equal:\\n\\nfalse !== true\\n\"\n    }\n  ]\n}\n"
+}

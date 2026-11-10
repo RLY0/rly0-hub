@@ -1,0 +1,13 @@
+{
+  "name": "final-typecheck",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "npm",
+    "run",
+    "typecheck"
+  ],
+  "exitCode": 0,
+  "elapsedMs": 11502,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 typecheck\n> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false\n\n"
+}

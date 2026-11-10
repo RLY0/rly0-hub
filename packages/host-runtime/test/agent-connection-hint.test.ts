@@ -33,6 +33,21 @@ describe("finding Antigravity's agy", () => {
 });
 
 describe("connection hints", () => {
+  it("describes a CLI update as waiting instead of a connection failure", () => {
+    const entry = {
+      status: "unavailable" as const,
+      code: "AGENT_CLI_UPDATE_BUSY",
+      message: "正在更新",
+    };
+    expect(describeAgentConnection(undefined, entry)).toBe(
+      "该 AI 助手正在更新，完成后请重新检测连接",
+    );
+    expect(withConnectionHints({ agents: { pi: entry } }, []).agents.pi).toMatchObject({
+      status: "unavailable",
+      code: "AGENT_CLI_UPDATE_BUSY",
+      hint: expect.stringContaining("正在更新"),
+    });
+  });
   const missing = { status: "notInstalled", code: "notInstalled" } as const;
   it("says why Codex cannot find an agent", () => {
     const base = { id: "antigravity", name: "Antigravity" };

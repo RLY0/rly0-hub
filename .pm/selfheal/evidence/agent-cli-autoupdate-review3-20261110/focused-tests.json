@@ -1,0 +1,21 @@
+{
+  "name": "focused-tests",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "node",
+    "node_modules/vitest/vitest.mjs",
+    "run",
+    "--config",
+    "tests/vitest.config.js",
+    "packages/host-runtime/test/agent-cli-updates.test.ts",
+    "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+    "packages/host-runtime/test/agent-cli-update-system.test.ts",
+    "packages/host-runtime/test/agent-cli-update-host.test.ts",
+    "packages/host-runtime/test/external-thread-idle-release.test.ts",
+    "packages/host-runtime/test/agent-connection-hint.test.ts"
+  ],
+  "exitCode": 1,
+  "elapsedMs": 5912,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "\n RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate\n\n ❯ packages/host-runtime/test/agent-cli-update-driver.test.ts (29 tests | 2 failed) 53ms\n     × never releases idle sessions while an external process remains busy over six retries 4ms\n     × limits release attempts for the same target and retries after cooldown, including failed closes 1ms\n ❯ packages/host-runtime/test/agent-cli-update-host.test.ts (23 tests | 1 failed) 4266ms\n     × reports running turns per harness, blocks a new turn under its fence, then admits it after release 17ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  packages/host-runtime/test/agent-cli-update-driver.test.ts > injected CLI update drivers > never releases idle sessions while an external process remains busy over six retries\nTypeError: f.advance is not a function\n ❯ packages/host-runtime/test/agent-cli-update-driver.test.ts:196:9\n    194|     for (let minute = 0; minute < 6; minute++) {\n    195|       expect(await f.driver.busy(\"pi\", installation.plan, true, \"1.1.0…\n    196|       f.advance(60_000);\n       |         ^\n    197|     }\n    198|     expect(f.occupied).toHaveBeenCalledTimes(6);\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯\n\n FAIL  packages/host-runtime/test/agent-cli-update-driver.test.ts > injected CLI update drivers > limits release attempts for the same target and retries after cooldown, including failed closes\nTypeError: f.advance is not a function\n ❯ packages/host-runtime/test/agent-cli-update-driver.test.ts:237:9\n    235|     expect(await f.driver.busy(\"pi\", installation.plan, true, \"1.1.0\")…\n    236|     for (let minute = 0; minute < 5; minute++) {\n    237|       f.advance(60_000);\n       |         ^\n    238|       expect(await f.driver.busy(\"pi\", installation.plan, true, \"1.1.0…\n    239|     }\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯\n\n FAIL  packages/host-runtime/test/agent-cli-update-host.test.ts > Host CLI update admission > reports running turns per harness, blocks a new turn under its fence, then admits it after release\nAssertionError: expected { result: { guarded: true, …(2) } } to deeply equal { result: { guarded: true, …(2) } }\n\n- Expected\n+ Received\n\n  {\n    \"result\": {\n-     \"busy\": false,\n+     \"busy\": true,\n      \"guarded\": true,\n      \"hostPid\": 88598,\n    },\n  }\n\n ❯ packages/host-runtime/test/agent-cli-update-host.test.ts:235:89\n    233|     try {\n    234|       const thread = await startPiThread(f);\n    235|       expect(await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, …\n       |                                                                                         ^\n    236|         result: { guarded: true, busy: false, hostPid: process.pid },\n    237|       });\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯\n\n\n Test Files  2 failed | 4 passed (6)\n      Tests  3 failed | 156 passed (159)\n   Start at  22:02:06\n   Duration  5.61s (transform 2.10s, setup 0ms, import 2.95s, tests 6.48s, environment 0ms)\n\n"
+}

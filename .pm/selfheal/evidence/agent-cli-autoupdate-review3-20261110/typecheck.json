@@ -1,0 +1,13 @@
+{
+  "name": "typecheck",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "command": [
+    "npm",
+    "run",
+    "typecheck"
+  ],
+  "exitCode": 2,
+  "elapsedMs": 11570,
+  "isolation": "temporary HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR; RLY0_SKIP_LEGACY_IMPORT=1; temporary npm prefix/cache/config",
+  "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 typecheck\n> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false\n\npackages/host-runtime/test/agent-cli-update-host.test.ts(70,46): error TS2379: Argument of type '{ hostThreadId: string & $brand<\"HostThreadId\">; createRequestId: string; subagent: { parentHostThreadId: string & $brand<\"HostThreadId\">; nativeSubagentId: string; }; ... 17 more ...; forkSource?: { ...; } | undefined; }' is not assignable to parameter of type 'CreateProvisionalThreadInput' with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' to the types of the target's properties.\n  Types of property 'forkSource' are incompatible.\n    Type '{ hostThreadId: string & $brand<\"HostThreadId\">; hostTurnId: string & $brand<\"HostTurnId\">; } | undefined' is not assignable to type '{ hostThreadId: string & $brand<\"HostThreadId\">; hostTurnId: string & $brand<\"HostTurnId\">; }'.\n      Type 'undefined' is not assignable to type '{ hostThreadId: string & $brand<\"HostThreadId\">; hostTurnId: string & $brand<\"HostTurnId\">; }'.\npackages/host-runtime/test/agent-cli-updates.test.ts(862,37): error TS2554: Expected 0 arguments, but got 1.\npackages/host-runtime/test/external-thread-idle-release.test.ts(129,9): error TS2322: Type 'null' is not assignable to type 'NativeSessionRefV1 | undefined'.\n"
+}

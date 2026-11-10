@@ -11,7 +11,10 @@ import {
   AGENT_CLI_INSPECT_METHOD,
   HARNESS_LAUNCH_SETTINGS_GET_METHOD,
 } from "@codexhost/shared-contracts";
-import { createAgentCliUpdateDriver } from "../src/rly0-hub-service/agent-cli-update-driver.js";
+import {
+  createAgentCliUpdateDriver,
+  type AgentCliPlan,
+} from "../src/rly0-hub-service/agent-cli-update-driver.js";
 import type { HubHostRequest } from "../src/rly0-hub-service/host-console-routes.js";
 import type { UpdateHttpGet } from "../src/rly0-hub-service/hub-update-net.js";
 
@@ -25,7 +28,13 @@ afterEach(async () => {
 });
 async function fixture(
   platform: NodeJS.Platform = "darwin",
-  config: { prefix?: string; packageName?: string; command?: string; version?: string } = {},
+  config: {
+    prefix?: string;
+    packageName?: string;
+    command?: string;
+    version?: string;
+    hosts?: readonly HubHostRequest[];
+  } = {},
 ) {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "synthetic-cli-driver-")));
   roots.push(root);
@@ -88,7 +97,7 @@ async function fixture(
         restartRequired: false,
       };
     return [AGENT_CLI_BUSY_METHOD, AGENT_CLI_RELEASE_METHOD].includes(method)
-      ? { guarded: true, busy: false }
+      ? { guarded: true, busy: false, hostPid: 424242 }
       : adapter.inspect();
   });
   const env: NodeJS.ProcessEnv = {
@@ -101,12 +110,16 @@ async function fixture(
     HTTPS_PROXY: "http://127.0.0.1:synthetic",
   };
   const writable = vi.fn(async () => undefined);
-  const occupied = vi.fn(async () => false);
+  const occupied = vi.fn<NonNullable<Parameters<typeof createAgentCliUpdateDriver>[0]["occupied"]>>(
+    async () => false,
+  );
+  let now = 0;
   const driver = createAgentCliUpdateDriver({
     platform,
     environment: async () => env,
     get: async () => get,
-    hosts: async () => [host],
+    hosts: async () => [host, ...(config.hosts ?? [])],
+    now: () => now,
     installing: () => false,
     run,
     writable,
@@ -135,6 +148,9 @@ async function fixture(
     files,
     writable,
     occupied,
+    advance: (ms: number) => {
+      now += ms;
+    },
     setExecutable: (v: string) => {
       selected = v;
     },
@@ -154,22 +170,92 @@ describe("injected CLI update drivers", () => {
       false,
     );
   });
-  it("asks every Host to release idle sessions before checking for remaining external processes", async () => {
+  it("scans external occupancy before releasing idle Hosts, then scans again without exclusions", async () => {
     const f = await fixture();
     const installation = required(await f.driver.inspect("pi"));
-    f.occupied.mockImplementation(async () => {
-      expect(f.host).toHaveBeenCalledWith(
-        AGENT_CLI_RELEASE_METHOD,
-        { agent: "pi" },
-        expect.any(AbortSignal),
-      );
+    f.host.mockClear();
+    f.occupied.mockImplementation(async (_plan, _env, hostPids) => {
+      const releases = f.host.mock.calls.filter(([method]) => method === AGENT_CLI_RELEASE_METHOD);
+      expect(releases).toHaveLength(hostPids?.length ? 0 : 1);
       return false;
     });
     expect(await f.driver.busy("pi", installation.plan, true)).toBe(false);
+    expect(f.occupied.mock.calls.map((call) => call[2])).toEqual([[424242], []]);
     f.host.mockResolvedValue({ guarded: true, busy: true });
     f.occupied.mockClear();
     expect(await f.driver.busy("pi", installation.plan, true)).toBe(true);
     expect(f.occupied).not.toHaveBeenCalled();
+  });
+  it("never releases idle sessions while an external process remains busy over six retries", async () => {
+    const f = await fixture();
+    const installation = required(await f.driver.inspect("pi"));
+    f.host.mockClear();
+    f.occupied.mockResolvedValue(true);
+    for (let minute = 0; minute < 6; minute++) {
+      expect(await f.driver.busy("pi", installation.plan, true, "1.1.0")).toBe(true);
+      f.advance(60_000);
+    }
+    expect(f.occupied).toHaveBeenCalledTimes(6);
+    expect(f.host.mock.calls.some(([method]) => method === AGENT_CLI_RELEASE_METHOD)).toBe(false);
+    f.occupied.mockResolvedValue(false);
+    expect(await f.driver.busy("pi", installation.plan, true, "1.1.0")).toBe(false);
+    expect(
+      f.host.mock.calls.filter(([method]) => method === AGENT_CLI_RELEASE_METHOD),
+    ).toHaveLength(1);
+  });
+  it("does not release one idle Host when another Host is busy or unavailable", async () => {
+    const other = vi.fn<HubHostRequest>(async () => ({
+      guarded: true,
+      busy: true,
+      hostPid: 424243,
+    }));
+    const f = await fixture("darwin", { hosts: [other] });
+    const plan: AgentCliPlan = {
+      kind: "npm",
+      executable: f.executable,
+      prefix: f.prefix,
+      npm: f.npm,
+      packageName: "@earendil-works/pi-coding-agent",
+    };
+    expect(await f.driver.busy("pi", plan, true, "1.1.0")).toBe(true);
+    other.mockRejectedValueOnce(new Error("synthetic Host disconnected"));
+    await expect(f.driver.busy("pi", plan, true, "1.1.0")).rejects.toThrow("HOST_UNAVAILABLE");
+    expect(f.host.mock.calls.some(([method]) => method === AGENT_CLI_RELEASE_METHOD)).toBe(false);
+    expect(f.occupied).not.toHaveBeenCalled();
+  });
+  it("limits release attempts for the same target and retries after cooldown, including failed closes", async () => {
+    const f = await fixture();
+    const installation = required(await f.driver.inspect("pi"));
+    f.host.mockImplementation(async (method) => ({
+      guarded: true,
+      busy: method === AGENT_CLI_RELEASE_METHOD,
+      hostPid: 424242,
+    }));
+    f.host.mockClear();
+    expect(await f.driver.busy("pi", installation.plan, true, "1.1.0")).toBe(true);
+    for (let minute = 0; minute < 5; minute++) {
+      f.advance(60_000);
+      expect(await f.driver.busy("pi", installation.plan, true, "1.1.0")).toBe(true);
+    }
+    expect(
+      f.host.mock.calls.filter(([method]) => method === AGENT_CLI_RELEASE_METHOD),
+    ).toHaveLength(1);
+    f.advance(10 * 60_000);
+    expect(await f.driver.busy("pi", installation.plan, true, "1.1.0")).toBe(true);
+    expect(
+      f.host.mock.calls.filter(([method]) => method === AGENT_CLI_RELEASE_METHOD),
+    ).toHaveLength(2);
+    expect(await f.driver.busy("pi", installation.plan, true, "1.2.0")).toBe(true);
+    expect(
+      f.host.mock.calls.filter(([method]) => method === AGENT_CLI_RELEASE_METHOD),
+    ).toHaveLength(3);
+  });
+  it("detects an external process appearing during release and refuses to install", async () => {
+    const f = await fixture();
+    const installation = required(await f.driver.inspect("pi"));
+    f.occupied.mockResolvedValueOnce(false).mockResolvedValue(true);
+    expect(await f.driver.busy("pi", installation.plan, true, "1.1.0")).toBe(true);
+    expect(f.run.mock.calls.some((call) => call[1][0] === "install")).toBe(false);
   });
   it.each(["darwin", "win32"] as const)(
     "identifies %s npm at the actual prefix and pins both forward and rollback versions",
