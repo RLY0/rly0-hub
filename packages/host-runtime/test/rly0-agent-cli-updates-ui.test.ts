@@ -222,6 +222,18 @@ describe("AI 助手 → 自动更新命令行工具 (synthetic)", () => {
     expect(ui.line("grok")?.textContent).not.toContain("不自动更新");
   });
 
+  it("names a busy install file while waiting (contract v4)", async () => {
+    const text = await lineText(
+      entry("opencode", {
+        result: "skipped-busy",
+        errorCode: "INSTALL_FILE_BUSY",
+        latestVersion: "1.1.0",
+      }),
+    );
+    expect(text).toContain("有新版 v1.1.0");
+    expect(text).toContain("安装文件可能被占用");
+  });
+
   it("keeps warnings whole and never claims recovery when the rollback failed", async () => {
     const ui = await mount(
       status([entry("opencode", { result: "failed", errorCode: "ROLLBACK_FAILED" })]),

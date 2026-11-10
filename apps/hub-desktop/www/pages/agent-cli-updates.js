@@ -145,7 +145,9 @@
       case "up-to-date":
         return ["ok", `${cur} · 已是最新`];
       case "skipped-busy":
-        return ["wait", `${cur} · 有新版 ${latest}，等它空闲后更新`];
+        return entry.errorCode === "INSTALL_FILE_BUSY"
+          ? ["wait", `${pre}有新版 ${latest}，${why("INSTALL_FILE_BUSY")}`]
+          : ["wait", `${cur} · 有新版 ${latest}，等它空闲后更新`];
       case "skipped-bad-version":
         return ["off", `${cur} · 新版 ${latest} 之前出过问题，已跳过`];
       case "skipped-unsupported":

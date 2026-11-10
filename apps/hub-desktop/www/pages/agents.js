@@ -663,6 +663,14 @@ window.registerHubAgents = ({
           h("span", { class: "dot ok" }),
           h("span", null, "连接正常，Codex 里可以直接用"),
         );
+      // Being auto-updated right now: a wait, not a broken connection.
+      if (entry.code === "AGENT_CLI_UPDATE_BUSY")
+        return h(
+          "div",
+          { class: "conn-line" },
+          h("span", { class: "dot" }),
+          h("span", { class: "sub" }, "正在自动更新，完成后再点“检测连接”"),
+        );
       return h(
         "div",
         { class: "conn-line bad" },
