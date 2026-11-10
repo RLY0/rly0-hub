@@ -209,8 +209,16 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
   });
 
   it("tells the user to open Codex once reopening was given up", async () => {
-    const page = await card({ ...base, phase: "failed", error: "CODEX_REOPEN_FAILED" });
-    expect(page.root.textContent).toContain("请手动打开 Codex");
+    const page = await card({
+      ...base,
+      phase: "failed",
+      error: "CODEX_REOPEN_FAILED",
+      reopenGivenUp: true,
+    });
+    expect(page.root.textContent).toContain("已停止自动重试，请手动打开 Codex");
+    const retrying = await card({ ...base, phase: "failed", error: "CODEX_REOPEN_FAILED" });
+    expect(retrying.root.textContent).toContain("正在每分钟重试一次");
+    expect(retrying.root.textContent).not.toContain("已停止");
   });
 
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {

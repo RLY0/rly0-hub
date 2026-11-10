@@ -15,7 +15,7 @@
     CODEX_INSTALL_TIMEOUT:
       "这次更新没完成（Codex 没有退出，或退出后迟迟没装完），稍后会再试。如果 Codex 没有自己打开，请手动打开它。",
     CODEX_UPDATE_TARGET_CHANGED: "OpenAI 刚又换了一个新版，这个版本还没适配，先不更新。",
-    CODEX_REOPEN_FAILED: "Hub 多次尝试也没能重新打开 Codex，已停止重试，请手动打开 Codex。",
+    CODEX_REOPEN_FAILED: "重新打开 Codex 没成功，Hub 正在每分钟重试一次。",
     CODEX_HEALTH_FAILED:
       "Codex 已更新，但更新后的检查没通过。如果用起来有问题，可以在 维护 → 系统诊断 里看看。",
     CODEX_STATE_FAILED: "Hub 没能保存更新记录，稍后会再试。",
@@ -154,7 +154,12 @@
       // shortened behind an ⓘ.
       const notes = [
         s.phase === "failed" && s.error
-          ? [ERRORS[s.error] || "原因未知，稍后会自动再试。", true]
+          ? [
+              s.error === "CODEX_REOPEN_FAILED" && s.reopenGivenUp
+                ? "Hub 试了半小时也没能重新打开 Codex，已停止自动重试，请手动打开 Codex。"
+                : ERRORS[s.error] || "原因未知，稍后会自动再试。",
+              true,
+            ]
           : null,
         compatNote(s.compatibility) ? [compatNote(s.compatibility), false] : null,
         s.renderer && s.renderer.mode !== "full"
