@@ -35,6 +35,21 @@ describe("Claude request cost estimate", () => {
     );
   });
 
+  it("prices the 5.2 and 5.5 point releases at their own tiers, not their family's", () => {
+    // 100k input, 10k output, 20k cache write, 500k cache read.
+    const cost = (input: number, output: number, cacheWrite: number, cacheRead: number) =>
+      0.1 * input + 0.01 * output + 0.02 * cacheWrite + 0.5 * cacheRead;
+    const price = (model: string) => estimateClaudeRequestCostUsd({ ...usage, model });
+
+    expect(price("claude-fable-5-2")).toBeCloseTo(cost(8, 40, 10, 0.2), 12);
+    expect(price("claude-mythos-5-2")).toBeCloseTo(cost(8, 40, 10, 0.2), 12);
+    expect(price("claude-mythos-5-1")).toBeCloseTo(cost(10, 50, 12.5, 0.25), 12);
+    expect(price("claude-opus-5-5")).toBeCloseTo(cost(4, 20, 5, 0.2), 12);
+    expect(price("claude-sonnet-5-5")).toBeCloseTo(cost(2, 10, 2.5, 0.1), 12);
+    expect(price("claude-fable-5-1")).toBeCloseTo(cost(10, 50, 12.5, 0.25), 12);
+    expect(price("claude-opus-5")).toBeCloseTo(cost(5, 25, 6.25, 0.5), 12);
+  });
+
   it("does not price an unknown model or third-party Provider", () => {
     const usageWithoutModel = {
       requestId: usage.requestId,

@@ -15,6 +15,20 @@ function normalizedModel(model: string): string {
 
 function firstPartyPrice(model: string): ClaudeTokenPrice | null {
   const value = normalizedModel(model);
+  // Point releases are checked before their family: `claude-opus-5-5` also matches `claude-opus-5-`.
+  // Rates follow the pricing tiers in Claude Code 2.1.322's model catalog.
+  if (/claude-opus-5-5(?:-|$)/u.test(value)) {
+    return { input: 4, cacheWrite: 5, cacheRead: 0.2, output: 20 };
+  }
+  if (/claude-(?:fable|mythos)-5-2(?:-|$)/u.test(value)) {
+    return { input: 8, cacheWrite: 10, cacheRead: 0.2, output: 40 };
+  }
+  if (/claude-mythos-5-1(?:-|$)/u.test(value)) {
+    return { input: 10, cacheWrite: 12.5, cacheRead: 0.25, output: 50 };
+  }
+  if (/claude-sonnet-5-5(?:-|$)/u.test(value)) {
+    return { input: 2, cacheWrite: 2.5, cacheRead: 0.1, output: 10 };
+  }
   if (/claude-opus-(?:5|4-(?:5|6|7|8))(?:-|$)/u.test(value)) {
     return { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 };
   }
