@@ -5698,3 +5698,46 @@ select.input,
     animation: none;
   }
 }
+
+/* ---------- AI 助手 → 自动更新命令行工具 ---------- */
+/* Each card line carries words; the dot's shape repeats the tone (ring = held, square = problem). */
+.cli-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted-dark);
+  margin: 4px 0 8px;
+}
+.cli-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--muted-dark);
+}
+.cli-line.ok .cli-dot {
+  background: var(--ok);
+  box-shadow: none;
+}
+.cli-line.wait .cli-dot {
+  background: var(--brand);
+  box-shadow: none;
+  animation: cu-pulse 1.6s ease-in-out infinite;
+}
+.cli-line.warn {
+  color: var(--paper-100);
+}
+.cli-line.warn .cli-dot {
+  border-radius: 2px;
+  background: var(--brand);
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cli-line.wait .cli-dot {
+    animation: none;
+  }
+}

@@ -1967,6 +1967,77 @@
         ],
       },
       "autostart.get": { supported: true, enabled: true },
+      // Synthetic preview of 自动更新命令行工具 (?cliOff=1 turns the switch off).
+      "agents.cliUpdates.status": (() => {
+        const off = /[?&]cliOff=1/.test(location.search);
+        const at = Date.now() - 3 * 3600e3;
+        const entry = (agent, more) => ({
+          agent,
+          currentVersion: null,
+          latestVersion: null,
+          lastCheckedAt: at,
+          lastUpdatedAt: null,
+          phase: "idle",
+          result: null,
+          errorCode: null,
+          causeCode: null,
+          badVersions: [],
+          installKind: "npm",
+          canUpdate: true,
+          ...more,
+        });
+        return {
+          enabled: !off,
+          checking: false,
+          intervalMs: 86400000,
+          // ?cliCase=2 shows the rollback and unsupported lines on the two visible cards.
+          agents: /[?&]cliCase=2/.test(location.search)
+            ? [
+                entry("opencode", {
+                  currentVersion: "1.4.1",
+                  latestVersion: "1.4.2",
+                  result: "rolled-back",
+                  causeCode: "CONNECTION_NOT_READY",
+                  badVersions: ["1.4.2"],
+                }),
+                entry("pi", {
+                  currentVersion: "0.9.1",
+                  installKind: "script",
+                  canUpdate: false,
+                  result: "skipped-unsupported",
+                  errorCode: "ROLLBACK_UNSUPPORTED",
+                }),
+              ]
+            : [
+                entry("opencode", {
+                  currentVersion: "1.4.2",
+                  latestVersion: "1.4.2",
+                  result: "updated",
+                  lastUpdatedAt: at,
+                }),
+                entry("pi", {
+                  currentVersion: "0.9.1",
+                  latestVersion: "0.9.3",
+                  result: "skipped-busy",
+                  errorCode: "BUSY",
+                }),
+                entry("hermes", {
+                  currentVersion: "2.1.0",
+                  latestVersion: "2.2.0",
+                  result: "rolled-back",
+                  causeCode: "CONNECTION_NOT_READY",
+                  badVersions: ["2.2.0"],
+                }),
+                entry("kimi-code", {
+                  currentVersion: "0.6.0",
+                  installKind: "script",
+                  canUpdate: false,
+                  result: "skipped-unsupported",
+                  errorCode: "ROLLBACK_UNSUPPORTED",
+                }),
+              ],
+        };
+      })(),
       // Synthetic preview state; ?cu=<phase> picks one (e.g. ?cu=failed&cuWin=1).
       "codex.updates.status": (() => {
         const q = new URLSearchParams(location.search);

@@ -340,7 +340,24 @@ window.registerHubAgents = ({
         h("button", { class: "btn sm", type: "button", onclick: () => go("bridge") }, "打通设置"),
       ),
     );
+    // 自动更新命令行工具 (agent-cli-updates.js): the switch on top, one line on each agent card.
+    const cliSlots = new Map();
+    const cliUpdates = window.AgentCliUpdates({
+      h,
+      call,
+      failed,
+      alive,
+      onChange: () => {
+        for (const [id, slot] of cliSlots)
+          slot.replaceChildren(...[cliUpdates.line(id)].filter(Boolean));
+      },
+    });
     root.append(
+      h(
+        "section",
+        { class: "agent-section cli-updates-section" },
+        h("div", { class: "grid compact" }, cliUpdates.card),
+      ),
       h("section", { class: "agent-section official" }, officialHead, official),
       h("section", { class: "agent-section community" }, communityHead, community),
       h("details", { class: "agent-section more", "data-agent-more": "" }, moreHead, more),
@@ -422,6 +439,7 @@ window.registerHubAgents = ({
 
     async function load() {
       const generation = ++loadGeneration;
+      cliSlots.clear();
       const [list, relayList, selection, auth, status, keys, isolationStatus] = await Promise.all([
         call("agents.list").catch(() => null),
         call("relay.list").catch(() => null),
@@ -544,7 +562,13 @@ window.registerHubAgents = ({
         access.append(h("p", { class: "sub" }, "使用沙箱登录，重新加载助手后检测连接"));
       } else if (agent.installed) {
         renderAccess(agent, access);
-        access.prepend(connectionLine(agent));
+        const cliSlot = h(
+          "div",
+          { class: "cli-slot" },
+          ...[cliUpdates.line(agent.id)].filter(Boolean),
+        );
+        cliSlots.set(agent.id, cliSlot);
+        access.prepend(connectionLine(agent), cliSlot);
       } else renderLocked(agent, access, element);
       // New-Thread permission / Model / thinking defaults, right where the agent is (agent-defaults.js).
       if (agent.installed)
