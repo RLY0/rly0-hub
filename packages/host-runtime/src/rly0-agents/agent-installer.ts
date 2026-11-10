@@ -15,7 +15,7 @@ import {
   withAgentInstallPaths,
 } from "./install-paths.js";
 import { installNodeFromMsi, windowsNodeArch, type InstallerFiles } from "./node-msi.js";
-import { assertAgentCliAvailable } from "./cli-update-admission.js";
+import { AgentCliUpdateAdmission, assertAgentCliAvailable } from "./cli-update-admission.js";
 
 /**
  * One-click installation of native agents. Each agent has a recipe: the vendor's official
@@ -598,11 +598,17 @@ interface MutableStatus {
 
 export class AgentInstaller {
   readonly #options: AgentInstallerOptions;
+  readonly #cliAdmission: AgentCliUpdateAdmission;
   readonly #status = new Map<string, MutableStatus>();
   #refreshedPath = "";
 
   constructor(options: AgentInstallerOptions) {
     this.#options = options;
+    this.#cliAdmission = new AgentCliUpdateAdmission(options.environment);
+  }
+
+  busy(agent: string): boolean {
+    return this.#status.get(agent)?.state === "running" || this.#cliAdmission.busy(agent);
   }
 
   get #platform(): NodeJS.Platform {
@@ -703,7 +709,9 @@ export class AgentInstaller {
   async openLogin(agent: string): Promise<boolean> {
     const command = RLY0_AGENT_RECIPES[agent]?.loginCommand;
     if (!command) return false;
-    return this.#runner.openTerminal(command, this.#withKnownPaths(this.#options.environment));
+    return this.#cliAdmission.run(agent, () =>
+      this.#runner.openTerminal(command, this.#withKnownPaths(this.#options.environment)),
+    );
   }
 
   #append(status: MutableStatus, text: string): void {

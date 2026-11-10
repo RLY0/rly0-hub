@@ -37,6 +37,10 @@ export const agentCliUpdateErrorSchema = z.enum([
   "INTERRUPTED",
   "DISABLED",
   "PERMISSION_DENIED",
+  "VERSION_PINNED",
+  "BASELINE_NOT_READY",
+  "COMMAND_TREE_STOP_FAILED",
+  "CHECK_TIMEOUT",
 ]);
 export type AgentCliUpdateError = z.infer<typeof agentCliUpdateErrorSchema>;
 export const agentCliUpdateResultSchema = z.enum([
@@ -49,6 +53,8 @@ export const agentCliUpdateResultSchema = z.enum([
   "skipped-not-installed",
   "skipped-unsupported",
   "skipped-bad-version",
+  "skipped-not-ready",
+  "recovered",
 ]);
 export const agentCliUpdateEntrySchema = z.strictObject({
   agent: agentCliUpdateIdSchema,

@@ -1,4 +1,5 @@
-import { readFile, realpath } from "node:fs/promises";
+import type { access } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   installationVersion,
@@ -14,10 +15,14 @@ import {
   AGENT_CLI_BUSY_METHOD,
   agentCliBusyResultSchema,
   harnessInspectionSchema,
+  HARNESS_LAUNCH_SETTINGS_GET_METHOD,
+  harnessLaunchSettingsSchema,
   type AgentCliUpdateId,
   type AgentCliUpdateError,
 } from "@codexhost/shared-contracts";
 import { z } from "zod";
+import { HarnessLaunchSettingsStore } from "@codexhost/harness-plugin-files";
+import { assertCliWritable, cliProcessBusy } from "./agent-cli-update-system.js";
 import { RLY0_AGENT_RECIPES } from "../rly0-agents/agent-installer.js";
 import type { HubHostRequest } from "./host-console-routes.js";
 import { getUpdateJson, type UpdateHttpGet } from "./hub-update-net.js";
@@ -41,8 +46,9 @@ export interface AgentCliUpdateDriver {
   inspect(agent: AgentCliUpdateId, cachedLatest?: string): Promise<AgentCliInstallation | null>;
   version(plan: AgentCliPlan): Promise<string>;
   install(plan: AgentCliPlan, version: string): Promise<void>;
-  busy(agent: AgentCliUpdateId): Promise<boolean>;
+  busy(agent: AgentCliUpdateId, plan?: AgentCliPlan): Promise<boolean>;
   ready(agent: AgentCliUpdateId): Promise<boolean>;
+  cancel?(): void;
 }
 
 const EXTRAS: Partial<
@@ -72,12 +78,15 @@ export function createAgentCliUpdateDriver(options: {
   run?: typeof runInstallationCommand;
   discover?: (agent: AgentCliUpdateId, env: NodeJS.ProcessEnv) => string | null;
   npmOptions?: NpmInstallationOptions;
+  writable?: typeof access;
+  occupied?: (plan: AgentCliPlan, environment: NodeJS.ProcessEnv) => Promise<boolean>;
 }): AgentCliUpdateDriver {
   const { platform } = options;
+  const controller = new AbortController();
   const run =
     options.run ??
     ((command, args, env, timeout) =>
-      runInstallationCommand(command, args, env, timeout, platform));
+      runInstallationCommand(command, args, env, timeout, platform, { signal: controller.signal }));
   const json = async (url: string) => getUpdateJson(await options.get(), url);
   const envFor = async (): Promise<NodeJS.ProcessEnv> => ({
     ...(await options.environment()),
@@ -88,7 +97,23 @@ export function createAgentCliUpdateDriver(options: {
     if (!clients.length) throw new Error("HOST_UNAVAILABLE");
     return clients;
   };
-  const resolve = (agent: AgentCliUpdateId, env: NodeJS.ProcessEnv): string | null => {
+  const resolve = async (
+    agent: AgentCliUpdateId,
+    env: NodeJS.ProcessEnv,
+  ): Promise<string | null> => {
+    const configured = await new HarnessLaunchSettingsStore(env).initialCommand(agent);
+    if (configured) {
+      for (const host of await hosts()) {
+        const setting = harnessLaunchSettingsSchema.parse(
+          await hostCall(host, HARNESS_LAUNCH_SETTINGS_GET_METHOD, { harnessId: agent }),
+        );
+        if (setting.restartRequired || setting.path !== configured)
+          throw new Error("ORIGINAL_INSTALLER");
+      }
+      // Directory settings depend on Adapter-specific entrypoint selection. Never substitute PATH.
+      if (!(await stat(configured)).isFile()) throw new Error("ORIGINAL_INSTALLER");
+      return configured;
+    }
     if (options.discover) return options.discover(agent, env);
     const extra = EXTRAS[agent];
     const command = extra?.command ?? RLY0_AGENT_RECIPES[agent]?.detectionCommand;
@@ -118,18 +143,27 @@ export function createAgentCliUpdateDriver(options: {
   };
   const version = async (plan: AgentCliPlan) =>
     versionFromOutput(await run(plan.executable, ["--version"], await envFor()));
+  const hostCall = async (host: HubHostRequest, method: string, params: unknown) => {
+    try {
+      return await host(method, params, controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error("INTERRUPTED");
+      throw new Error("HOST_UNAVAILABLE", { cause: error });
+    }
+  };
   return {
+    cancel: () => controller.abort(),
     version,
     async inspect(agent, cachedLatest) {
       // No runnable Host means no trustworthy busy/connection check. In particular an isolated
       // source test must never fall through to a developer's globally installed commands.
       await Promise.all(
         (await hosts()).map(async (host) =>
-          agentCliBusyResultSchema.parse(await host(AGENT_CLI_BUSY_METHOD, { agent })),
+          agentCliBusyResultSchema.parse(await hostCall(host, AGENT_CLI_BUSY_METHOD, { agent })),
         ),
       );
       const env = await envFor();
-      const executable = resolve(agent, env);
+      const executable = await resolve(agent, env);
       if (!executable) return null;
       const packages = [
         ...(EXTRAS[agent]?.packages ?? []),
@@ -161,9 +195,57 @@ export function createAgentCliUpdateDriver(options: {
         plan.npm = npm.npmExecutable;
         // The selected CLI, not just package.json, must report the saved rollback version.
         const currentVersion = await version(plan);
+        if (!npm.canUpdate || currentVersion !== npm.currentVersion)
+          return {
+            currentVersion,
+            latestVersion: null,
+            plan,
+            canUpdate: false,
+            reason: "ORIGINAL_INSTALLER",
+          };
+        const pinned = RLY0_AGENT_RECIPES[agent]?.attempts.some(
+          (attempt) =>
+            attempt.kind === "npm" && attempt.packageName.startsWith(`${npm.packageName}@`),
+        );
+        if (pinned)
+          return {
+            currentVersion,
+            latestVersion: currentVersion,
+            plan,
+            canUpdate: false,
+            reason: "VERSION_PINNED",
+          };
+        try {
+          await assertCliWritable(plan, platform, options.writable);
+        } catch {
+          return {
+            currentVersion,
+            latestVersion: null,
+            plan,
+            canUpdate: false,
+            reason: "PERMISSION_DENIED",
+          };
+        }
         return {
           currentVersion,
-          latestVersion: cachedLatest ?? (await npm.latest()),
+          latestVersion:
+            cachedLatest ??
+            installationVersion(
+              JSON.parse(
+                await run(
+                  npm.npmExecutable ?? "",
+                  [
+                    "view",
+                    "--prefix",
+                    npm.prefix,
+                    `${npm.packageName}@latest`,
+                    "version",
+                    "--json",
+                  ],
+                  env,
+                ),
+              ),
+            ),
           plan,
           canUpdate: npm.canUpdate && currentVersion === npm.currentVersion,
           reason:
@@ -296,6 +378,11 @@ export function createAgentCliUpdateDriver(options: {
     async install(plan, version) {
       const selected = installationVersion(version);
       const env = await envFor();
+      await assertCliWritable(plan, platform, options.writable);
+      if (
+        await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(plan, env)
+      )
+        throw new Error("BUSY");
       if (plan.kind === "npm" && plan.npm && plan.prefix && plan.packageName) {
         await run(
           plan.npm,
@@ -307,11 +394,19 @@ export function createAgentCliUpdateDriver(options: {
         await run(plan.executable, ["upgrade", selected, "--method", "curl"], env, 300_000);
       } else throw new Error("ORIGINAL_INSTALLER");
     },
-    async busy(agent) {
+    async busy(agent, plan) {
       if (options.installing(agent)) return true;
+      if (
+        plan &&
+        (await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(
+          plan,
+          await envFor(),
+        ))
+      )
+        return true;
       const states = await Promise.all(
         (await hosts()).map(async (host) =>
-          agentCliBusyResultSchema.parse(await host(AGENT_CLI_BUSY_METHOD, { agent })),
+          agentCliBusyResultSchema.parse(await hostCall(host, AGENT_CLI_BUSY_METHOD, { agent })),
         ),
       );
       return states.some((state) => state.busy);
@@ -319,9 +414,16 @@ export function createAgentCliUpdateDriver(options: {
     async ready(agent) {
       const states = await Promise.all(
         (await hosts()).map(async (host) =>
-          harnessInspectionSchema.parse(
-            await host("codexhost/harness/inspect", { harnessId: agent, refresh: true }),
-          ),
+          harnessInspectionSchema
+            .parseAsync(
+              await hostCall(host, "codexhost/harness/inspect", {
+                harnessId: agent,
+                refresh: true,
+              }),
+            )
+            .catch(() => {
+              throw new Error("HOST_UNAVAILABLE");
+            }),
         ),
       );
       return states.every((state) => state.status === "ready");

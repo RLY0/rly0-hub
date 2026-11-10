@@ -1,0 +1,22 @@
+{
+  ".pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md": "c54a8f449c565a265a7a0da44f671b092f7dba221883601a6422bdc6a4e3ad43",
+  "docs/operations/codexhost-console.md": "dd2ff4fae097f5a04314ec9af30f7ead8c0c2aac485804d680178611dc0aa496",
+  "packages/harness-discovery/src/installation.ts": "574b80cef34a6d5e13505a741ec1916ea3140819cbc3ce3b0e38bb4fce47a2d0",
+  "packages/harness-discovery/test/installation-command-driver.test.ts": "249fddcf215bee07b82d72924b6720d9365c9bb889e8443fe5b82627ac6193f3",
+  "packages/harness-discovery/test/installation.test.ts": "64cb3f317efad97af8feafd062be4ce9e2634f019f647b95f403a70b97abdd1f",
+  "packages/host-runtime/src/rly0-agents/agent-installer.ts": "487e0a0fc16b7f3b29efb63db3dbe19df8f2a0d7c48f222ffa6b4d620457a34b",
+  "packages/host-runtime/src/rly0-agents/cli-update-admission.ts": "ce334697d5fd16ab05859e7396920552e11251a6c65b38139fdcf0b65a189081",
+  "packages/host-runtime/src/rly0-agents/cli-update-owner.ts": "c3ee6bc6a1f47fe95c84c12e2cde33f8786a8c7128419b70a6deeb0180322933",
+  "packages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts": "a26cb20fceed2af52d781618c23a0165fbf60c556490dffae11ffa42a2fea57d",
+  "packages/host-runtime/src/rly0-hub-service/agent-cli-update-system.ts": "64777b8af4c71e8c87138c8587d1306c8408e4a7022b05f3749f60dcea3e53ad",
+  "packages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts": "d04a793f18568f1c7c71dee5531b17a137e7419164e5c3fbccd2b3dcf7d37c63",
+  "packages/host-runtime/src/rly0-hub-service/grok-add-login.ts": "f61d3857065bafb553823806233af4d45b25f739689386a9445ed48f52d03b1d",
+  "packages/host-runtime/src/rly0-hub-service/host-console-routes.ts": "f0cc330632ddc1a96c7a14a6911ab217eaabd8b916a8f8faae4211bccf685825",
+  "packages/host-runtime/src/rly0-hub-service/service.ts": "771ca0bd5a61728cf63e0eeb60dad45acd6df41f7da23b40fa4a269558ebc4d9",
+  "packages/host-runtime/test/agent-cli-update-driver.test.ts": "5c8fb804fd6279fb181ec693be9e1ca2c483eda6d108567316a59ffafb460bce",
+  "packages/host-runtime/test/agent-cli-update-host.test.ts": "c9a8f970c575766af923159c11f39c07f45a41d41b15b8a616945b4639c039e2",
+  "packages/host-runtime/test/agent-cli-update-rpc.test.ts": "b82bbc6168ec9551021433abcc3a3937335cad25dc77d95a65898d8e0049657b",
+  "packages/host-runtime/test/agent-cli-update-system.test.ts": "6a2ccc8912cc915d13f41956b2dd186aba162d5986ab4f90189ff62a003a0971",
+  "packages/host-runtime/test/agent-cli-updates.test.ts": "68c84e2f4704f8259a4a02a2442c4fcdd2c3ba20b29b23f5a4f370d039543757",
+  "packages/shared-contracts/src/agent-cli-updates.ts": "c7fa188e57e9aa46ae925a183a6cdc37a028fefb486865287cb3ad0ff65157e0"
+}

@@ -1,0 +1,29 @@
+[
+  {
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "git",
+      "diff",
+      "--exit-code",
+      "976c0194",
+      "--",
+      "apps/hub-desktop/www"
+    ],
+    "exitCode": 0,
+    "output": ""
+  },
+  {
+    "check": "documentation local links / BOARD JSON / evidence runner syntax / source fingerprints",
+    "exitCode": 0
+  }
+]

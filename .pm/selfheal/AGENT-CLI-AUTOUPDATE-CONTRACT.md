@@ -1,4 +1,6 @@
-# HUB-AGENT-CLI-AUTOUPDATE 后台契约 v1
+# HUB-AGENT-CLI-AUTOUPDATE 后台契约（v2 补充见末节）
+
+当前行为以末节 v2 为准；下方 v1 内容保留作接口历史，冲突处由 v2 覆盖。
 
 2026-11-10；交 Claude 接 AI 助手页。实现基于 `feat/agent-cli-autoupdate` / `9dfd747c`，状态为 implemented / self_verified，尚未 reviewed / accepted。本契约不改变“全自动、默认开启、连接失败回退并拉黑版本”的用户决定；不能可靠回退的安装方式明确报告能力缺口。
 
@@ -82,3 +84,52 @@ Hub 启动检查一次，运行中每 24 小时完整检查一次；忙碌或没
 ## Claude 接线与验收边界
 
 Claude 仅接状态和开关，不传入安装命令，不把 pending/updated 的代码级测试当真机验收。本工单未修改 `apps/hub-desktop/www`、未打包、未推送、未发布，也未对真实 npm prefix 执行安装/卸载。修复中涉及协议和工作准入，当前仅 Codex 自检，需独立复核；Mac 原生真实升级、Windows 权限/npm.cmd、网络代理和 UI 真实联调仍待独立环境验收。打包及发布归 Claude。
+
+
+## v2：独立复查 #1 修复与 Claude 接线变更（2026-11-10）
+
+本节覆盖 v1 中的异常一律拉黑、恢复时盲装、损坏锁永久阻挡、停服一直等待安装和并发触发丢失等语义。用户决定保持：默认开启、可以关闭、自动原地更新、更新后连接检查、确定新版连接不 ready 时回退并拉黑。后台与测试归 Codex；界面与发布归 Claude。本轮不改 `apps/hub-desktop/www`。
+
+### RPC、枚举和显示建议
+
+RPC 方法和请求参数不变；状态字段不变。Result 新增 `skipped-not-ready`、`recovered`；ErrorCode 新增 `BASELINE_NOT_READY`、`VERSION_PINNED`、`COMMAND_TREE_STOP_FAILED`、`CHECK_TIMEOUT`。运行时完整枚举以 shared-contracts 为准。
+
+| 状态 | 后台含义 | Claude 显示建议 |
+| --- | --- | --- |
+| `skipped-not-ready / BASELINE_NOT_READY` | 原版本在安装前的连接检查已经非 ready，完全不安装 | 等待状态：“当前助手尚未连接，连接正常后自动更新” |
+| `skipped-not-ready / HOST_UNAVAILABLE` | 无 Host、插件未加载、Host 消失、检查超时或不可解析；不能认定新版坏 | 等待状态：“等待 Codex 与助手连接检查恢复”；不要每张卡都用失败警告色 |
+| `CHECK_TIMEOUT` | 命令或版本读回超时；恢复已变动的版本但不据此拉黑，每分钟重试 | 等待状态：“本次检查超时，稍后重试” |
+| `skipped-unsupported / VERSION_PINNED` | recipe 明确 pin 了 npm 包；不会越过 pin | “已按适配版本锁定”；不能引导立即越锁升级 |
+| `skipped-unsupported / PERMISSION_DENIED` | 原 prefix、bin 或包目录不可写，安装前已拒绝 | “原安装目录不可写，请用原安装方式处理”；不提权 |
+| `recovered` | 遗留日志的版本已是旧版，仅清日志；没有执行安装，也未宣称已最新或已连接 | “已保留恢复的原版本”；若开关开启，下次完整检查可再检查 |
+| `failed / VERSION_MISMATCH` 且 causeCode=INTERRUPTED | 恢复时读到的版本既非原版也非目标版，保留外部手动换装，放弃日志 | “检测到版本已在外部更改，已保留当前版本” |
+| `failed / INSTALL_FAILED` | npm 失败但版本仍是原版时也会出现；此时日志已清，badVersions 未增加 | “本次未能安装，稍后可重试”；不能显示“回退也失败” |
+| `failed / HOST_UNAVAILABLE` 或 `BASELINE_NOT_READY`，currentVersion 已回到旧版 | 旧版本已读回，但连接尚未恢复；日志已清，后续不重复安装旧版 | “旧版本已恢复，等待连接检查”；不能宣称 ready |
+| `failed / COMMAND_TREE_STOP_FAILED` | 无法确认安装进程树已退出；保留日志，绝不立即并发启动回退 | “安装进程尚未确认退出，暂缓恢复”；待进程空闲再恢复 |
+| `failed / INTERRUPTED` | 停服取消了更新命令或连接检查；未完成日志保留供下次恢复 | “更新已中断，下次启动先检查恢复” |
+
+`rolled-back` 只在旧版本读回且重新检查恢复 ready 时使用。它可能由 Host 临时不可用触发，不能一律写“已拉黑坏版本”：只有 `badVersions.includes(latestVersion)` 才显示“已跳过该版本”。非 ready 本身在新版且基线 ready 时仍回退和拉黑；Host 不可用、-32077、超时、安装联网失败与中断本身不作为永久拉黑依据。
+
+### 事务与原安装位置
+
+安装前持有围栏、确认 Host/外部进程空闲、做 ready 基线，再读回原版本，写入旧版/目标版/原位置/baselineReady/quarantine 日志。安装错误后先读版本：仍是原版则清日志、不回装、不拉黑；确已变动或无法读回才恢复。回退读回旧版后，无论后续登录/Host 是否恢复，都不会因连接检查失败留下反复回装旧版的日志。新日志只对确定的非 ready 或版本不一致记录 quarantine；旧日志缺失新增字段时按未证明坏版处理。
+
+恢复时先读当前版本：原版 → 仅清日志；第三个版本 → 放弃日志、保留现版本；目标版或读回失败 → 等空闲后恢复。旧版已经恢复后不再受开关关闭影响反复安装；只有未完成的实际版本恢复可以越过开关。
+
+读取 Host 共用的 `harness-launch-settings/<id>.json`。保存的是文件时还通过 Host 现有 launch-settings/get 确认其已加载且无需重启；目录需要 Adapter 专属入口解析，当前保守报告 ORIGINAL_INSTALLER，不改 PATH 上另一份。环境变量按已存在的 Adapter 名称使用。识别出的 npm 包保留原 prefix（包括自定义 node-v24）；查询用同一 npm 的 `view --prefix <原位置> <包>@latest version --json`，与安装共用 registry/.npmrc/代理环境；Hub 无显式代理时不注入空 npm_config_proxy。DeepSeek 等 recipe 已 pin 的包不自动越锁。
+
+### 围栏、并发、重试与停服
+
+owner 使用唯一 ID、PID 与 OS 启动身份，完整文件写好后原子链接为 .json。Hub 载入时统一清理死进程、PID 复用、EPERM、旧格式与损坏/空文件，Host 每次准入也检查；匹配的存活 owner 不回收。未知 OS 启动时间但已知进程仍存活时保守等待。另设目录级 coordinator 串行化两个 Hub 的检查，state 围栏串行化状态写入；开关写入合并磁盘上的其他助手、坏版本和日志，避免后写覆盖。
+
+新增覆盖 webUi.open、inspectAccount、inspectAccounts、refreshCredits、Hub 终端登录及 Grok 添加账号；进行中的 Hub 登录也算忙碌。拒绝返回可读中文、AGENT_CLI_UPDATE_BUSY 标识、-32072 或 adapter unavailable/retryable 状态。围栏释放后下一次操作可正常进入；不静默重放用户动作。
+
+外部终端/常驻 opencode serve 通过注入式 OS 进程扫描检测原可执行文件、规范路径与包目录；安装和回退前再次检查占用。独立终端不受 Hub 的原子围栏控制，扫描后极短时间内外部新启动的竞争仍需真实平台验收。
+
+手动请求在其他检查/忙碌重试过程中按助手排队，不丢失“检查全部”，新查询优先于缓存重试。busy、基线不 ready、Host 不可用仍每分钟重试。相同状态不重写状态文件；检查/恢复事务日志仍即时持久化。
+
+停服先取消计时器和排队工作，再取消当前安装/连接检查。Windows 等待 taskkill /T /F 完成并确认进程关闭；POSIX 结束所拥有命令的进程树并确认关闭，再返回。终止失败报 COMMAND_TREE_STOP_FAILED，不启动并发回退。中断后留日志供下次先读版本恢复。仍可能等待系统终止/关闭超时（各最多 5 秒）或原生 HTTP 检查的 15 秒网络限时；没有“瞬间退出”的真机结论。
+
+### 交接与验收边界
+
+本轮仅 isolated synthetic 测试和本地构建/类型/静态检查；没有真实 npm/CLI 安装、真机账号连接、Hub 服务启动或日常程序重启。Claude 需补新增状态映射、等待色和回退失败的实际可用操作；修复后独立复核、Mac/Windows 的权限、占用、超时进程树、代理与 UI 联调仍未验收。原生 updater 的固定版本回退缺口仍保留。

@@ -37,6 +37,7 @@ async function fixture() {
       getProxySettings: () => ({ mode: "direct" }),
     } as unknown as Rly0CoreBridge,
     agentCliUpdateDriver: driver,
+    agentCliOwnerProbe: { start: () => "synthetic-start", signal: () => undefined },
   });
   services.push(service);
   return { service, driver };

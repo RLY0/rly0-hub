@@ -2,12 +2,18 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AGENT_CLI_BUSY_METHOD } from "@codexhost/shared-contracts";
+import { FakeHarnessAdapter } from "@codexhost/harness-adapter/testing";
+import { harnessIdSchema, AGENT_CLI_BUSY_METHOD } from "@codexhost/shared-contracts";
 import {
+  AgentCliUpdateAdmission,
   acquireAgentCliFence,
+  cleanAgentCliFences,
   agentCliUpdateFence,
   assertAgentCliAvailable,
 } from "../src/rly0-agents/cli-update-admission.js";
+import { AgentCliUpdates } from "../src/rly0-hub-service/agent-cli-updates.js";
+import { AgentInstaller } from "../src/rly0-agents/agent-installer.js";
+import { GrokAddLogin } from "../src/rly0-hub-service/grok-add-login.js";
 import { createHubHostRequests } from "../src/rly0-hub-service/host-console-routes.js";
 import { consoleHostDescriptorDirectory } from "../src/console-control-server.js";
 import {
@@ -23,6 +29,7 @@ function required<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("Missing synthetic fixture");
   return value;
 }
+const syntheticOwner = { start: () => "synthetic-start", signal: () => undefined };
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -61,7 +68,7 @@ describe("Host CLI update admission", () => {
           await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "pi" }),
         ).toMatchObject({ result: { busy: false } }),
       );
-      const release = await acquireAgentCliFence(env, "pi");
+      const release = await acquireAgentCliFence(env, "pi", syntheticOwner);
       expect(release).not.toBeNull();
       writeRequest(f.desktopInput, {
         id: 10,
@@ -90,27 +97,29 @@ describe("Host CLI update admission", () => {
   it("only one of simultaneous updater owners may hold an agent fence", async () => {
     const env = await isolated();
     const claims = await Promise.all(
-      Array.from({ length: 6 }, () => acquireAgentCliFence(env, "pi", () => true)),
+      Array.from({ length: 6 }, () => acquireAgentCliFence(env, "pi", syntheticOwner)),
     );
     expect(claims.filter(Boolean).length).toBeLessThanOrEqual(1);
     await Promise.all(claims.map((release) => release?.()));
-    const release = await acquireAgentCliFence(env, "pi");
+    const release = await acquireAgentCliFence(env, "pi", syntheticOwner);
     expect(release).not.toBeNull();
     expect(() => assertAgentCliAvailable(env, "pi")).toThrow("AGENT_CLI_UPDATE_BUSY");
     expect(() => assertAgentCliAvailable(env, "claude-code")).not.toThrow();
     await required(release)();
     expect(() => assertAgentCliAvailable(env, "pi")).not.toThrow();
   });
-  it("reclaims only dead unique owners and keeps malformed or live owners fenced", async () => {
+  it("reclaims dead and malformed abandoned owners instead of permanently fencing the agent", async () => {
     const env = await isolated();
     const directory = agentCliUpdateFence(env, "pi");
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, "dead.json"), JSON.stringify({ pid: 42 }));
-    const release = await acquireAgentCliFence(env, "pi", () => false);
+    const release = await acquireAgentCliFence(env, "pi", syntheticOwner);
     expect(release).not.toBeNull();
     await required(release)();
     await writeFile(path.join(directory, "unknown.json"), "synthetic malformed");
-    expect(await acquireAgentCliFence(env, "pi", () => false)).toBeNull();
+    const repaired = await acquireAgentCliFence(env, "pi", syntheticOwner);
+    expect(repaired).not.toBeNull();
+    await required(repaired)();
   });
   it("enumerates all live local Hosts instead of discarding older windows", async () => {
     const env = await isolated();
@@ -142,5 +151,141 @@ describe("Host CLI update admission", () => {
       "http://127.0.0.1:3003/rpc",
       "http://127.0.0.1:3001/rpc",
     ]);
+  });
+});
+
+describe("review 1 stale locks and entrypoints (synthetic)", () => {
+  it.each(["", "{broken", "null", "{}", '{"pid":42}', '{"pid":0,"startedAt":"x","id":"x"}'])(
+    "cleans an abandoned malformed/legacy lock: %s",
+    async (text) => {
+      const env = await isolated();
+      const directory = agentCliUpdateFence(env, "pi");
+      await mkdir(directory, { recursive: true });
+      await writeFile(path.join(directory, "abandoned.json"), text);
+      expect(() => assertAgentCliAvailable(env, "pi", syntheticOwner)).not.toThrow();
+      const release = await acquireAgentCliFence(env, "pi", syntheticOwner);
+      expect(release).not.toBeNull();
+      await required(release)();
+    },
+  );
+  it.each(["dead", "eperm", "reused", "same-pid-orphan"])(
+    "reclaims %s owner identity",
+    async (kind) => {
+      const env = await isolated();
+      const directory = agentCliUpdateFence(env, "pi");
+      await mkdir(directory, { recursive: true });
+      await writeFile(
+        path.join(directory, "old.json"),
+        JSON.stringify({
+          pid: kind === "same-pid-orphan" ? process.pid : 424242,
+          id: "synthetic-old-owner",
+          startedAt: "old-start",
+        }),
+      );
+      const probe = {
+        start: () => "new-start",
+        signal: () => {
+          if (kind === "dead" || kind === "eperm")
+            throw Object.assign(new Error("synthetic"), {
+              code: kind === "dead" ? "ESRCH" : "EPERM",
+            });
+        },
+      };
+      expect(() => assertAgentCliAvailable(env, "pi", probe)).not.toThrow();
+    },
+  );
+  it("keeps a matching live owner fenced without evicting it", async () => {
+    const env = await isolated();
+    const directory = agentCliUpdateFence(env, "pi");
+    await mkdir(directory, { recursive: true });
+    await writeFile(
+      path.join(directory, "live.json"),
+      JSON.stringify({ pid: 424242, id: "synthetic-live-owner", startedAt: "same-start" }),
+    );
+    const probe = { start: () => "same-start", signal: () => undefined };
+    cleanAgentCliFences(env, probe);
+    expect(() => assertAgentCliAvailable(env, "pi", probe)).toThrow("正在更新");
+    expect(await acquireAgentCliFence(env, "pi", probe)).toBeNull();
+  });
+  it("cleans stale locks at startup even when disabled with no transaction journal", async () => {
+    const env = await isolated();
+    const directory = agentCliUpdateFence(env, "pi");
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, "dead.json"), "");
+    await writeFile(
+      path.join(env.CODEXHOST_DATA_DIR, "agent-cli-updates.json"),
+      JSON.stringify({ schemaVersion: 1, enabled: false, agents: [], pending: {} }),
+    );
+    const driver = {
+      inspect: vi.fn(),
+      version: vi.fn(),
+      install: vi.fn(),
+      ready: vi.fn(),
+      busy: vi.fn(),
+    };
+    const manager = new AgentCliUpdates({ environment: env, driver, ownerProbe: syntheticOwner });
+    await manager.status();
+    expect(() => assertAgentCliAvailable(env, "pi", syntheticOwner)).not.toThrow();
+    await manager.stop();
+    expect(driver.install).not.toHaveBeenCalled();
+  });
+  it("fences webUi.open, account and credits inspections, returning readable retryable state", async () => {
+    const env = await isolated();
+    const webOpen = vi.fn(async () => ({ ok: true as const, value: undefined }));
+    const inspectAccount = vi.fn(async () => null);
+    const inspectAccounts = vi.fn(async () => []);
+    const refreshCredits = vi.fn(async () => null);
+    const adapter = Object.assign(new FakeHarnessAdapter(harnessIdSchema.parse("pi")), {
+      webUi: { open: webOpen },
+      inspectAccount,
+      inspectAccounts,
+      refreshCredits,
+    });
+    const admission = new AgentCliUpdateAdmission(env);
+    const guarded = admission.wrap(adapter);
+    const release = await acquireAgentCliFence(env, "pi", syntheticOwner);
+    try {
+      expect(await guarded.webUi?.open()).toMatchObject({
+        ok: false,
+        error: { retryable: true, message: expect.stringContaining("正在更新") },
+      });
+      await expect(guarded.inspectAccount?.()).rejects.toMatchObject({ code: -32072 });
+      await expect(guarded.inspectAccounts?.()).rejects.toMatchObject({ code: -32072 });
+      await expect(guarded.refreshCredits?.()).rejects.toMatchObject({ code: -32072 });
+      expect(webOpen).not.toHaveBeenCalled();
+      expect(inspectAccount).not.toHaveBeenCalled();
+    } finally {
+      await required(release)();
+    }
+    expect(await guarded.webUi?.open()).toMatchObject({ ok: true });
+    expect(await guarded.inspectAccount?.()).toBeNull();
+    expect(admission.busy("pi")).toBe(false);
+  });
+  it("fences Hub terminal login and Grok add-login before any native command", async () => {
+    const env = await isolated();
+    const openTerminal = vi.fn(async () => true);
+    const installer = new AgentInstaller({
+      environment: env,
+      runner: { run: vi.fn(), openTerminal },
+    });
+    const release = await acquireAgentCliFence(env, "grok", syntheticOwner);
+    const spawnProcess = vi.fn();
+    const grok = new GrokAddLogin({
+      environment: async () => env,
+      openUrl: vi.fn(),
+      spawnProcess,
+      core: { grokAccounts: vi.fn(), getProxySettings: () => ({ mode: "direct" }) },
+    });
+    try {
+      await expect(installer.openLogin("grok")).rejects.toThrow("正在更新");
+      await expect(grok.start()).rejects.toMatchObject({ code: -32072 });
+      expect(openTerminal).not.toHaveBeenCalled();
+      expect(spawnProcess).not.toHaveBeenCalled();
+      expect(grok.active).toBe(false);
+    } finally {
+      grok.close();
+      await required(release)();
+    }
+    expect(await installer.openLogin("grok")).toBe(true);
   });
 });

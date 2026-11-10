@@ -18,7 +18,11 @@ import { consoleHostDescriptorDirectory } from "../console-control-server.js";
  * Host console channel the web console used (`console-control-server.ts`): a loopback endpoint
  * whose descriptor and token only this user can read. Nothing here opens a browser.
  */
-export type HubHostRequest = (method: string, params: unknown) => Promise<unknown>;
+export type HubHostRequest = (
+  method: string,
+  params: unknown,
+  signal?: AbortSignal,
+) => Promise<unknown>;
 
 /** Thrown when no local Codex with RLY/0 Hub is running (the channel has no live descriptor). */
 export const HOST_UNAVAILABLE = "HOST_UNAVAILABLE";
@@ -102,7 +106,8 @@ export async function createHubHostRequests(options: {
     options.isAlive ?? processAlive,
   );
   return hosts.map(
-    (host) => (method, params) => requestHost(host, method, params, options.fetchImpl ?? fetch),
+    (host) => (method, params, signal) =>
+      requestHost(host, method, params, options.fetchImpl ?? fetch, signal),
   );
 }
 
@@ -111,12 +116,15 @@ async function requestHost(
   method: string,
   params: unknown,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   const response = await fetchImpl(`http://127.0.0.1:${host.port}/rpc`, {
     method: "POST",
     headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
     body: JSON.stringify({ method, params: params ?? {} }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+      : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (body && "result" in body) return body.result;

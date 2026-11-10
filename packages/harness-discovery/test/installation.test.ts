@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createInstallationManager,
   installationVersion,
   newerInstallationVersion,
   runInstallationCommand,
 } from "../src/installation.js";
+
+const commandMocks = vi.hoisted(() => ({ exec: vi.fn() }));
+vi.mock("node:child_process", () => ({ execFile: commandMocks.exec }));
+afterEach(() => vi.useRealTimers());
 
 const state = (current = "1.0.0", canUpdate = true) => ({
   currentVersion: current,
@@ -76,20 +80,31 @@ describe("Harness installation versions", () => {
   });
 
   it("bounds native commands and does not leak stderr into failures", async () => {
+    commandMocks.exec.mockImplementation((_command, _args, _options, callback) => {
+      queueMicrotask(() =>
+        callback(
+          Object.assign(new Error("synthetic-secret"), { code: 1 }),
+          "",
+          "synthetic-secret-token",
+        ),
+      );
+      return { stdin: { end: vi.fn() } };
+    });
     await expect(
-      runInstallationCommand(
-        process.execPath,
-        ["-e", "process.stderr.write('secret-token');process.exit(1)"],
-        process.env,
-      ),
+      runInstallationCommand("/synthetic/node", ["--version"], { HOME: "/synthetic" }),
     ).rejects.toThrow("Harness command failed; check the native installation and retry");
-    await expect(
-      runInstallationCommand(
-        process.execPath,
-        ["-e", "setInterval(()=>{},1000)"],
-        process.env,
-        100,
-      ),
-    ).rejects.toThrow("timed out");
+    vi.useFakeTimers();
+    commandMocks.exec.mockReturnValue({ pid: 424242, stdin: { end: vi.fn() } });
+    const timed = runInstallationCommand(
+      "/synthetic/node",
+      ["--version"],
+      { HOME: "/synthetic" },
+      100,
+      "darwin",
+      { killTree: vi.fn(async () => undefined) },
+    );
+    const checked = expect(timed).rejects.toThrow("timed out");
+    await vi.advanceTimersByTimeAsync(100);
+    await checked;
   });
 });

@@ -12,13 +12,17 @@
 
 Hub 启动和每 24 小时检查一次助手 CLI，默认开启。管理接口是 `agents.cliUpdates.status`、`agents.cliUpdates.setEnabled`、`agents.cliUpdates.check`；手动检查启动后台任务后立即返回，状态接口用于轮询。界面接线由 Claude 负责，字段、枚举和错误码见 [CLI 自动更新契约](../../.pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md)。关闭后不检查或更新；已开始的安装仍完成验证及必要回退，未完成事务的恢复也继续。
 
-npm 安装复用 Harness discovery 对真实包路径和全局 prefix 的识别，注册表查询走 Hub 设置的代理；安装和回退都指定原 prefix 与精确版本，不卸载、不提权、不迁往另一全局位置。Windows 使用同一原 prefix 和 `npm.cmd` 调用包装。脚本安装只执行已有官方非安装检查；当前能可靠指定目标与回退版本的原生实现是标准位置的 OpenCode `upgrade <version> --method curl`。Pi、Grok、Cursor、OMP、Qoder、Hermes、Kimi、agy 原生安装的版本检查按上游实现复用，缺少经核实的固定版本回退能力时明确报 `ROLLBACK_UNSUPPORTED`，不假装已能安全自动升级。Kiro、Devin 等没有已核实安全检查/更新入口时返回 `NO_OFFICIAL_UPDATER`；未知包管理器安装返回 `ORIGINAL_INSTALLER`。
+npm 安装复用 Harness discovery 对真实包路径和全局 prefix 的识别；查询使用同一 npm 的 `view --prefix <原位置> <包>@latest version --json`，与安装共用 registry、.npmrc 和代理环境。Hub 没有显式代理时不清空 npm 用户代理。安装和回退均指定原 prefix 与精确版本，不卸载、不提权、不迁往另一位置；安装前检查原 prefix、bin 和包目录写权限。Windows 保留 `npm.cmd` 调用包装。DeepSeek 等 recipe 明确锁版本的包报告 `VERSION_PINNED`，不自动越锁。Host 启动路径设置优先于 PATH，保存但未被 Host 加载的路径与无法统一解析的安装目录均保守报 `ORIGINAL_INSTALLER`。
 
-更新前要求所有本机 Host 支持按助手检查运行状态，并持有该助手的跨进程文件围栏；围栏期间 Host 阻止新会话、恢复、回合和命令启动。已有运行回合、子任务、后台工作、会话打开或安装均让更新延后，其他助手不受影响。没有运行 Host、旧 Host 不支持新接口或检查失败时拒绝安装。忙碌/Host 不可用每分钟重试，有效的 npm 最新版本结果沿用到当天的下一次完整检查；手动检查会重新查询。
+更新前持有跨进程文件围栏，确认所有本机 Host 和原可执行文件/包目录没有占用，随后先检查原版本 ready。未登录等基线非 ready 时返回 `skipped-not-ready / BASELINE_NOT_READY`，不安装；无 Host、插件未加载或超时返回等待状态 `HOST_UNAVAILABLE`。busy、基线非 ready 与 Host 不可用每分钟重试；手动请求按助手排队，保留“检查全部”的新查询，未变化的状态不反复写盘。owner 文件带 PID、启动身份和唯一 ID，原子发布；启动与 Host 准入均清理死锁、PID 复用和损坏锁。两个 Hub 的检查及状态写入分别串行化，开关操作保留磁盘上的坏版本和事务。
 
-更新后核对 CLI 版本，并调用每个本机 Host 的 `codexhost/harness/inspect`（`refresh: true`，与 Codex 选择器及 Hub 连接检查相同的 `adapter.inspect`）。任一非 ready/超时/异常都会回退原版本并永久记录该助手的坏版本，回退后再次核对旧版本和连接。安装命令失败也视为可能已部分改写，尝试同一回退。持久化安装前事务日志，异常退出后先恢复原版本，回退失败保留事务并明确报告，不能把半成品当新的基线。
+新版安装后核对精确版本，并调用每个本机 Host 的 `codexhost/harness/inspect`（`refresh: true`，与选择器和 Hub 的连接检查相同）。基线 ready 而新版不 ready 时回退并拉黑；Host 消失/超时等临时故障也恢复旧版，但不据此拉黑。npm 非零退出后先读回：仍为原版则清日志、不重装、不拉黑。旧版读回成功但连接尚未恢复时单独报告连接问题，不留下导致每次重启重装旧版的日志。
 
-Claude Code、Codex、ZCode、WorkBuddy 与 Antigravity 桌面应用不在更新范围。`antigravity` 只识别独立 `agy` CLI；只装了桌面应用时是未安装 CLI，不更新应用。该后台不能管理绕过 Host 直接启动的外部终端会话，也不控制厂商 CLI 自身的独立自动更新器。真实安装、真机 Windows、界面和发布均须另行验收。
+异常恢复先读版本：已是原版则只清日志并返回 `recovered`；既非原版也非目标版则保留用户外部换装并放弃日志；目标版或不可读才等空闲后回退。停服取消排队及当前命令，Windows 等待进程树终止并确认关闭，不并发启动回退；中断事务保留到下次启动先核验。不能确认终止时报 `COMMAND_TREE_STOP_FAILED`，不声称已经恢复。
+
+围栏覆盖 Host 新会话、恢复、回合、命令、Web UI 和账号检查，以及 Hub 登录入口；拒绝提供可读状态并允许之后重试，其他助手不受影响。外部终端和空闲的原生常驻服务通过 OS 扫描检测，无法原子阻止扫描后外部新启动的进程。Claude Code、Codex、ZCode、WorkBuddy 与 Antigravity 桌面应用不在范围，`antigravity` 仅代表独立 `agy` CLI。
+
+原生 OpenCode 标准路径支持官方精确版本升级/回退；Pi、Grok、Cursor、OMP、Qoder、Hermes、Kimi、agy 原生安装缺少已核实固定版本回退能力时仍只检测并报 `ROLLBACK_UNSUPPORTED`；Kiro/Devin 等未核实入口报 `NO_OFFICIAL_UPDATER`。真实安装、Mac/Windows 占用和权限、代理、连接/回退、停服时长、界面与发布均需独立验收。本地 synthetic 测试不能替代这些结果。
 
 ## 项目公告
 

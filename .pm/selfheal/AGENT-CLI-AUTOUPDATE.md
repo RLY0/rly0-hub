@@ -16,3 +16,8 @@
 - Codex（GPT-6.1-Sol max）：后台逻辑、状态接口契约、测试（全部隔离，绝不对真实全局 npm 前缀执行安装）。
 - Claude：AI 助手页开关与状态显示、发布。
 - 分支：基于 feat/codex-version-gate @9dfd747c 新开 feat/agent-cli-autoupdate（同一发布批次）。
+
+
+## 独立复查 #1 修复（2026-11-10）
+
+输入 976c0194，B1/B2、重要 1–5 与次要后台项已修；13 文件 174 项隔离 synthetic 回归通过，未执行真实安装。当前 self_verified，修复后 reviewed/accepted 待完成。契约以 v2 新节为准；逐条文件行号、命令与结果见 [RESULTS](evidence/agent-cli-autoupdate-review1-20261110/RESULTS.md)。Claude 既有界面保留，新增状态映射及发布交 Claude。

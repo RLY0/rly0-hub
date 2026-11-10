@@ -22,30 +22,111 @@ export function runInstallationCommand(
   environment: NodeJS.ProcessEnv,
   timeout = 30_000,
   platform: NodeJS.Platform = process.platform,
+  control: {
+    signal?: AbortSignal;
+    exec?: typeof execFile;
+    killTree?: (pid: number) => Promise<void>;
+  } = {},
 ): Promise<string> {
   const env = withNodeRuntimeOnPath(environment);
   const invocation = /\.[cm]?js$/i.test(command)
     ? commandInvocation(process.execPath, [command, ...args], env, platform)
     : commandInvocation(command, args, env, platform);
   return new Promise((resolve, reject) => {
-    const child = execFile(
+    if (control.signal?.aborted) {
+      reject(new Error("INTERRUPTED"));
+      return;
+    }
+    const exec = control.exec ?? execFile;
+    let stopping: Promise<void> | undefined;
+    let completed = false;
+    let timer: NodeJS.Timeout | undefined;
+    let closed: Promise<void> | undefined;
+    let hasClosed = false;
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      control.signal?.removeEventListener("abort", abort);
+    };
+    const terminate = (reason: string) => {
+      if (completed || stopping) return;
+      stopping = (async () => {
+        if (child.pid) {
+          if (control.killTree) await control.killTree(child.pid);
+          else if (platform === "win32") {
+            await new Promise<void>((done, fail) => {
+              exec(
+                "taskkill.exe",
+                ["/PID", String(child.pid), "/T", "/F"],
+                { windowsHide: true, timeout: 5_000 },
+                (error) => (error ? fail(error) : done()),
+              );
+            });
+          } else {
+            const output = await new Promise<string>((done, fail) => {
+              exec(
+                "/bin/ps",
+                ["-axo", "pid=,ppid="],
+                { encoding: "utf8", timeout: 5_000 },
+                (error, stdout) => (error ? fail(error) : done(stdout)),
+              );
+            });
+            const rows = output.split("\n").map((line) => line.trim().split(/\s+/).map(Number));
+            const tree = [child.pid];
+            for (let i = 0; i < tree.length; i++)
+              for (const [pid, parent] of rows)
+                if (pid && parent === tree[i] && !tree.includes(pid)) tree.push(pid);
+            for (const pid of tree.reverse()) {
+              try {
+                process.kill(pid, "SIGKILL");
+              } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+              }
+            }
+          }
+          if (closed && !hasClosed) {
+            await new Promise<void>((done, fail) => {
+              const deadline = setTimeout(() => fail(new Error("COMMAND_TREE_STOP_FAILED")), 5_000);
+              void closed?.then(() => {
+                clearTimeout(deadline);
+                done();
+              });
+            });
+          }
+        }
+      })();
+      cleanup();
+      // Never allow a caller to start rollback until the process tree has exited.
+      void stopping.then(
+        () => reject(new Error(reason)),
+        () => reject(new Error("COMMAND_TREE_STOP_FAILED")),
+      );
+    };
+    const abort = () => terminate("INTERRUPTED");
+    const child = exec(
       invocation.command,
       invocation.arguments,
       {
         env,
         cwd: env.HOME ?? env.USERPROFILE ?? homedir(),
         encoding: "utf8",
-        timeout,
-        killSignal: "SIGKILL",
         maxBuffer: 1024 * 1024,
         windowsHide: true,
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
       },
       (error, stdout, stderr) => {
+        if (stopping) return;
+        if (error?.killed) {
+          terminate("Harness command timed out");
+          return;
+        }
+        completed = true;
+        cleanup();
         if (error)
           reject(
             new Error(
-              error.code === "EACCES" || error.code === "EPERM"
+              error.code === "EACCES" ||
+                error.code === "EPERM" ||
+                /\b(?:EACCES|EPERM)\b/.test(stderr)
                 ? "COMMAND_PERMISSION_DENIED"
                 : error.killed
                   ? "Harness command timed out"
@@ -55,7 +136,19 @@ export function runInstallationCommand(
         else resolve((stdout || stderr).trim());
       },
     );
+    if (child.pid && typeof child.once === "function")
+      closed = new Promise((done) => {
+        child.once("close", () => {
+          hasClosed = true;
+          done();
+        });
+      });
     child.stdin?.end();
+    if (!completed) {
+      timer = setTimeout(() => terminate("Harness command timed out"), timeout);
+      control.signal?.addEventListener("abort", abort, { once: true });
+      if (control.signal?.aborted) abort();
+    }
   });
 }
 

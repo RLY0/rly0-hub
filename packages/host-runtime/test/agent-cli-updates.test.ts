@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import type {
 } from "../src/rly0-hub-service/agent-cli-update-driver.js";
 import { assertAgentCliAvailable } from "../src/rly0-agents/cli-update-admission.js";
 
+const syntheticOwner = { start: () => "synthetic-start", signal: () => undefined };
 const roots: string[] = [];
 const managers: AgentCliUpdates[] = [];
 afterEach(async () => {
@@ -58,7 +59,12 @@ async function fixture() {
     busy: vi.fn<AgentCliUpdateDriver["busy"]>(async () => false),
     ready: vi.fn<AgentCliUpdateDriver["ready"]>(async () => true),
   } satisfies AgentCliUpdateDriver;
-  const manager = new AgentCliUpdates({ environment: env, driver, now: () => 123456 });
+  const manager = new AgentCliUpdates({
+    ownerProbe: syntheticOwner,
+    environment: env,
+    driver,
+    now: () => 123456,
+  });
   managers.push(manager);
   return {
     root,
@@ -102,7 +108,7 @@ describe("synthetic isolated CLI updates", () => {
   });
   it("rolls back a non-ready update, persists the bad version, and never installs it again", async () => {
     const f = await fixture();
-    f.driver.ready.mockResolvedValueOnce(false).mockResolvedValue(true);
+    f.driver.ready.mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockResolvedValue(true);
     await f.manager.check("pi");
     expect(f.driver.install.mock.calls.map((call) => call[1])).toEqual(["1.1.0", "1.0.0"]);
     expect(await f.entry()).toMatchObject({
@@ -112,7 +118,11 @@ describe("synthetic isolated CLI updates", () => {
       badVersions: ["1.1.0"],
       lastUpdatedAt: null,
     });
-    const restarted = new AgentCliUpdates({ environment: f.env, driver: f.driver });
+    const restarted = new AgentCliUpdates({
+      ownerProbe: syntheticOwner,
+      environment: f.env,
+      driver: f.driver,
+    });
     managers.push(restarted);
     await restarted.check("pi");
     expect(f.driver.install).toHaveBeenCalledTimes(2);
@@ -139,14 +149,14 @@ describe("synthetic isolated CLI updates", () => {
       expect(await f.entry()).toMatchObject({
         result: "rolled-back",
         currentVersion: "1.0.0",
-        badVersions: ["1.1.0"],
+        badVersions: [],
         causeCode: failure === "COMMAND_PERMISSION_DENIED" ? "PERMISSION_DENIED" : "INSTALL_FAILED",
       });
     },
   );
   it("reports rollback failure and recovers the saved version before any newer update", async () => {
     const f = await fixture();
-    f.driver.ready.mockResolvedValueOnce(false);
+    f.driver.ready.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     f.driver.install
       .mockImplementationOnce(async () => f.setCurrent("1.1.0"))
       .mockRejectedValueOnce(new Error("synthetic disk error"));
@@ -160,7 +170,11 @@ describe("synthetic isolated CLI updates", () => {
     expect(disk.pending.pi.previous).toBe("1.0.0");
     f.driver.ready.mockResolvedValue(true);
     f.setLatest("1.2.0");
-    const restarted = new AgentCliUpdates({ environment: f.env, driver: f.driver });
+    const restarted = new AgentCliUpdates({
+      ownerProbe: syntheticOwner,
+      environment: f.env,
+      driver: f.driver,
+    });
     managers.push(restarted);
     await restarted.setEnabled(false);
     await restarted.check("pi");
@@ -184,7 +198,10 @@ describe("synthetic isolated CLI updates", () => {
     const f = await fixture();
     f.driver.busy.mockRejectedValue(new Error("HOST_UNAVAILABLE"));
     await f.manager.check("pi");
-    expect(await f.entry()).toMatchObject({ result: "failed", errorCode: "HOST_UNAVAILABLE" });
+    expect(await f.entry()).toMatchObject({
+      result: "skipped-not-ready",
+      errorCode: "HOST_UNAVAILABLE",
+    });
     expect(f.driver.install).not.toHaveBeenCalled();
   });
   it("restores the old version when verification throws or reads back a different version", async () => {
@@ -207,7 +224,11 @@ describe("synthetic isolated CLI updates", () => {
   it("persists off, never inspects or runs commands while disabled, and can re-enable", async () => {
     const f = await fixture();
     await f.manager.setEnabled(false);
-    const restarted = new AgentCliUpdates({ environment: f.env, driver: f.driver });
+    const restarted = new AgentCliUpdates({
+      ownerProbe: syntheticOwner,
+      environment: f.env,
+      driver: f.driver,
+    });
     managers.push(restarted);
     await restarted.check("pi");
     expect(f.driver.inspect).not.toHaveBeenCalled();
@@ -227,7 +248,7 @@ describe("synthetic isolated CLI updates", () => {
     await checking;
     expect(f.driver.install).not.toHaveBeenCalled();
   });
-  it("coalesces concurrent checks and waits through rollback on stop", async () => {
+  it("queues concurrent checks and retains the journal instead of starting rollback while stopping", async () => {
     const f = await fixture();
     const gate = Promise.withResolvers<undefined>();
     f.driver.install.mockImplementationOnce(async () => {
@@ -239,10 +260,11 @@ describe("synthetic isolated CLI updates", () => {
     const second = f.manager.check("pi");
     const stopping = f.manager.stop();
     expect((await f.manager.status()).checking).toBe(true);
-    f.driver.ready.mockResolvedValueOnce(false).mockResolvedValue(true);
+    f.driver.ready.mockResolvedValueOnce(false);
     gate.resolve(undefined);
     await Promise.all([first, second, stopping]);
-    expect(f.driver.install).toHaveBeenCalledTimes(2);
+    expect(f.driver.install).toHaveBeenCalledTimes(1);
+    expect(await f.entry()).toMatchObject({ errorCode: "INTERRUPTED", badVersions: [] });
   });
   it("returns from the manual trigger before an update completes", async () => {
     const f = await fixture();
@@ -256,7 +278,12 @@ describe("synthetic isolated CLI updates", () => {
     const f = await fixture();
     vi.useFakeTimers();
     let now = 0;
-    const manager = new AgentCliUpdates({ environment: f.env, driver: f.driver, now: () => now });
+    const manager = new AgentCliUpdates({
+      ownerProbe: syntheticOwner,
+      environment: f.env,
+      driver: f.driver,
+      now: () => now,
+    });
     managers.push(manager);
     f.driver.inspect.mockImplementation(async (agent) =>
       agent === "pi"
@@ -299,7 +326,7 @@ describe("synthetic isolated CLI updates", () => {
   it("still restores the old version if saving the blacklist temporarily fails", async () => {
     const f = await fixture();
     const blocked = path.join(f.root, `agent-cli-updates.json.${process.pid}.tmp`);
-    f.driver.ready.mockImplementationOnce(async () => {
+    f.driver.ready.mockResolvedValueOnce(true).mockImplementationOnce(async () => {
       await mkdir(blocked);
       return false;
     });
@@ -326,4 +353,281 @@ describe("synthetic isolated CLI updates", () => {
     expect(await f.entry()).toMatchObject({ result: "up-to-date" });
     expect(f.driver.install).not.toHaveBeenCalled();
   });
+});
+
+// Review #1 regressions use real error shapes, but never invoke npm or any system command.
+describe("review 1 transaction regressions (synthetic)", () => {
+  it.each(["copilot-not-logged-in", "network-unavailable", "plugin-error"])(
+    "does not install when the existing connection is not ready: %s",
+    async () => {
+      const f = await fixture();
+      f.driver.ready.mockResolvedValue(false);
+      await f.manager.check("pi");
+      expect(await f.entry()).toMatchObject({
+        result: "skipped-not-ready",
+        errorCode: "BASELINE_NOT_READY",
+        badVersions: [],
+      });
+      expect(f.driver.install).not.toHaveBeenCalled();
+      expect(
+        JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8")).pending,
+      ).toEqual({});
+    },
+  );
+  it.each(["HOST_UNAVAILABLE", "COMMAND_TIMEOUT"])(
+    "does not install when baseline check throws %s",
+    async (failure) => {
+      const f = await fixture();
+      f.driver.ready.mockRejectedValue(new Error(failure));
+      await f.manager.check("pi");
+      expect(f.driver.install).not.toHaveBeenCalled();
+      expect((await f.entry()).badVersions).toEqual([]);
+    },
+  );
+  it.each(["HOST_UNAVAILABLE"])(
+    "restores after a transient %s without quarantining the release",
+    async (failure) => {
+      const f = await fixture();
+      f.driver.ready
+        .mockResolvedValueOnce(true)
+        .mockRejectedValueOnce(new Error(failure))
+        .mockResolvedValue(false);
+      await f.manager.check("pi");
+      expect(f.driver.install.mock.calls.map((c) => c[1])).toEqual(["1.1.0", "1.0.0"]);
+      expect(await f.entry()).toMatchObject({
+        currentVersion: "1.0.0",
+        badVersions: [],
+        errorCode: "BASELINE_NOT_READY",
+      });
+      expect(
+        JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8")).pending,
+      ).toEqual({});
+      f.driver.ready.mockResolvedValue(true);
+      await f.manager.check("pi");
+      expect(await f.entry()).toMatchObject({ result: "updated", badVersions: [] });
+    },
+  );
+  it.each([1, 243])(
+    "clears an unchanged failed npm install (numeric error.code=%s), then retries",
+    async (exitCode) => {
+      const f = await fixture();
+      f.driver.install.mockRejectedValueOnce(
+        Object.assign(new Error("synthetic npm ETARGET or EACCES"), { code: exitCode }),
+      );
+      await f.manager.check("pi");
+      expect(f.driver.install).toHaveBeenCalledTimes(1);
+      expect(await f.entry()).toMatchObject({
+        result: "failed",
+        errorCode: "INSTALL_FAILED",
+        currentVersion: "1.0.0",
+        badVersions: [],
+      });
+      expect(
+        JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8")).pending,
+      ).toEqual({});
+      await f.manager.check("pi");
+      expect(await f.entry()).toMatchObject({ result: "updated", badVersions: [] });
+    },
+  );
+  it.each(["1.0.0", "1.9.0"])(
+    "does not reinstall from an interrupted journal when current is %s",
+    async (current) => {
+      const f = await fixture();
+      await writeFile(
+        path.join(f.root, "agent-cli-updates.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          enabled: false,
+          agents: [{ ...(await f.entry()), badVersions: ["1.1.0"] }],
+          pending: { pi: { plan: f.plan, previous: "1.0.0", target: "1.1.0" } },
+        }),
+      );
+      f.setCurrent(current);
+      await f.manager.check("pi");
+      expect(f.driver.install).not.toHaveBeenCalled();
+      expect((await f.entry()).currentVersion).toBe(current);
+      expect((await f.entry()).result).toBe(current === "1.0.0" ? "recovered" : "failed");
+      expect((await f.entry()).badVersions).toEqual([]);
+      expect(
+        JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8")).pending,
+      ).toEqual({});
+    },
+  );
+  it("restores an interrupted target version even with the switch disabled, without an unproven blacklist", async () => {
+    const f = await fixture();
+    await writeFile(
+      path.join(f.root, "agent-cli-updates.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        enabled: false,
+        agents: [],
+        pending: {
+          pi: {
+            plan: f.plan,
+            previous: "1.0.0",
+            target: "1.1.0",
+            baselineReady: true,
+            quarantine: false,
+          },
+        },
+      }),
+    );
+    f.setCurrent("1.1.0");
+    await f.manager.check("pi");
+    expect(f.driver.install.mock.calls.map((c) => c[1])).toEqual(["1.0.0"]);
+    expect(await f.entry()).toMatchObject({
+      result: "rolled-back",
+      currentVersion: "1.0.0",
+      badVersions: [],
+    });
+  });
+  it("does not repeatedly reinstall a restored version when the rollback connection check is unavailable", async () => {
+    const f = await fixture();
+    f.driver.ready
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error("HOST_UNAVAILABLE"));
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({
+      errorCode: "HOST_UNAVAILABLE",
+      currentVersion: "1.0.0",
+      badVersions: ["1.1.0"],
+    });
+    const restarted = new AgentCliUpdates({
+      environment: f.env,
+      driver: f.driver,
+      ownerProbe: syntheticOwner,
+    });
+    managers.push(restarted);
+    await restarted.check("pi");
+    expect(f.driver.install).toHaveBeenCalledTimes(2);
+  });
+  it("queues all-agent manual refresh behind a cached busy retry", async () => {
+    const f = await fixture();
+    const gate = Promise.withResolvers<boolean>();
+    f.driver.busy.mockReturnValueOnce(gate.promise).mockResolvedValue(true);
+    const first = f.manager.check("pi", true);
+    await vi.waitFor(() => expect(f.driver.busy).toHaveBeenCalled());
+    const all = f.manager.check();
+    gate.resolve(true);
+    await Promise.all([first, all]);
+    for (const agent of ["pi", "grok", "copilot"])
+      expect(f.driver.inspect).toHaveBeenCalledWith(agent, undefined);
+  });
+  it("does not rewrite identical state on each deferred minute check", async () => {
+    const f = await fixture();
+    f.driver.busy.mockResolvedValue(true);
+    await f.manager.check("pi");
+    const before = await stat(path.join(f.root, "agent-cli-updates.json"));
+    await f.manager.check("pi", true);
+    const after = await stat(path.join(f.root, "agent-cli-updates.json"));
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(after.ino).toBe(before.ino);
+  });
+  it("preserves another Hub's pending journal and blacklist when a stale instance changes the switch", async () => {
+    const f = await fixture();
+    const stale = new AgentCliUpdates({
+      environment: f.env,
+      driver: f.driver,
+      ownerProbe: syntheticOwner,
+    });
+    managers.push(stale);
+    await stale.status();
+    f.driver.ready.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    f.driver.install
+      .mockImplementationOnce(async () => f.setCurrent("1.1.0"))
+      .mockRejectedValueOnce(new Error("synthetic rollback error"));
+    await f.manager.check("pi");
+    await stale.setEnabled(false);
+    const disk = JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8"));
+    expect(disk.enabled).toBe(false);
+    expect(disk.agents.find((e: { agent: string }) => e.agent === "pi").badVersions).toEqual([
+      "1.1.0",
+    ]);
+    expect(disk.pending.pi.target).toBe("1.1.0");
+  });
+  it("keeps the journal and never rolls back concurrently if tree termination failed", async () => {
+    const f = await fixture();
+    f.driver.install.mockRejectedValueOnce(new Error("COMMAND_TREE_STOP_FAILED"));
+    await f.manager.check("pi");
+    expect(f.driver.install).toHaveBeenCalledTimes(1);
+    expect(await f.entry()).toMatchObject({
+      errorCode: "COMMAND_TREE_STOP_FAILED",
+      badVersions: [],
+    });
+    expect(
+      JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8")).pending.pi
+        .target,
+    ).toBe("1.1.0");
+  });
+  it("cancels active install on stop promptly and defers rollback to recovery", async () => {
+    const f = await fixture();
+    const gate = Promise.withResolvers<undefined>();
+    f.driver.install.mockImplementationOnce(async () => {
+      f.setCurrent("1.1.0");
+      await gate.promise;
+      throw new Error("INTERRUPTED");
+    });
+    const cancel = vi.fn(() => gate.resolve(undefined));
+    const manager = new AgentCliUpdates({
+      environment: f.env,
+      ownerProbe: syntheticOwner,
+      driver: { ...f.driver, cancel },
+    });
+    managers.push(manager);
+    const work = manager.check("pi");
+    await vi.waitFor(() => expect(f.driver.install).toHaveBeenCalled());
+    await manager.stop();
+    await work;
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(f.driver.install).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8")).pending.pi
+        .previous,
+    ).toBe("1.0.0");
+  });
+});
+
+it("serializes concurrent switch writes and preserves the last requested value", async () => {
+  const f = await fixture();
+  await Promise.all([
+    f.manager.setEnabled(false),
+    f.manager.setEnabled(true),
+    f.manager.setEnabled(false),
+  ]);
+  expect((await f.manager.status()).enabled).toBe(false);
+  expect(
+    JSON.parse(await readFile(path.join(f.root, "agent-cli-updates.json"), "utf8")).enabled,
+  ).toBe(false);
+  await f.manager.check("pi");
+  expect(f.driver.install).not.toHaveBeenCalled();
+});
+
+it("reports an unsupported saved launch path without claiming it can update a PATH substitute", async () => {
+  const f = await fixture();
+  f.driver.inspect.mockRejectedValue(new Error("ORIGINAL_INSTALLER"));
+  await f.manager.check("pi");
+  expect(await f.entry()).toMatchObject({
+    result: "skipped-unsupported",
+    errorCode: "ORIGINAL_INSTALLER",
+    canUpdate: false,
+  });
+  expect(f.driver.install).not.toHaveBeenCalled();
+});
+
+it("restores but does not quarantine when post-install version readback times out", async () => {
+  const f = await fixture();
+  f.driver.version
+    .mockResolvedValueOnce("1.0.0")
+    .mockRejectedValueOnce(new Error("Harness command timed out"));
+  await f.manager.check("pi");
+  expect(await f.entry()).toMatchObject({
+    result: "rolled-back",
+    causeCode: "CHECK_TIMEOUT",
+    currentVersion: "1.0.0",
+    badVersions: [],
+  });
+  expect(f.driver.install.mock.calls.map((c) => c[1])).toEqual(["1.1.0", "1.0.0"]);
+  await f.manager.check("pi", true);
+  expect(await f.entry()).toMatchObject({ result: "updated", badVersions: [] });
 });

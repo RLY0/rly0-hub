@@ -7,6 +7,7 @@ import { commandExists } from "../rly0-agents/claude-code-auth.js";
 import { applyProxyEnvironment, type Rly0CoreBridge } from "../rly0-core/index.js";
 import { spawnLoginCli } from "./claude-add-login.js";
 import { ClaudeWebLogin, type ClaudeWebLoginStatus } from "./claude-web-login.js";
+import { assertAgentCliAvailable } from "../rly0-agents/cli-update-admission.js";
 
 export interface GrokAddLoginOptions {
   /** The environment to find `grok` in (PATH as Windows has it now, plus known install paths). */
@@ -75,8 +76,11 @@ export function grokLoginUrl(value: string): URL | null {
  */
 export class GrokAddLogin {
   readonly #login: ClaudeWebLogin<GrokLoginContext>;
+  readonly #environment: () => Promise<NodeJS.ProcessEnv>;
+  #starting = false;
 
   constructor(options: GrokAddLoginOptions) {
+    this.#environment = options.environment;
     const platform = options.platform ?? process.platform;
     this.#login = new ClaudeWebLogin<GrokLoginContext>({
       errorPrefix: "GROK_ADD_LOGIN",
@@ -127,13 +131,19 @@ export class GrokAddLogin {
   }
 
   get active(): boolean {
-    return this.#login.active;
+    return this.#starting || this.#login.active;
   }
   status(): ClaudeWebLoginStatus {
     return this.#login.status();
   }
-  start(alias?: string): Promise<ClaudeWebLoginStatus> {
-    return this.#login.start(alias ?? "");
+  async start(alias?: string): Promise<ClaudeWebLoginStatus> {
+    this.#starting = true;
+    try {
+      assertAgentCliAvailable(await this.#environment(), "grok");
+      return await this.#login.start(alias ?? "");
+    } finally {
+      this.#starting = false;
+    }
   }
   reopen(id: string): ClaudeWebLoginStatus {
     return this.#login.reopen(id);

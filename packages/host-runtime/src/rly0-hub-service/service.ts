@@ -1,4 +1,6 @@
 import { AgentCliUpdates } from "./agent-cli-updates.js";
+import { cliUpdateProxyEnvironment } from "./agent-cli-update-system.js";
+import type { CliOwnerProbe } from "../rly0-agents/cli-update-admission.js";
 import {
   createAgentCliUpdateDriver,
   type AgentCliUpdateDriver,
@@ -211,6 +213,7 @@ export interface Rly0HubServiceOptions {
   /** The local Host console channel (remote Hosts, usage statistics, session import); tests. */
   readonly hostRequest?: HubHostRequest;
   readonly agentCliUpdateDriver?: AgentCliUpdateDriver;
+  readonly agentCliOwnerProbe?: CliOwnerProbe;
   readonly agentAutoSwitch?: Partial<
     Pick<Rly0AgentAutoSwitchDeps, "busy" | "now" | "sleep" | "pollMs" | "maxWaitMs">
   >;
@@ -415,6 +418,7 @@ export class Rly0HubService {
     this.#state = new Rly0HubStateStore(environment);
     this.#agentCliUpdates = new AgentCliUpdates({
       environment,
+      ...(options.agentCliOwnerProbe ? { ownerProbe: options.agentCliOwnerProbe } : {}),
       driver:
         options.agentCliUpdateDriver ??
         createAgentCliUpdateDriver({
@@ -422,18 +426,7 @@ export class Rly0HubService {
           environment: async () => {
             const env = await this.#installer.searchEnvironment();
             const proxy = await this.#updateProxy();
-            // npm honours both flags; clear inherited proxies when Hub selects direct access.
-            return {
-              ...env,
-              HTTP_PROXY: proxy ?? "",
-              HTTPS_PROXY: proxy ?? "",
-              ALL_PROXY: "",
-              http_proxy: proxy ?? "",
-              https_proxy: proxy ?? "",
-              all_proxy: "",
-              npm_config_proxy: proxy ?? "",
-              npm_config_https_proxy: proxy ?? "",
-            };
+            return cliUpdateProxyEnvironment(env, proxy);
           },
           get: async () =>
             createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
@@ -441,7 +434,8 @@ export class Rly0HubService {
             options.hostRequest
               ? Promise.resolve([options.hostRequest])
               : createHubHostRequests({ environment }),
-          installing: (agent) => this.#installer.status(agent).state === "running",
+          installing: (agent) =>
+            this.#installer.busy(agent) || (agent === "grok" && this.#grokAdd.active),
         }),
     });
     const currentVersion = () =>

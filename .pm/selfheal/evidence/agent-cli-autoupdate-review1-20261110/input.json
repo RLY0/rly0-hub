@@ -1,0 +1,13 @@
+{
+  "ticket": "HUB-AGENT-CLI-AUTOUPDATE",
+  "branch": "feat/agent-cli-autoupdate",
+  "inputHead": "976c0194c3fefc47d51f6cf00440256ec6fb1619",
+  "reviewPath": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/AGENT-CLI-AUTOUPDATE-REVIEW-1.md",
+  "reviewSha256": "eebbbf190acad30d6158678714995b8494c45bec6ebd6a200dc4681f574f0fd8",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "node": "v24.22.2",
+  "nodePath": "/Volumes/RLY0Dev/Dev/Cache/node-v24/bin/node",
+  "platform": "darwin-arm64",
+  "testType": "isolated synthetic",
+  "reviewStatus": "self_verified; remediation independent review and accepted pending"
+}

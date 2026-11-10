@@ -1,3 +1,15 @@
+# HUB-AGENT-CLI-AUTOUPDATE 复查 #1 修复：self_verified
+
+2026-11-10；feat/agent-cli-autoupdate；固定输入 `976c0194`（保留 Claude 界面提交）。B1/B2、重要 1–5 和次要项均完成后台修补与针对性回归。仅自检，修复后独立复核与 accepted 未完成。
+
+主会话最终验证：13 文件、174 pass、0 fail、0 skip；build:typescript、typecheck、边界检查通过。全仓 lint exit 1，仅原输入已有的 rly0-hub-promo.test.ts:11；本轮新增错误 0。源码格式与最终工作树证据见 [RESULTS](selfheal/evidence/agent-cli-autoupdate-review1-20261110/RESULTS.md)。
+
+已处理：ready 基线与临时故障不误拉黑；安装失败先读版本；恢复保留外部换装；PID/启动身份原子锁和启动/Host 死锁清理；Host 启动设置；原 prefix 权限与 npm registry/代理一致性；Windows 树终止及外部空闲进程占用；手动检查排队、recipe pin、入口围栏、合并状态写入、相同状态不重写和停服取消。契约新增 v2 节及 2 个结果、4 个错误码，交 Claude 映射。
+
+没有修改 apps/hub-desktop/www，没有真实全局 npm install/uninstall、另起 hub-service、用户程序退出/重启、推送或发布。next_action：修复后独立复核；Claude 按 [契约 v2](selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md) 同步等待/恢复状态，在获准独立环境验收 Mac/Windows、真实账号与代理、升级/回退/占用/停服时长。原生脚本固定版本回退能力缺口及外部启动竞争仍保留；打包和发布归 Claude。
+
+---
+
 # HUB-AGENT-CLI-AUTOUPDATE backend: self_verified
 
 2026-11-10; feat/agent-cli-autoupdate; input 9dfd747c. Implemented backend only; independent review and accepted are not complete.

@@ -1,0 +1,138 @@
+[
+  {
+    "label": "baseline-lint",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "npm",
+      "run",
+      "lint"
+    ],
+    "exitCode": 1,
+    "elapsedSeconds": 11.06,
+    "isolated": true,
+    "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 lint\n> eslint . && node tools/check-boundaries.mjs\n\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/rly0-hub-promo.test.ts\n  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion\n\n✖ 1 problem (1 error, 0 warnings)\n\nnpm notice\nnpm notice New major version of npm available! 11.19.1 -> 12.2.2\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2\nnpm notice To update run: npm install -g npm@12.2.2\nnpm notice\n"
+  },
+  {
+    "label": "final-build",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "npm",
+      "run",
+      "build:typescript"
+    ],
+    "exitCode": 0,
+    "elapsedSeconds": 11.31,
+    "isolated": true,
+    "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 build:typescript\n> tsc -b && npm run build:plugins\n\nnpm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 build:plugins\n> node scripts/release/harness-plugins.mjs --output packages/host-runtime/dist/plugins\n\nnpm notice\nnpm notice New major version of npm available! 11.19.1 -> 12.2.2\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2\nnpm notice To update run: npm install -g npm@12.2.2\nnpm notice\n"
+  },
+  {
+    "label": "final-typecheck",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "npm",
+      "run",
+      "typecheck"
+    ],
+    "exitCode": 0,
+    "elapsedSeconds": 13.59,
+    "isolated": true,
+    "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 typecheck\n> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false\n\nnpm notice\nnpm notice New major version of npm available! 11.19.1 -> 12.2.2\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2\nnpm notice To update run: npm install -g npm@12.2.2\nnpm notice\n"
+  },
+  {
+    "label": "final-tests",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "node",
+      "node_modules/vitest/vitest.mjs",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/agent-cli-updates.test.ts",
+      "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+      "packages/host-runtime/test/agent-cli-update-system.test.ts",
+      "packages/host-runtime/test/agent-cli-update-host.test.ts",
+      "packages/host-runtime/test/agent-cli-update-rpc.test.ts",
+      "packages/harness-discovery/test/installation-command-driver.test.ts",
+      "packages/harness-discovery/test/installation.test.ts",
+      "packages/harness-discovery/test/npm-installation.test.ts",
+      "packages/host-runtime/test/grok-add-login.test.ts",
+      "packages/host-runtime/test/rly0-agent-installer.test.ts",
+      "packages/host-runtime/test/app-server-host.installation.test.ts",
+      "packages/host-runtime/test/harness-installation-tasks.test.ts",
+      "packages/host-runtime/test/rly0-agent-cli-updates-ui.test.ts"
+    ],
+    "exitCode": 0,
+    "elapsedSeconds": 2.02,
+    "isolated": true,
+    "output": "\n RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate\n\n\n Test Files  13 passed (13)\n      Tests  174 passed (174)\n   Start at  20:46:55\n   Duration  1.73s (transform 2.22s, setup 0ms, import 3.55s, tests 2.46s, environment 1ms)\n\n"
+  },
+  {
+    "label": "final-lint",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "npm",
+      "run",
+      "lint"
+    ],
+    "exitCode": 1,
+    "elapsedSeconds": 11.26,
+    "isolated": true,
+    "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 lint\n> eslint . && node tools/check-boundaries.mjs\n\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/rly0-hub-promo.test.ts\n  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion\n\n✖ 1 problem (1 error, 0 warnings)\n\nnpm notice\nnpm notice New major version of npm available! 11.19.1 -> 12.2.2\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2\nnpm notice To update run: npm install -g npm@12.2.2\nnpm notice\n"
+  },
+  {
+    "label": "final-boundaries",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "node",
+      "tools/check-boundaries.mjs"
+    ],
+    "exitCode": 0,
+    "elapsedSeconds": 1.88,
+    "isolated": true,
+    "output": ""
+  },
+  {
+    "label": "final-lint",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "npm",
+      "run",
+      "lint"
+    ],
+    "exitCode": 1,
+    "elapsedSeconds": 13.49,
+    "isolated": true,
+    "output": "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n> codexhost@0.11.39 lint\n> eslint . && node tools/check-boundaries.mjs\n\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/harness-discovery/test/installation-command-driver.test.ts\n  121:40  error  void is only valid as a return type or generic type argument  @typescript-eslint/no-invalid-void-type\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts\n  1:1  error  Imports \"access\" are only used as type  @typescript-eslint/consistent-type-imports\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts\n  168:37  error  Do not delete dynamically computed property keys  @typescript-eslint/no-dynamic-delete\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/agent-cli-update-system.test.ts\n  5:1  error  All imports in the declaration are only used as types. Use `import type`  @typescript-eslint/consistent-type-imports\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/agent-cli-updates.test.ts\n  565:40  error  void is only valid as a return type or generic type argument  @typescript-eslint/no-invalid-void-type\n\n/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/rly0-hub-promo.test.ts\n  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion\n\n✖ 6 problems (6 errors, 0 warnings)\n  2 errors and 0 warnings potentially fixable with the `--fix` option.\n\nnpm notice\nnpm notice New major version of npm available! 11.19.1 -> 12.2.2\nnpm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2\nnpm notice To update run: npm install -g npm@12.2.2\nnpm notice\n"
+  },
+  {
+    "label": "final-format",
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "command": [
+      "node",
+      "node_modules/prettier/bin/prettier.cjs",
+      "--check",
+      "packages/harness-discovery/src/installation.ts",
+      "packages/harness-discovery/test/installation-command-driver.test.ts",
+      "packages/harness-discovery/test/installation.test.ts",
+      "packages/host-runtime/src/rly0-agents/agent-installer.ts",
+      "packages/host-runtime/src/rly0-agents/cli-update-admission.ts",
+      "packages/host-runtime/src/rly0-agents/cli-update-owner.ts",
+      "packages/host-runtime/src/rly0-hub-service/agent-cli-update-driver.ts",
+      "packages/host-runtime/src/rly0-hub-service/agent-cli-update-system.ts",
+      "packages/host-runtime/src/rly0-hub-service/agent-cli-updates.ts",
+      "packages/host-runtime/src/rly0-hub-service/grok-add-login.ts",
+      "packages/host-runtime/src/rly0-hub-service/host-console-routes.ts",
+      "packages/host-runtime/src/rly0-hub-service/service.ts",
+      "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+      "packages/host-runtime/test/agent-cli-update-host.test.ts",
+      "packages/host-runtime/test/agent-cli-update-rpc.test.ts",
+      "packages/host-runtime/test/agent-cli-update-system.test.ts",
+      "packages/host-runtime/test/agent-cli-updates.test.ts",
+      "packages/shared-contracts/src/agent-cli-updates.ts"
+    ],
+    "exitCode": 0,
+    "elapsedSeconds": 0.38,
+    "isolated": true,
+    "output": "Checking formatting...\nAll matched files use Prettier code style!\n"
+  }
+]
