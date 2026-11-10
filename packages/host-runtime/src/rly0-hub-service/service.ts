@@ -1,3 +1,13 @@
+import { AgentCliUpdates } from "./agent-cli-updates.js";
+import {
+  createAgentCliUpdateDriver,
+  type AgentCliUpdateDriver,
+} from "./agent-cli-update-driver.js";
+import {
+  agentCliUpdateSetParamsSchema,
+  agentCliUpdateCheckParamsSchema,
+} from "@codexhost/shared-contracts";
+
 import { codexNativeUpdateControlBlocker } from "./codex-update-control.js";
 import { CodexCompatibilityCatalog } from "./codex-compat.js";
 import { CodexUpdateManager } from "./codex-update-manager.js";
@@ -116,6 +126,7 @@ import { noAccountStatus, relayCodexModels } from "./no-account.js";
 import {
   createHostConsoleRoutes,
   createHubHostRequest,
+  createHubHostRequests,
   type HubHostRequest,
 } from "./host-console-routes.js";
 import {
@@ -199,6 +210,7 @@ export interface Rly0HubServiceOptions {
   /** Claude / Grok auto-switch timing and busy signal (tests); the Codex heartbeat otherwise. */
   /** The local Host console channel (remote Hosts, usage statistics, session import); tests. */
   readonly hostRequest?: HubHostRequest;
+  readonly agentCliUpdateDriver?: AgentCliUpdateDriver;
   readonly agentAutoSwitch?: Partial<
     Pick<Rly0AgentAutoSwitchDeps, "busy" | "now" | "sleep" | "pollMs" | "maxWaitMs">
   >;
@@ -267,6 +279,7 @@ export class Rly0HubService {
   readonly #claudeCode: ClaudeCodeAuth;
   readonly #state: Rly0HubStateStore;
   readonly #codexUpdates: CodexUpdateManager;
+  readonly #agentCliUpdates: AgentCliUpdates;
   readonly #codexCatalog: CodexCompatibilityCatalog;
   readonly #codexConfig: Rly0RelayCodexConfigManager;
   readonly #addLogin: Rly0HubAddLogin;
@@ -400,6 +413,37 @@ export class Rly0HubService {
       ...(options.platform ? { platform: options.platform } : {}),
     });
     this.#state = new Rly0HubStateStore(environment);
+    this.#agentCliUpdates = new AgentCliUpdates({
+      environment,
+      driver:
+        options.agentCliUpdateDriver ??
+        createAgentCliUpdateDriver({
+          platform: options.platform ?? process.platform,
+          environment: async () => {
+            const env = await this.#installer.searchEnvironment();
+            const proxy = await this.#updateProxy();
+            // npm honours both flags; clear inherited proxies when Hub selects direct access.
+            return {
+              ...env,
+              HTTP_PROXY: proxy ?? "",
+              HTTPS_PROXY: proxy ?? "",
+              ALL_PROXY: "",
+              http_proxy: proxy ?? "",
+              https_proxy: proxy ?? "",
+              all_proxy: "",
+              npm_config_proxy: proxy ?? "",
+              npm_config_https_proxy: proxy ?? "",
+            };
+          },
+          get: async () =>
+            createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+          hosts: () =>
+            options.hostRequest
+              ? Promise.resolve([options.hostRequest])
+              : createHubHostRequests({ environment }),
+          installing: (agent) => this.#installer.status(agent).state === "running",
+        }),
+    });
     const currentVersion = () =>
       compatibility.installedVersion?.call(compatibility) ??
       compatibility.check().then((result) => result.desktopVersion);
@@ -486,6 +530,7 @@ export class Rly0HubService {
   /** First run turns autostart on (the confirmed default); later runs respect the toggle. */
   async start(): Promise<void> {
     void this.#codexUpdates.start();
+    void this.#agentCliUpdates.start().catch(() => undefined);
     const state = await this.#state.read();
     // Without a Hub executable to register (source checkout) the default waits for a real build.
     if (!state.autostartDefaulted && this.#appearance.supported) {
@@ -897,6 +942,7 @@ export class Rly0HubService {
   }
 
   async dispose(): Promise<void> {
+    await this.#agentCliUpdates.stop();
     await this.#codexUpdates.stop();
     this.#liveQuota.dispose();
     this.#isolation.close();
@@ -1319,6 +1365,13 @@ export class Rly0HubService {
           this.#options.platform,
         ),
       })),
+      "agents.cliUpdates.status": route(empty, () => this.#agentCliUpdates.status()),
+      "agents.cliUpdates.setEnabled": route(agentCliUpdateSetParamsSchema, (p) =>
+        this.#agentCliUpdates.setEnabled(p.enabled),
+      ),
+      "agents.cliUpdates.check": route(agentCliUpdateCheckParamsSchema, (p) =>
+        this.#agentCliUpdates.requestCheck(p.agent),
+      ),
       "agents.isolation.status": route(empty, () => this.#isolation.status()),
       "agents.isolation.configure": route(sandboxConfigureSchema, (p) =>
         this.#isolation.configure(p),

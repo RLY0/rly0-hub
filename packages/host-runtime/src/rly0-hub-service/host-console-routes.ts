@@ -42,15 +42,15 @@ function processAlive(pid: number): boolean {
   }
 }
 
-async function newestHost(
+async function liveHosts(
   directory: string,
   isAlive: (pid: number) => boolean,
-): Promise<HostEndpoint | null> {
+): Promise<HostEndpoint[]> {
   let names: string[];
   try {
     names = await readdir(directory);
   } catch {
-    return null;
+    return [];
   }
   const hosts: HostEndpoint[] = [];
   for (const name of names.filter((candidate) => DESCRIPTOR_PATTERN.test(candidate))) {
@@ -73,7 +73,7 @@ async function newestHost(
       continue;
     }
   }
-  return hosts.sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+  return hosts.sort((left, right) => right.startedAt - left.startedAt);
 }
 
 /** Requests to the newest live local Host; read-only toward its descriptors (never removes one). */
@@ -85,24 +85,48 @@ export function createHubHostRequest(options: {
   const directory = consoleHostDescriptorDirectory(options.environment);
   const fetchImpl = options.fetchImpl ?? fetch;
   return async (method, params) => {
-    const host = await newestHost(directory, options.isAlive ?? processAlive);
+    const host = (await liveHosts(directory, options.isAlive ?? processAlive))[0];
     if (!host) throw Object.assign(new Error(HOST_UNAVAILABLE), { code: -32090 });
-    const response = await fetchImpl(`http://127.0.0.1:${host.port}/rpc`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ method, params: params ?? {} }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    if (body && "result" in body) return body.result;
-    const error = body?.error as { code?: unknown; message?: unknown } | undefined;
-    const code = typeof error?.code === "number" ? error.code : -32603;
-    const message =
-      typeof error?.message === "string" && error.message
-        ? error.message.slice(0, 500)
-        : `HOST_HTTP_${response.status}`;
-    throw Object.assign(new Error(code === -32090 ? HOST_UNAVAILABLE : message), { code });
+    return requestHost(host, method, params, fetchImpl);
   };
+}
+
+/** Updates must consult every local Host, not just the most recently opened window. */
+export async function createHubHostRequests(options: {
+  environment: NodeJS.ProcessEnv;
+  isAlive?: (pid: number) => boolean;
+  fetchImpl?: typeof fetch;
+}): Promise<HubHostRequest[]> {
+  const hosts = await liveHosts(
+    consoleHostDescriptorDirectory(options.environment),
+    options.isAlive ?? processAlive,
+  );
+  return hosts.map(
+    (host) => (method, params) => requestHost(host, method, params, options.fetchImpl ?? fetch),
+  );
+}
+
+async function requestHost(
+  host: HostEndpoint,
+  method: string,
+  params: unknown,
+  fetchImpl: typeof fetch,
+): Promise<unknown> {
+  const response = await fetchImpl(`http://127.0.0.1:${host.port}/rpc`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+    body: JSON.stringify({ method, params: params ?? {} }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+  if (body && "result" in body) return body.result;
+  const error = body?.error as { code?: unknown; message?: unknown } | undefined;
+  const code = typeof error?.code === "number" ? error.code : -32603;
+  const message =
+    typeof error?.message === "string" && error.message
+      ? error.message.slice(0, 500)
+      : `HOST_HTTP_${response.status}`;
+  throw Object.assign(new Error(code === -32090 ? HOST_UNAVAILABLE : message), { code });
 }
 
 function route<S extends z.ZodTypeAny>(

@@ -18,6 +18,9 @@
       "path": "../harness-broker/tsconfig.json"
     },
     {
+      "path": "../harness-discovery/tsconfig.json"
+    },
+    {
       "path": "../mapping-store/tsconfig.json"
     },
     {

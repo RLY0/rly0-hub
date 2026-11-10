@@ -20,6 +20,21 @@
       ],
       "next_action": "Claude 核对 CONTRACT v3；用户决定 N5；修复后独立审查与独立环境真实升级/guard/Windows 验收",
       "base": "c796e85c"
+    },
+    {
+      "id": "HUB-AGENT-CLI-AUTOUPDATE",
+      "stage": "M1",
+      "milestone": "2-好用",
+      "owner": "codex",
+      "collaborators": ["claude"],
+      "status": "self_verified",
+      "review": "independent-review-not-run",
+      "accepted": false,
+      "base": "9dfd747c",
+      "scope": "Backend and isolated tests. Identified npm plus version-pinned native OpenCode update/rollback. Other native installers detection-only where pinned rollback is unverified. No UI/global install/service launch/package/push/release.",
+      "contract": ".pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md",
+      "evidence_files": [".pm/selfheal/evidence/agent-cli-autoupdate-20261110/RESULTS.md"],
+      "next_action": "Claude UI integration; independent review; isolated real npm/Mac/Windows/proxy/rollback validation. Preserve native rollback capability gaps."
     }
   ]
 }

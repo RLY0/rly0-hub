@@ -1,3 +1,6 @@
+import { AgentCliUpdateAdmission } from "./rly0-agents/cli-update-admission.js";
+import { AGENT_CLI_BUSY_METHOD, agentCliBusyParamsSchema } from "@codexhost/shared-contracts";
+
 import { parse as parseToml } from "smol-toml";
 import {
   THREAD_QUESTIONS_LIST_METHOD,
@@ -1089,6 +1092,7 @@ export class AppServerHost {
   #writer: OrderedWriter;
   /** Console requests share Desktop handling; their replies return to the console. */
   readonly #consoleRequestPrefix = `codexhost-console:${randomUUID()}:`;
+  readonly #agentCliAdmission: AgentCliUpdateAdmission;
   readonly #consoleReplies = new Map<string, (message: JsonValue) => void>();
   #nextConsoleRequest = 0;
   #subagentThreadStatuses = new Map<string, "active" | "idle">();
@@ -1292,10 +1296,12 @@ export class AppServerHost {
         createProductionExternalThreadStore(this.#options.environment ?? process.env),
     );
     this.#externalAdapters = new Map(options.externalAdapters);
+    this.#agentCliAdmission = new AgentCliUpdateAdmission(environment);
     for (const [harnessId, adapter] of this.#externalAdapters) {
       if (adapter.harnessId !== harnessId) {
         throw new Error(`External Adapter '${harnessId}' has mismatched Harness ID`);
       }
+      this.#externalAdapters.set(harnessId, this.#agentCliAdmission.wrap(adapter));
     }
     this.#externalRuntime = new ExternalThreadRuntime({
       adapters: this.#externalAdapters,
@@ -1466,12 +1472,14 @@ export class AppServerHost {
     for (const [id, adapter] of plugins.adapters) {
       this.#externalAdapters.set(
         id,
-        RELAY_CAPABLE_AGENTS.has(id)
-          ? withSessionEnvironment(adapter, (environment) => {
-              const overlay = this.#relayOverlays.get(id);
-              return overlay ? overlay(environment) : environment;
-            })
-          : adapter,
+        this.#agentCliAdmission.wrap(
+          RELAY_CAPABLE_AGENTS.has(id)
+            ? withSessionEnvironment(adapter, (environment) => {
+                const overlay = this.#relayOverlays.get(id);
+                return overlay ? overlay(environment) : environment;
+              })
+            : adapter,
+        ),
       );
     }
     this.#watchRelaySettings();
@@ -1952,6 +1960,30 @@ export class AppServerHost {
     }
     if (this.#closeRequested || this.#desktopInputEnded) {
       return { error: { code: -32090, message: "Codex Desktop is closing" } };
+    }
+    if (method === AGENT_CLI_BUSY_METHOD) {
+      const parsed = agentCliBusyParamsSchema.safeParse(params);
+      if (!parsed.success) return { error: { code: -32602, message: "Invalid CLI busy request" } };
+      const agent = parsed.data.agent;
+      return {
+        result: {
+          guarded: true,
+          busy:
+            this.#agentCliAdmission.busy(agent) ||
+            this.#agentInstaller.status(agent).state === "running" ||
+            this.#externalRuntime
+              .values()
+              .some(
+                (thread) =>
+                  thread.harnessId === agent &&
+                  (this.#externalThreadBusy(thread) ||
+                    thread.activeTurnId !== null ||
+                    this.#pendingExternalCommandRequests.has(thread.id) ||
+                    this.#hasRunningSubagents(thread.id) ||
+                    thread.session.hasBackgroundWork?.() === true),
+              ),
+        },
+      };
     }
     if (method === CONSOLE_REMOTE_CONNECTIONS_METHOD) {
       return requestDesktopRemoteConnections(this.#options.environment ?? process.env, params);

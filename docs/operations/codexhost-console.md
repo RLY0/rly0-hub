@@ -8,6 +8,18 @@
 
 外观（思考文本显示、空闲释放）由 Codex 界面保存，只能在 Codex 设置页修改。设计背景见 [`proposals/独立 Web 控制台方案.md`](../proposals/独立%20Web%20控制台方案.md)。
 
+## Hub 助手 CLI 自动更新后台
+
+Hub 启动和每 24 小时检查一次助手 CLI，默认开启。管理接口是 `agents.cliUpdates.status`、`agents.cliUpdates.setEnabled`、`agents.cliUpdates.check`；手动检查启动后台任务后立即返回，状态接口用于轮询。界面接线由 Claude 负责，字段、枚举和错误码见 [CLI 自动更新契约](../../.pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md)。关闭后不检查或更新；已开始的安装仍完成验证及必要回退，未完成事务的恢复也继续。
+
+npm 安装复用 Harness discovery 对真实包路径和全局 prefix 的识别，注册表查询走 Hub 设置的代理；安装和回退都指定原 prefix 与精确版本，不卸载、不提权、不迁往另一全局位置。Windows 使用同一原 prefix 和 `npm.cmd` 调用包装。脚本安装只执行已有官方非安装检查；当前能可靠指定目标与回退版本的原生实现是标准位置的 OpenCode `upgrade <version> --method curl`。Pi、Grok、Cursor、OMP、Qoder、Hermes、Kimi、agy 原生安装的版本检查按上游实现复用，缺少经核实的固定版本回退能力时明确报 `ROLLBACK_UNSUPPORTED`，不假装已能安全自动升级。Kiro、Devin 等没有已核实安全检查/更新入口时返回 `NO_OFFICIAL_UPDATER`；未知包管理器安装返回 `ORIGINAL_INSTALLER`。
+
+更新前要求所有本机 Host 支持按助手检查运行状态，并持有该助手的跨进程文件围栏；围栏期间 Host 阻止新会话、恢复、回合和命令启动。已有运行回合、子任务、后台工作、会话打开或安装均让更新延后，其他助手不受影响。没有运行 Host、旧 Host 不支持新接口或检查失败时拒绝安装。忙碌/Host 不可用每分钟重试，有效的 npm 最新版本结果沿用到当天的下一次完整检查；手动检查会重新查询。
+
+更新后核对 CLI 版本，并调用每个本机 Host 的 `codexhost/harness/inspect`（`refresh: true`，与 Codex 选择器及 Hub 连接检查相同的 `adapter.inspect`）。任一非 ready/超时/异常都会回退原版本并永久记录该助手的坏版本，回退后再次核对旧版本和连接。安装命令失败也视为可能已部分改写，尝试同一回退。持久化安装前事务日志，异常退出后先恢复原版本，回退失败保留事务并明确报告，不能把半成品当新的基线。
+
+Claude Code、Codex、ZCode、WorkBuddy 与 Antigravity 桌面应用不在更新范围。`antigravity` 只识别独立 `agy` CLI；只装了桌面应用时是未安装 CLI，不更新应用。该后台不能管理绕过 Host 直接启动的外部终端会话，也不控制厂商 CLI 自身的独立自动更新器。真实安装、真机 Windows、界面和发布均须另行验收。
+
 ## 项目公告
 
 Web 控制台在所有页面的内容区顶部显示仓库 `main` 分支的 [`docs/NOTICE.md`](../NOTICE.md)。只影响 Web，不改变 Codex 内置设置。控制台服务通过固定的 GitHub Raw HTTPS 地址读取公告，浏览器只访问本机 `/api/announcement`，不需要运行中的 Host。

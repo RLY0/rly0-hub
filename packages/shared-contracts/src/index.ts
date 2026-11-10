@@ -850,3 +850,4 @@ export type {
   Rly0CodexPreferencesGetResult,
 } from "./rly0-codex-preferences.js";
 export * from "./codex-version-gate.js";
+export * from "./agent-cli-updates.js";

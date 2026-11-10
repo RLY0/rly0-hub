@@ -1,0 +1,126 @@
+{
+  "base": "9dfd747c71c229ba6f373a2cb4f7f64718b1a902",
+  "branch": "feat/agent-cli-autoupdate",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "recordedAt": "2026-11-10T07:10:45.751804+00:00",
+  "scope": "synthetic isolated drivers; no global npm mutation, no Hub service launch, no UI/package/push/release",
+  "environment": {
+    "HOME": "temporary isolated directory",
+    "USERPROFILE": "temporary isolated directory",
+    "CODEX_HOME": "temporary isolated directory",
+    "CODEXHOST_DATA_DIR": "temporary isolated directory",
+    "RLY0_MEMORY_DIR": "temporary isolated directory",
+    "CLAUDE_CONFIG_DIR": "temporary isolated directory",
+    "APPDATA": "temporary isolated directory",
+    "LOCALAPPDATA": "temporary isolated directory"
+  },
+  "RLY0_SKIP_LEGACY_IMPORT": "1",
+  "node": "v24.22.2",
+  "checks": [
+    {
+      "name": "typecheck-final",
+      "command": ["npm", "run", "typecheck"],
+      "exit_code": 0
+    },
+    {
+      "name": "lint-final",
+      "command": ["npm", "run", "lint"],
+      "exit_code": 1
+    },
+    {
+      "name": "boundaries-final",
+      "command": ["node", "tools/check-boundaries.mjs"],
+      "exit_code": 0
+    },
+    {
+      "name": "focused-final",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "tests/vitest.config.js",
+        "packages/host-runtime/test/agent-cli-updates.test.ts",
+        "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+        "packages/host-runtime/test/agent-cli-update-host.test.ts",
+        "packages/host-runtime/test/agent-cli-update-rpc.test.ts",
+        "packages/harness-discovery/test/npm-installation.test.ts",
+        "packages/harness-discovery/test/installation-command-driver.test.ts",
+        "packages/host-runtime/test/app-server-host.installation.test.ts",
+        "packages/host-runtime/test/rly0-agent-installer.test.ts",
+        "packages/host-runtime/test/rly0-hub-host-console.test.ts",
+        "--reporter=json",
+        "--outputFile=/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/.tmp-cli-validation/tests.json"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "tests": {
+    "numTotalTests": 92,
+    "numPassedTests": 92,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "success": true
+  },
+  "files": [
+    {
+      "file": "packages/harness-discovery/test/installation-command-driver.test.ts",
+      "status": "passed",
+      "tests": 2
+    },
+    {
+      "file": "packages/harness-discovery/test/npm-installation.test.ts",
+      "status": "passed",
+      "tests": 8
+    },
+    {
+      "file": "packages/host-runtime/test/agent-cli-update-driver.test.ts",
+      "status": "passed",
+      "tests": 12
+    },
+    {
+      "file": "packages/host-runtime/test/agent-cli-update-host.test.ts",
+      "status": "passed",
+      "tests": 4
+    },
+    {
+      "file": "packages/host-runtime/test/agent-cli-update-rpc.test.ts",
+      "status": "passed",
+      "tests": 9
+    },
+    {
+      "file": "packages/host-runtime/test/agent-cli-updates.test.ts",
+      "status": "passed",
+      "tests": 18
+    },
+    {
+      "file": "packages/host-runtime/test/app-server-host.installation.test.ts",
+      "status": "passed",
+      "tests": 7
+    },
+    {
+      "file": "packages/host-runtime/test/rly0-agent-installer.test.ts",
+      "status": "passed",
+      "tests": 29
+    },
+    {
+      "file": "packages/host-runtime/test/rly0-hub-host-console.test.ts",
+      "status": "passed",
+      "tests": 3
+    }
+  ],
+  "lintBaseline": {
+    "commit": "9dfd747c",
+    "file": "packages/host-runtime/test/rly0-hub-promo.test.ts",
+    "line": 11,
+    "rule": "@typescript-eslint/no-non-null-assertion",
+    "exit_code": 1,
+    "newErrors": 0
+  },
+  "format": {
+    "command": "node node_modules/prettier/bin/prettier.cjs --check <changed files>",
+    "exit_code": 0
+  },
+  "review": "self_verified; independent review not_run; accepted false",
+  "live": "not_run"
+}

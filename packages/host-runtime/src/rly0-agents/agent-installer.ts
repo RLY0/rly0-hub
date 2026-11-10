@@ -15,6 +15,7 @@ import {
   withAgentInstallPaths,
 } from "./install-paths.js";
 import { installNodeFromMsi, windowsNodeArch, type InstallerFiles } from "./node-msi.js";
+import { assertAgentCliAvailable } from "./cli-update-admission.js";
 
 /**
  * One-click installation of native agents. Each agent has a recipe: the vendor's official
@@ -657,6 +658,7 @@ export class AgentInstaller {
 
   /** Starts installing in the background; poll `status` for progress. */
   start(agent: string): Rly0AgentInstallStatus {
+    assertAgentCliAvailable(this.#options.environment, agent);
     const recipe = RLY0_AGENT_RECIPES[agent];
     if (!recipe) return { state: "failed", automatic: false, error: "UNSUPPORTED" };
     const current = this.#status.get(agent);

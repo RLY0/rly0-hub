@@ -21,11 +21,12 @@ export function runInstallationCommand(
   args: readonly string[],
   environment: NodeJS.ProcessEnv,
   timeout = 30_000,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<string> {
   const env = withNodeRuntimeOnPath(environment);
   const invocation = /\.[cm]?js$/i.test(command)
-    ? commandInvocation(process.execPath, [command, ...args], env)
-    : commandInvocation(command, args, env);
+    ? commandInvocation(process.execPath, [command, ...args], env, platform)
+    : commandInvocation(command, args, env, platform);
   return new Promise((resolve, reject) => {
     const child = execFile(
       invocation.command,
@@ -44,9 +45,11 @@ export function runInstallationCommand(
         if (error)
           reject(
             new Error(
-              error.killed
-                ? "Harness command timed out"
-                : "Harness command failed; check the native installation and retry",
+              error.code === "EACCES" || error.code === "EPERM"
+                ? "COMMAND_PERMISSION_DENIED"
+                : error.killed
+                  ? "Harness command timed out"
+                  : "Harness command failed; check the native installation and retry",
             ),
           );
         else resolve((stdout || stderr).trim());

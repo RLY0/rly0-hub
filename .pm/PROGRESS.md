@@ -1,3 +1,17 @@
+# HUB-AGENT-CLI-AUTOUPDATE backend: self_verified
+
+2026-11-10; feat/agent-cli-autoupdate; input 9dfd747c. Implemented backend only; independent review and accepted are not complete.
+
+Startup/daily checks, default-on switch, management RPC, original-prefix npm updates, per-agent work admission, native connection checks, persistent bad versions and rollback recovery are implemented. Version-pinned native OpenCode is supported. Native updaters without verified version-pinned rollback remain explicit detection-only capability gaps.
+
+This main session ran 9 files: 92 pass, 0 fail, 0 skip. Typecheck, boundary and changed-file formatting pass. Repository lint retains exactly the same pre-existing rly0-hub-promo.test.ts:11 error as input 9dfd747c; new errors 0. No live installs, Hub service launch, Desktop restart, UI edits, package, push or release.
+
+Contract: [v1](selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md). Evidence: [results](selfheal/evidence/agent-cli-autoupdate-20261110/RESULTS.md).
+
+next_action: Claude UI integration; independent review; authorized isolated real npm/Mac/Windows/proxy/rollback acceptance; Claude owns packaging and release. Preserve explicit native rollback gaps.
+
+---
+
 # 隔离候选进度：HUB-CODEX-VERSION-GATE 第二次复查修复
 
 2026-11-09，feat/codex-version-gate，固定输入 c796e85c。已修 N1/N2 阻断、N3/N4、上轮 6 的 Launcher 读取位置及 7 的 originalCheckPreferences；N6–N11 一并修复。N5 保留默认规则，只收敛 CodexIdleDriver。
