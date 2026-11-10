@@ -121,6 +121,7 @@ describe("AI 助手 → 自动更新命令行工具 (synthetic)", () => {
         entry("hermes", {
           result: "rolled-back",
           currentVersion: "2.1.0",
+          latestVersion: "2.2.0",
           causeCode: "CONNECTION_NOT_READY",
           badVersions: ["2.2.0"],
         }),
@@ -141,6 +142,32 @@ describe("AI 助手 → 自动更新命令行工具 (synthetic)", () => {
     ).toContain("正在更新到 v1.1.0");
   });
 
+  it("uses a waiting tone for temporary problems and names only skip-listed versions bad", async () => {
+    const ui = await mount(
+      status([
+        entry("pi", { result: "skipped-not-ready", errorCode: "HOST_UNAVAILABLE" }),
+        entry("opencode", {
+          result: "rolled-back",
+          currentVersion: "1.0.0",
+          latestVersion: "1.1.0",
+          causeCode: "HOST_UNAVAILABLE",
+        }),
+        entry("hermes", { result: "failed", errorCode: "INSTALL_FAILED" }),
+        entry("deepseek-harness", { result: "skipped-unsupported", errorCode: "VERSION_PINNED" }),
+        entry("qwen-code", { result: "recovered" }),
+      ]),
+    );
+    const cls = (id: string) => String(ui.line(id)?.props.class);
+    expect(cls("pi")).toContain("wait");
+    expect(ui.line("pi")?.textContent).toContain("等 Codex 打开");
+    expect(cls("opencode")).toContain("wait");
+    expect(ui.line("opencode")?.textContent).not.toContain("不再装");
+    expect(ui.line("hermes")?.textContent).toContain("这次没装上，稍后再试");
+    expect(ui.line("hermes")?.textContent).not.toContain("退回旧版也没成功");
+    expect(ui.line("deepseek-harness")?.textContent).toContain("已锁定在适配好的版本");
+    expect(ui.line("qwen-code")?.textContent).toContain("已保留恢复后的原版本");
+  });
+
   it("keeps warnings whole and never claims recovery when the rollback failed", async () => {
     const ui = await mount(
       status([entry("opencode", { result: "failed", errorCode: "ROLLBACK_FAILED" })]),
@@ -156,7 +183,7 @@ describe("AI 助手 → 自动更新命令行工具 (synthetic)", () => {
       await lineText(
         entry("opencode", {
           result: "failed",
-          errorCode: "INSTALL_FAILED",
+          errorCode: "VERSION_MISMATCH",
           currentVersion: "1.0.0",
           latestVersion: "1.0.0",
         }),

@@ -10,7 +10,11 @@
     VERSION_MISMATCH: "装完的版本对不上",
     CONNECTION_NOT_READY: "新版跟 Hub 对接不上",
     ROLLBACK_FAILED: "退回旧版也没成功",
-    HOST_UNAVAILABLE: "Codex 没开着，打开 Codex 后才会检查",
+    HOST_UNAVAILABLE: "等 Codex 打开、连接检查正常后再更新",
+    BASELINE_NOT_READY: "它现在还没连上，连接正常后再更新",
+    VERSION_PINNED: "已锁定在适配好的版本",
+    COMMAND_TREE_STOP_FAILED: "安装进程还没退出，暂缓恢复",
+    CHECK_TIMEOUT: "这次检查超时，稍后再试",
     BUSY: "它正在干活，空闲后再更新",
     BAD_VERSION: "这个版本之前出过问题，已跳过",
     NOT_INSTALLED: "没有安装",
@@ -21,7 +25,7 @@
     STATE_WRITE_FAILED: "更新记录没能保存",
     INTERRUPTED: "上次更新被打断，已处理",
     DISABLED: "自动更新已关闭",
-    PERMISSION_DENIED: "没有权限改它的安装位置",
+    PERMISSION_DENIED: "原安装位置不能写，请用原来的方式更新",
   };
   // What went wrong with a new version that was rolled back, said after "新版 vX".
   const CAUSES = {
@@ -45,7 +49,6 @@
   function describe(entry, enabled) {
     const cur = v(entry.currentVersion);
     const latest = v(entry.latestVersion);
-    const bad = v(entry.badVersions && entry.badVersions[entry.badVersions.length - 1]);
     switch (entry.phase) {
       case "checking":
         return ["wait", "正在检查新版本…"];
@@ -58,19 +61,51 @@
       default:
         break;
     }
+    const pre = cur ? `${cur} · ` : "";
+    // Waiting-type reasons: nothing is broken, the next check simply tries again.
+    const WAITING = new Set([
+      "HOST_UNAVAILABLE",
+      "BASELINE_NOT_READY",
+      "CHECK_TIMEOUT",
+      "COMMAND_TREE_STOP_FAILED",
+      "INTERRUPTED",
+      "INSTALL_FAILED",
+    ]);
     switch (entry.result) {
       case "updated":
         return ["ok", `${cur} · ${ago(entry.lastUpdatedAt) || "刚刚"}自动更新过`];
       case "rolled-back":
-        return [
-          "warn",
-          `新版 ${bad} ${CAUSES[entry.causeCode] || "有问题"}，已退回 ${cur}，不再装这个版本`,
-          true,
-        ];
+        // Only a version on the skip list is called bad; a temporary failure just retries.
+        return entry.badVersions && entry.badVersions.includes(entry.latestVersion)
+          ? [
+              "warn",
+              `新版 ${latest} ${CAUSES[entry.causeCode] || "有问题"}，已退回 ${cur}，不再装这个版本`,
+              true,
+            ]
+          : ["wait", `新版这次没检查通过，已退回 ${cur}，稍后再试`];
       case "failed":
-        return entry.errorCode === "ROLLBACK_FAILED"
-          ? ["warn", "新版有问题，退回旧版也没成功，请在下面重新安装一次", true]
-          : ["warn", `${cur ? `${cur} · ` : ""}自动更新没成功：${why(entry.errorCode)}`, true];
+        if (entry.errorCode === "ROLLBACK_FAILED")
+          return [
+            "warn",
+            "新版有问题，退回旧版也没成功。请用原来的安装方式重新装一次，或在 维护 → 系统诊断 里看看",
+            true,
+          ];
+        if (entry.errorCode === "VERSION_MISMATCH" && entry.causeCode === "INTERRUPTED")
+          return ["off", `${pre}版本已在别处改过，保留现在的版本`];
+        if (entry.errorCode === "INSTALL_FAILED") return ["wait", `${pre}这次没装上，稍后再试`];
+        if (entry.errorCode === "INTERRUPTED")
+          return ["wait", `${pre}更新被中断，下次启动先检查恢复`];
+        if (
+          (entry.errorCode === "HOST_UNAVAILABLE" || entry.errorCode === "BASELINE_NOT_READY") &&
+          entry.causeCode
+        )
+          return ["wait", `${pre}旧版本已恢复，等连接检查正常`];
+        if (WAITING.has(entry.errorCode)) return ["wait", `${pre}${why(entry.errorCode)}`];
+        return ["warn", `${pre}自动更新没成功：${why(entry.errorCode)}`, true];
+      case "skipped-not-ready":
+        return ["wait", `${pre}${why(entry.errorCode || "BASELINE_NOT_READY")}`];
+      case "recovered":
+        return ["off", `${pre}已保留恢复后的原版本`];
       case "up-to-date":
         return ["ok", `${cur} · 已是最新`];
       case "skipped-busy":
@@ -78,7 +113,9 @@
       case "skipped-bad-version":
         return ["off", `${cur} · 新版 ${latest} 之前出过问题，已跳过`];
       case "skipped-unsupported":
-        return ["off", `${cur ? `${cur} · ` : ""}不自动更新：${why(entry.errorCode)}`];
+        return entry.errorCode === "VERSION_PINNED"
+          ? ["off", `${pre}${why("VERSION_PINNED")}`]
+          : ["off", `${pre}不自动更新：${why(entry.errorCode)}`];
       case "skipped-not-installed":
         return null;
       default:
