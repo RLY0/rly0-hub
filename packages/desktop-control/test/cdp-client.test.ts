@@ -174,6 +174,26 @@ describe("CDP client", () => {
     });
   });
 
+  it("bounds browser-level discovery by its signal and timeout, even if fetch ignores them", async () => {
+    const hanging: CdpFetch = () => new Promise(() => undefined);
+    await expect(
+      getCdpBrowserVersion("http://127.0.0.1:9222", hanging, { timeoutMs: 20 }),
+    ).rejects.toThrow("cancelled");
+    const abort = new AbortController();
+    let forwarded: AbortSignal | undefined;
+    const pending = getCdpBrowserVersion(
+      "http://127.0.0.1:9222",
+      (_url, init) => {
+        forwarded = init?.signal;
+        return new Promise(() => undefined);
+      },
+      { signal: abort.signal, timeoutMs: 60_000 },
+    );
+    abort.abort();
+    await expect(pending).rejects.toThrow("cancelled");
+    expect(forwarded?.aborted).toBe(true);
+  });
+
   it("forwards an abort signal to CDP target discovery", async () => {
     const abort = new AbortController();
     const fetchImpl: CdpFetch = async (url, init) => {

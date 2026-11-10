@@ -14,6 +14,14 @@
  * fallback for pages the early session missed: it installs only when no hold is present and never
  * changes an existing hold value. Nothing is stored or replayed across launches.
  *
+ * Only Codex documents (`protocol`, `app:` in production) install it: a new window is registered
+ * before its first navigation and may then load a third-party page such as a sign-in page.
+ *
+ * Diagnostics on the state object: `lateInstall` is true when the document had already parsed or
+ * run page scripts at install time (any gate message sent before that was not seen); a
+ * new-document install before the page's own scripts reports false. `source` is `early`
+ * (authoritative copy) or `fallback`; `installedAt` / `firstGateAt` are `performance.now()`.
+ *
  * Self-contained: serialized with `Function.prototype.toString` and run in full and core modes.
  * No React, DOM or Codex module access. Anything unexpected records `update-hold` in
  * `__codexhostFeatureFailuresV1` and sends nothing.
@@ -22,6 +30,7 @@ export function installCodexUpdateHold(
   root: Record<string, unknown>,
   hold: boolean,
   override: boolean,
+  protocol: string = "app:",
 ): boolean {
   const STATE_KEY = "__codexhostUpdateHoldV1";
   const MESSAGE_TYPE = "electron-sparkle-gates-changed";
@@ -31,12 +40,39 @@ export function installCodexUpdateHold(
     observed: number;
     sent: number;
     error: string | null;
+    lateInstall: boolean;
+    source: "early" | "fallback";
+    installedAt: number | null;
+    firstGateAt: number | null;
     setHold(value: boolean): void;
   }
+  let pageProtocol: unknown;
+  try {
+    pageProtocol = (root.location as { protocol?: unknown } | undefined)?.protocol;
+  } catch {
+    pageProtocol = undefined;
+  }
+  if (pageProtocol !== protocol) return false;
   const existing = root[STATE_KEY] as Partial<HoldState> | undefined;
   if (existing && typeof existing.setHold === "function") {
     if (override) existing.setHold(hold);
     return true;
+  }
+  const clock = (): number | null => {
+    try {
+      const value = (root.performance as { now?: () => number } | undefined)?.now?.();
+      return typeof value === "number" ? Math.round(value) : null;
+    } catch {
+      return null;
+    }
+  };
+  let lateInstall = true;
+  try {
+    const document = root.document as
+      { readyState?: unknown; scripts?: { length?: unknown } } | undefined;
+    lateInstall = !(document?.readyState === "loading" && document.scripts?.length === 0);
+  } catch {
+    lateInstall = true;
   }
   let last: Gates | null = null;
   const state: HoldState = {
@@ -44,6 +80,10 @@ export function installCodexUpdateHold(
     observed: 0,
     sent: 0,
     error: null,
+    lateInstall,
+    source: override ? "early" : "fallback",
+    installedAt: clock(),
+    firstGateAt: null,
     setHold: () => undefined,
   };
   const fail = (reason: string): void => {
@@ -121,6 +161,7 @@ export function installCodexUpdateHold(
           return;
         }
         state.observed += 1;
+        state.firstGateAt ??= clock();
         last = message;
         if (state.hold) send(message);
       } catch {
@@ -134,8 +175,30 @@ export function installCodexUpdateHold(
 }
 
 /** Authoritative copy: installs, or sets the hold of an installed page. */
-export function codexUpdateHoldScript(hold: boolean): string {
-  return `(${installCodexUpdateHold.toString()})(globalThis, ${hold === true}, true);`;
+export function codexUpdateHoldScript(hold: boolean, protocol = "app:"): string {
+  return `(${installCodexUpdateHold.toString()})(globalThis, ${hold === true}, true, ${JSON.stringify(protocol)});`;
+}
+
+/** Page diagnostics returned by `codexUpdateHoldProbeExpression` (no URL or page content). */
+export interface CodexUpdateHoldProbe {
+  /** The document is a Codex page (`protocol`). */
+  codex: boolean;
+  installed: boolean;
+  lateInstall: boolean | null;
+  source: "early" | "fallback" | null;
+  observed: number;
+  sent: number;
+  error: string | null;
+  installedAt: number | null;
+  firstGateAt: number | null;
+}
+
+/**
+ * Installs the authoritative copy when a Codex document has none (its new-document script did not
+ * run, so it reports `lateInstall`), then returns the page's hold diagnostics.
+ */
+export function codexUpdateHoldProbeExpression(hold: boolean, protocol = "app:"): string {
+  return `(() => { try { ${codexUpdateHoldScript(hold, protocol)} } catch {} const codex = (() => { try { return globalThis.location.protocol === ${JSON.stringify(protocol)}; } catch { return false; } })(); const state = globalThis.__codexhostUpdateHoldV1; const ok = !!state && typeof state.setHold === "function"; const num = (value) => (typeof value === "number" ? value : null); return { codex, installed: ok, lateInstall: ok && typeof state.lateInstall === "boolean" ? state.lateInstall : null, source: ok && (state.source === "early" || state.source === "fallback") ? state.source : null, observed: ok ? num(state.observed) ?? 0 : 0, sent: ok ? num(state.sent) ?? 0 : 0, error: ok && typeof state.error === "string" ? state.error : null, installedAt: ok ? num(state.installedAt) : null, firstGateAt: ok ? num(state.firstGateAt) : null }; })()`;
 }
 
 /** Bundled with the full/core injection: installs only when the page has no hold yet. */

@@ -32,13 +32,18 @@ export interface DesktopControllerStatusDocument {
 }
 
 export const DESKTOP_CONTROLLER_STATUS_FILE = "desktop-controller-v1.json";
+/** Early update hold diagnostics (`EarlyHoldDiagnostics` plus pid/startedAt/updatedAt). */
+export const CODEX_UPDATE_HOLD_DIAGNOSTICS_FILE = "codex-update-hold-v1.json";
 const ERROR_MAX_LENGTH = 1_000;
 
-export function defaultControllerStatusPath(environment: NodeJS.ProcessEnv = process.env): string {
+export function defaultControllerStatusPath(
+  environment: NodeJS.ProcessEnv = process.env,
+  fileName: string = DESKTOP_CONTROLLER_STATUS_FILE,
+): string {
   const dataDirectory = environment.CODEXHOST_DATA_DIR
     ? path.resolve(environment.CODEXHOST_DATA_DIR)
     : path.join(os.homedir(), ".codexhost");
-  return path.join(dataDirectory, "diagnostics", DESKTOP_CONTROLLER_STATUS_FILE);
+  return path.join(dataDirectory, "diagnostics", fileName);
 }
 
 function errorMessage(error: unknown): string {
@@ -137,7 +142,7 @@ export function createRendererStatusReporter(
 
 export async function writeControllerStatusFile(
   filePath: string,
-  document: DesktopControllerStatusDocument,
+  document: DesktopControllerStatusDocument | Record<string, unknown>,
 ): Promise<void> {
   const directory = path.dirname(filePath);
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -162,6 +167,16 @@ export async function writeControllerStatusFile(
 export function createControllerStatusPublisher(
   filePath: string = defaultControllerStatusPath(),
 ): (document: DesktopControllerStatusDocument) => void {
+  let queue = Promise.resolve();
+  return (document) => {
+    queue = queue.then(() => writeControllerStatusFile(filePath, document)).catch(() => undefined);
+  };
+}
+
+/** Same atomic, serialized writes for the early update hold diagnostics document. */
+export function createHoldDiagnosticsPublisher(
+  filePath: string = defaultControllerStatusPath(process.env, CODEX_UPDATE_HOLD_DIAGNOSTICS_FILE),
+): (document: Record<string, unknown>) => void {
   let queue = Promise.resolve();
   return (document) => {
     queue = queue.then(() => writeControllerStatusFile(filePath, document)).catch(() => undefined);

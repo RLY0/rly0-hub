@@ -165,14 +165,35 @@ function parseResponse(value: unknown): CdpResponse | null {
   return response;
 }
 
+/** `signal` cancels the request; `timeoutMs` bounds it (including reading the body). */
 export async function getCdpBrowserVersion(
   endpoint: string,
   fetchImpl: CdpFetch = defaultFetch,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<CdpBrowserVersion> {
   const baseUrl = loopbackUrl(endpoint, ["http:", "https:"]);
-  const response = await fetchImpl(new URL("/json/version", baseUrl).toString());
-  if (!response.ok) throw new Error(`CDP version discovery failed with HTTP ${response.status}`);
-  const value = await response.json();
+  const signals = [
+    ...(options.signal ? [options.signal] : []),
+    ...(options.timeoutMs !== undefined ? [AbortSignal.timeout(options.timeoutMs)] : []),
+  ];
+  const signal = signals.length > 0 ? AbortSignal.any(signals) : undefined;
+  const value = await new Promise<unknown>((resolve, reject) => {
+    // Also settles when an injected fetch ignores the signal.
+    const onAbort = (): void => reject(new Error("CDP version discovery was cancelled"));
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void (async () => {
+      const response = await fetchImpl(
+        new URL("/json/version", baseUrl).toString(),
+        signal ? { signal } : undefined,
+      );
+      if (!response.ok)
+        throw new Error(`CDP version discovery failed with HTTP ${response.status}`);
+      return response.json();
+    })()
+      .then(resolve, reject)
+      .finally(() => signal?.removeEventListener("abort", onAbort));
+  });
   if (!isRecord(value)) throw new Error("CDP version discovery did not return an object");
   const version = {
     browser: nonEmptyString(value.Browser, "Browser"),

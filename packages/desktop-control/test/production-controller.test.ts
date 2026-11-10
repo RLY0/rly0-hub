@@ -701,6 +701,81 @@ it("starts the early update hold before any page session, forwards hold changes,
   expect(earlySignal?.aborted).toBe(true);
 });
 
+it("safe stops the early hold; returning to core starts a new one only after the old one finished", async () => {
+  const abort = new AbortController();
+  const runs: { signal: AbortSignal; after?: Promise<void>; finish: () => void }[] = [];
+  const documents: Record<string, unknown>[] = [];
+  const session: RendererCdpControlSession = {
+    snapshot: controllerSnapshot(),
+    ensureInstalled: vi.fn(async () => controllerSnapshot()),
+    activateDesktop: vi.fn(async () => 1),
+    executeRenderer: vi.fn(async () => true as never),
+    close: vi.fn(),
+    dispose: vi.fn(async () => undefined),
+  };
+  let mode: "core" | "safe" = "core";
+  let ticks = 0;
+  const realSetInterval = globalThis.setInterval;
+  const intervals: (() => void)[] = [];
+  vi.stubGlobal("setInterval", (callback: () => void) => {
+    intervals.push(callback);
+    return realSetInterval(() => undefined, 1_000_000);
+  });
+  const switchTo = async (next: "core" | "safe") => {
+    mode = next;
+    for (const callback of intervals.splice(0)) callback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  try {
+    await runDesktopController(controllerOptions(), abort.signal, {
+      readPolicy: async () => ({ schemaVersion: 1, mode, disabled: [], holdUpdates: true }),
+      install: vi.fn(),
+      readRenderer: vi.fn(),
+      installCore: vi.fn(async () => session),
+      startEarlyHold: (options) => {
+        let finish: () => void = () => undefined;
+        const finished = new Promise<void>((resolve) => (finish = resolve));
+        options.signal.addEventListener("abort", () => setTimeout(finish, 5), { once: true });
+        options.onDiagnostics?.({
+          state: "attached",
+          connections: 1,
+          firstAttachedAt: 1,
+          mainWindow: null,
+          holdBeforePageScripts: null,
+          codexPages: 0,
+        });
+        runs.push({
+          signal: options.signal,
+          ...(options.after ? { after: options.after } : {}),
+          finish,
+        });
+        return { state: () => "attached", setHold: vi.fn(async () => undefined), finished };
+      },
+      publishHoldDiagnostics: (document) => documents.push(document),
+      startAttachmentServer: async () => attachmentServer(),
+      ready: vi.fn(),
+      sleep: async () => {
+        ticks += 1;
+        if (ticks === 2) await switchTo("safe");
+        if (ticks === 4) await switchTo("core");
+        if (ticks > 6) abort.abort();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+      monitorIntervalMs: 1,
+    });
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  expect(runs).toHaveLength(2);
+  expect(runs[0]?.signal.aborted).toBe(true);
+  // The second run waits for the first one's release and close.
+  let firstDone = false;
+  await runs[1]?.after?.then(() => (firstDone = true));
+  expect(firstDone).toBe(true);
+  expect(runs[1]?.signal.aborted).toBe(true);
+  expect(documents[0]).toMatchObject({ schemaVersion: 1, state: "attached", pid: process.pid });
+});
+
 it("does not start the early update hold in safe mode", async () => {
   const abort = new AbortController();
   const startEarlyHold = vi.fn();

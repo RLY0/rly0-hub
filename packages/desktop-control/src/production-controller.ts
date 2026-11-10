@@ -28,6 +28,7 @@ import {
 } from "./controller-attachment-server.js";
 import {
   createControllerStatusPublisher,
+  createHoldDiagnosticsPublisher,
   createRendererStatusReporter,
   type DesktopControllerStatusDocument,
 } from "./controller-status.js";
@@ -85,6 +86,8 @@ export interface DesktopControllerDependencies {
    * Absent: only the hold bundled with the page injection applies.
    */
   startEarlyHold?(options: EarlyUpdateHoldOptions): EarlyUpdateHold;
+  /** Writes the early hold diagnostics (`codex-update-hold-v1.json`) for the next live check. */
+  publishHoldDiagnostics?(document: Record<string, unknown>): void;
   monitorIntervalMs: number;
 }
 
@@ -151,6 +154,7 @@ const defaultDependencies: DesktopControllerDependencies = {
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   bringToFront: bringRendererToFront,
   startEarlyHold: startEarlyUpdateHold,
+  publishHoldDiagnostics: createHoldDiagnosticsPublisher(),
   monitorIntervalMs: 500,
 };
 
@@ -302,6 +306,9 @@ export async function runDesktopController(
   const live: LiveUpdateHold = { holdUpdates: policy.holdUpdates === true };
   // Started before any page session and kept across policy transitions; safe mode injects nothing.
   let early: { hold: EarlyUpdateHold; stop: AbortController } | undefined;
+  // The previous run's stop (release and close) completes before a new auto-attach starts.
+  let previous: Promise<void> = Promise.resolve();
+  const startedAt = Date.now();
   const syncEarlyHold = (): void => {
     const wanted = !options.noRenderer && policy.mode !== "safe" && !!dependencies.startEarlyHold;
     if (wanted && !early && dependencies.startEarlyHold) {
@@ -312,9 +319,19 @@ export async function runDesktopController(
           rendererCdpEndpoint: options.rendererCdpEndpoint,
           hold: live.holdUpdates,
           signal: AbortSignal.any([signal, stop.signal]),
+          after: previous,
+          onDiagnostics: (diagnostics) =>
+            dependencies.publishHoldDiagnostics?.({
+              schemaVersion: 1,
+              pid: process.pid,
+              startedAt,
+              updatedAt: Date.now(),
+              ...diagnostics,
+            }),
           trace: (stage) => startupTrace(stage),
         }),
       };
+      previous = early.hold.finished.catch(() => undefined);
     } else if (!wanted && early) {
       early.stop.abort();
       early = undefined;
@@ -338,7 +355,7 @@ export async function runDesktopController(
     );
   } finally {
     early?.stop.abort();
-    await early?.hold.finished;
+    await previous;
   }
 }
 

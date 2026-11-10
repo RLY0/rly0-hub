@@ -2,6 +2,7 @@ import { runInNewContext } from "node:vm";
 import { expect, it } from "vitest";
 import {
   codexUpdateHoldFallbackScript,
+  codexUpdateHoldProbeExpression,
   codexUpdateHoldPushExpression,
   codexUpdateHoldScript,
 } from "../src/codex-update-hold.js";
@@ -27,11 +28,22 @@ const realGates = (overrides: Record<string, unknown> = {}) => ({
   type: "electron-sparkle-gates-changed",
 });
 
-function page(options: { bridge?: boolean; storage?: Map<string, string>; reject?: boolean } = {}) {
+function page(
+  options: {
+    bridge?: boolean;
+    storage?: Map<string, string>;
+    reject?: boolean;
+    protocol?: string;
+    document?: unknown;
+  } = {},
+) {
   const listeners: ((event: unknown) => void)[] = [];
   const sent: Record<string, unknown>[] = [];
   const storage = options.storage ?? new Map<string, string>();
   const context: Record<string, unknown> = {
+    location: { protocol: options.protocol ?? "app:" },
+    ...(options.document ? { document: options.document } : {}),
+    performance: { now: () => 12.4 },
     addEventListener: (type: string, listener: (event: unknown) => void) => {
       if (type === "codex-message-from-view") listeners.push(listener);
     },
@@ -127,7 +139,7 @@ it("an unknown gate shape or missing bridge sends nothing and records a feature 
 it("a page without an event target records the failure instead of throwing", () => {
   const failures = runInNewContext(
     `${codexUpdateHoldScript(true)}; globalThis.__codexhostFeatureFailuresV1`,
-    { Promise, JSON, Object, Array },
+    { location: { protocol: "app:" }, Promise, JSON, Object, Array },
   );
   expect(failures).toEqual(["update-hold"]);
 });
@@ -189,6 +201,7 @@ it("installs once; a hold turned on while running re-sends the last observed mes
 it("core mode installs the hold before its passive data bridge and survives its failure", () => {
   const events: string[] = [];
   const context = {
+    location: { protocol: "app:" },
     dispatchEvent: (event: { type: string }) => events.push(event.type),
     CustomEvent: class {
       constructor(readonly type: string) {}
@@ -209,4 +222,58 @@ it("core mode installs the hold before its passive data bridge and survives its 
   expect(runInNewContext("globalThis.__codexhostFeatureFailuresV1", context)).toEqual([
     "update-hold",
   ]);
+});
+
+it("installs only in Codex documents: a window that navigated to a sign-in page gets nothing", () => {
+  for (const protocol of ["https:", "about:", "http:"]) {
+    const p = page({ protocol });
+    expect(p.run(codexUpdateHoldScript(true))).toBe(false);
+    expect(p.run(codexUpdateHoldFallbackScript(true))).toBe(false);
+    expect(p.run("globalThis.__codexhostUpdateHoldV1")).toBeUndefined();
+    expect(p.run("globalThis.__codexhostFeatureFailuresV1")).toBeUndefined();
+  }
+  // Tests on a plain browser pass their own protocol.
+  expect(page({ protocol: "http:" }).run(codexUpdateHoldScript(true, "http:"))).toBe(true);
+});
+
+it("reports whether the hold was installed before the document's own scripts", async () => {
+  const early = page({ document: { readyState: "loading", scripts: { length: 0 } } });
+  early.run(codexUpdateHoldScript(true));
+  expect(early.state()).toMatchObject({
+    lateInstall: false,
+    source: "early",
+    installedAt: 12,
+    firstGateAt: null,
+  });
+  early.view(realGates());
+  await settle();
+  expect(early.state()).toMatchObject({ firstGateAt: 12, observed: 1, sent: 1 });
+
+  const late = page({ document: { readyState: "complete", scripts: { length: 4 } } });
+  late.run(codexUpdateHoldFallbackScript(true));
+  expect(late.state()).toMatchObject({ lateInstall: true, source: "fallback" });
+  const parsing = page({ document: { readyState: "loading", scripts: { length: 2 } } });
+  parsing.run(codexUpdateHoldScript(true));
+  expect(parsing.state()).toMatchObject({ lateInstall: true });
+});
+
+it("the probe late-installs a document whose new-document script never ran and reports it", () => {
+  const p = page({ document: { readyState: "complete", scripts: { length: 3 } } });
+  expect(p.run(codexUpdateHoldProbeExpression(true))).toEqual({
+    codex: true,
+    installed: true,
+    lateInstall: true,
+    source: "early",
+    observed: 0,
+    sent: 0,
+    error: null,
+    installedAt: 12,
+    firstGateAt: null,
+  });
+  const blank = page({ protocol: "about:" });
+  expect(blank.run(codexUpdateHoldProbeExpression(true))).toMatchObject({
+    codex: false,
+    installed: false,
+    lateInstall: null,
+  });
 });

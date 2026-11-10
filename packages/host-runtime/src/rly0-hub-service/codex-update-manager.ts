@@ -77,6 +77,11 @@ export interface CodexUpdateStatus {
   unsupportedReason?: CodexUpdateUnsupportedReason;
   /** Present only while the Hub is reopening a Codex it closed (other requests wait for it). */
   reopening?: true;
+  /**
+   * Present only with error CODEX_REOPEN_FAILED once the Hub has stopped retrying (30 minutes
+   * after the first failed pass): the person has to open Codex. Absent while retries continue.
+   */
+  reopenGivenUp?: true;
   noticePending: boolean;
   phase: CodexUpdatePhase;
   currentVersion: string | null;
@@ -97,6 +102,11 @@ const ACTIVE = new Set<CodexUpdatePhase>([
   "installing",
   "health-check",
 ]);
+class ReopenInterrupted extends Error {
+  constructor() {
+    super("reopen interrupted by stop");
+  }
+}
 /** One serialized state machine. No unbounded waits inside an RPC or the five-minute alert check. */
 export class CodexUpdateManager {
   #settings: CodexUpdateSettings = { defaulted: false, enabled: true };
@@ -120,6 +130,9 @@ export class CodexUpdateManager {
   #reopenRetryAt = 0;
   #reopenFailingSince: number | null = null;
   #reopening = false;
+  #reopenGivenUp = false;
+  /** Resolved by stop(): interrupts a reopen pass waiting between its bounded polls. */
+  #stopWake: { promise: Promise<void>; resolve: () => void } = CodexUpdateManager.#wake();
   #quitReason: "background" | "install" | "recovery" = "install";
   #retryAt = 0;
   #retryStatus: { phase: "failed" | "up-to-date"; error: CodexUpdateError } = {
@@ -261,13 +274,22 @@ export class CodexUpdateManager {
       this.options.sleep ?? ((delay) => new Promise((resolve) => setTimeout(resolve, delay)))
     )(ms);
   }
-  /** Polls until the condition holds or the bounded wait ends; never waits without a limit. */
+  static #wake(): { promise: Promise<void>; resolve: () => void } {
+    let resolve = (): void => undefined;
+    const promise = new Promise<void>((done) => (resolve = done));
+    return { promise, resolve };
+  }
+  /**
+   * Polls until the condition holds or the bounded wait ends; never waits without a limit. A stop
+   * interrupts it (ReopenInterrupted) so shutdown does not queue behind a reopen pass.
+   */
   async #waitFor(condition: () => Promise<boolean>, timeoutMs: number): Promise<boolean> {
     const started = this.#now();
     for (;;) {
+      if (this.#stopped) throw new ReopenInterrupted();
       if (await condition()) return true;
       if (this.#now() - started >= timeoutMs) return false;
-      await this.#sleep(REOPEN_POLL_MS);
+      await Promise.race([this.#sleep(REOPEN_POLL_MS), this.#stopWake.promise]);
     }
   }
   /**
@@ -293,6 +315,9 @@ export class CodexUpdateManager {
         ? { unsupportedReason: this.options.unsupportedReason }
         : {}),
       ...(this.#reopening ? { reopening: true as const } : {}),
+      ...(this.#reopenGivenUp && this.#error === "CODEX_REOPEN_FAILED"
+        ? { reopenGivenUp: true as const }
+        : {}),
       noticePending: this.#settings.defaulted && this.#settings.noticeAcknowledged !== true,
       phase: this.#phase,
       currentVersion: this.#current,
@@ -387,6 +412,7 @@ export class CodexUpdateManager {
   }
   start(): Promise<CodexUpdateStatus> {
     this.#stopped = false;
+    this.#stopWake = CodexUpdateManager.#wake();
     this.#timer ??= setInterval(() => {
       if (ACTIVE.has(this.#phase) || this.#closedByHub) void this.tick();
     }, 2000);
@@ -395,6 +421,7 @@ export class CodexUpdateManager {
   }
   stop(): Promise<void> {
     this.#stopped = true;
+    this.#stopWake.resolve();
     clearInterval(this.#timer);
     this.#timer = undefined;
     return this.#serial(async () => {
@@ -626,11 +653,13 @@ export class CodexUpdateManager {
   }
   async #reopened() {
     this.#closedByHub = false;
+    this.#reopenGivenUp = false;
     this.#reopenRetryAt = 0;
     this.#reopenFailingSince = null;
     await fs.rm(this.#sessionFile(), { force: true });
   }
   #reopenFailed() {
+    if (this.#reopenFailingSince === null) this.#reopenGivenUp = false;
     this.#reopenFailingSince ??= this.#now();
     this.#fail("CODEX_REOPEN_FAILED");
     if (this.#now() - this.#reopenFailingSince < REOPEN_GIVE_UP_MS) {
@@ -639,6 +668,7 @@ export class CodexUpdateManager {
       return;
     }
     // Give up (a version that crashes on launch must not be started forever); keep the error.
+    this.#reopenGivenUp = true;
     this.#closedByHub = false;
     this.#reopenRetryAt = 0;
     this.#reopenFailingSince = null;
@@ -666,8 +696,9 @@ export class CodexUpdateManager {
       );
       if (result === "running") await this.#reopened();
       else if (result === "failed") this.#reopenFailed();
-    } catch {
-      this.#reopenFailed();
+    } catch (error) {
+      // Interrupted by stop(): the shutdown path issues its own start; not a failed pass.
+      if (!(error instanceof ReopenInterrupted)) this.#reopenFailed();
     } finally {
       this.#reopening = false;
     }

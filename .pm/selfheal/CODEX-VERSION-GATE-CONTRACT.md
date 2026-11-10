@@ -217,3 +217,55 @@ v4“研究结论”中“值为 true 时立即触发后台检查”只适用旧
 - 新文档脚本在 Codex 真实页面中先于 webview 异步块运行，首条 gate 消息被纠正；SUAutomaticallyUpdate 保持 0、不下载、不弹“重启以应用策略”。
 - 重开：正式 Launcher 在 Gatekeeper 校验新包时的 `ps` 形态与耗时；30 分钟放弃后的提示。
 
+
+## v6（Claude，2026-11-10）：第六轮复查修复
+
+基线 6d45a727。依据 CODEX-VERSION-GATE-REVIEW-6.md。仅 self_verified（隔离离线测试 + 临时无头 Google Chrome 157 集成测试），未经独立复查与 Codex 真机验收。RPC 方法、phase、错误码不变；status 新增一个可选字段（见“交 Claude”）。Launcher（Rust）未改。
+
+### 暂停目标一定放行（#1）
+
+- Chrome 157 实测：`waitForDebuggerOnStart` 暂停的目标在**断开连接、detach、`setAutoAttach{autoAttach:false}`**（它会 detach 所有自动附着会话）之后都不会被自动放行，窗口一直空白；重连时 `setAutoAttach` 把它报成 `waitingForDebugger:false`；对它（重新附着后）发一次 `Runtime.runIfWaitingForDebugger` 立即恢复。
+- 现行为：每个附着到的目标（含 `waitingForDebugger:false`）在准备结束后一律发放行；放行成功前记在本连接的“未确认放行”表中。
+- 主动停止（controller 退出、切 safe、附着失败、连接断开后的清理）：先 `Target.setAutoAttach{autoAttach:false, waitForDebuggerOnStart:false, flatten:true}`（浏览器级必须带 flatten），再对“未确认放行”表中每个目标 `Target.attachToTarget{flatten:true}` → `Runtime.runIfWaitingForDebugger` → `Target.detachFromTarget`，最后关闭连接。停止期间新报到的附着也只放行并 detach。
+- 每条 CDP 命令 2 秒超时（`commandTimeoutMs`），准备阶段 2 秒（`releaseTimeoutMs`）；全部命令卡住时停止也会结束。
+- **残留风险**：controller 进程被强杀时没有机会放行；暂停窗口只有准备阶段（毫秒级到最多 2 秒），被卡住的窗口要等下一个 controller 连上（重连路径会放行）。
+
+### 中止与串行（#2）
+
+- `connectBrowser(endpoint, signal)`：`/json/version` 带 signal 与 2 秒超时（`getCdpBrowserVersion` 新增第三个参数 `{signal, timeoutMs}`，注入的 fetch 不理 signal 时也会结束）；连接返回后若已中止，直接关闭、不发任何命令。
+- controller 每次启动新一轮自动附着时传入 `after`（上一轮的 `finished`），上一轮停完（放行 + 关闭）后才连接；退出时等待最后一轮结束。safe → full 不会同时存在两条自动附着。
+
+### 主窗口是否先于页面脚本（#3）
+
+- Chrome 157 实测（`early-update-hold.chromium.test.ts`）：`window.open` 打开的新窗口附着时 URL 为空、暂停，hold 新文档脚本先于页面脚本运行（`holdBeforePage:true`，首条 gate 被纠正）。`Target.createTarget`（同一连接或另一连接）与 `/json/new` 带 URL：附着报 `waitingForDebugger:true` 但页面脚本已跑过，新文档脚本对当前文档不再运行。tab 级附着（浏览器层 `filter:[{type:"tab"}]`，tab 会话再 `setAutoAttach`）对这三种方式同样无效（page 报 `waiting:false`，脚本已跑），**不采用，保持浏览器级附着**。
+- Codex 主窗口由主进程 `BrowserWindow.loadURL` 创建，更接近 createTarget（浏览器发起）还是 window.open，需真机确认。
+- 补救：放行后立即探测页面；Codex 文档中没有 hold 时立即补装（权威副本，`lateInstall:true`）。
+- hold 状态对象新增诊断字段：`lateInstall`（安装时文档已解析或运行过页面脚本：`document.readyState!=="loading"` 或已有 `<script>`）、`source`（`early`/`fallback`）、`installedAt`、`firstGateAt`（`performance.now()` 取整）。“首条 gate 是否早于安装”无法在页面内直接观测（安装前的事件不可见），以 `lateInstall` 作为必要条件判断。
+- controller 写 `<CODEXHOST_DATA_DIR 或 ~/.codexhost>/diagnostics/codex-update-hold-v1.json`（原子写，0600）：
+
+```json
+{ "schemaVersion": 1, "pid": 123, "startedAt": 0, "updatedAt": 0,
+  "state": "attached", "connections": 1, "firstAttachedAt": 0, "codexPages": 1,
+  "holdBeforePageScripts": true,
+  "mainWindow": { "waitingAtAttach": true, "attachedUrl": "empty", "installed": true,
+    "lateInstall": false, "source": "early", "observed": 1, "sent": 1, "error": null,
+    "installedAt": 4, "firstGateAt": 5 } }
+```
+
+  `state`：connecting/attached/stopped；`attachedUrl`：empty/about:blank/codex（不含 URL）；`mainWindow` 为第一个 Codex 文档；`holdBeforePageScripts`：true=早期会话在主窗口页面脚本前装上（首条 gate 可纠正），false=晚装，null=未知。下次真机实测直接读此文件判断 B1 对主窗口是否有效；若为 false，需改由 Launcher 先起 controller 或开放主进程（另立工单）。
+
+### 其他
+
+- #4：hold 脚本先判 `location.protocol === "app:"`（第四个参数，默认 `app:`，仅测试改用 `http:`），非 Codex 文档（登录页、about:blank）不安装、不记失败。
+- #6：manager `stop()` 打断正在轮询的重开（每次轮询前检查停止，轮询等待与停止信号竞速）；被打断的一轮不计失败，随后按停服规则最多发一次启动。
+- #5（后台）：见下。
+
+### 交 Claude（界面，本轮未改 apps/hub-desktop/www）
+
+- status 新增可选 `reopenGivenUp: true`：仅当 `error === "CODEX_REOPEN_FAILED"` 且 Hub 已放弃重试（第一次失败起满 30 分钟）时出现。缺失时 `CODEX_REOPEN_FAILED` 表示“仍在每 60 秒重试”，建议文案“重新打开 Codex 失败，正在重试…”；出现时建议“已停止自动重新打开，请手动打开 Codex”。错误码不变。
+
+### 仍需真机
+
+- Codex 主窗口（loadURL）附着时是否暂停、URL 为空还是 app://，`codex-update-hold-v1.json` 中 `holdBeforePageScripts` 的实际值。
+- controller 被强杀后 Launcher 是否重起 controller（决定被卡窗口能否自动恢复）。
+- 上轮 v5“仍需真机”各项仍然有效。

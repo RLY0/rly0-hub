@@ -2042,8 +2042,40 @@ describe("fifth review fixes (synthetic commands only)", () => {
       f.advance(61_000);
     }
     expect(vi.mocked(f.driver.reopen).mock.calls.length).toBe(calls);
-    expect(f.manager.status()).toMatchObject({ phase: "failed", error: "CODEX_REOPEN_FAILED" });
+    expect(f.manager.status()).toMatchObject({
+      phase: "failed",
+      error: "CODEX_REOPEN_FAILED",
+      reopenGivenUp: true,
+    });
     expect(await exists(sessionFile(f))).toBe(false);
+  });
+
+  it("review 6 #5: retries in progress do not report reopenGivenUp", async () => {
+    const f = await closedAndNotComingBack();
+    const status = await f.manager.tick();
+    expect(status.error).toBe("CODEX_REOPEN_FAILED");
+    expect(status).not.toHaveProperty("reopenGivenUp");
+  });
+
+  it("review 6 #6: stop() interrupts a reopen pass waiting between polls", async () => {
+    const f = await closedAndNotComingBack();
+    f.driver.launcherRunning = vi.fn(async () => true); // An exiting Launcher: the pass polls.
+    let polls = 0;
+    f.sleep.mockImplementation(() => {
+      polls += 1;
+      return new Promise<void>(() => undefined); // A poll that would otherwise never end.
+    });
+    const ticking = f.manager.tick();
+    for (let index = 0; index < 50 && polls === 0; index += 1)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(polls).toBe(1);
+    expect(f.manager.status().reopening).toBe(true);
+    await f.manager.stop();
+    const after = await ticking;
+    // Interrupted, not a failed pass; the shutdown start rule applies (Launcher busy: no start).
+    expect(after.error).not.toBe("CODEX_REOPEN_FAILED");
+    expect(f.driver.reopen).not.toHaveBeenCalled();
+    expect(await exists(sessionFile(f))).toBe(true);
   });
 
   it("L5: a failed hold publication in setEnabled is reported and recomputed by the next check", async () => {
