@@ -168,6 +168,35 @@ describe("AI 助手 → 自动更新命令行工具 (synthetic)", () => {
     expect(ui.line("qwen-code")?.textContent).toContain("已保留恢复后的原版本");
   });
 
+  it("follows contract v3: pending recovery, restored original, install timeout, kept version", async () => {
+    const ui = await mount(
+      status([
+        entry("pi", { result: "skipped-busy", latestVersion: "1.1.0", recoveryPending: true }),
+        entry("opencode", {
+          result: "failed",
+          errorCode: "CHECK_TIMEOUT",
+          currentVersion: "1.0.0",
+          previousVersion: "1.0.0",
+        }),
+        entry("hermes", {
+          result: "failed",
+          errorCode: "INSTALL_TIMEOUT",
+          currentVersion: "2.0.0",
+          previousVersion: "2.0.0",
+        }),
+        entry("grok", { result: "recovered", currentVersion: "1.2.0", previousVersion: "1.1.0" }),
+        entry("copilot", { result: "failed", errorCode: "PRE_UPDATE_VERSION_MISMATCH" }),
+      ]),
+    );
+    expect(ui.line("pi")?.textContent).toContain("上次更新还没收尾");
+    expect(ui.line("pi")?.textContent).not.toContain("有新版");
+    expect(ui.line("opencode")?.textContent).toContain("旧版本已恢复，等连接检查正常");
+    expect(ui.line("hermes")?.textContent).toContain("这次安装超时，已保留原版本");
+    expect(ui.line("grok")?.textContent).toContain("新版检查正常，已保留");
+    expect(ui.line("copilot")?.textContent).toContain("更新前版本已经变了");
+    expect(ui.line("copilot")?.textContent).not.toContain("装完");
+  });
+
   it("keeps warnings whole and never claims recovery when the rollback failed", async () => {
     const ui = await mount(
       status([entry("opencode", { result: "failed", errorCode: "ROLLBACK_FAILED" })]),

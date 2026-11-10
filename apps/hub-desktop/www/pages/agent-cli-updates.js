@@ -26,6 +26,9 @@
     INTERRUPTED: "上次更新被打断，已处理",
     DISABLED: "自动更新已关闭",
     PERMISSION_DENIED: "原安装位置不能写，请用原来的方式更新",
+    INSTALL_TIMEOUT: "这次安装超时，下次检查再试",
+    INSTALL_FILE_BUSY: "安装文件可能被占用，请关掉在外面开着的这个工具后再试",
+    PRE_UPDATE_VERSION_MISMATCH: "更新前版本已经变了，这次跳过",
   };
   // What went wrong with a new version that was rolled back, said after "新版 vX".
   const CAUSES = {
@@ -62,6 +65,12 @@
         break;
     }
     const pre = cur ? `${cur} · ` : "";
+    // The original version is back and nothing is left to recover (contract v3).
+    const restored =
+      !entry.recoveryPending &&
+      Boolean(entry.previousVersion) &&
+      entry.currentVersion === entry.previousVersion;
+    if (entry.recoveryPending) return ["wait", `${pre}上次更新还没收尾，等它空闲后处理`];
     // Waiting-type reasons: nothing is broken, the next check simply tries again.
     const WAITING = new Set([
       "HOST_UNAVAILABLE",
@@ -70,6 +79,8 @@
       "COMMAND_TREE_STOP_FAILED",
       "INTERRUPTED",
       "INSTALL_FAILED",
+      "INSTALL_TIMEOUT",
+      "INSTALL_FILE_BUSY",
     ]);
     switch (entry.result) {
       case "updated":
@@ -82,7 +93,9 @@
               `新版 ${latest} ${CAUSES[entry.causeCode] || "有问题"}，已退回 ${cur}，不再装这个版本`,
               true,
             ]
-          : ["wait", `新版这次没检查通过，已退回 ${cur}，稍后再试`];
+          : entry.causeCode === "CHECK_TIMEOUT"
+            ? ["wait", `已退回 ${cur}，这次检查超时，稍后再试`]
+            : ["wait", `新版这次没检查通过，已退回 ${cur}，稍后再试`];
       case "failed":
         if (entry.errorCode === "ROLLBACK_FAILED")
           return [
@@ -92,12 +105,21 @@
           ];
         if (entry.errorCode === "VERSION_MISMATCH" && entry.causeCode === "INTERRUPTED")
           return ["off", `${pre}版本已在别处改过，保留现在的版本`];
+        if (entry.errorCode === "PRE_UPDATE_VERSION_MISMATCH")
+          return ["off", `${pre}${why("PRE_UPDATE_VERSION_MISMATCH")}`];
         if (entry.errorCode === "INSTALL_FAILED") return ["wait", `${pre}这次没装上，稍后再试`];
+        if (entry.errorCode === "INSTALL_TIMEOUT")
+          return [
+            "wait",
+            restored
+              ? `${pre}这次安装超时，已保留原版本，下次检查再试`
+              : `${pre}${why("INSTALL_TIMEOUT")}`,
+          ];
         if (entry.errorCode === "INTERRUPTED")
           return ["wait", `${pre}更新被中断，下次启动先检查恢复`];
         if (
-          (entry.errorCode === "HOST_UNAVAILABLE" || entry.errorCode === "BASELINE_NOT_READY") &&
-          entry.causeCode
+          restored &&
+          ["HOST_UNAVAILABLE", "BASELINE_NOT_READY", "CHECK_TIMEOUT"].includes(entry.errorCode)
         )
           return ["wait", `${pre}旧版本已恢复，等连接检查正常`];
         if (WAITING.has(entry.errorCode)) return ["wait", `${pre}${why(entry.errorCode)}`];
@@ -105,7 +127,10 @@
       case "skipped-not-ready":
         return ["wait", `${pre}${why(entry.errorCode || "BASELINE_NOT_READY")}`];
       case "recovered":
-        return ["off", `${pre}已保留恢复后的原版本`];
+        // Either the original came back, or a checked-good new version was kept.
+        return entry.previousVersion && entry.currentVersion !== entry.previousVersion
+          ? ["ok", `${cur} · 新版检查正常，已保留`]
+          : ["off", `${pre}已保留恢复后的原版本`];
       case "up-to-date":
         return ["ok", `${cur} · 已是最新`];
       case "skipped-busy":
