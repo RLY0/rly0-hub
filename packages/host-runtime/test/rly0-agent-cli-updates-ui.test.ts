@@ -197,6 +197,31 @@ describe("AI 助手 → 自动更新命令行工具 (synthetic)", () => {
     expect(ui.line("copilot")?.textContent).not.toContain("装完");
   });
 
+  it("shows rollback failure, stuck installer and unsaved state as warnings even with recovery pending", async () => {
+    const ui = await mount(
+      status([
+        entry("pi", { result: "failed", errorCode: "ROLLBACK_FAILED", recoveryPending: true }),
+        entry("opencode", {
+          result: "failed",
+          errorCode: "COMMAND_TREE_STOP_FAILED",
+          recoveryPending: true,
+        }),
+        entry("hermes", {
+          result: "failed",
+          errorCode: "STATE_WRITE_FAILED",
+          recoveryPending: true,
+        }),
+        entry("grok", { result: "skipped-unsupported", errorCode: "INSTALL_FILE_BUSY" }),
+      ]),
+    );
+    for (const id of ["pi", "opencode", "hermes"]) {
+      expect(String(ui.line(id)?.props.class)).toContain("warn");
+      expect(ui.line(id)?.textContent).not.toContain("还没收尾");
+    }
+    expect(String(ui.line("grok")?.props.class)).toContain("wait");
+    expect(ui.line("grok")?.textContent).not.toContain("不自动更新");
+  });
+
   it("keeps warnings whole and never claims recovery when the rollback failed", async () => {
     const ui = await mount(
       status([entry("opencode", { result: "failed", errorCode: "ROLLBACK_FAILED" })]),

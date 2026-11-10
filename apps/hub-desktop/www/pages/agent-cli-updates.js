@@ -70,6 +70,17 @@
       !entry.recoveryPending &&
       Boolean(entry.previousVersion) &&
       entry.currentVersion === entry.previousVersion;
+    // These need a person, so they are said before "recovery pending" (which is always set for them).
+    if (entry.result === "failed" && entry.errorCode === "ROLLBACK_FAILED")
+      return [
+        "warn",
+        "新版有问题，退回旧版也没成功。请用原来的安装方式重新装一次，或在 维护 → 系统诊断 里看看",
+        true,
+      ];
+    if (entry.result === "failed" && entry.errorCode === "COMMAND_TREE_STOP_FAILED")
+      return ["warn", `${pre}安装进程没能结束，暂停自动恢复；重启电脑后会再处理`, true];
+    if (entry.result === "failed" && entry.errorCode === "STATE_WRITE_FAILED")
+      return ["warn", `${pre}更新记录没能保存，暂停自动更新，请在 维护 → 系统诊断 里看看`, true];
     if (entry.recoveryPending) return ["wait", `${pre}上次更新还没收尾，等它空闲后处理`];
     // Waiting-type reasons: nothing is broken, the next check simply tries again.
     const WAITING = new Set([
@@ -138,6 +149,9 @@
       case "skipped-bad-version":
         return ["off", `${cur} · 新版 ${latest} 之前出过问题，已跳过`];
       case "skipped-unsupported":
+        // A busy install file is temporary, not "never auto-updated".
+        if (entry.errorCode === "INSTALL_FILE_BUSY")
+          return ["wait", `${pre}${why("INSTALL_FILE_BUSY")}`];
         return entry.errorCode === "VERSION_PINNED"
           ? ["off", `${pre}${why("VERSION_PINNED")}`]
           : ["off", `${pre}不自动更新：${why(entry.errorCode)}`];
