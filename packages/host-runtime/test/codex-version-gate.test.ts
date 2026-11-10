@@ -906,23 +906,27 @@ it("caches successful staging signatures, revalidates on quit, and invalidates c
   await fs.rm(app, { recursive: true });
   expect(await driver.downloadReady("26.1200.1.0", true)).toBe(false);
 });
-it("guard handoff yields only for a fresh lease with a live Hub; otherwise writes false", async () => {
-  const { execFileSync } = await import("node:child_process");
-  const patch = await fs.readFile(path.resolve(".pm/selfheal/codex-guard-handoff.patch"), "utf8");
-  const body = patch
-    .split("\n")
-    .filter((line) => line.startsWith("+    "))
-    .map((line) => line.slice(1))
-    .join("\n");
-  const f = await fixture();
-  const program = `import json, os, time, subprocess\nfrom pathlib import Path\nfrom unittest.mock import patch\nroot = Path(${JSON.stringify(f.root)})\n(root / 'hub-desktop.json').write_text(json.dumps({'codexUpdates': {'enabled': True}}))\nos.environ['CODEXHOST_DATA_DIR'] = str(root)\ndef main():\n${body}\n    raise AssertionError('legacy guard must never execute while managed')\nfor lease, alive, expected in [({'pid':123,'at':100000},True,0), ({'pid':123,'at':100000},False,1), ({'pid':123,'at':1},True,1), ({'pid':123,'at':200000},True,1), ({'pid':True,'at':100000},True,1), ({'pid':123,'at':'bad'},True,1), ({},True,1)]:\n    (root / 'codex-update-armed.json').write_text(json.dumps(lease))\n    with patch('time.time', return_value=100), patch('os.kill', side_effect=None if alive else ProcessLookupError()), patch('subprocess.run') as run:\n        assert main() == 0\n        assert run.call_count == expected\n        if expected: assert run.call_args.args[0][-1] == 'false'\n`;
-  expect(() =>
-    execFileSync("/usr/bin/python3", ["-B", "-c", program], {
-      env: f.environment,
-      encoding: "utf8",
-    }),
-  ).not.toThrow();
-});
+// The legacy guard is a macOS-only Python script, run with the system Python.
+it.skipIf(process.platform === "win32")(
+  "guard handoff yields only for a fresh lease with a live Hub; otherwise writes false",
+  async () => {
+    const { execFileSync } = await import("node:child_process");
+    const patch = await fs.readFile(path.resolve(".pm/selfheal/codex-guard-handoff.patch"), "utf8");
+    const body = patch
+      .split("\n")
+      .filter((line) => line.startsWith("+    "))
+      .map((line) => line.slice(1))
+      .join("\n");
+    const f = await fixture();
+    const program = `import json, os, time, subprocess\nfrom pathlib import Path\nfrom unittest.mock import patch\nroot = Path(${JSON.stringify(f.root)})\n(root / 'hub-desktop.json').write_text(json.dumps({'codexUpdates': {'enabled': True}}))\nos.environ['CODEXHOST_DATA_DIR'] = str(root)\ndef main():\n${body}\n    raise AssertionError('legacy guard must never execute while managed')\nfor lease, alive, expected in [({'pid':123,'at':100000},True,0), ({'pid':123,'at':100000},False,1), ({'pid':123,'at':1},True,1), ({'pid':123,'at':200000},True,1), ({'pid':True,'at':100000},True,1), ({'pid':123,'at':'bad'},True,1), ({},True,1)]:\n    (root / 'codex-update-armed.json').write_text(json.dumps(lease))\n    with patch('time.time', return_value=100), patch('os.kill', side_effect=None if alive else ProcessLookupError()), patch('subprocess.run') as run:\n        assert main() == 0\n        assert run.call_count == expected\n        if expected: assert run.call_args.args[0][-1] == 'false'\n`;
+    expect(() =>
+      execFileSync("/usr/bin/python3", ["-B", "-c", program], {
+        env: f.environment,
+        encoding: "utf8",
+      }),
+    ).not.toThrow();
+  },
+);
 it("accepts Sparkle's signed lower rollout choice only if offered and verified, without a five-minute restart loop", async () => {
   const f = await fixture();
   f.driver.availableVersions = vi.fn(async () => ["26.1200.1.0", "26.1200.0.9"]);
@@ -1057,54 +1061,61 @@ it.each([
     : { HOME: "/synthetic/kit" };
   expect(codexNativeUpdateControlAllowed(env, "darwin", "/synthetic/real")).toBe(false);
 });
-it("allows production control only at the real default directory", () => {
-  const env = { HOME: "/synthetic/real", CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub" };
-  expect(codexNativeUpdateControlAllowed(env, "darwin", "/synthetic/real")).toBe(true);
-  expect(codexNativeUpdateControlAllowed(env, "win32", "/synthetic/real")).toBe(false);
-});
-it("reports why native control is unmounted, separating development/opt-out from production environment", async () => {
-  const real = { HOME: "/synthetic/real", CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub" };
-  expect(codexNativeUpdateControlBlocker(real, "darwin", "/synthetic/real")).toBeNull();
-  expect(codexNativeUpdateControlBlocker(real, "win32", "/synthetic/real")).toBe("platform");
-  // The macOS shell's development mode injects RLY0_CODEX_UPDATE_CONTROL=0 with its own data dir.
-  expect(
-    codexNativeUpdateControlBlocker(
-      {
-        ...real,
-        RLY0_CODEX_UPDATE_CONTROL: "0",
-        CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub-macos-dev/data",
-      },
-      "darwin",
-      "/synthetic/real",
-    ),
-  ).toBe("control-disabled");
-  expect(
-    codexNativeUpdateControlBlocker({ ...real, NODE_ENV: "test" }, "darwin", "/synthetic/real"),
-  ).toBe("control-disabled");
-  // A production Hub whose data dir the person moved to an external volume.
-  expect(
-    codexNativeUpdateControlBlocker(
-      { ...real, CODEXHOST_DATA_DIR: "/Volumes/RLY0Dev/.rly0-hub" },
-      "darwin",
-      "/synthetic/real",
-    ),
-  ).toBe("environment");
-  const f = await fixture();
-  const unmounted = new CodexUpdateManager({
-    ...f.options,
-    driver: null,
-    unsupportedReason: "environment",
-  });
-  managers.push(unmounted);
-  expect(await unmounted.check()).toMatchObject({
-    supported: false,
-    unsupportedReason: "environment",
-  });
-  expect(f.manager.status()).not.toHaveProperty("unsupportedReason");
-  const mounted = new CodexUpdateManager({ ...f.options, unsupportedReason: "environment" });
-  managers.push(mounted);
-  expect(mounted.status()).not.toHaveProperty("unsupportedReason");
-});
+// POSIX home/data paths only compare on a POSIX host (Windows resolves them onto a drive).
+it.skipIf(process.platform === "win32")(
+  "allows production control only at the real default directory",
+  () => {
+    const env = { HOME: "/synthetic/real", CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub" };
+    expect(codexNativeUpdateControlAllowed(env, "darwin", "/synthetic/real")).toBe(true);
+    expect(codexNativeUpdateControlAllowed(env, "win32", "/synthetic/real")).toBe(false);
+  },
+);
+it.skipIf(process.platform === "win32")(
+  "reports why native control is unmounted, separating development/opt-out from production environment",
+  async () => {
+    const real = { HOME: "/synthetic/real", CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub" };
+    expect(codexNativeUpdateControlBlocker(real, "darwin", "/synthetic/real")).toBeNull();
+    expect(codexNativeUpdateControlBlocker(real, "win32", "/synthetic/real")).toBe("platform");
+    // The macOS shell's development mode injects RLY0_CODEX_UPDATE_CONTROL=0 with its own data dir.
+    expect(
+      codexNativeUpdateControlBlocker(
+        {
+          ...real,
+          RLY0_CODEX_UPDATE_CONTROL: "0",
+          CODEXHOST_DATA_DIR: "/synthetic/real/.rly0-hub-macos-dev/data",
+        },
+        "darwin",
+        "/synthetic/real",
+      ),
+    ).toBe("control-disabled");
+    expect(
+      codexNativeUpdateControlBlocker({ ...real, NODE_ENV: "test" }, "darwin", "/synthetic/real"),
+    ).toBe("control-disabled");
+    // A production Hub whose data dir the person moved to an external volume.
+    expect(
+      codexNativeUpdateControlBlocker(
+        { ...real, CODEXHOST_DATA_DIR: "/Volumes/RLY0Dev/.rly0-hub" },
+        "darwin",
+        "/synthetic/real",
+      ),
+    ).toBe("environment");
+    const f = await fixture();
+    const unmounted = new CodexUpdateManager({
+      ...f.options,
+      driver: null,
+      unsupportedReason: "environment",
+    });
+    managers.push(unmounted);
+    expect(await unmounted.check()).toMatchObject({
+      supported: false,
+      unsupportedReason: "environment",
+    });
+    expect(f.manager.status()).not.toHaveProperty("unsupportedReason");
+    const mounted = new CodexUpdateManager({ ...f.options, unsupportedReason: "environment" });
+    managers.push(mounted);
+    expect(mounted.status()).not.toHaveProperty("unsupportedReason");
+  },
+);
 it("a damaged originalCheckPreferences preserves originalAutoUpdate and the selected management state", async () => {
   const f = await fixture();
   await f.state.update({
