@@ -221,6 +221,7 @@ describe.skipIf(!enabled)("early update hold on a real Chromium", () => {
     options: {
       wrap?: (browser: EarlyHoldBrowser) => EarlyHoldBrowser;
       onDiagnostics?: (diagnostics: EarlyHoldDiagnostics) => void;
+      pageProtocol?: string;
     } = {},
   ) => {
     const abort = new AbortController();
@@ -229,7 +230,7 @@ describe.skipIf(!enabled)("early update hold on a real Chromium", () => {
       rendererCdpEndpoint: endpoint,
       hold: true,
       signal: abort.signal,
-      pageProtocol: "http:",
+      pageProtocol: options.pageProtocol ?? "http:",
       ...(options.onDiagnostics ? { onDiagnostics: options.onDiagnostics } : {}),
       ...(wrap
         ? {
@@ -370,5 +371,80 @@ describe.skipIf(!enabled)("early update hold on a real Chromium", () => {
     await openPopup(later);
     expect(await waitForPage(later)).not.toBeNull();
     expect((await targets()).filter((target) => target.url === "")).toEqual([]);
+  }, 30_000);
+
+  it("a popup that loads a non-Codex page loses its session and is no longer probed", async () => {
+    // Codex documents are app: here, so the http popup stands for a sign-in or third-party page.
+    const sent: { method: string; sessionId?: string; params?: Record<string, unknown> }[] = [];
+    const popups: string[] = [];
+    const { early, abort } = start({
+      pageProtocol: "app:",
+      wrap: (browser) => {
+        browser.on("Target.attachedToTarget", (params, parent) => {
+          const event = params as { sessionId: string; targetInfo: { type: string; url: string } };
+          if (
+            parent === undefined &&
+            event.targetInfo.type === "page" &&
+            event.targetInfo.url === ""
+          )
+            popups.push(event.sessionId);
+        });
+        return {
+          command: (method, params) => {
+            sent.push({ method, ...(params ? { params } : {}) });
+            return browser.command(method, params);
+          },
+          sessionCommand: (sessionId, method, params) => {
+            sent.push({ method, sessionId, ...(params ? { params } : {}) });
+            return browser.sessionCommand(sessionId, method, params);
+          },
+          on: (method, listener) => browser.on(method, listener),
+          onClose: (listener) => browser.onClose(listener),
+          close: () => browser.close(),
+        };
+      },
+    });
+    await attached(early);
+    const url = `${base}/third-party`;
+    await openPopup(url);
+    const loaded = await waitForPage(url);
+    if (!loaded) throw new Error("the popup did not load");
+    expect(loaded.state.hold).toBeNull();
+    expect(popups).toHaveLength(1);
+    const session = popups[0];
+    const detachedAt = () =>
+      sent.findIndex(
+        (entry) =>
+          entry.method === "Target.detachFromTarget" && entry.params?.sessionId === session,
+      );
+    for (let index = 0; index < 50 && detachedAt() < 0; index += 1) await sleep(100);
+    const detached = detachedAt();
+    expect(detached).toBeGreaterThan(-1);
+    expect(
+      sent.findIndex(
+        (entry) =>
+          entry.method === "Page.removeScriptToEvaluateOnNewDocument" &&
+          entry.sessionId === session,
+      ),
+    ).toBeLessThan(detached);
+    // Nobody is attached to it any more.
+    const info = (
+      (await cdp().command("Target.getTargets")) as {
+        targetInfos: { targetId: string; attached: boolean }[];
+      }
+    ).targetInfos.find((target) => target.targetId === loaded.target.targetId);
+    expect(info?.attached).toBe(false);
+    // A reload loads normally and is not probed.
+    const { sessionId } = (await cdp().command("Target.attachToTarget", {
+      targetId: loaded.target.targetId,
+      flatten: true,
+    })) as { sessionId: string };
+    await cdp().sessionCommand(sessionId, "Page.reload");
+    await cdp().command("Target.detachFromTarget", { sessionId });
+    await sleep(800);
+    expect(await waitForPage(url)).not.toBeNull();
+    expect(sent.slice(detached + 1).filter((entry) => entry.sessionId === session)).toEqual([]);
+    abort.abort();
+    await early.finished;
   }, 30_000);
 });

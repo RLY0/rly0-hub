@@ -25,6 +25,14 @@ class FakeBrowser {
   readonly sent: Sent[] = [];
   readonly hang = new Set<string>();
   readonly fail = new Set<string>();
+  /** Per-command control: never answer, answer late, or react before answering. */
+  hangWhen: (command: Sent) => boolean = () => false;
+  delayWhen: (command: Sent) => number = () => 0;
+  onCommand: (command: Sent) => void = () => undefined;
+  /** `sent.length` when the client closed the connection. */
+  closedAt = -1;
+  /** sessionId → targetId of every attach, in order. */
+  readonly sessions = new Map<string, string>();
   /** Targets that exist before auto-attach; reported (not paused) by setAutoAttach. */
   existing: { targetId: string; type: string; url: string; reported?: boolean }[] = [];
   /** `Runtime.evaluate` result value (the probe reads page diagnostics). */
@@ -57,6 +65,7 @@ class FakeBrowser {
 
   attached(type: string, url: string, waitingForDebugger: boolean, targetId?: string) {
     const sessionId = `S${++this.#session}`;
+    this.sessions.set(sessionId, targetId ?? `T${this.#session}`);
     this.#emit({
       method: "Target.attachedToTarget",
       params: {
@@ -76,6 +85,11 @@ class FakeBrowser {
     return sessionId;
   }
 
+  /** A flattened session event (`Page.loadEventFired` and the like). */
+  event(sessionId: string, method: string, params: Record<string, unknown> = {}) {
+    this.#emit({ method, params, sessionId });
+  }
+
   detached(sessionId: string, targetId: string) {
     this.#emit({ method: "Target.detachedFromTarget", params: { sessionId, targetId } });
   }
@@ -83,12 +97,14 @@ class FakeBrowser {
   drop() {
     if (this.closed) return;
     this.closed = true;
+    this.closedAt = this.sent.length;
     for (const listener of this.#listeners.get("close") ?? []) listener({});
   }
 
   #receive(command: Sent) {
     this.sent.push(command);
-    if (this.hang.has(command.method)) return;
+    this.onCommand(command);
+    if (this.hang.has(command.method) || this.hangWhen(command)) return;
     if (this.fail.has(command.method)) {
       queueMicrotask(() =>
         this.#emit({ id: command.id, error: { code: -32000, message: "Not allowed" } }),
@@ -120,7 +136,14 @@ class FakeBrowser {
         : this.attached("page", "", false, String(command.params.targetId));
       result = { sessionId };
     }
-    queueMicrotask(() => this.#emit({ id: command.id, result }));
+    const delay = this.delayWhen(command);
+    if (delay > 0) setTimeout(() => this.#emit({ id: command.id, result }), delay);
+    else queueMicrotask(() => this.#emit({ id: command.id, result }));
+  }
+
+  /** The first session attached to `targetId`. */
+  firstSession(targetId: string) {
+    return [...this.sessions].find(([, target]) => target === targetId)?.[0];
   }
 
   of(sessionId: string) {
@@ -471,10 +494,130 @@ it("reports whether the main window got the hold before its own scripts", async 
     mainWindow: { waitingAtAttach: true, attachedUrl: "codex", lateInstall: true },
   });
   // Not a Codex document yet (a new window before navigation): no report.
-  browser.evaluateValue = { codex: false, installed: false };
+  browser.evaluateValue = { codex: false, blank: true, installed: false };
   const count = reports.length;
   browser.attached("page", "", true, "POPUP");
   await settle(10);
   expect(reports.length).toBe(count);
   expect(JSON.stringify(reports)).not.toContain("index.html");
+});
+
+it("a stop waits for the release of a window attached during the stop before closing", async () => {
+  const browser = new FakeBrowser();
+  // The first release never answers: POPUP counts as still paused and is re-attached by the stop.
+  browser.hang.add("Runtime.runIfWaitingForDebugger");
+  const early = start([browser], true, { commandTimeoutMs: 100 });
+  await until(() => early.state() === "attached");
+  const popup = browser.attached("page", "", true, "POPUP");
+  await until(() => browser.of(popup).includes("Runtime.runIfWaitingForDebugger"));
+  await settle(20);
+  browser.hang.delete("Runtime.runIfWaitingForDebugger");
+  // Turning auto-attach off times out (a busy browser): auto-attach is still on.
+  browser.hangWhen = (c) => c.method === "Target.setAutoAttach" && c.params.autoAttach === false;
+  // A new window appears while the stop re-attaches POPUP; its release answers late.
+  let late = "";
+  browser.onCommand = (c) => {
+    if (c.method === "Target.attachToTarget" && c.params.targetId === "POPUP" && !late)
+      late = browser.attached("page", "", true, "LATE");
+  };
+  browser.delayWhen = (c) =>
+    c.method === "Runtime.runIfWaitingForDebugger" && c.sessionId === browser.firstSession("LATE")
+      ? 40
+      : 0;
+  early.abort.abort();
+  await early.finished;
+  expect(late).not.toBe("");
+  const release = browser.sent.findIndex(
+    (c) => c.method === "Runtime.runIfWaitingForDebugger" && c.sessionId === late,
+  );
+  const detach = browser.sent.findIndex(
+    (c) => c.method === "Target.detachFromTarget" && c.params.sessionId === late,
+  );
+  // Detached only after its release answered, and both before the connection was closed.
+  expect(release).toBeGreaterThan(-1);
+  expect(detach).toBeGreaterThan(release);
+  expect(detach).toBeLessThan(browser.closedAt);
+});
+
+it("when turning auto-attach off fails, a second round re-attaches windows still unconfirmed", async () => {
+  const browser = new FakeBrowser();
+  browser.hang.add("Runtime.runIfWaitingForDebugger");
+  const early = start([browser], true, { commandTimeoutMs: 30 });
+  await until(() => early.state() === "attached");
+  const popup = browser.attached("page", "", true, "POPUP");
+  await until(() => browser.of(popup).includes("Runtime.runIfWaitingForDebugger"));
+  await settle(20);
+  browser.hang.delete("Runtime.runIfWaitingForDebugger");
+  let late = "";
+  browser.hangWhen = (c) =>
+    (c.method === "Target.setAutoAttach" && c.params.autoAttach === false) ||
+    // The release of the window attached during the first round is lost.
+    (c.method === "Runtime.runIfWaitingForDebugger" &&
+      c.sessionId === browser.firstSession("LATE"));
+  browser.onCommand = (c) => {
+    if (c.method === "Target.attachToTarget" && c.params.targetId === "POPUP" && !late)
+      late = browser.attached("page", "", true, "LATE");
+  };
+  early.abort.abort();
+  await early.finished;
+  expect(late).not.toBe("");
+  const reattach = browser.sent.findIndex(
+    (c) => c.method === "Target.attachToTarget" && c.params.targetId === "LATE",
+  );
+  expect(reattach).toBeGreaterThan(-1);
+  const released = browser.sent.findIndex(
+    (c, index) =>
+      index > reattach && c.method === "Runtime.runIfWaitingForDebugger" && c.sessionId !== late,
+  );
+  expect(released).toBeGreaterThan(reattach);
+  expect(released).toBeLessThan(browser.closedAt);
+});
+
+it("a popup that loads a non-Codex document loses its script and session and is no longer probed", async () => {
+  const browser = new FakeBrowser();
+  const early = start([browser], true);
+  await until(() => early.state() === "attached");
+  // Before its first navigation the popup is still the initial blank document: kept.
+  browser.evaluateValue = { codex: false, blank: true, installed: false };
+  const popup = browser.attached("page", "", true, "POPUP");
+  await until(() => browser.of(popup).includes("Runtime.evaluate"));
+  await settle(10);
+  expect(browser.of(popup)).not.toContain("Page.removeScriptToEvaluateOnNewDocument");
+  // It goes to a sign-in page.
+  browser.evaluateValue = { codex: false, blank: false, installed: false };
+  browser.event(popup, "Page.loadEventFired");
+  await until(() =>
+    browser.sent.some(
+      (c) => c.method === "Target.detachFromTarget" && c.params.sessionId === popup,
+    ),
+  );
+  expect(browser.of(popup).slice(-2)).toEqual([
+    "Runtime.evaluate",
+    "Page.removeScriptToEvaluateOnNewDocument",
+  ]);
+  const count = browser.of(popup).length;
+  // Later loads and hold changes no longer touch it.
+  browser.event(popup, "Page.loadEventFired");
+  await early.setHold(false);
+  await settle(10);
+  expect(browser.of(popup)).toHaveLength(count);
+
+  // A page once seen as a Codex document keeps its session whatever it shows later.
+  browser.evaluateValue = { codex: true, blank: false, installed: true };
+  const main = browser.attached("page", "app://-/index.html", true, "MAIN");
+  await until(() => browser.of(main).includes("Runtime.evaluate"));
+  browser.evaluateValue = { codex: false, blank: false, installed: false };
+  browser.event(main, "Page.loadEventFired");
+  await settle(10);
+  expect(browser.of(main)).not.toContain("Page.removeScriptToEvaluateOnNewDocument");
+  // A failed probe (navigation in progress) is no verdict either.
+  browser.fail.add("Runtime.evaluate");
+  const other = browser.attached("page", "", true, "OTHER");
+  await until(() => browser.of(other).includes("Runtime.evaluate"));
+  await settle(10);
+  expect(
+    browser.sent.some(
+      (c) => c.method === "Target.detachFromTarget" && c.params.sessionId === other,
+    ),
+  ).toBe(false);
 });

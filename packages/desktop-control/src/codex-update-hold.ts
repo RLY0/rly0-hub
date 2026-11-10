@@ -183,6 +183,8 @@ export function codexUpdateHoldScript(hold: boolean, protocol = "app:"): string 
 export interface CodexUpdateHoldProbe {
   /** The document is a Codex page (`protocol`). */
   codex: boolean;
+  /** The document is still the initial `about:` document of a window that has not navigated. */
+  blank: boolean;
   installed: boolean;
   lateInstall: boolean | null;
   source: "early" | "fallback" | null;
@@ -198,7 +200,7 @@ export interface CodexUpdateHoldProbe {
  * run, so it reports `lateInstall`), then returns the page's hold diagnostics.
  */
 export function codexUpdateHoldProbeExpression(hold: boolean, protocol = "app:"): string {
-  return `(() => { try { ${codexUpdateHoldScript(hold, protocol)} } catch {} const codex = (() => { try { return globalThis.location.protocol === ${JSON.stringify(protocol)}; } catch { return false; } })(); const state = globalThis.__codexhostUpdateHoldV1; const ok = !!state && typeof state.setHold === "function"; const num = (value) => (typeof value === "number" ? value : null); return { codex, installed: ok, lateInstall: ok && typeof state.lateInstall === "boolean" ? state.lateInstall : null, source: ok && (state.source === "early" || state.source === "fallback") ? state.source : null, observed: ok ? num(state.observed) ?? 0 : 0, sent: ok ? num(state.sent) ?? 0 : 0, error: ok && typeof state.error === "string" ? state.error : null, installedAt: ok ? num(state.installedAt) : null, firstGateAt: ok ? num(state.firstGateAt) : null }; })()`;
+  return `(() => { try { ${codexUpdateHoldScript(hold, protocol)} } catch {} const pageProtocol = (() => { try { return globalThis.location.protocol; } catch { return undefined; } })(); const codex = pageProtocol === ${JSON.stringify(protocol)}; const blank = pageProtocol === "about:"; const state = globalThis.__codexhostUpdateHoldV1; const ok = !!state && typeof state.setHold === "function"; const num = (value) => (typeof value === "number" ? value : null); return { codex, blank, installed: ok, lateInstall: ok && typeof state.lateInstall === "boolean" ? state.lateInstall : null, source: ok && (state.source === "early" || state.source === "fallback") ? state.source : null, observed: ok ? num(state.observed) ?? 0 : 0, sent: ok ? num(state.sent) ?? 0 : 0, error: ok && typeof state.error === "string" ? state.error : null, installedAt: ok ? num(state.installedAt) : null, firstGateAt: ok ? num(state.firstGateAt) : null }; })()`;
 }
 
 /** Bundled with the full/core injection: installs only when the page has no hold yet. */

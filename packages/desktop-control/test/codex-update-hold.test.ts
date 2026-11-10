@@ -261,6 +261,7 @@ it("the probe late-installs a document whose new-document script never ran and r
   const p = page({ document: { readyState: "complete", scripts: { length: 3 } } });
   expect(p.run(codexUpdateHoldProbeExpression(true))).toEqual({
     codex: true,
+    blank: false,
     installed: true,
     lateInstall: true,
     source: "early",
@@ -273,7 +274,15 @@ it("the probe late-installs a document whose new-document script never ran and r
   const blank = page({ protocol: "about:" });
   expect(blank.run(codexUpdateHoldProbeExpression(true))).toMatchObject({
     codex: false,
+    blank: true,
     installed: false,
     lateInstall: null,
+  });
+  // A popup that navigated to a sign-in or third-party page.
+  const signIn = page({ protocol: "https:" });
+  expect(signIn.run(codexUpdateHoldProbeExpression(true))).toMatchObject({
+    codex: false,
+    blank: false,
+    installed: false,
   });
 });

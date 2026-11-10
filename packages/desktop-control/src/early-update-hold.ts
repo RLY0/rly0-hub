@@ -105,6 +105,8 @@ interface Connection {
   pages: Map<string, PageRecord>;
   /** Attached targets whose release is not confirmed yet: targetId → sessionId. */
   unreleased: Map<string, string>;
+  /** Releases of targets attached while stopping; awaited before the connection is closed. */
+  stopReleases: Set<Promise<void>>;
   stopping: boolean;
 }
 
@@ -114,8 +116,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * A new window can be paused before its first navigation (empty or about:blank URL). Codex pages
- * use app://. The registered script itself installs only in Codex documents, so a window that
- * later navigates to a sign-in page gets nothing.
+ * use app://. The registered script itself installs only in Codex documents; a window that then
+ * loads a non-Codex document (sign-in or third-party page) is let go by `probe`.
  */
 function holdCandidate(type: unknown, url: unknown, protocol: string): boolean {
   if (type !== "page" || typeof url !== "string") return false;
@@ -256,6 +258,31 @@ export function startEarlyUpdateHold(options: EarlyUpdateHoldOptions): EarlyUpda
     }
   };
 
+  /**
+   * A window that never was a Codex document and now shows another document (a `window.open`
+   * popup that went to a sign-in or third-party page): drop its script and session, so its later
+   * loads are neither probed nor kept attached. A page once seen as Codex keeps its session.
+   */
+  const letGo = (connection: Connection, record: PageRecord): void => {
+    if (connection.pages.get(record.targetId) !== record) return;
+    connection.pages.delete(record.targetId);
+    const current = connection.browser;
+    // Behind a pending install or hold change, which could register the script again.
+    record.chain = record.chain.then(async () => {
+      if (record.scriptId)
+        await sessionCommand(
+          current,
+          record.sessionId,
+          "Page.removeScriptToEvaluateOnNewDocument",
+          { identifier: record.scriptId },
+        ).catch(() => undefined);
+      record.scriptId = null;
+      await command(current, "Target.detachFromTarget", { sessionId: record.sessionId }).catch(
+        () => undefined,
+      );
+    });
+  };
+
   /** Reads (and if needed late-installs) the hold of a Codex document for diagnostics. */
   const probe = async (connection: Connection, record: PageRecord): Promise<void> => {
     const response = await sessionCommand(
@@ -269,7 +296,13 @@ export function startEarlyUpdateHold(options: EarlyUpdateHoldOptions): EarlyUpda
     ).catch(() => null);
     const value =
       isRecord(response) && isRecord(response.result) ? response.result.value : undefined;
-    if (!isRecord(value) || value.codex !== true) return;
+    if (!isRecord(value)) return;
+    if (value.codex !== true) {
+      // Still the initial blank document, or a former Codex page: kept.
+      if (value.codex === false && value.blank !== true && !connection.stopping)
+        if (!codexTargets.has(record.targetId)) letGo(connection, record);
+      return;
+    }
     const result = value as unknown as CodexUpdateHoldProbe;
     if (!codexTargets.has(record.targetId)) {
       codexTargets.add(record.targetId);
@@ -312,10 +345,13 @@ export function startEarlyUpdateHold(options: EarlyUpdateHoldOptions): EarlyUpda
     const waiting = params.waitingForDebugger === true;
     connection.unreleased.set(targetId, sessionId);
     if (connection.stopping) {
-      // Re-attached during a stop: release and let go, nothing else.
-      void release(connection, targetId, sessionId).finally(() =>
-        command(current, "Target.detachFromTarget", { sessionId }).catch(() => undefined),
-      );
+      // Re-attached during a stop: release and let go, nothing else. The stop waits for it.
+      const released: Promise<void> = release(connection, targetId, sessionId)
+        .finally(() =>
+          command(current, "Target.detachFromTarget", { sessionId }).catch(() => undefined),
+        )
+        .finally(() => connection.stopReleases.delete(released));
+      connection.stopReleases.add(released);
       return;
     }
     const candidate =
@@ -400,18 +436,16 @@ export function startEarlyUpdateHold(options: EarlyUpdateHoldOptions): EarlyUpda
     }
   };
 
-  /**
-   * Turning auto-attach off detaches its sessions, and a target detached while paused stays
-   * paused; so every target whose release is unconfirmed is attached again and released.
-   */
-  const shutdown = async (connection: Connection): Promise<void> => {
-    connection.stopping = true;
+  /** Each pending release is itself bounded (release + detach); the rounds bound a flood. */
+  const settleStopReleases = async (connection: Connection): Promise<void> => {
+    for (let round = 0; round < 3 && connection.stopReleases.size > 0; round += 1)
+      await withTimeout(Promise.all(connection.stopReleases), commandTimeoutMs * 2 + 50).catch(
+        () => undefined,
+      );
+  };
+
+  const releaseUnconfirmed = async (connection: Connection): Promise<void> => {
     const current = connection.browser;
-    await command(current, "Target.setAutoAttach", {
-      autoAttach: false,
-      waitForDebuggerOnStart: false,
-      flatten: true,
-    }).catch(() => undefined);
     await Promise.all(
       [...connection.unreleased.keys()].map(async (targetId) => {
         const attached = await command(current, "Target.attachToTarget", {
@@ -429,6 +463,33 @@ export function startEarlyUpdateHold(options: EarlyUpdateHoldOptions): EarlyUpda
         }).catch(() => undefined);
       }),
     );
+  };
+
+  /**
+   * Turning auto-attach off detaches its sessions, and a target detached while paused stays
+   * paused; so every target whose release is unconfirmed is attached again and released.
+   *
+   * When turning auto-attach off fails (a busy browser), it may still be on: windows created
+   * during the stop are attached paused and released by `onAttached`. Those releases are awaited
+   * before closing, and a second round re-attaches every target still unconfirmed.
+   */
+  const shutdown = async (connection: Connection): Promise<void> => {
+    connection.stopping = true;
+    const current = connection.browser;
+    const off = await command(current, "Target.setAutoAttach", {
+      autoAttach: false,
+      waitForDebuggerOnStart: false,
+      flatten: true,
+    }).then(
+      () => true,
+      () => false,
+    );
+    await releaseUnconfirmed(connection);
+    await settleStopReleases(connection);
+    if (!off) {
+      await releaseUnconfirmed(connection);
+      await settleStopReleases(connection);
+    }
     current.close();
   };
 
@@ -454,6 +515,7 @@ export function startEarlyUpdateHold(options: EarlyUpdateHoldOptions): EarlyUpda
         browser: current,
         pages: new Map(),
         unreleased: new Map(),
+        stopReleases: new Set(),
         stopping: false,
       };
       const closed = new Promise<void>((resolve) => current.onClose(resolve));
