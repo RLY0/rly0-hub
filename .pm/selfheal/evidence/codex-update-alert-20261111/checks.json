@@ -1,0 +1,114 @@
+{
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "checks": [
+    {
+      "name": "red-regression",
+      "command": "env HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' USERPROFILE='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' CODEX_HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/codex' CODEXHOST_DATA_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/hub' RLY0_MEMORY_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/memory' RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0 ./node_modules/.bin/vitest run --config tests/vitest.config.js packages/host-runtime/test/codex-update-alert.test.ts",
+      "exitCode": 1,
+      "result": "Before implementation: 3 failed as expected; missing build skip."
+    },
+    {
+      "name": "focused-tests",
+      "command": "env HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' USERPROFILE='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' CODEX_HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/codex' CODEXHOST_DATA_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/hub' RLY0_MEMORY_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/memory' RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0 ./node_modules/.bin/vitest run --config tests/vitest.config.js packages/host-runtime/test/codex-update-alert.test.ts packages/host-runtime/test/codex-version-gate.test.ts packages/host-runtime/test/codex-update-watchdog.test.ts packages/host-runtime/test/codex-input-idle.test.ts packages/host-runtime/test/rly0-codex-updates-ui.test.ts",
+      "exitCode": 0,
+      "result": "5 files, 167 pass, 0 fail, 0 skip; synthetic feed and injected system commands."
+    },
+    {
+      "name": "typecheck",
+      "command": "env HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' USERPROFILE='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' CODEX_HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/codex' CODEXHOST_DATA_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/hub' RLY0_MEMORY_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/memory' RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0 npm run typecheck",
+      "exitCode": 0,
+      "result": "tsc -b and tests typecheck passed."
+    },
+    {
+      "name": "changed-eslint",
+      "command": "env HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' USERPROFILE='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' CODEX_HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/codex' CODEXHOST_DATA_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/hub' RLY0_MEMORY_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/memory' RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0 ./node_modules/.bin/eslint packages/host-runtime/src/rly0-hub-service/codex-{update-manager,sparkle,skipped-version,check-preferences,update-watchdog}.ts packages/host-runtime/test/codex-{update-alert,version-gate}.test.ts",
+      "exitCode": 0,
+      "result": "Changed TypeScript files passed."
+    },
+    {
+      "name": "boundaries",
+      "command": "env HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' USERPROFILE='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' CODEX_HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/codex' CODEXHOST_DATA_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/hub' RLY0_MEMORY_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/memory' RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0 node tools/check-boundaries.mjs",
+      "exitCode": 0,
+      "result": "Passed."
+    },
+    {
+      "name": "format",
+      "command": "env HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' USERPROFILE='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' CODEX_HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/codex' CODEXHOST_DATA_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/hub' RLY0_MEMORY_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/memory' RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0 ./node_modules/.bin/prettier --check packages/host-runtime/src/rly0-hub-service/codex-{update-manager,sparkle,skipped-version,check-preferences,update-watchdog}.ts packages/host-runtime/test/codex-{update-alert,version-gate}.test.ts .pm/BOARD.json",
+      "exitCode": 0,
+      "result": "Passed; Markdown ignored by repository convention. New BOARD formatting warning corrected before final pass."
+    },
+    {
+      "name": "repository-lint",
+      "command": "env HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' USERPROFILE='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/home' CODEX_HOME='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/codex' CODEXHOST_DATA_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/hub' RLY0_MEMORY_DIR='/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7/memory' RLY0_SKIP_LEGACY_IMPORT=1 RLY0_CODEX_UPDATE_CONTROL=0 npm run lint",
+      "exitCode": 1,
+      "result": "Only pre-existing rly0-hub-promo.test.ts:11 no-non-null-assertion; unchanged SHA-256 vs input. Boundaries run separately because && short-circuited."
+    },
+    {
+      "name": "diff-check",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "result": "Passed."
+    }
+  ],
+  "onlySelfVerified": true,
+  "independentReview": "not_run",
+  "liveAcceptance": "not_run",
+  "redRegression": {
+    "total": 3,
+    "failed": 3,
+    "expected": true
+  },
+  "finalTests": {
+    "files": 5,
+    "passed": 167,
+    "failed": 0,
+    "skipped": 0
+  },
+  "systemCommands": "All test defaults/process/quit/watchdog operations injected; never executed real defaults or daily app control.",
+  "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-codex-alert-checks-qibkhko7",
+  "recordedAt": "2026-11-12T00:16:49.343669+08:00",
+  "base": "5d07cdaf057acf82033c422dc9d34be73772f025",
+  "branch": "feat/agent-cli-autoupdate",
+  "node": "v24.22.2",
+  "git": "git version 2.54.0 (Apple Git-157)",
+  "toolVersions": {
+    "typescript": "6.0.3",
+    "vitest": "4.1.10",
+    "eslint": "10.8.0",
+    "prettier": "3.9.6"
+  },
+  "sourceSha256": {
+    ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md": "298cb92d385ce1a3b8bc519eb9bfdb176d73515b8a2917c29ba3cb40da5ac4ee",
+    "docs/features/codex-version-gate.md": "1849971386ba885961f33d6d250dbe1006efca041ab8a65f4c860cd85ede1d43",
+    "packages/host-runtime/src/rly0-hub-service/codex-check-preferences.ts": "8d5ce05019b28115361c13a6cbfe1af5230387c9046e1be6cc31beae25adb321",
+    "packages/host-runtime/src/rly0-hub-service/codex-skipped-version.ts": "f09afb51a161e11ea9f3510c476c745275e88fc376c7706ab9c9649fc8a74574",
+    "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts": "8cf503fe6e651aae76894651c0725e27c9b501260dcb263bcf2b5038f85ab14a",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts": "0fa872177fce5d2f705e6603648aad479acd7d0a97a5869f06c508d439f55851",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-watchdog.ts": "2d9d74120bf1b944f0306c92ebb97210e347f0a90f438754fa778b9c802b8840",
+    "packages/host-runtime/test/codex-update-alert.test.ts": "4bfa48bc94edbd2c84fd979992db2455fcd4830685fa9edc9ef9967f4b71a080",
+    "packages/host-runtime/test/codex-version-gate.test.ts": "69e45329dd39a9963982e7e82e9efef749abcabeb129089aed0a631489fd8658"
+  },
+  "existingLintFile": {
+    "file": "packages/host-runtime/test/rly0-hub-promo.test.ts",
+    "baseSha256": "ffda9088fbf18a02d9990616cee66705446f66f1ea38f201f917062131893caa",
+    "currentSha256": "ffda9088fbf18a02d9990616cee66705446f66f1ea38f201f917062131893caa"
+  },
+  "researchCleanup": {
+    "afterResearchSha256": {
+      "Resources/app.asar": "a77588b2dcfa9b394d722dd8c2c8b13d3a09bacd49c839cc715245742dba6048",
+      "Resources/native/sparkle.node": "a5b4c0e80d6df17cf612fb6e6ec529f4c86577fba7bb78299c3d58ed8277dd33",
+      "Frameworks/Sparkle.framework/Sparkle": "0b287ae0388e98a18088703d3aa3a5bc1819f31a33c1faafd2e9ef5e28735441"
+    },
+    "temporaryExtractionRemoved": true,
+    "packedFilesExtracted": 19886
+  },
+  "platform": {
+    "python": "darwin",
+    "machine": "arm64"
+  },
+  "changedDocumentationLinks": {
+    "exitCode": 0,
+    "localLinksChecked": 11
+  },
+  "testIsolationRemoved": true
+}

@@ -1,4 +1,5 @@
-import { defaultsValueMissing, restoreCodexCheckPreferences } from "./codex-check-preferences.js";
+import { codexPreferences, restoreCodexCheckPreferences } from "./codex-check-preferences.js";
+import { CodexSkippedVersion, compareSparkleBuilds } from "./codex-skipped-version.js";
 import { parseLsappinfoBundlePath, readLauncherCodexBundle } from "./codex-bundle-location.js";
 import { createHash } from "node:crypto";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
@@ -15,8 +16,15 @@ import { compareCodexVersions } from "@codexhost/shared-contracts";
 import type { CodexUpdateDriver } from "./codex-update-manager.js";
 import type { UpdateHttpGet } from "./hub-update-net.js";
 
-export function parseCodexAppcast(xml: string, systemVersion?: string): string[] {
-  const versions = [...xml.matchAll(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gu)].flatMap(([block]) => {
+export interface CodexAppcastUpdate {
+  version: string;
+  build: string | null;
+}
+export function parseCodexAppcastUpdates(
+  xml: string,
+  systemVersion?: string,
+): CodexAppcastUpdate[] {
+  return [...xml.matchAll(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gu)].flatMap(([block]) => {
     if (!/<enclosure(?:\s|\/?>)/u.test(block)) return [];
     const version =
       /<sparkle:shortVersionString>\s*([\d.]+)\s*<\//u.exec(block)?.[1] ??
@@ -28,8 +36,16 @@ export function parseCodexAppcast(xml: string, systemVersion?: string): string[]
     if (/<sparkle:minimumSystemVersion/u.test(block) && !minimum)
       throw new Error("CODEX_APPCAST_FAILED");
     if (minimum && systemVersion && compareCodexVersions(systemVersion, minimum) < 0) return [];
-    return [version];
+    const build =
+      /<sparkle:version>\s*([\d.]+)\s*<\//u.exec(block)?.[1] ??
+      /sparkle:version="([\d.]+)"/u.exec(block)?.[1] ??
+      null;
+    if (build !== null && !/^\d+(?:\.\d+)*$/u.test(build)) throw new Error("CODEX_APPCAST_FAILED");
+    return [{ version, build }];
   });
+}
+export function parseCodexAppcast(xml: string, systemVersion?: string): string[] {
+  const versions = parseCodexAppcastUpdates(xml, systemVersion).map((update) => update.version);
   return [...new Set(versions)].sort((a, b) => compareCodexVersions(b, a));
 }
 export async function latestCodexAppcast(options: {
@@ -41,6 +57,7 @@ export async function latestCodexAppcast(options: {
   systemVersion?: string;
   onFeed?: (identity: string) => void;
   onEligibleVersions?: (versions: string[]) => void;
+  onUpdates?: (updates: CodexAppcastUpdate[]) => void;
 }): Promise<string> {
   const home = options.environment.HOME ?? os.homedir();
   const bootstrap: unknown = JSON.parse(
@@ -84,6 +101,7 @@ export async function latestCodexAppcast(options: {
     options.onVersions?.(versions);
     const latest = versions[0];
     if (!latest) throw new Error("CODEX_APPCAST_FAILED");
+    options.onUpdates?.(parseCodexAppcastUpdates(xml));
     return latest;
   } finally {
     response.cancel();
@@ -187,42 +205,16 @@ export function createMacCodexUpdateDriver(options: {
 }): CodexUpdateDriver {
   const exec = options.exec ?? nativeExec(options.environment);
   const domain = "com.openai.codex";
+  const preferences = codexPreferences(exec);
+  const { read, write, readBoolean } = preferences;
+  const skipped = new CodexSkippedVersion(resolveRly0DataDir(options.environment), preferences);
   const cache = new Map<string, string>();
+  let updates: CodexAppcastUpdate[] = [];
   let versions: string[] = [];
   let eligibleVersions: string[] = [];
   let feedIdentity: string | null = null;
   let lastRevalidatedAt = -Infinity;
   const lastFailedProbes = new Map<string, number>();
-  const read = async (key: string): Promise<string | null> => {
-    try {
-      return await exec("/usr/bin/defaults", ["read", domain, key]);
-    } catch (error) {
-      if (defaultsValueMissing((error as { stderr?: unknown }).stderr)) return null;
-      throw error;
-    }
-  };
-  const readBoolean = async (key: string) => {
-    const value = await read(key);
-    if (value === null) return null;
-    if (value !== "0" && value !== "1") throw new Error("CODEX_PREFERENCES_FAILED");
-    return value === "1";
-  };
-  const write = async (key: string, value: string | boolean | null) => {
-    if (value === null) {
-      try {
-        await exec("/usr/bin/defaults", ["delete", domain, key]);
-      } catch (error) {
-        if (!defaultsValueMissing((error as { stderr?: unknown }).stderr)) throw error;
-      }
-    } else
-      await exec("/usr/bin/defaults", [
-        "write",
-        domain,
-        key,
-        typeof value === "boolean" ? "-bool" : "-date",
-        String(value),
-      ]);
-  };
   const isRunning = async () => {
     const result = await exec("/usr/bin/osascript", [
       "-e",
@@ -299,6 +291,21 @@ export function createMacCodexUpdateDriver(options: {
         })),
     readAutoUpdate: () => readBoolean("SUAutomaticallyUpdate"),
     writeAutoUpdate: (value) => write("SUAutomaticallyUpdate", value),
+    hasVersionAlertHold: () => skipped.pending(),
+    restoreVersionAlerts: () => skipped.restore(),
+    async holdVersionAlerts(current, verified) {
+      const blocked = updates.filter(
+        (update) => compareCodexVersions(update.version, current) > 0 && !verified(update.version),
+      );
+      if (!blocked.length) return; // Keep the hold until the idle release is actually armed.
+      const builds = blocked
+        .map((update) => {
+          if (!update.build) throw new Error("CODEX_APPCAST_FAILED");
+          return update.build;
+        })
+        .sort((a, b) => compareSparkleBuilds(b, a));
+      await skipped.hold(builds[0] ?? "");
+    },
     async readCheckPreferences() {
       return {
         automaticChecks: await readBoolean("SUEnableAutomaticChecks"),
@@ -318,6 +325,9 @@ export function createMacCodexUpdateDriver(options: {
         },
         onFeed: (identity) => {
           feedIdentity = identity;
+        },
+        onUpdates: (offered) => {
+          updates = offered;
         },
         environment: options.environment,
         current,

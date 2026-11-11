@@ -26,6 +26,9 @@ export interface CodexUpdateDriver {
   installableVersions?(): string[];
   readAutoUpdate(): Promise<boolean | null>;
   writeAutoUpdate(value: boolean | null): Promise<void>;
+  hasVersionAlertHold?(): Promise<boolean>;
+  holdVersionAlerts?(current: string, verified: (version: string) => boolean): Promise<void>;
+  restoreVersionAlerts?(): Promise<void>;
   currentVersion(): Promise<string | null>;
   latestVersion(current: string): Promise<string>;
   readCheckPreferences(): Promise<CodexCheckPreferences>;
@@ -219,6 +222,8 @@ export class CodexUpdateManager {
   async #arm() {
     const driver = this.options.driver;
     if (!driver) throw new Error("CODEX_UPDATE_UNSUPPORTED");
+    // Unskip BEFORE creating a release lease, publishing hold=false or allowing any download.
+    await this.#restoreVersionAlerts();
     if (!this.#armed) {
       // Do not take a lease away from another live Hub, even one sharing this directory.
       const existing = await fs
@@ -406,7 +411,7 @@ export class CodexUpdateManager {
       } catch {
         /* Absent/corrupt journal cannot trigger a restart. */
       }
-    }
+    } else await this.options.driver.restoreVersionAlerts?.();
     await this.#publishHold();
     this.#initialized = true;
   }
@@ -451,7 +456,10 @@ export class CodexUpdateManager {
         // A permission failure must not prevent the person opting out of future management.
         if (!enabled && !this.#initialized) {
           const saved = (await this.options.state.read()).codexUpdates;
-          if (saved?.originalAutoUpdate === undefined) {
+          if (
+            saved?.originalAutoUpdate === undefined &&
+            !(await this.options.driver?.hasVersionAlertHold?.())
+          ) {
             this.#settings = { defaulted: true, enabled: false, noticeAcknowledged: true };
             await this.options.state.update({ codexUpdates: this.#settings });
             await this.options.catalog.load();
@@ -486,14 +494,16 @@ export class CodexUpdateManager {
           if (driver) await driver.writeAutoUpdate(false);
         } else {
           // Persist disabled only after restoration succeeds. A failed restore can be retried.
-          if (driver && this.#settings.originalAutoUpdate !== undefined)
-            await driver.writeAutoUpdate(this.#settings.originalAutoUpdate);
-          await this.#restoreCheckPreferences();
           this.#armed = false;
           clearInterval(this.#leaseTimer);
           this.#leaseTimer = undefined;
           await this.#renewing;
+          if (driver) await driver.writeAutoUpdate(false);
           await fs.rm(this.#leaseFile(), { force: true });
+          await this.#restoreCheckPreferences();
+          await this.#restoreVersionAlerts();
+          if (driver && this.#settings.originalAutoUpdate !== undefined)
+            await driver.writeAutoUpdate(this.#settings.originalAutoUpdate);
           await this.#recoverClosed();
           this.#settings = { defaulted: true, enabled: false, noticeAcknowledged: true };
           await this.options.state.update({ codexUpdates: this.#settings });
@@ -548,16 +558,21 @@ export class CodexUpdateManager {
           return this.status();
         }
         if (ACTIVE.has(this.#phase)) {
+          // A busy wait/download can last hours. Keep alert suppression current on the ordinary
+          // feed check, rather than waiting until the next idle quit revalidation.
+          if (this.#phase === "waiting-idle" || this.#phase === "downloading") {
+            const latest = await driver.latestVersion(this.#current ?? "0.0");
+            await this.#holdVersionAlerts();
+            this.#candidates = (await driver.availableVersions?.(this.#current ?? "0.0")) ?? [
+              latest,
+            ];
+            if (this.#blockedCandidate()) this.#latest = latest;
+          }
           await this.#advance();
           return this.status();
         }
         if (this.#closedByHub) {
           await this.#recoverClosed();
-          return this.status();
-        }
-        if (this.#now() < this.#retryAt && !this.#suspendedFeed) {
-          this.#phase = this.#retryStatus.phase;
-          this.#error = this.#retryStatus.error;
           return this.status();
         }
         this.#error = null;
@@ -579,6 +594,8 @@ export class CodexUpdateManager {
           this.#fail("CODEX_APPCAST_FAILED");
           return this.status();
         }
+        await this.#holdVersionAlerts();
+        this.#candidates = (await driver.availableVersions?.(this.#current)) ?? [this.#latest];
         const nextFeed = driver.feedIdentity?.() ?? this.#latest;
         if (this.#feed && this.#feed !== nextFeed) this.#timeouts = 0;
         this.#feed = nextFeed;
@@ -593,9 +610,18 @@ export class CodexUpdateManager {
           this.#retryAt = 0;
           await this.#saveAttempt();
         }
-        if (!this.options.catalog.verified(this.#latest)) this.#phase = "waiting-compatibility";
-        else if (compareCodexVersions(this.#latest, this.#current) <= 0) this.#phase = "up-to-date";
-        else if (
+        // Backoff limits native update attempts, not read-only feed checks or alert suppression.
+        if (this.#now() < this.#retryAt) {
+          this.#phase = this.#retryStatus.phase;
+          this.#error = this.#retryStatus.error;
+          return this.status();
+        }
+        if (!this.options.catalog.verified(this.#latest) || this.#blockedCandidate())
+          this.#phase = "waiting-compatibility";
+        else if (compareCodexVersions(this.#latest, this.#current) <= 0) {
+          await this.#restoreVersionAlerts();
+          this.#phase = "up-to-date";
+        } else if (
           driver
             .installableVersions?.()
             .every((version) => compareCodexVersions(version, this.#current ?? "0.0") <= 0)
@@ -607,12 +633,17 @@ export class CodexUpdateManager {
           this.#backgroundStarted = false;
           this.#staged = false;
           this.#target = null;
-          this.#candidates = (await driver.availableVersions?.(this.#current)) ?? [this.#latest];
           if (!this.#candidates.includes(this.#latest)) this.#candidates.push(this.#latest);
           await this.#advance();
         }
-      } catch {
-        this.#fail("CODEX_UPDATE_CHECK_FAILED");
+      } catch (error) {
+        this.#fail(
+          error instanceof Error && error.message === "CODEX_PREFERENCES_FAILED"
+            ? "CODEX_PREFERENCES_FAILED"
+            : error instanceof Error && error.message === "CODEX_APPCAST_FAILED"
+              ? "CODEX_APPCAST_FAILED"
+              : "CODEX_UPDATE_CHECK_FAILED",
+        );
         await this.#disarm();
         await this.#recoverClosed();
       }
@@ -649,6 +680,30 @@ export class CodexUpdateManager {
       delete settings.originalCheckPreferences;
       await this.options.state.update({ codexUpdates: settings });
       this.#settings = settings;
+    }
+  }
+  #blockedCandidate(): boolean {
+    return this.#candidates.some(
+      (version) =>
+        compareCodexVersions(version, this.#current ?? "0.0") > 0 &&
+        !this.options.catalog.verified(version),
+    );
+  }
+  async #holdVersionAlerts() {
+    try {
+      await this.options.driver?.holdVersionAlerts?.(this.#current ?? "0.0", (version) =>
+        this.options.catalog.verified(version),
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message === "CODEX_APPCAST_FAILED") throw error;
+      throw new Error("CODEX_PREFERENCES_FAILED");
+    }
+  }
+  async #restoreVersionAlerts() {
+    try {
+      await this.options.driver?.restoreVersionAlerts?.();
+    } catch {
+      throw new Error("CODEX_PREFERENCES_FAILED");
     }
   }
   async #reopened() {
@@ -734,10 +789,9 @@ export class CodexUpdateManager {
       return;
     }
     try {
-      if (this.#armed) await this.#lease();
-      else if (this.#backgroundStarted && this.#phase === "downloading") await this.#arm();
+      await this.#holdVersionAlerts();
       if (
-        !this.options.catalog.verified(this.#latest) &&
+        (!this.options.catalog.verified(this.#latest) || this.#blockedCandidate()) &&
         this.#phase !== "installing" &&
         this.#phase !== "health-check"
       ) {
@@ -745,6 +799,8 @@ export class CodexUpdateManager {
         this.#phase = "waiting-compatibility";
         return;
       }
+      if (this.#armed) await this.#lease();
+      else if (this.#backgroundStarted && this.#phase === "downloading") await this.#arm();
       if (this.#phase === "downloading" || this.#phase === "waiting-idle") {
         if (!this.#staged) {
           // Observe Sparkle's actual signed choice; OS and rollout eligibility are its decision.
@@ -776,9 +832,9 @@ export class CodexUpdateManager {
         }
         this.#idleSince ??= this.#now();
         if (this.#now() - this.#idleSince < (this.options.idleMs ?? 15_000)) return;
-        if (
-          compareCodexVersions(await driver.latestVersion(this.#current ?? ""), this.#latest) !== 0
-        ) {
+        const latest = await driver.latestVersion(this.#current ?? "");
+        await this.#holdVersionAlerts();
+        if (compareCodexVersions(latest, this.#latest) !== 0) {
           this.#fail("CODEX_UPDATE_TARGET_CHANGED");
           await this.#disarm();
           return;
@@ -944,8 +1000,14 @@ export class CodexUpdateManager {
         }
         if (this.#now() - this.#stageAt > 60_000) this.#fail("CODEX_HEALTH_FAILED");
       }
-    } catch {
-      this.#fail("CODEX_UPDATE_CHECK_FAILED");
+    } catch (error) {
+      this.#fail(
+        error instanceof Error && error.message === "CODEX_PREFERENCES_FAILED"
+          ? "CODEX_PREFERENCES_FAILED"
+          : error instanceof Error && error.message === "CODEX_APPCAST_FAILED"
+            ? "CODEX_APPCAST_FAILED"
+            : "CODEX_UPDATE_CHECK_FAILED",
+      );
       await this.#disarm();
       await this.#recoverClosed();
     }

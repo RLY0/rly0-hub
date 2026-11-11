@@ -269,3 +269,34 @@ v4“研究结论”中“值为 true 时立即触发后台检查”只适用旧
 - Codex 主窗口（loadURL）附着时是否暂停、URL 为空还是 app://，`codex-update-hold-v1.json` 中 `holdBeforePageScripts` 的实际值。
 - controller 被强杀后 Launcher 是否重起 controller（决定被卡窗口能否自动恢复）。
 - 上轮 v5“仍需真机”各项仍然有效。
+
+## 2026-11-11：压住期间抑制官方新版提醒
+
+输入 `5d07cdaf`，实现与检查跨至 2026-11-12；工单 `HUB-CODEX-UPDATE-ALERT`。范围为后台、隔离测试和文档；RPC、status 字段、phase 和错误码不变。仅 self_verified，修复后独立审查和真机验收未完成。
+
+### 本机机制依据
+
+只读核实 `/Applications/ChatGPT.app`（bundle id `com.openai.codex`，Codex `26.1103.60933` / build `25894`）内置 Sparkle `2.9.1` / build `2054`。普通版本跳过键为 `SUSkippedVersion`，类型 NSString；值来自 appcast 的 `sparkle:version`，不是展示用 `sparkle:shortVersionString`。该 build 及更低 build 会被 Sparkle 后台候选过滤。`SUSkippedMajorVersion`、`SUSkippedMajorSubreleaseVersion` 为另一种跳过语义；`CodexSparkleSeenUpdateVersions` 是 Codex 原生插件的已关注提醒数组，不能代替候选跳过键。Hub 不读写后三个键。
+
+完整版本、哈希、ASAR 文件/字符偏移及 native/framework arm64 位置见 [RESEARCH.md](evidence/codex-update-alert-20261111/RESEARCH.md)。ASAR 仅在临时目录提取研究并已删除，App 包未修改。没有改首条 `disableInAppUpdates` latch，也不以关闭自动检查替代这一控制。
+
+### 压住、放行与关闭管理
+
+- Mac 驱动保留 feed 的 `{version, build}` 映射；选择“比已装版本更新且未适配”的候选中最大的 build，以 `defaults write com.openai.codex SUSkippedVersion -string <build>` 写入。多个候选、同一展示版本的不同 build 均参与判断。缺失/无效 build 拒绝压窗操作并报 `CODEX_APPCAST_FAILED`，不拿展示版本猜测。最低系统版本筛选不删除压窗所依据的候选；既有安装适配门槛保持保守。
+- 在首个 native 写入前，以原子替换保存 `<dataDir>/codex-update-skipped-version.json`：`{schemaVersion:1, original:string|null, written:string, previous?:string}`。`null` 表示原键缺失；替换 Hub 旧写值时 `previous` 临时保留另一个可能的已写值，覆盖进程崩溃和成功响应丢失。成功读回后收敛为一个 written。记录限 4 KiB，版本限 100 字符；损坏记录保留并阻止放行，不能猜测归属后删除。
+- 已有相同或更高的用户跳过值不认领、不降低；其他原值在暂时覆盖前保存。写前再读一次，若用户已改值则本轮失败，不覆盖它。恢复只在当前值严格等于记录中的 Hub 写值时写回 original；原值缺失则删除键。当前是用户新值/用户删除时保留它，只清理自己的记录。defaults 不提供原子 compare-and-swap；最终比较与写入之间仍有跨进程竞争，不能宣称完全锁住用户或 Sparkle。
+- 兼容清单适配后，仍等“无任务且键鼠 5 分钟未动”，再经既有连续 15 秒复核。**实际 arm 前**先恢复 Hub 的跳过值并清理成功，再建租约、启动 watchdog、发布 `holdUpdates:false`、开启自动下载和请求后台检查。恢复失败报 `CODEX_PREFERENCES_FAILED`，保持 hold，不建租约、不下载、不 quit；用户手动跳过的版本即使已适配也继续保留。
+- feed 定期检查在原生更新退避期间仍更新压窗阈值，不重新触发下载/重开；长时间等待空闲或下载时，定期检查也刷新 feed，发现新未适配候选则压窗并回到兼容等待。两次检查之间新 feed 的出现仍存在观察间隔。
+- 关闭管理先停止续租、关回下载并撤销租约，再恢复检查辅助偏好和自己的跳过值，最后恢复原自动下载值并保存 disabled、释放 renderer hold。任何恢复失败保留管理状态和恢复记录，供重试；不把失败当成已关闭。
+
+### 崩溃与 watchdog
+
+管理仍开启时 Hub 正常停服或崩溃均保留跳过记录；下次启动继续原始归属，不把 Hub 自己的跳过值当用户原值。离线/坏 feed 不丢掉已有压窗。关闭管理可不依赖成功读取 feed 进行恢复，初始化快捷退出前也核对是否有跳过记录。
+
+跳过记录独立于 release lease，撤销完成后才能创建 lease，lease 不携带旧跳过快照。watchdog 只关回 `SUAutomaticallyUpdate` 并按原有比较规则恢复检查辅助键；不清理新 owner 的跳过记录、不重写用户的新值，也不重新写回已放行的旧跳过值。偏好命令封装与日期恢复由驱动/watchdog 共用，测试注入每条系统命令。
+
+### 验收边界
+
+测试环境同时隔离 HOME、USERPROFILE、CODEX_HOME、CODEXHOST_DATA_DIR、RLY0_MEMORY_DIR，设置 `RLY0_SKIP_LEGACY_IMPORT=1`、`RLY0_CODEX_UPDATE_CONTROL=0`；defaults、进程/系统查询、quit、watchdog 均由注入驱动执行，未另起 hub-service。证据见 [RESULTS.md](evidence/codex-update-alert-20261111/RESULTS.md)。
+
+仍需获准独立真机：运行中 Sparkle 对外部 defaults 变动的读取时机、后续定时检查是否完全无窗口、已经显示的窗口是否仍需手动关闭、适配后空闲后台下载/退出安装、用户关闭管理/崩溃恢复及真实 watchdog 权限。显式手动检查可能忽略 Sparkle 跳过值；本修复抑制定时提醒，不承诺强制禁止用户所有手动更新入口。feed 变化竞争与 B1 原有真机缺口仍保留，未推送、发布或改日常进程。

@@ -3,6 +3,23 @@
   "base": "79fc26e8b2b57b5cb22b6b0fd9b42142f5dde945",
   "tickets": [
     {
+      "id": "HUB-CODEX-UPDATE-ALERT",
+      "stage": "M1",
+      "milestone": "2-好用",
+      "owner": "codex",
+      "status": "self_verified",
+      "review": "self-verified-pending-independent-review",
+      "accepted": false,
+      "base": "5d07cdaf057acf82033c422dc9d34be73772f025",
+      "scope": "Read-only local Sparkle 2.9.1 research; Hub-owned build skip with compare-and-restore before release/opt-out, crash journal and watchdog boundaries; 5 isolated command-injected files, 167 pass. No real defaults/App/process/service/push/release mutation.",
+      "contract": ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md",
+      "evidence_files": [
+        ".pm/selfheal/evidence/codex-update-alert-20261111/RESULTS.md",
+        ".pm/selfheal/evidence/codex-update-alert-20261111/RESEARCH.md"
+      ],
+      "next_action": "独立复核；获准独立真机验收运行中 defaults 刷新、定时无弹窗、适配后空闲下载/退出安装、关闭管理与 watchdog；Claude 集成、打包和发布。"
+    },
+    {
       "id": "HUB-CODEX-VERSION-GATE",
       "stage": "M1",
       "milestone": "2-好用",

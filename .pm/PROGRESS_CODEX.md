@@ -1,3 +1,17 @@
+# Codex 官方新版弹窗：本地修复已完成（self_verified）
+
+2026-11-11 开始，2026-11-12 完成隔离检查；分支 `feat/agent-cli-autoupdate`，输入 `5d07cdaf`。工单 `HUB-CODEX-UPDATE-ALERT`。
+
+本机只读研究确认 Codex 26.1103.60933 内置 Sparkle 2.9.1，`SUSkippedVersion` 使用 feed build 字符串。后台已增加自己的跳过归属记录、放行前撤销、关闭管理恢复及崩溃恢复；保留用户其他跳过版本，不改 Codex 已关注提醒数组。更新退避和长期等待空闲时也刷新压窗阈值；无任务且键鼠 5 分钟未动的规则保留，仍经连续 15 秒复核。watchdog 不重放旧跳过记录。
+
+验证：5 个文件 167 pass、0 fail、0 skip；typecheck、改动文件 ESLint、依赖边界和改动文件格式通过。全仓 lint exit 1，仅基线已有的 `rly0-hub-promo.test.ts:11`；文件哈希与基线相同。测试为 synthetic feed/系统命令注入，临时用户/配置/数据/记忆目录隔离，原生控制关闭。App 研究临时目录已删除，输入哈希未变。
+
+证据：[RESULTS](selfheal/evidence/codex-update-alert-20261111/RESULTS.md)、[机制研究](selfheal/evidence/codex-update-alert-20261111/RESEARCH.md)。契约与 `docs/features/codex-version-gate.md` 已同步。仅自检，未 reviewed/accepted；未写真实 defaults、未改 App、未退出重启用户 Codex/Hub、未另起 hub-service、未推送发布。
+
+next_action：独立复核；获准独立真机验收运行中 Sparkle 读取跳过值/定时无弹窗、适配后的空闲下载与退出安装、用户关闭管理和真实 watchdog 恢复。已显示窗口、显式手动检查、feed 观察间隔和 defaults 最后比较/写入竞争仍有边界。界面、打包与发布仍由 Claude 负责。
+
+---
+
 # HUB-AGENT-CLI-AUTOUPDATE 复查 #3 修复：self_verified
 
 2026-11-10；feat/agent-cli-autoupdate；输入 `bc3fd9a1a2ee46484b6fed843adef14a2e9bf28f`（保留 Claude 界面）。N1/N2/N3 和四个次要项已实现并补测试。本轮仅自检，修复后的 reviewed/accepted 未完成。

@@ -1,0 +1,9 @@
+{
+  "afterResearchSha256": {
+    "Resources/app.asar": "a77588b2dcfa9b394d722dd8c2c8b13d3a09bacd49c839cc715245742dba6048",
+    "Resources/native/sparkle.node": "a5b4c0e80d6df17cf612fb6e6ec529f4c86577fba7bb78299c3d58ed8277dd33",
+    "Frameworks/Sparkle.framework/Sparkle": "0b287ae0388e98a18088703d3aa3a5bc1819f31a33c1faafd2e9ef5e28735441"
+  },
+  "temporaryExtractionRemoved": true,
+  "packedFilesExtracted": 19886
+}

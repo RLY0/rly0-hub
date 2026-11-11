@@ -1,4 +1,8 @@
-import { defaultsValueMissing, restoreCodexCheckPreferences } from "./codex-check-preferences.js";
+import {
+  codexPreferences,
+  restoreCodexCheckPreferences,
+  type CodexPreferencesExec,
+} from "./codex-check-preferences.js";
 import { codexNativeUpdateControlAllowed } from "./codex-update-control.js";
 import type { CodexCheckPreferences } from "./codex-update-manager.js";
 import { execFile } from "node:child_process";
@@ -10,6 +14,18 @@ export interface CodexUpdateLease {
   pid: number;
   at: number;
   checkPreferences?: CodexCheckPreferences;
+}
+/** Release recovery never restores an old skip snapshot: unskip completed before the lease. */
+export async function disarmCodexUpdateLease(
+  lease: CodexUpdateLease | undefined,
+  exec: CodexPreferencesExec,
+): Promise<void> {
+  const { read, write } = codexPreferences(exec);
+  await write("SUAutomaticallyUpdate", false);
+  if (lease?.checkPreferences)
+    await restoreCodexCheckPreferences(lease.checkPreferences, read, write);
+  // A hold journal survives a Hub crash. Only its owner/next Hub may compare-and-restore it;
+  // a detached old watchdog must never erase a newer user/Hub skip or reapply a released skip.
 }
 export async function watchCodexUpdateLease(options: {
   id: string;
@@ -126,42 +142,14 @@ export async function runCodexUpdateWatchdog(
       }
     },
     disarm: async (lease) => {
-      const exec = (args: string[]) =>
+      const exec: CodexPreferencesExec = (file, args) =>
         new Promise<string>((resolve, reject) =>
-          execFile("/usr/bin/defaults", args, { timeout: 15_000 }, (error, stdout, stderr) => {
+          execFile(file, args, { timeout: 15_000 }, (error, stdout, stderr) => {
             if (error) reject(Object.assign(new Error("CODEX_PREFERENCES_FAILED"), { stderr }));
             else resolve(stdout.trim());
           }),
         );
-      const read = async (key: string) => {
-        try {
-          return await exec(["read", "com.openai.codex", key]);
-        } catch (error) {
-          if (defaultsValueMissing((error as { stderr?: unknown }).stderr)) return null;
-          throw error;
-        }
-      };
-      const write = async (key: string, value: string | boolean | null) => {
-        try {
-          await exec(
-            value === null
-              ? ["delete", "com.openai.codex", key]
-              : [
-                  "write",
-                  "com.openai.codex",
-                  key,
-                  typeof value === "boolean" ? "-bool" : "-date",
-                  String(value),
-                ],
-          );
-        } catch (error) {
-          if (value !== null || !defaultsValueMissing((error as { stderr?: unknown }).stderr))
-            throw error;
-        }
-      };
-      await write("SUAutomaticallyUpdate", false);
-      if (lease?.checkPreferences)
-        await restoreCodexCheckPreferences(lease.checkPreferences, read, write);
+      await disarmCodexUpdateLease(lease, exec);
     },
     wait: () => new Promise((resolve) => setTimeout(resolve, 2000)),
     ready: () => {

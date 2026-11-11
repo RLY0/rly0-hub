@@ -72,6 +72,7 @@ async function fixture() {
     CODEXHOST_DATA_DIR: path.join(root, "hub"),
     RLY0_MEMORY_DIR: path.join(root, "memory"),
     RLY0_SKIP_LEGACY_IMPORT: "1",
+    RLY0_CODEX_UPDATE_CONTROL: "0",
   };
   const state = new Rly0HubStateStore(environment);
   const catalog = new CodexCompatibilityCatalog({
