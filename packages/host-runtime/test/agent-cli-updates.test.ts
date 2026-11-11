@@ -695,6 +695,42 @@ describe("review 2 transaction regressions (synthetic, native error shapes)", ()
     });
     expect(f.driver.install).toHaveBeenCalledTimes(1);
   });
+  it("keeps a last-moment BUSY from the install step in the minute retry (nothing was rolled back)", async () => {
+    const f = await fixture();
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const manager = new AgentCliUpdates({
+      environment: f.env,
+      driver: f.driver,
+      ownerProbe: syntheticOwner,
+    });
+    managers.push(manager);
+    const inspect = f.driver.inspect.getMockImplementation();
+    f.driver.inspect.mockImplementation(async (agent) =>
+      agent === "pi" ? requiredInspection(await inspect?.(agent)) : null,
+    );
+    // An external process appeared between the last scan and npm: install refuses with BUSY.
+    f.driver.install.mockRejectedValueOnce(new Error("BUSY"));
+    await manager.start();
+    await vi.waitFor(async () => {
+      expect(f.driver.install).toHaveBeenCalledTimes(1);
+      expect((await manager.status()).checking).toBe(false);
+    });
+    expect((await manager.status()).agents.find((a) => a.agent === "pi")).toMatchObject({
+      result: "skipped-busy",
+      errorCode: "BUSY",
+      causeCode: null,
+      badVersions: [],
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(async () => {
+      expect(f.driver.install).toHaveBeenCalledTimes(2);
+      expect((await manager.status()).checking).toBe(false);
+    });
+    expect((await manager.status()).agents.find((a) => a.agent === "pi")).toMatchObject({
+      result: "updated",
+    });
+  });
   it.each(["Harness command timed out", "COMMAND_TIMEOUT", "TimeoutError"])(
     "does not repeat a timed-out unchanged npm install every minute (%s), but retries daily",
     async (failure) => {

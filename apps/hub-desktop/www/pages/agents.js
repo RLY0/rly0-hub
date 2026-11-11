@@ -430,8 +430,9 @@ window.registerHubAgents = ({
         toast("Codex 没有回应，请确认 Codex 是从 RLY/0 Hub 启动的");
         return;
       }
+      // An agent being auto-updated is waiting, not failing to connect.
       const failedCount = Object.values(result.report.agents).filter(
-        (entry) => entry.status !== "ready",
+        (entry) => entry.status !== "ready" && entry.code !== "AGENT_CLI_UPDATE_BUSY",
       ).length;
       toast(failedCount ? `检测完成，${failedCount} 个助手连不上` : "检测完成，全部正常");
       load();

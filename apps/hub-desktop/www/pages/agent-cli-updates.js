@@ -78,8 +78,9 @@
         true,
       ];
     if (entry.result === "failed" && entry.errorCode === "COMMAND_TREE_STOP_FAILED")
-      return ["warn", `${pre}安装进程没能结束，暂停自动恢复；重启电脑后会再处理`, true];
-    if (entry.result === "failed" && entry.errorCode === "STATE_WRITE_FAILED")
+      return ["warn", `${pre}安装进程没能结束，暂停自动恢复；下次检查或重开 Hub 时会再处理`, true];
+    // Also after a rollback: the record of it could not be saved.
+    if (entry.errorCode === "STATE_WRITE_FAILED")
       return ["warn", `${pre}更新记录没能保存，暂停自动更新，请在 维护 → 系统诊断 里看看`, true];
     if (entry.recoveryPending) return ["wait", `${pre}上次更新还没收尾，等它空闲后处理`];
     // Waiting-type reasons: nothing is broken, the next check simply tries again.
@@ -92,6 +93,8 @@
       "INSTALL_FAILED",
       "INSTALL_TIMEOUT",
       "INSTALL_FILE_BUSY",
+      // Offline: the registry could not be asked. Nothing is wrong with the tool itself.
+      "CHECK_FAILED",
     ]);
     switch (entry.result) {
       case "updated":

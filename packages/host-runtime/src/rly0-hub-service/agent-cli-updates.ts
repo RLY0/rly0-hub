@@ -491,7 +491,11 @@ export class AgentCliUpdates {
         entry.currentVersion = await driver.version(pending.plan).catch(() => null);
         if (entry.currentVersion === pending.previous) {
           this.#pending.delete(agent);
-          await finish(failure === "BUSY" ? "skipped-busy" : "failed", failure);
+          if (failure === "BUSY") {
+            // Nothing was installed or rolled back: a plain wait, retried every minute.
+            entry.causeCode = null;
+            await finish("skipped-busy", failure);
+          } else await finish("failed", failure);
           return;
         }
         pending.quarantine = failure === "CONNECTION_NOT_READY" || failure === "VERSION_MISMATCH";

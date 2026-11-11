@@ -234,6 +234,22 @@ describe("AI 助手 → 自动更新命令行工具 (synthetic)", () => {
     expect(text).toContain("安装文件可能被占用");
   });
 
+  it("keeps offline checks calm and shows a rollback whose record could not be saved", async () => {
+    const ui = await mount(
+      status([
+        entry("opencode", { result: "failed", errorCode: "CHECK_FAILED" }),
+        entry("pi", {
+          result: "rolled-back",
+          errorCode: "STATE_WRITE_FAILED",
+          latestVersion: "1.1.0",
+        }),
+      ]),
+    );
+    expect(String(ui.line("opencode")?.props.class)).toContain("wait");
+    expect(String(ui.line("pi")?.props.class)).toContain("warn");
+    expect(ui.line("pi")?.textContent).toContain("更新记录没能保存");
+  });
+
   it("keeps warnings whole and never claims recovery when the rollback failed", async () => {
     const ui = await mount(
       status([entry("opencode", { result: "failed", errorCode: "ROLLBACK_FAILED" })]),
