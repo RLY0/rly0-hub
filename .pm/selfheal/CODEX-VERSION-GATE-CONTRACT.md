@@ -52,6 +52,7 @@ feature：usage、composer、sidebar-icons、settings、schedules、delegation�
 | unsupported | 当前平台无法控制自动安装（Windows 等） |
 | up-to-date | 当前已达适配最新版，或 Sparkle 实际投放目标安装后体检通过；latestVersion 仍显示 feed 最大版本，可能高于当前系统/投放可安装版本 |
 | waiting-compatibility | 最新版尚未适配，无期限等待 |
+| user-skipped | 用户自己的跳过值覆盖放行目标；保留选择，不退出或重开 Codex，等待用户改变跳过值或后续版本 |
 | downloading | 已在空闲时正常重开，等待 Sparkle 后台下载的签名暂存证据 |
 | waiting-idle | 后台检查重开前，或已有签名暂存时，等连续 15 秒 fresh busy=false 心跳；不计下载超时 |
 | installing | 已正常 quit，等 Desktop/本应用 updater 退出；随后为后台检查重开当前版本，或核对实际安装目标 |
@@ -272,7 +273,7 @@ v4“研究结论”中“值为 true 时立即触发后台检查”只适用旧
 
 ## 2026-11-11：压住期间抑制官方新版提醒
 
-输入 `5d07cdaf`，实现与检查跨至 2026-11-12；工单 `HUB-CODEX-UPDATE-ALERT`。范围为后台、隔离测试和文档；RPC、status 字段、phase 和错误码不变。仅 self_verified，修复后独立审查和真机验收未完成。
+输入 `5d07cdaf`，实现与检查跨至 2026-11-12；工单 `HUB-CODEX-UPDATE-ALERT`。该轮未增加 RPC、status 字段、phase 或错误码；下方复查 #1 节补充新的状态及当前行为。仅 self_verified，修复后独立审查和真机验收未完成。
 
 ### 本机机制依据
 
@@ -282,8 +283,8 @@ v4“研究结论”中“值为 true 时立即触发后台检查”只适用旧
 
 ### 压住、放行与关闭管理
 
-- Mac 驱动保留 feed 的 `{version, build}` 映射；选择“比已装版本更新且未适配”的候选中最大的 build，以 `defaults write com.openai.codex SUSkippedVersion -string <build>` 写入。多个候选、同一展示版本的不同 build 均参与判断。缺失/无效 build 拒绝压窗操作并报 `CODEX_APPCAST_FAILED`，不拿展示版本猜测。最低系统版本筛选不删除压窗所依据的候选；既有安装适配门槛保持保守。
-- 在首个 native 写入前，以原子替换保存 `<dataDir>/codex-update-skipped-version.json`：`{schemaVersion:1, original:string|null, written:string, previous?:string}`。`null` 表示原键缺失；替换 Hub 旧写值时 `previous` 临时保留另一个可能的已写值，覆盖进程崩溃和成功响应丢失。成功读回后收敛为一个 written。记录限 4 KiB，版本限 100 字符；损坏记录保留并阻止放行，不能猜测归属后删除。
+- Mac 驱动保留 feed 的 `{version, build}` 映射；管理开启且未持有放行租约时，选择所有“比已装版本更新”的候选中最大的 build，以 `defaults write com.openai.codex SUSkippedVersion -string <build>` 写入，不区分是否已适配。多个候选、同一展示版本的不同 build 均参与判断。缺失/无效 build 拒绝压窗操作并报 `CODEX_APPCAST_FAILED`，不拿展示版本猜测。最低系统版本筛选不删除压窗所依据的候选；既有安装适配门槛保持保守。
+- 在首个 native 写入前，以原子替换保存 `<dataDir>/codex-update-skipped-version.json`：`{schemaVersion:1, original:string|null, originalType?:"integer", written:string, previous?:string, confirmed?:false}`。`null` 表示原键缺失；`confirmed:false` 仅表示待写意图，不能认领 written；替换 Hub 旧写值时 previous 仍是已确认的旧归属。成功读回后移除 confirmed 和 previous。记录限 4 KiB，版本限 100 字符；损坏记录保留并阻止放行，不能猜测归属后删除。详情及旧记录兼容见复查 #1 节。
 - 已有相同或更高的用户跳过值不认领、不降低；其他原值在暂时覆盖前保存。写前再读一次，若用户已改值则本轮失败，不覆盖它。恢复只在当前值严格等于记录中的 Hub 写值时写回 original；原值缺失则删除键。当前是用户新值/用户删除时保留它，只清理自己的记录。defaults 不提供原子 compare-and-swap；最终比较与写入之间仍有跨进程竞争，不能宣称完全锁住用户或 Sparkle。
 - 兼容清单适配后，仍等“无任务且键鼠 5 分钟未动”，再经既有连续 15 秒复核。**实际 arm 前**先恢复 Hub 的跳过值并清理成功，再建租约、启动 watchdog、发布 `holdUpdates:false`、开启自动下载和请求后台检查。恢复失败报 `CODEX_PREFERENCES_FAILED`，保持 hold，不建租约、不下载、不 quit；用户手动跳过的版本即使已适配也继续保留。
 - feed 定期检查在原生更新退避期间仍更新压窗阈值，不重新触发下载/重开；长时间等待空闲或下载时，定期检查也刷新 feed，发现新未适配候选则压窗并回到兼容等待。两次检查之间新 feed 的出现仍存在观察间隔。
@@ -300,3 +301,41 @@ v4“研究结论”中“值为 true 时立即触发后台检查”只适用旧
 测试环境同时隔离 HOME、USERPROFILE、CODEX_HOME、CODEXHOST_DATA_DIR、RLY0_MEMORY_DIR，设置 `RLY0_SKIP_LEGACY_IMPORT=1`、`RLY0_CODEX_UPDATE_CONTROL=0`；defaults、进程/系统查询、quit、watchdog 均由注入驱动执行，未另起 hub-service。证据见 [RESULTS.md](evidence/codex-update-alert-20261111/RESULTS.md)。
 
 仍需获准独立真机：运行中 Sparkle 对外部 defaults 变动的读取时机、后续定时检查是否完全无窗口、已经显示的窗口是否仍需手动关闭、适配后空闲后台下载/退出安装、用户关闭管理/崩溃恢复及真实 watchdog 权限。显式手动检查可能忽略 Sparkle 跳过值；本修复抑制定时提醒，不承诺强制禁止用户所有手动更新入口。feed 变化竞争与 B1 原有真机缺口仍保留，未推送、发布或改日常进程。
+
+## 2026-11-12：官方更新提醒复查 #1（交 Claude）
+
+输入 `a5da7809`；修复独立报告的重要 1–3 与次要 4–5。此节补充当前契约；界面仍由 Claude 集成，本轮不修改 `apps/hub-desktop/www`。
+
+### 新增状态与字段
+
+RPC 方法与错误码不变，所有 `codex.updates.*` 返回值的 `phase` 新增 `user-skipped`，并在该状态附带可选字段 `userSkippedVersion: string`（目标的展示版本，不是 build）。`error:null`：这是用户选择，不是下载超时或更新失败。其他 phase 不发送该字段。
+
+```json
+{
+  "enabled": true,
+  "supported": true,
+  "phase": "user-skipped",
+  "currentVersion": "26.1103.60933",
+  "latestVersion": "26.1106.51428",
+  "userSkippedVersion": "26.1106.51428",
+  "error": null
+}
+```
+
+以上是裁剪的 synthetic 示例，不是用户设备状态。建议文案：“你已跳过 Codex v26.1106.51428，Hub 会保留这个选择，Codex 照常可用。”不要显示“下载中”“安装中”或循环重启；不新增代替用户清除跳过值的按钮/RPC。下次常规/手动检查重新判断；用户移除该值或后续目标 build 高于该值后，照常进入兼容与空闲检查。若实际签名暂存目标比 feed 最新版低，以 `userSkippedVersion` 解释被拦住的目标。
+
+### 放行边界
+
+- `holdUpdates:true` 与跳过值的适用范围一致：管理开启、尚未实际放行，包括版本初见时已适配、等待空闲、更新失败退避及同 feed 三次超时挂起。放行中止/结束后重新设置当前 feed 的最大较新 build；后台下载租约生效时不重写跳过值。
+- 验证租约占用后，在建立本轮租约、释放 renderer hold、开启下载之前撤销自己的跳过值；失败继续压住。空闲条件在最后一次命令后失效时，立即关回下载并重新写入跳过值，下次检查可继续。
+- 退出前两次检查用户跳过值：第一次在等待空闲/准备下载前，第二次在放行命令和进程查询后、记录退出会话之前。只扣除已确认的 Hub 写值；原始用户值也参与比较。用户值覆盖目标最高 build 时转 `user-skipped`，不 quit，不计下载失败。多个相同展示版本的 build 使用最高 build 判断；不能按展示版本字符串或其他候选的 build 猜测。
+- 等空闲/下载期间的五分钟 feed/跳过值刷新失败，保留当前等待/下载状态、已有值、失败计数和退避记录；下次重试。确认新候选未适配才收回放行并转兼容等待。最后的退出前 feed 复核失败也只延后退出，不增加六小时退避；不能用旧 feed 继续 quit。
+
+### 偏好类型及未确认写入
+
+- `defaults` 输出按键区分 boolean/date/string/integer/array 等类型，并容忍 stdout 末尾换行。`SUSkippedVersion` 接受字符串或非负整数 build；Hub 自身一律写字符串，原整数保存 `originalType:"integer"`，恢复使用 `-int`，不把它永久变成字符串。bool/float/array/dictionary 等未知语义拒绝覆盖并报 `CODEX_PREFERENCES_FAILED`。
+- 新记录先保存 `confirmed:false`，读回同一字符串后才确认归属。写命令响应丢失但读回成功仍可确认；命令/读回失败、或确认落盘前崩溃时，新 written 不可认领，恢复时只允许处理 previous 所指的已确认旧值。用户后来恰好跳过同一 build 时保留它。未确认但实际已写入的值也会保守保留；可能表现为 `user-skipped`，不能为了自动清理猜测用户意图。
+- 兼容旧 schemaVersion 1 记录：缺失 confirmed 的 written 继续视为旧版本已确认归属；升级后不能追溯旧记录是否确实写成功。原有 defaults 比较与写入之间的跨进程竞争仍存在。
+- 缺键删除按幂等处理：隔离测试复用先前记录的 macOS 27.2 错误 `Error: Could not find key 'K' in domain 'D'.`、缺域 `Error: Domain 'D' not found.` 及旧格式，权限/超时错误仍报错。本轮未执行真实 defaults 命令。
+
+证据见 [RESULTS.md](evidence/codex-update-alert-review1-20261112/RESULTS.md)。仍需独立复核及获准真机确认：运行中外部偏好刷新、定时无弹窗、critical/稍后提醒的语义、已弹窗口、真实后台下载/安装、整数偏好在当前 Sparkle 的行为和关闭管理恢复。

@@ -1,0 +1,14 @@
+{
+  "inputCommit": "a5da7809095786315b20e0055547d11f55d0bdf9",
+  "branch": "feat/agent-cli-autoupdate",
+  "files": {
+    ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md": "462a467b00fa6ea8cfd67c74659c3d4bbfd90597f50a7789e9e9395ce820635c",
+    "docs/features/codex-version-gate.md": "9d207148456f4ca6fceb36c66eee2512f0ea7d05eca014ace3d9a0e651e2dd80",
+    "packages/host-runtime/src/rly0-hub-service/codex-check-preferences.ts": "dd6d6a71dc55c0f92b875af1c9ab3cd5d2c78c8725aa55a673c7e2679b01299b",
+    "packages/host-runtime/src/rly0-hub-service/codex-skipped-version.ts": "44eea121b5dbf8d023c4d610523c10fcee801a8a047c11d2bcd8bbfa2934259b",
+    "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts": "2d2049c7c2996913cfb97618814926692a7499849f52fc000f3b03f913df57a4",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts": "d5e9b2d079963c4f7d361c953fe025e92bed66aa874b6a25c101f05324709bb0",
+    "packages/host-runtime/test/codex-update-alert.test.ts": "a1a8868a5bed439daf7d421b0aa128c6a9015cd019dd625c0ec2e4fdfbe41673",
+    "packages/host-runtime/test/codex-version-gate.test.ts": "892847c226a7f0db20402c631ec299abb2dbc7ece01e7626ae98d696fb961ff3"
+  }
+}

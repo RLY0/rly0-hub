@@ -293,18 +293,30 @@ export function createMacCodexUpdateDriver(options: {
     writeAutoUpdate: (value) => write("SUAutomaticallyUpdate", value),
     hasVersionAlertHold: () => skipped.pending(),
     restoreVersionAlerts: () => skipped.restore(),
-    async holdVersionAlerts(current, verified) {
-      const blocked = updates.filter(
-        (update) => compareCodexVersions(update.version, current) > 0 && !verified(update.version),
-      );
-      if (!blocked.length) return; // Keep the hold until the idle release is actually armed.
-      const builds = blocked
+    async holdVersionAlerts(current) {
+      const newer = updates.filter((update) => compareCodexVersions(update.version, current) > 0);
+      if (!newer.length) return;
+      const builds = newer
         .map((update) => {
           if (!update.build) throw new Error("CODEX_APPCAST_FAILED");
           return update.build;
         })
         .sort((a, b) => compareSparkleBuilds(b, a));
       await skipped.hold(builds[0] ?? "");
+    },
+    async isVersionSkipped(version) {
+      const candidates = updates.filter(
+        (update) => compareCodexVersions(update.version, version) === 0,
+      );
+      if (!candidates.length) throw new Error("CODEX_APPCAST_FAILED");
+      // A display version can have several builds; a lower skip must not block a higher build.
+      const builds = candidates
+        .map((update) => {
+          if (!update.build) throw new Error("CODEX_APPCAST_FAILED");
+          return update.build;
+        })
+        .sort((a, b) => compareSparkleBuilds(b, a));
+      return skipped.userSkipped(builds[0] ?? "");
     },
     async readCheckPreferences() {
       return {

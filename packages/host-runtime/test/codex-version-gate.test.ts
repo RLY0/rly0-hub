@@ -1512,6 +1512,12 @@ describe("review #3 fixes (synthetic commands only)", () => {
             throw Object.assign(new Error("missing"), { stderr: "does not exist" });
           return prefs.get(key) ?? "";
         }
+        if (args[0] === "read-type")
+          return key === "SUSkippedVersion"
+            ? "Type is string"
+            : key === "SULastCheckTime"
+              ? "Type is date"
+              : "Type is boolean";
         if (args[0] === "delete") prefs.delete(key);
         if (args[0] === "write")
           prefs.set(key, args[4] === "true" ? "1" : args[4] === "false" ? "0" : (args[4] ?? ""));
@@ -1879,6 +1885,12 @@ describe("live validation 2026-11-09 fixes (synthetic commands only)", () => {
             stderr: missingKey(key),
           });
         if (args[0] === "read") return prefs.get(key) ?? "";
+        if (args[0] === "read-type")
+          return key === "SUSkippedVersion"
+            ? "Type is string"
+            : key === "SULastCheckTime"
+              ? "Type is date"
+              : "Type is boolean";
         if (args[0] === "delete") prefs.delete(key);
         if (args[0] === "write")
           prefs.set(key, args[3] === "-bool" ? (args[4] === "true" ? "1" : "0") : (args[4] ?? ""));

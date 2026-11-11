@@ -27,8 +27,10 @@ export interface CodexUpdateDriver {
   readAutoUpdate(): Promise<boolean | null>;
   writeAutoUpdate(value: boolean | null): Promise<void>;
   hasVersionAlertHold?(): Promise<boolean>;
-  holdVersionAlerts?(current: string, verified: (version: string) => boolean): Promise<void>;
+  holdVersionAlerts?(current: string): Promise<void>;
   restoreVersionAlerts?(): Promise<void>;
+  /** True when a user-owned skip would suppress every build of the release target. */
+  isVersionSkipped?(version: string): Promise<boolean>;
   currentVersion(): Promise<string | null>;
   latestVersion(current: string): Promise<string>;
   readCheckPreferences(): Promise<CodexCheckPreferences>;
@@ -54,6 +56,7 @@ export type CodexUpdatePhase =
   | "unsupported"
   | "up-to-date"
   | "waiting-compatibility"
+  | "user-skipped"
   | "waiting-idle"
   | "downloading"
   | "installing"
@@ -89,6 +92,8 @@ export interface CodexUpdateStatus {
   phase: CodexUpdatePhase;
   currentVersion: string | null;
   latestVersion: string | null;
+  /** Present only in user-skipped; the display version whose build the user has skipped. */
+  userSkippedVersion?: string;
   error: CodexUpdateError;
   checkedAt: string | null;
   compatibility: ReturnType<CodexCompatibilityCatalog["status"]>;
@@ -117,6 +122,7 @@ export class CodexUpdateManager {
   #current: string | null = null;
   #latest: string | null = null;
   #target: string | null = null;
+  #userSkippedVersion: string | null = null;
   #candidates: string[] = [];
   #error: CodexUpdateError = null;
   #checkedAt: string | null = null;
@@ -222,8 +228,6 @@ export class CodexUpdateManager {
   async #arm() {
     const driver = this.options.driver;
     if (!driver) throw new Error("CODEX_UPDATE_UNSUPPORTED");
-    // Unskip BEFORE creating a release lease, publishing hold=false or allowing any download.
-    await this.#restoreVersionAlerts();
     if (!this.#armed) {
       // Do not take a lease away from another live Hub, even one sharing this directory.
       const existing = await fs
@@ -247,6 +251,8 @@ export class CodexUpdateManager {
       }
       this.#leaseId = randomUUID();
     }
+    // Only unskip after owner validation, before the release lease or any download permission.
+    await this.#restoreVersionAlerts();
     await this.#lease(); // Durable lease BEFORE opening the preference, not after it.
     if (!this.#armed) {
       const id = this.#leaseId;
@@ -327,6 +333,9 @@ export class CodexUpdateManager {
       phase: this.#phase,
       currentVersion: this.#current,
       latestVersion: this.#latest,
+      ...(this.#phase === "user-skipped" && this.#userSkippedVersion
+        ? { userSkippedVersion: this.#userSkippedVersion }
+        : {}),
       error: this.#error,
       checkedAt: this.#checkedAt,
       compatibility: this.options.catalog.status(),
@@ -561,12 +570,18 @@ export class CodexUpdateManager {
           // A busy wait/download can last hours. Keep alert suppression current on the ordinary
           // feed check, rather than waiting until the next idle quit revalidation.
           if (this.#phase === "waiting-idle" || this.#phase === "downloading") {
-            const latest = await driver.latestVersion(this.#current ?? "0.0");
-            await this.#holdVersionAlerts();
-            this.#candidates = (await driver.availableVersions?.(this.#current ?? "0.0")) ?? [
-              latest,
-            ];
-            if (this.#blockedCandidate()) this.#latest = latest;
+            try {
+              const latest = await driver.latestVersion(this.#current ?? "0.0");
+              this.#candidates = (await driver.availableVersions?.(this.#current ?? "0.0")) ?? [
+                latest,
+              ];
+              if (this.#blockedCandidate()) this.#latest = latest;
+              await this.#holdVersionAlerts();
+            } catch {
+              // Polling is advisory. Keep the current hold/download and retry on the next check;
+              // only confirmed incompatible candidates may stop the active release below.
+              if (!this.#blockedCandidate()) return this.status();
+            }
           }
           await this.#advance();
           return this.status();
@@ -690,10 +705,9 @@ export class CodexUpdateManager {
     );
   }
   async #holdVersionAlerts() {
+    if (!this.#settings.enabled || this.#armed) return;
     try {
-      await this.options.driver?.holdVersionAlerts?.(this.#current ?? "0.0", (version) =>
-        this.options.catalog.verified(version),
-      );
+      await this.options.driver?.holdVersionAlerts?.(this.#current ?? "0.0");
     } catch (error) {
       if (error instanceof Error && error.message === "CODEX_APPCAST_FAILED") throw error;
       throw new Error("CODEX_PREFERENCES_FAILED");
@@ -705,6 +719,18 @@ export class CodexUpdateManager {
     } catch {
       throw new Error("CODEX_PREFERENCES_FAILED");
     }
+  }
+  async #respectUserSkip(version: string): Promise<boolean> {
+    if (!(await this.options.driver?.isVersionSkipped?.(version))) return false;
+    await this.#disarm();
+    if (this.#phase !== "failed") {
+      this.#phase = "user-skipped";
+      this.#userSkippedVersion = version;
+      this.#error = null;
+    }
+    this.#idleSince = null;
+    this.#backgroundStarted = false;
+    return true;
   }
   async #reopened() {
     this.#closedByHub = false;
@@ -774,6 +800,12 @@ export class CodexUpdateManager {
       this.#fail("CODEX_PREFERENCES_FAILED");
     }
     try {
+      await this.#holdVersionAlerts();
+    } catch {
+      // Disarming must still close the release gate even if the native alert hold cannot refresh.
+      // Existing skip ownership remains intact and the ordinary check retries it.
+    }
+    try {
       await this.#publishHold();
     } catch {
       this.#fail("CODEX_STATE_FAILED");
@@ -789,7 +821,6 @@ export class CodexUpdateManager {
       return;
     }
     try {
-      await this.#holdVersionAlerts();
       if (
         (!this.options.catalog.verified(this.#latest) || this.#blockedCandidate()) &&
         this.#phase !== "installing" &&
@@ -818,6 +849,12 @@ export class CodexUpdateManager {
           }
         }
         this.#phase = this.#staged || !this.#backgroundStarted ? "waiting-idle" : "downloading";
+        try {
+          if (await this.#respectUserSkip(this.#target ?? this.#latest)) return;
+        } catch {
+          // A temporary preference read cannot authorize a quit or fail an ongoing download.
+          return;
+        }
         // Download time excludes the unlimited wait for fresh idle heartbeats.
         if (!this.#staged && this.#backgroundStarted) {
           if (this.#now() - this.#stageAt > (this.options.downloadTimeoutMs ?? 30 * 60_000)) {
@@ -832,8 +869,15 @@ export class CodexUpdateManager {
         }
         this.#idleSince ??= this.#now();
         if (this.#now() - this.#idleSince < (this.options.idleMs ?? 15_000)) return;
-        const latest = await driver.latestVersion(this.#current ?? "");
-        await this.#holdVersionAlerts();
+        let latest: string;
+        try {
+          latest = await driver.latestVersion(this.#current ?? "");
+          await this.#holdVersionAlerts();
+        } catch {
+          // Never quit using a stale feed, but a temporary revalidation failure is not a failed
+          // update attempt and must not impose a six-hour retry delay.
+          return;
+        }
         if (compareCodexVersions(latest, this.#latest) !== 0) {
           this.#fail("CODEX_UPDATE_TARGET_CHANGED");
           await this.#disarm();
@@ -903,6 +947,14 @@ export class CodexUpdateManager {
         // Codex may have quit on its own since the idle check: then there is nothing for the Hub
         // to close, and it must not later reopen a Codex the user closed.
         if (!(await driver.isRunning())) {
+          await this.#disarm();
+          this.#backgroundStarted = false;
+          this.#idleSince = null;
+          return;
+        }
+        try {
+          if (await this.#respectUserSkip(this.#target ?? this.#latest)) return;
+        } catch {
           await this.#disarm();
           this.#backgroundStarted = false;
           this.#idleSince = null;

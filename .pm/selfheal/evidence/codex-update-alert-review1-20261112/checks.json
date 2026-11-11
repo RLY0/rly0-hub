@@ -1,0 +1,249 @@
+[
+  {
+    "name": "regression-before-fix",
+    "command": [
+      "npx",
+      "--no-install",
+      "vitest",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/codex-update-alert.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 1,
+    "isolated": true,
+    "outputSummary": [
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts (52 tests | 20 failed) 237ms",
+      "× never claims or weakens a pre-existing user skip 30001 6ms",
+      "× never claims or weakens a pre-existing user skip 45000 4ms",
+      "× uses the greatest newer build across candidates, including an already verified candidate 4ms",
+      "× confirms a write by readback even when its successful reply is lost, then restores on next Hub 3ms",
+      "× holds a version first seen after compatibility approval until it is actually released 3ms",
+      "× reinstates the held build when idle is lost after arming and can release on the next check 5ms",
+      "× holds an already verified version during persisted backoff for CODEX_DOWNLOAD_TIMEOUT 3ms",
+      "× holds an already verified version during persisted backoff for CODEX_HEALTH_FAILED 3ms",
+      "× holds an already verified version during persisted backoff for CODEX_UPDATE_CHECK_FAILED 3ms",
+      "× holds a verified version while the same feed is suspended after three timeouts 3ms",
+      "× keeps the skip when another live lease owner prevents release 6ms",
+      "× a temporary feed failure in the five-minute idle check does not add backoff 3ms",
+      "× a temporary defaults failure in the five-minute idle check does not add backoff 5ms",
+      "× a temporary feed failure at final idle revalidation defers the quit without backoff 3ms",
+      "× keeps a released download running across a periodic feed failure, but holds a confirmed unknown version 6ms",
+      "× does not quit if the user skips the target during release preparation 4ms",
+      "× resumes normal release after the user removes their own skip 3ms",
+      "× preserves the original integer type for user skip 25000 3ms",
+      "× preserves the original integer type for user skip 45000 3ms",
+      "× never claims a later user skip after a failed unconfirmed write to that same build 4ms",
+      "⎯⎯⎯⎯⎯⎯ Failed Tests 20 ⎯⎯⎯⎯⎯⎯⎯",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > never claims or weakens a pre-existing user skip 30001",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > never claims or weakens a pre-existing user skip 45000",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:293:37",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > uses the greatest newer build across candidates, including an already verified candidate",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:334:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > confirms a write by readback even when its successful reply is lost, then restores on next Hub",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:415:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > holds a version first seen after compatibility approval until it is actually released",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:430:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > reinstates the held build when idle is lost after arming and can release on the next check",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:444:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > holds an already verified version during persisted backoff for CODEX_DOWNLOAD_TIMEOUT",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > holds an already verified version during persisted backoff for CODEX_HEALTH_FAILED",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > holds an already verified version during persisted backoff for CODEX_UPDATE_CHECK_FAILED",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:463:45",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > holds a verified version while the same feed is suspended after three timeouts",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:477:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > keeps the skip when another live lease owner prevents release",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:489:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > a temporary feed failure in the five-minute idle check does not add backoff",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:505:37",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > a temporary defaults failure in the five-minute idle check does not add backoff",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:506:45",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > a temporary feed failure at final idle revalidation defers the quit without backoff",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:521:34",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > keeps a released download running across a periodic feed failure, but holds a confirmed unknown version",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:538:35",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > does not quit if the user skips the target during release preparation",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:556:34",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > resumes normal release after the user removes their own skip",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:565:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > preserves the original integer type for user skip 25000",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > preserves the original integer type for user skip 45000",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:583:43",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > never claims a later user skip after a failed unconfirmed write to that same build",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:620:61",
+      "Test Files  1 failed (1)",
+      "Tests  20 failed | 32 passed (52)"
+    ]
+  },
+  {
+    "name": "focused-after-fix",
+    "command": [
+      "npx",
+      "--no-install",
+      "vitest",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/codex-update-alert.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 1,
+    "isolated": true,
+    "outputSummary": [
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts (52 tests | 1 failed) 273ms",
+      "× confirms a write by readback even when its successful reply is lost, then restores on next Hub 7ms",
+      "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯",
+      "FAIL  packages/host-runtime/test/codex-update-alert.test.ts > confirms a write by readback even when its successful reply is lost, then restores on next Hub",
+      "❯ packages/host-runtime/test/codex-update-alert.test.ts:421:48",
+      "Test Files  1 failed (1)",
+      "Tests  1 failed | 51 passed (52)"
+    ]
+  },
+  {
+    "name": "boundaries",
+    "command": ["node", "tools/check-boundaries.mjs"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "outputSummary": []
+  },
+  {
+    "name": "lint",
+    "command": ["npm", "run", "lint"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 1,
+    "isolated": true,
+    "outputSummary": [
+      "> codexhost@0.11.39 lint",
+      "> eslint . && node tools/check-boundaries.mjs",
+      "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/rly0-hub-promo.test.ts",
+      "  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion",
+      "✖ 1 problem (1 error, 0 warnings)"
+    ]
+  },
+  {
+    "name": "typecheck",
+    "command": ["npm", "run", "typecheck"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "outputSummary": [
+      "> codexhost@0.11.39 typecheck",
+      "> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false"
+    ]
+  },
+  {
+    "name": "changed-eslint",
+    "command": [
+      "./node_modules/.bin/eslint",
+      "packages/host-runtime/src/rly0-hub-service/codex-check-preferences.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-skipped-version.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts",
+      "packages/host-runtime/test/codex-update-alert.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "outputSummary": []
+  },
+  {
+    "name": "focused-regression",
+    "command": [
+      "npx",
+      "--no-install",
+      "vitest",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/codex-update-alert.test.ts",
+      "packages/host-runtime/test/codex-version-gate.test.ts",
+      "packages/host-runtime/test/codex-update-watchdog.test.ts",
+      "packages/host-runtime/test/codex-input-idle.test.ts",
+      "packages/host-runtime/test/rly0-codex-updates-ui.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 1,
+    "isolated": true,
+    "outputSummary": [
+      "❯ packages/host-runtime/test/codex-version-gate.test.ts (113 tests | 2 failed) 606ms",
+      "× a complete background-check + install cycle never issues a launching query 9ms",
+      "× restores the deleted check date after a download timeout with macOS 27 defaults wording 6ms",
+      "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯",
+      "FAIL  packages/host-runtime/test/codex-version-gate.test.ts > review #3 fixes (synthetic commands only) > a complete background-check + install cycle never issues a launching query",
+      "❯ packages/host-runtime/test/codex-version-gate.test.ts:1580:30",
+      "FAIL  packages/host-runtime/test/codex-version-gate.test.ts > live validation 2026-11-09 fixes (synthetic commands only) > restores the deleted check date after a download timeout with macOS 27 defaults wording",
+      "❯ packages/host-runtime/test/codex-version-gate.test.ts:1920:42",
+      "Test Files  1 failed | 4 passed (5)",
+      "Tests  2 failed | 193 passed (195)"
+    ]
+  },
+  {
+    "name": "final-changed-eslint",
+    "command": [
+      "./node_modules/.bin/eslint",
+      "packages/host-runtime/src/rly0-hub-service/codex-check-preferences.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-skipped-version.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts",
+      "packages/host-runtime/test/codex-update-alert.test.ts",
+      "packages/host-runtime/test/codex-version-gate.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "outputSummary": []
+  },
+  {
+    "name": "final-typecheck",
+    "command": ["npm", "run", "typecheck"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "outputSummary": [
+      "> codexhost@0.11.39 typecheck",
+      "> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false"
+    ]
+  },
+  {
+    "name": "final-focused-regression",
+    "command": [
+      "npx",
+      "--no-install",
+      "vitest",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/codex-update-alert.test.ts",
+      "packages/host-runtime/test/codex-version-gate.test.ts",
+      "packages/host-runtime/test/codex-update-watchdog.test.ts",
+      "packages/host-runtime/test/codex-input-idle.test.ts",
+      "packages/host-runtime/test/rly0-codex-updates-ui.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "outputSummary": ["Test Files  5 passed (5)", "Tests  199 passed (199)"]
+  },
+  {
+    "name": "final-format",
+    "command": [
+      "./node_modules/.bin/prettier",
+      "--check",
+      "packages/host-runtime/src/rly0-hub-service/codex-check-preferences.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-skipped-version.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts",
+      "packages/host-runtime/test/codex-update-alert.test.ts",
+      "packages/host-runtime/test/codex-version-gate.test.ts",
+      ".pm/BOARD.json",
+      ".pm/selfheal/evidence/codex-update-alert-review1-20261112/checks.json",
+      ".pm/selfheal/evidence/codex-update-alert-review1-20261112/source-sha256.json"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "outputSummary": ["Checking formatting...", "All matched files use Prettier code style!"]
+  }
+]

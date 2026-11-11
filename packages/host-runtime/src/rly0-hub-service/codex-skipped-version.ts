@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { codexPreferences } from "./codex-check-preferences.js";
+import type { codexPreferences, CodexVersionPreference } from "./codex-check-preferences.js";
 
 interface SkippedVersionRecord {
   schemaVersion: 1;
   original: string | null;
+  originalType?: "integer";
   written: string;
+  /** Absent in legacy/confirmed records. A pending intent alone does not establish ownership. */
+  confirmed?: false;
   /** Previous owned value during a durable, interrupted replacement. */
   previous?: string;
 }
@@ -31,7 +34,7 @@ export class CodexSkippedVersion {
   readonly file: string;
   constructor(
     directory: string,
-    readonly preferences: Pick<ReturnType<typeof codexPreferences>, "readString" | "write">,
+    readonly preferences: Pick<ReturnType<typeof codexPreferences>, "readScalar" | "write">,
   ) {
     this.file = path.join(directory, "codex-update-skipped-version.json");
   }
@@ -54,6 +57,11 @@ export class CodexSkippedVersion {
       !(value.original === null || version(value.original)) ||
       !("written" in value) ||
       !version(value.written) ||
+      ("confirmed" in value && value.confirmed !== false) ||
+      ("originalType" in value &&
+        (value.originalType !== "integer" ||
+          typeof value.original !== "string" ||
+          !/^\d+$/u.test(value.original))) ||
       ("previous" in value && !version(value.previous))
     )
       throw new Error("CODEX_PREFERENCES_FAILED");
@@ -61,6 +69,8 @@ export class CodexSkippedVersion {
       schemaVersion: 1,
       original: value.original,
       written: value.written,
+      ...("originalType" in value ? { originalType: "integer" as const } : {}),
+      ...("confirmed" in value ? { confirmed: false as const } : {}),
       ...("previous" in value ? { previous: value.previous as string } : {}),
     };
   }
@@ -74,8 +84,29 @@ export class CodexSkippedVersion {
       await fs.rm(temporary, { force: true });
     }
   }
-  #owns(record: SkippedVersionRecord, value: string | null): boolean {
-    return value !== null && (value === record.written || value === record.previous);
+  #owns(record: SkippedVersionRecord, value: CodexVersionPreference | null): boolean {
+    return (
+      value?.type === "string" &&
+      ((record.confirmed !== false && value.value === record.written) ||
+        value.value === record.previous)
+    );
+  }
+  #original(record: SkippedVersionRecord): CodexVersionPreference | null {
+    return record.original === null
+      ? null
+      : { value: record.original, type: record.originalType ?? "string" };
+  }
+  async #current(): Promise<CodexVersionPreference | null> {
+    const current = await this.preferences.readScalar("SUSkippedVersion");
+    if (current !== null && !version(current.value)) throw new Error("CODEX_PREFERENCES_FAILED");
+    return current;
+  }
+  /** Compare the value that release would leave behind, excluding only confirmed Hub ownership. */
+  async userSkipped(build: string): Promise<boolean> {
+    const record = await this.#read();
+    const current = await this.#current();
+    const user = record && this.#owns(record, current) ? this.#original(record) : current;
+    return user !== null && compareSparkleBuilds(user.value, build) >= 0;
   }
   async pending(): Promise<boolean> {
     return (await this.#read()) !== null;
@@ -83,33 +114,45 @@ export class CodexSkippedVersion {
   async hold(build: string): Promise<void> {
     if (!version(build)) throw new Error("CODEX_APPCAST_FAILED");
     const record = await this.#read();
-    const current = await this.preferences.readString("SUSkippedVersion");
-    if (current !== null && !version(current)) throw new Error("CODEX_PREFERENCES_FAILED");
-    if (current === build) return; // A pre-existing user skip is never claimed as Hub-owned.
+    const current = await this.#current();
+    if (current?.value === build) return; // A pre-existing user skip is never claimed as Hub-owned.
     const owned = record !== null && this.#owns(record, current);
     // A higher user threshold already suppresses this build; never weaken or claim it.
-    if (!owned && current !== null && compareSparkleBuilds(current, build) >= 0) return;
+    if (!owned && current !== null && compareSparkleBuilds(current.value, build) >= 0) return;
+    const original = owned ? this.#original(record) : current;
     const next: SkippedVersionRecord = {
       schemaVersion: 1,
-      original: owned ? record.original : current,
+      original: original?.value ?? null,
+      ...(original?.type === "integer" ? { originalType: "integer" } : {}),
       written: build,
-      ...(owned && current !== null ? { previous: current } : {}),
+      confirmed: false,
+      ...(owned && current !== null ? { previous: current.value } : {}),
     };
-    await this.#save(next); // Original + both possible owned values precede the native write.
-    if ((await this.preferences.readString("SUSkippedVersion")) !== current)
+    await this.#save(next);
+    const before = await this.#current();
+    if (before?.value !== current?.value || before?.type !== current?.type)
       throw new Error("CODEX_PREFERENCES_FAILED");
-    await this.preferences.write("SUSkippedVersion", build);
-    if ((await this.preferences.readString("SUSkippedVersion")) !== build)
+    try {
+      await this.preferences.write("SUSkippedVersion", build);
+    } catch {
+      // A lost command reply is not proof of failure. Only a successful readback can claim it.
+    }
+    const after = await this.#current();
+    if (after?.type !== "string" || after.value !== build)
       throw new Error("CODEX_PREFERENCES_FAILED");
-    await this.#save({ schemaVersion: 1, original: next.original, written: build });
+    delete next.confirmed;
+    delete next.previous;
+    await this.#save(next);
   }
   async restore(): Promise<void> {
     const record = await this.#read();
     if (!record) return;
-    const current = await this.preferences.readString("SUSkippedVersion");
+    const current = await this.#current();
     if (this.#owns(record, current)) {
-      await this.preferences.write("SUSkippedVersion", record.original);
-      if ((await this.preferences.readString("SUSkippedVersion")) !== record.original)
+      await this.preferences.write("SUSkippedVersion", record.original, record.originalType);
+      const after = await this.#current();
+      const original = this.#original(record);
+      if (after?.value !== original?.value || after?.type !== original?.type)
         throw new Error("CODEX_PREFERENCES_FAILED");
     }
     // If the user/Sparkle changed it, preserve that value. A failed write keeps the journal.

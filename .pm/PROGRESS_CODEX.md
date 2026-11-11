@@ -1,3 +1,15 @@
+# Codex 官方新版弹窗复查 #1：self_verified
+
+2026-11-12；`feat/agent-cli-autoupdate`，输入 `a5da7809095786315b20e0055547d11f55d0bdf9`。重要 1–3 与次要 4–5 已处理：未真正放行就压住所有较新 build；放行中止重新压住；临时 feed/defaults 错误不增加退避；用户自己跳过目标时不退出；整数类型恢复、未确认写入不认领。
+
+最终主会话亲自运行 5 文件 199 pass、0 fail、0 skip。最终 typecheck、改动文件 ESLint、依赖边界、改动文件格式通过。全仓 lint 仍仅有基线 `rly0-hub-promo.test.ts:11`，当前/输入 SHA 相同。修复前新增回归 20 项失败；中途两个旧完整流程 fixture 缺少 read-type，已补真实按键类型，保留原断言并复跑通过。
+
+契约新增 `phase:user-skipped`、可选 `userSkippedVersion`，新一节交 Claude；功能文档已同步，未改 www。证据：[RESULTS](selfheal/evidence/codex-update-alert-review1-20261112/RESULTS.md)。仅自检，独立复核及 accepted 未完成；没有真实 defaults、日常进程退出/重启、另起 hub-service、推送或发布。所有被测系统操作注入，五个用户/配置/数据/记忆目录临时隔离，原生控制关闭。
+
+next_action：独立复核、Claude 接线与获准真机验收。缺口：运行中偏好刷新/定时无弹窗、critical/稍后提醒、已有窗口、后台下载/安装、整数偏好和关闭管理/watchdog；本轮缺键删除是记录格式回放。未确认的实际已写值保守保留，旧记录无法追溯确认；defaults 跨进程竞争仍存在。界面、打包与发布由 Claude 负责。
+
+---
+
 # Codex 官方新版弹窗：本地修复已完成（self_verified）
 
 2026-11-11 开始，2026-11-12 完成隔离检查；分支 `feat/agent-cli-autoupdate`，输入 `5d07cdaf`。工单 `HUB-CODEX-UPDATE-ALERT`。

@@ -1,19 +1,27 @@
 import type { CodexCheckPreferences } from "./codex-update-manager.js";
 
 export type CodexPreferencesExec = (file: string, args: string[]) => Promise<string>;
+export interface CodexVersionPreference {
+  value: string;
+  type: "string" | "integer";
+}
 
 /** Shared by the driver and detached watchdog; tests inject every system command. */
 export function codexPreferences(exec: CodexPreferencesExec) {
   const domain = "com.openai.codex";
   const read = async (key: string): Promise<string | null> => {
     try {
-      return await exec("/usr/bin/defaults", ["read", domain, key]);
+      return (await exec("/usr/bin/defaults", ["read", domain, key])).trim();
     } catch (error) {
       if (defaultsValueMissing((error as { stderr?: unknown }).stderr)) return null;
       throw error;
     }
   };
-  const write = async (key: string, value: string | boolean | null): Promise<void> => {
+  const write = async (
+    key: string,
+    value: string | boolean | null,
+    type: "string" | "integer" = "string",
+  ): Promise<void> => {
     try {
       await exec(
         "/usr/bin/defaults",
@@ -27,7 +35,9 @@ export function codexPreferences(exec: CodexPreferencesExec) {
                 ? "-bool"
                 : key === "SULastCheckTime"
                   ? "-date"
-                  : "-string",
+                  : type === "integer"
+                    ? "-int"
+                    : "-string",
               String(value),
             ],
       );
@@ -45,14 +55,14 @@ export function codexPreferences(exec: CodexPreferencesExec) {
       if (value !== "0" && value !== "1") throw new Error("CODEX_PREFERENCES_FAILED");
       return value === "1";
     },
-    async readString(key: string): Promise<string | null> {
+    async readScalar(key: string): Promise<CodexVersionPreference | null> {
       const value = await read(key);
-      if (
-        value !== null &&
-        (await exec("/usr/bin/defaults", ["read-type", domain, key])) !== "Type is string"
-      )
-        throw new Error("CODEX_PREFERENCES_FAILED");
-      return value;
+      if (value === null) return null;
+      const type = (await exec("/usr/bin/defaults", ["read-type", domain, key])).trim();
+      if (type === "Type is string") return { value, type: "string" };
+      // Older/user-written integer builds are comparable, but must be restored as integers.
+      if (type === "Type is integer" && /^\d+$/u.test(value)) return { value, type: "integer" };
+      throw new Error("CODEX_PREFERENCES_FAILED");
     },
   };
 }

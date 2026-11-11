@@ -11,6 +11,7 @@ import {
   runCodexUpdateWatchdog,
 } from "../src/rly0-hub-service/codex-update-watchdog.js";
 import type { UpdateHttpGet } from "../src/rly0-hub-service/hub-update-net.js";
+import { codexPreferences } from "../src/rly0-hub-service/codex-check-preferences.js";
 
 const roots: string[] = [];
 const managers: CodexUpdateManager[] = [];
@@ -57,6 +58,12 @@ async function fixture(original: string | null = null) {
     ["SUSkippedMajorSubreleaseVersion", "synthetic-user-subrelease"],
     ["CodexSparkleSeenUpdateVersions", '("25000", "26000")'],
   ]);
+  const types = new Map([
+    ["SUAutomaticallyUpdate", "boolean"],
+    ["SUEnableAutomaticChecks", "boolean"],
+    ["SULastCheckTime", "date"],
+    ["CodexSparkleSeenUpdateVersions", "array"],
+  ]);
   if (original !== null) prefs.set("SUSkippedVersion", original);
   let failWrite: string | null = null;
   let loseWriteReply = false;
@@ -66,15 +73,27 @@ async function fixture(original: string | null = null) {
       expect(domain).toBe("com.openai.codex");
       if (action !== "write" && !prefs.has(key))
         throw Object.assign(new Error("synthetic missing"), {
-          stderr: `Error: Could not find key '${key}' in domain '${domain}'.`,
+          stderr: `Error: Could not find key '${key}' in domain '${domain}'.\n`,
         });
-      if (action === "read") return prefs.get(key) ?? "";
-      if (action === "read-type") return "Type is string";
+      if (action === "read") return `${prefs.get(key) ?? ""}\n`;
+      if (action === "read-type") return `Type is ${types.get(key) ?? "string"}\n`;
       if (key === failWrite) throw new Error("synthetic permission denied");
-      if (action === "delete") prefs.delete(key);
-      else if (action === "write")
+      if (action === "delete") {
+        prefs.delete(key);
+        types.delete(key);
+      } else if (action === "write") {
         prefs.set(key, args[3] === "-bool" ? (args[4] === "true" ? "1" : "0") : (args[4] ?? ""));
-      else throw new Error(`unexpected defaults operation ${action}`);
+        types.set(
+          key,
+          args[3] === "-bool"
+            ? "boolean"
+            : args[3] === "-int"
+              ? "integer"
+              : args[3] === "-date"
+                ? "date"
+                : "string",
+        );
+      } else throw new Error(`unexpected defaults operation ${action}`);
       if (key === "SUSkippedVersion" && loseWriteReply)
         throw new Error("synthetic lost write reply");
       return "";
@@ -128,6 +147,7 @@ async function fixture(original: string | null = null) {
     root,
     environment,
     prefs,
+    types,
     exec,
     driver,
     manager,
@@ -135,8 +155,8 @@ async function fixture(original: string | null = null) {
     catalog,
     state,
     startWatchdog,
-    advance: () => {
-      now += 10;
+    advance: (ms = 10) => {
+      now += ms;
     },
     allow: () => {
       verified.push({ family: "26.1106", minHub: "0.11.40" });
@@ -279,9 +299,15 @@ it.each(["30001", "45000"])(
     expect((await f.manager.check()).phase).toBe("waiting-compatibility");
     await expect(fs.stat(journal(f))).rejects.toMatchObject({ code: "ENOENT" });
     f.allow();
-    await f.manager.check();
+    expect(await f.manager.check()).toMatchObject({
+      phase: "user-skipped",
+      userSkippedVersion: "26.1106.51428",
+      error: null,
+    });
     f.advance();
-    await f.manager.tick();
+    expect((await f.manager.tick()).phase).toBe("user-skipped");
+    expect(f.startWatchdog).not.toHaveBeenCalled();
+    expect(f.exec.mock.calls.some(([file]) => file === "/usr/bin/osascript")).toBe(false);
     expect(f.prefs.get("SUSkippedVersion")).toBe(original);
     expect(
       f.exec.mock.calls.some(
@@ -306,8 +332,9 @@ it("updates the held build across feed changes without forgetting the first orig
   expect(f.prefs.get("SUSkippedVersion")).toBe("25000");
 });
 
-it("uses the greatest blocked build across candidates, independent of short-version sorting", async () => {
+it("uses the greatest newer build across candidates, including an already verified candidate", async () => {
   const f = await fixture();
+  f.allow();
   f.feed(`<rss>${item("26.1200.1", "31000")}${item("26.1106.1", "40000")}</rss>`);
   expect(await f.manager.check()).toMatchObject({
     phase: "waiting-compatibility",
@@ -380,20 +407,21 @@ it.each(["", "bad-build"])(
   },
 );
 
-it("persists ownership before a write whose successful reply is lost, then recovers on next Hub", async () => {
+it("confirms a write by readback even when its successful reply is lost, then restores on next Hub", async () => {
   const f = await fixture("25000");
   const native = f.exec.getMockImplementation();
   if (!native) throw new Error("missing injected command driver");
   f.exec.mockImplementation(async (file, args) => {
-    if (args[0] === "write" && args[2] === "SUSkippedVersion")
+    if (args[0] === "write" && args[2] === "SUSkippedVersion" && args[4] === "30001")
       expect(JSON.parse(await fs.readFile(journal(f), "utf8"))).toMatchObject({
         original: "25000",
         written: "30001",
+        confirmed: false,
       });
     return native(file, args);
   });
   f.loseReply(true);
-  expect((await f.manager.check()).error).toBe("CODEX_PREFERENCES_FAILED");
+  expect((await f.manager.check()).error).toBe(null);
   expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
   await f.manager.stop();
   f.loseReply(false);
@@ -401,6 +429,365 @@ it("persists ownership before a write whose successful reply is lost, then recov
   managers.push(next);
   expect((await next.setEnabled(false)).phase).toBe("disabled");
   expect(f.prefs.get("SUSkippedVersion")).toBe("25000");
+});
+
+it("holds a version first seen after compatibility approval until it is actually released", async () => {
+  const f = await fixture();
+  f.allow();
+  f.options.busy = async () => true;
+  expect((await f.manager.check()).phase).toBe("waiting-idle");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+  expect((await policy(f)).holdUpdates).toBe(true);
+});
+
+it("reinstates the held build when idle is lost after arming and can release on the next check", async () => {
+  const f = await fixture();
+  f.allow();
+  await f.manager.check();
+  const request = vi.spyOn(f.driver, "requestCheck");
+  request.mockImplementationOnce(async () => {
+    f.options.busy = async () => true;
+  });
+  f.advance();
+  expect((await f.manager.tick()).phase).toBe("waiting-idle");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+  expect((await policy(f)).holdUpdates).toBe(true);
+  expect(f.prefs.get("SUAutomaticallyUpdate")).toBe("0");
+  f.options.busy = async () => false;
+  await f.manager.check();
+  f.advance();
+  expect((await f.manager.tick()).phase).toBe("installing");
+  expect(f.prefs.has("SUSkippedVersion")).toBe(false);
+});
+
+it.each(["CODEX_DOWNLOAD_TIMEOUT", "CODEX_HEALTH_FAILED", "CODEX_UPDATE_CHECK_FAILED"])(
+  "holds an already verified version during persisted backoff for %s",
+  async (error) => {
+    const f = await fixture();
+    f.allow();
+    await fs.mkdir(f.environment.CODEXHOST_DATA_DIR, { recursive: true });
+    await fs.writeFile(
+      path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json"),
+      JSON.stringify({ retryAt: 200_000, failures: 1, phase: "failed", error }),
+    );
+    expect(await f.manager.check()).toMatchObject({ phase: "failed", error });
+    expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+    expect((await policy(f)).holdUpdates).toBe(true);
+    expect(f.startWatchdog).not.toHaveBeenCalled();
+  },
+);
+
+it("holds a verified version while the same feed is suspended after three timeouts", async () => {
+  const f = await fixture();
+  f.allow();
+  await f.driver.latestVersion("26.1103.60933");
+  await fs.mkdir(f.environment.CODEXHOST_DATA_DIR, { recursive: true });
+  await fs.writeFile(
+    path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json"),
+    JSON.stringify({
+      timeouts: 3,
+      suspendedFeed: f.driver.feedIdentity?.(),
+      feed: f.driver.feedIdentity?.(),
+    }),
+  );
+  expect(await f.manager.check()).toMatchObject({
+    phase: "failed",
+    error: "CODEX_DOWNLOAD_TIMEOUT",
+  });
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+  expect(f.startWatchdog).not.toHaveBeenCalled();
+});
+
+it("keeps the skip when another live lease owner prevents release", async () => {
+  const f = await fixture();
+  f.allow();
+  await f.manager.check();
+  await fs.writeFile(
+    path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-armed.json"),
+    JSON.stringify({ id: "synthetic-other-owner", pid: process.pid }),
+  );
+  f.advance();
+  expect((await f.manager.tick()).phase).toBe("failed");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+  expect(f.startWatchdog).not.toHaveBeenCalled();
+});
+
+it.each(["feed", "defaults"])(
+  "a temporary %s failure in the five-minute idle check does not add backoff",
+  async (failure) => {
+    const f = await fixture();
+    f.allow();
+    f.options.busy = async () => true;
+    await f.manager.check();
+    if (failure === "feed")
+      vi.spyOn(f.driver, "latestVersion").mockRejectedValueOnce(new Error("synthetic offline"));
+    else {
+      f.feed(`<rss>${item("26.1106.51428", "30002")}</rss>`);
+      f.denyWrite("SUSkippedVersion");
+    }
+    expect(await f.manager.check()).toMatchObject({ phase: "waiting-idle", error: null });
+    expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+    await expect(
+      fs.stat(path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    f.denyWrite(null);
+    expect((await f.manager.check()).phase).toBe("waiting-idle");
+    expect(f.prefs.get("SUSkippedVersion")).toBe(failure === "defaults" ? "30002" : "30001");
+  },
+);
+
+it("a temporary feed failure at final idle revalidation defers the quit without backoff", async () => {
+  const f = await fixture();
+  f.allow();
+  await f.manager.check();
+  vi.spyOn(f.driver, "latestVersion").mockRejectedValueOnce(new Error("synthetic offline"));
+  f.advance();
+  expect(await f.manager.tick()).toMatchObject({ phase: "waiting-idle", error: null });
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+  expect(f.startWatchdog).not.toHaveBeenCalled();
+  expect((await f.manager.tick()).phase).toBe("installing");
+});
+
+it("keeps a released download running across a periodic feed failure, but holds a confirmed unknown version", async () => {
+  const f = await fixture();
+  f.allow();
+  vi.spyOn(f.driver, "installationStopped").mockResolvedValue(true);
+  await f.manager.check();
+  f.advance();
+  await f.manager.tick();
+  expect((await f.manager.tick()).phase).toBe("downloading");
+  const attempt = path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json");
+  const before = await fs.readFile(attempt, "utf8");
+  vi.spyOn(f.driver, "latestVersion").mockRejectedValueOnce(new Error("synthetic offline"));
+  expect(await f.manager.check()).toMatchObject({ phase: "downloading", error: null });
+  expect(await fs.readFile(attempt, "utf8")).toBe(before);
+  expect(f.prefs.has("SUSkippedVersion")).toBe(false);
+  expect((await policy(f)).holdUpdates).toBe(false);
+  f.feed(`<rss>${item("26.1200.1", "30002")}${item()}</rss>`);
+  expect((await f.manager.check()).phase).toBe("waiting-compatibility");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30002");
+  expect((await policy(f)).holdUpdates).toBe(true);
+});
+
+it("does not quit if the user skips the target during release preparation", async () => {
+  const f = await fixture();
+  f.allow();
+  await f.manager.check();
+  vi.spyOn(f.driver, "requestCheck").mockImplementation(async () => {
+    f.prefs.set("SUSkippedVersion", "30001");
+  });
+  f.advance();
+  expect(await f.manager.tick()).toMatchObject({ phase: "user-skipped", error: null });
+  expect(
+    f.exec.mock.calls.some(
+      ([file, args]) => file === "/usr/bin/osascript" && args[1]?.includes(" to quit"),
+    ),
+  ).toBe(false);
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+  expect((await policy(f)).holdUpdates).toBe(true);
+});
+
+it("resumes normal release after the user removes their own skip", async () => {
+  const f = await fixture("30001");
+  f.allow();
+  expect((await f.manager.check()).phase).toBe("user-skipped");
+  f.prefs.delete("SUSkippedVersion");
+  expect((await f.manager.check()).phase).toBe("waiting-idle");
+  f.advance();
+  expect((await f.manager.tick()).phase).toBe("installing");
+});
+
+it("uses the recorded production appcast build 26605 for display version 26.1106.51428", async () => {
+  const f = await fixture("25241");
+  f.feed(
+    '<rss><channel><item><sparkle:version>26605</sparkle:version><sparkle:shortVersionString>26.1106.51428</sparkle:shortVersionString><enclosure url="https://example.test/Codex.zip" length="1" type="application/octet-stream"/></item></channel></rss>',
+  );
+  await f.manager.check();
+  expect(f.prefs.get("SUSkippedVersion")).toBe("26605");
+  expect(f.prefs.get("SUSkippedVersion")).not.toBe("26.1106.51428");
+});
+
+it.each(["25000", "45000"])(
+  "preserves the original integer type for user skip %s",
+  async (original) => {
+    const f = await fixture(original);
+    f.types.set("SUSkippedVersion", "integer");
+    expect((await f.manager.check()).error).toBe(null);
+    expect(f.prefs.get("SUSkippedVersion")).toBe(original === "25000" ? "30001" : original);
+    expect((await f.manager.setEnabled(false)).phase).toBe("disabled");
+    expect(f.prefs.get("SUSkippedVersion")).toBe(original);
+    expect(f.types.get("SUSkippedVersion")).toBe("integer");
+  },
+);
+
+it.each(["boolean", "float", "array", "dictionary"])(
+  "does not overwrite an unsupported %s skipped preference",
+  async (type) => {
+    const f = await fixture("1");
+    f.types.set("SUSkippedVersion", type);
+    expect((await f.manager.check()).error).toBe("CODEX_PREFERENCES_FAILED");
+    expect(f.prefs.get("SUSkippedVersion")).toBe("1");
+    expect(f.types.get("SUSkippedVersion")).toBe(type);
+    expect(f.startWatchdog).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  "Error: Could not find key 'SUSkippedVersion' in domain 'com.openai.codex'.\n",
+  "Error: Domain 'com.openai.codex' not found.\n",
+  "The domain/default pair of (com.openai.codex, SUSkippedVersion) does not exist\n",
+])(
+  "treats the captured missing-key/domain format as idempotent for read and delete: %s",
+  async (stderr) => {
+    const exec = vi.fn(async () => {
+      throw Object.assign(new Error("synthetic defaults missing"), { stderr });
+    });
+    const prefs = codexPreferences(exec);
+    expect(await prefs.read("SUSkippedVersion")).toBe(null);
+    await expect(prefs.write("SUSkippedVersion", null)).resolves.toBeUndefined();
+    expect(exec.mock.calls).toHaveLength(2);
+  },
+);
+
+it("does not treat a defaults delete permission error as an absent key", async () => {
+  const prefs = codexPreferences(async () => {
+    throw Object.assign(new Error("synthetic denied"), {
+      stderr: "Could not write domain com.openai.codex; exiting\n",
+    });
+  });
+  await expect(prefs.write("SUSkippedVersion", null)).rejects.toThrow("synthetic denied");
+});
+
+it("never claims a later user skip after a failed unconfirmed write to that same build", async () => {
+  const f = await fixture("25000");
+  f.denyWrite("SUSkippedVersion");
+  expect((await f.manager.check()).error).toBe("CODEX_PREFERENCES_FAILED");
+  expect(JSON.parse(await fs.readFile(journal(f), "utf8"))).toMatchObject({ confirmed: false });
+  f.denyWrite(null);
+  f.prefs.set("SUSkippedVersion", "30001");
+  f.allow();
+  // Skip the updater backoff to verify user ownership again, not only opt-out restoration.
+  f.advance(24 * 60 * 60_000);
+  expect((await f.manager.check()).phase).toBe("user-skipped");
+  expect((await f.manager.setEnabled(false)).phase).toBe("disabled");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+});
+
+it.each(["30001", "30002"])(
+  "only restores the previously confirmed value of an interrupted pending write: %s",
+  async (current) => {
+    const f = await fixture(current);
+    await f.state.update({
+      codexUpdates: { defaulted: true, enabled: true, originalAutoUpdate: true },
+    });
+    await fs.writeFile(
+      journal(f),
+      JSON.stringify({
+        schemaVersion: 1,
+        original: "25000",
+        written: "30002",
+        previous: "30001",
+        confirmed: false,
+      }),
+    );
+    expect((await f.manager.setEnabled(false)).phase).toBe("disabled");
+    expect(f.prefs.get("SUSkippedVersion")).toBe(current === "30001" ? "25000" : current);
+  },
+);
+
+it("keeps an unconfirmed successful write when both its reply and readback were lost", async () => {
+  const f = await fixture("25000");
+  const native = f.exec.getMockImplementation();
+  if (!native) throw new Error("missing injected command driver");
+  let written = false;
+  f.exec.mockImplementation(async (file, args) => {
+    if (args[0] === "write" && args[2] === "SUSkippedVersion") written = true;
+    if (written && args[0] === "read" && args[2] === "SUSkippedVersion")
+      throw new Error("synthetic readback unavailable");
+    return native(file, args);
+  });
+  f.loseReply(true);
+  expect((await f.manager.check()).error).toBe("CODEX_PREFERENCES_FAILED");
+  expect(JSON.parse(await fs.readFile(journal(f), "utf8"))).toMatchObject({ confirmed: false });
+  f.exec.mockImplementation(native);
+  f.loseReply(false);
+  expect((await f.manager.setEnabled(false)).phase).toBe("disabled");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+});
+
+it("uses the actual lower signed target when the user's original skip is hidden by the Hub's larger hold", async () => {
+  const f = await fixture("25000");
+  f.allow();
+  f.feed(`<rss>${item("26.1106.51428", "26605")}${item("26.1106.1", "24000")}</rss>`);
+  vi.spyOn(f.driver, "downloadReady").mockImplementation(
+    async (version) => version === "26.1106.1",
+  );
+  expect(await f.manager.check()).toMatchObject({
+    phase: "user-skipped",
+    userSkippedVersion: "26.1106.1",
+    latestVersion: "26.1106.51428",
+    error: null,
+  });
+  expect(f.prefs.get("SUSkippedVersion")).toBe("26605");
+  expect(f.startWatchdog).not.toHaveBeenCalled();
+  expect(f.exec.mock.calls.some(([file]) => file === "/usr/bin/osascript")).toBe(false);
+});
+
+it("does not confuse a lower user skip with a higher build of the same display version", async () => {
+  const f = await fixture("26605");
+  f.allow();
+  f.feed(`<rss>${item("26.1106.51428", "26605")}${item("26.1106.51428", "26606")}</rss>`);
+  expect((await f.manager.check()).phase).toBe("waiting-idle");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("26606");
+  f.advance();
+  expect((await f.manager.tick()).phase).toBe("installing");
+  expect(f.prefs.get("SUSkippedVersion")).toBe("26605");
+});
+
+it("does not add failure backoff for a temporary user-skip read failure during a released download", async () => {
+  const f = await fixture();
+  f.allow();
+  vi.spyOn(f.driver, "installationStopped").mockResolvedValue(true);
+  await f.manager.check();
+  f.advance();
+  await f.manager.tick();
+  expect((await f.manager.tick()).phase).toBe("downloading");
+  const attempt = path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json");
+  const before = await fs.readFile(attempt, "utf8");
+  vi.spyOn(f.driver, "isVersionSkipped").mockRejectedValueOnce(
+    new Error("synthetic defaults unavailable"),
+  );
+  expect(await f.manager.check()).toMatchObject({ phase: "downloading", error: null });
+  expect(await fs.readFile(attempt, "utf8")).toBe(before);
+  expect(f.prefs.get("SUAutomaticallyUpdate")).toBe("1");
+  expect((await policy(f)).holdUpdates).toBe(false);
+});
+
+it("reinstates the hold without quitting or counting failure when the last user-skip read fails", async () => {
+  const f = await fixture();
+  f.allow();
+  await f.manager.check();
+  vi.spyOn(f.driver, "requestCheck").mockImplementation(async () => {
+    vi.spyOn(f.driver, "isVersionSkipped").mockRejectedValueOnce(
+      new Error("synthetic defaults unavailable"),
+    );
+  });
+  f.advance();
+  expect(await f.manager.tick()).toMatchObject({ phase: "waiting-idle", error: null });
+  expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+  expect((await policy(f)).holdUpdates).toBe(true);
+  expect(
+    f.exec.mock.calls.some(
+      ([file, args]) => file === "/usr/bin/osascript" && args[1]?.includes(" to quit"),
+    ),
+  ).toBe(false);
+  const attempt = JSON.parse(
+    await fs.readFile(
+      path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json"),
+      "utf8",
+    ),
+  );
+  expect(attempt.failures).toBe(0);
 });
 
 it.each(["25000", "30001", "30002", "45000"])(
