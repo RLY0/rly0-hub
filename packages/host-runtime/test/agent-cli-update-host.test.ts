@@ -333,10 +333,36 @@ describe("Host CLI update admission", () => {
     });
     expect(hosts).toHaveLength(2);
     await Promise.all(hosts.map((host) => host(AGENT_CLI_BUSY_METHOD, { agent: "pi" })));
-    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+    const realCalls = fetchImpl.mock.calls.filter((call) => String(call[1]?.body) !== "{}");
+    expect(realCalls.map((call) => call[0])).toEqual([
       "http://127.0.0.1:3003/rpc",
       "http://127.0.0.1:3001/rpc",
     ]);
+  });
+  it("skips descriptors whose PID was reused by an unrelated program (no Host answers)", async () => {
+    const env = await isolated();
+    const directory = consoleHostDescriptorDirectory(env);
+    await mkdir(directory, { recursive: true });
+    for (const [pid, port] of [
+      [10080, 50101],
+      [16736, 50102],
+      [5572, 50103],
+    ] as const)
+      await writeFile(
+        path.join(directory, `host-${pid}.json`),
+        JSON.stringify({ schemaVersion: 1, pid, port, token: "b".repeat(64), startedAt: pid }),
+      );
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).includes(":50102/")) throw new TypeError("fetch failed: ECONNREFUSED");
+      if (String(url).includes(":50103/")) return new Response("<html>not a Host</html>");
+      return new Response(JSON.stringify({ result: { guarded: true, busy: false } }));
+    });
+    const hosts = await createHubHostRequests({ environment: env, isAlive: () => true, fetchImpl });
+    expect(hosts).toHaveLength(1);
+    await expect(hosts[0]?.(AGENT_CLI_BUSY_METHOD, { agent: "pi" })).resolves.toEqual({
+      guarded: true,
+      busy: false,
+    });
   });
 });
 

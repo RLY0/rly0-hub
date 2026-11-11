@@ -101,14 +101,42 @@ export async function createHubHostRequests(options: {
   isAlive?: (pid: number) => boolean;
   fetchImpl?: typeof fetch;
 }): Promise<HubHostRequest[]> {
-  const hosts = await liveHosts(
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const candidates = await liveHosts(
     consoleHostDescriptorDirectory(options.environment),
     options.isAlive ?? processAlive,
   );
+  // A live PID is not enough: Windows reuses PIDs, so an old descriptor can point at an unrelated
+  // program (seen: Phone Link, an ASUS service). Keep only descriptors whose endpoint answers as a
+  // Host with its token; one dead descriptor must not make every update "Host unavailable".
+  const answering = await Promise.all(
+    candidates.map((host) => answersAsHost(host, fetchImpl).then((ok) => (ok ? host : null))),
+  );
+  const hosts = answering.filter((host): host is HostEndpoint => host !== null);
   return hosts.map(
     (host) => (method, params, signal) =>
       requestHost(host, method, params, options.fetchImpl ?? fetch, signal),
   );
+}
+
+const PROBE_TIMEOUT_MS = 2_000;
+/** True when the endpoint replies with a JSON-RPC body (result or error) after accepting its token. */
+async function answersAsHost(host: HostEndpoint, fetchImpl: typeof fetch): Promise<boolean> {
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${host.port}/rpc`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${host.token}`, "content-type": "application/json" },
+      // No method: a Host checks the token, then answers "method is required" without running
+      // anything (console-control-server.ts).
+      body: "{}",
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+    if (response.status === 401 || response.status === 403) return false;
+    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    return body !== null && typeof body === "object" && ("result" in body || "error" in body);
+  } catch {
+    return false;
+  }
 }
 
 async function requestHost(
