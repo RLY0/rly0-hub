@@ -695,6 +695,23 @@ describe("review 2 transaction regressions (synthetic, native error shapes)", ()
     });
     expect(f.driver.install).toHaveBeenCalledTimes(1);
   });
+  it("stop() waits for a start that is still loading, so nothing is written after it returns", async () => {
+    const f = await fixture();
+    const manager = new AgentCliUpdates({
+      environment: f.env,
+      driver: f.driver,
+      ownerProbe: syntheticOwner,
+    });
+    managers.push(manager);
+    // Not awaited, as the Hub service does at startup.
+    void manager.start();
+    await manager.stop();
+    const dir = f.env.CODEXHOST_DATA_DIR as string;
+    // Windows refuses to remove a folder while a file in it is being written.
+    await rm(dir, { recursive: true, force: true });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await expect(stat(dir)).rejects.toThrow();
+  });
   it("keeps a last-moment BUSY from the install step in the minute retry (nothing was rolled back)", async () => {
     const f = await fixture();
     vi.useFakeTimers();

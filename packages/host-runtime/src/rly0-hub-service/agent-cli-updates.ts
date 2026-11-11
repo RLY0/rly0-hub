@@ -149,6 +149,9 @@ export class AgentCliUpdates {
     return acquireAgentCliFence(this.#options.environment, agent, this.#options.ownerProbe);
   }
   #save(agent?: AgentCliUpdateId, enabled?: boolean): Promise<void> {
+    return this.#track(this.#saveNow(agent, enabled));
+  }
+  #saveNow(agent?: AgentCliUpdateId, enabled?: boolean): Promise<void> {
     const next = this.#saving.then(async () => {
       let release: (() => Promise<void>) | null = null;
       const temporary = `${this.#file}.${process.pid}.tmp`;
@@ -236,7 +239,17 @@ export class AgentCliUpdates {
     void this.check(agent).catch(() => undefined);
     return this.status();
   }
-  async start(): Promise<void> {
+  /** Work that may still touch the data directory; stop() waits for all of it. */
+  #inflight = new Set<Promise<unknown>>();
+  #track<T>(work: Promise<T>): Promise<T> {
+    this.#inflight.add(work);
+    void work.finally(() => this.#inflight.delete(work)).catch(() => undefined);
+    return work;
+  }
+  start(): Promise<void> {
+    return this.#track(this.#start());
+  }
+  async #start(): Promise<void> {
     if (this.#timer) return;
     this.#stopped = false;
     if (this.#queueWait.signal.aborted) this.#queueWait = new AbortController();
@@ -274,9 +287,15 @@ export class AgentCliUpdates {
     this.#timer = undefined;
     this.#options.driver.cancel?.();
     await this.#checking;
+    // A start still loading state, a check before its queue or a pending save must not write
+    // into the data directory after stop() returns (the service removes it on uninstall/tests).
+    while (this.#inflight.size) await Promise.allSettled([...this.#inflight]);
   }
   /** Preserve manual requests arriving during another agent's check or a cached busy retry. */
-  async check(agent?: AgentCliUpdateId, cached = false): Promise<void> {
+  check(agent?: AgentCliUpdateId, cached = false): Promise<void> {
+    return this.#track(this.#check(agent, cached));
+  }
+  async #check(agent?: AgentCliUpdateId, cached = false): Promise<void> {
     await this.#load();
     if (this.#stopped) return;
     for (const id of agent ? [agent] : agentCliUpdateIdSchema.options)

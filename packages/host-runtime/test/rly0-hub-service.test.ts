@@ -220,19 +220,29 @@ describe("RLY/0 Hub service", () => {
       platform: "win32",
       launcherCommand: '"C:\\Hub\\bin\\rly0-hub.exe" --background',
     });
-    const make = () =>
-      new Rly0HubService({
+    // Each started service also starts its background work (CLI update checks): dispose them
+    // all, or a late state write keeps the temporary folder from being removed (Windows).
+    const made: Rly0HubService[] = [];
+    const make = () => {
+      const service = new Rly0HubService({
         environment: { CODEXHOST_DATA_DIR: root, CODEX_HOME: path.join(root, "codex") },
         installRoot: root,
         backendReloadTimeoutMs: 50,
         core: fakeCore([]).core,
         appearance,
       });
-    await make().start();
-    expect(memory.value()).toBe('"C:\\Hub\\bin\\rly0-hub.exe" --background');
-    await make().handle("autostart.set", { enabled: false });
-    await make().start();
-    expect(memory.value()).toBeNull();
+      made.push(service);
+      return service;
+    };
+    try {
+      await make().start();
+      expect(memory.value()).toBe('"C:\\Hub\\bin\\rly0-hub.exe" --background');
+      await make().handle("autostart.set", { enabled: false });
+      await make().start();
+      expect(memory.value()).toBeNull();
+    } finally {
+      await Promise.all(made.map((service) => service.dispose().catch(() => undefined)));
+    }
   });
 
   it("registers the Hub executable, never a bare script", () => {
