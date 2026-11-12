@@ -12,7 +12,7 @@ interface ScopedDraftModelBinding {
   creationModes?: readonly Draft[];
 }
 
-/** Desktop 26.1021 memo tuples bind the client Thread identity, draft setter
+/** Reviewed Desktop memo tuples bind the client Thread identity, draft setter
  * and current Model settings mode. Never use the official default Model setter.
  */
 export function findScopedDraftModelBinding(
@@ -60,44 +60,46 @@ export function findScopedDraftModelBinding(
   let update: UpdateDraft | undefined;
   const modes = new Set<boolean>();
   const creationModes = new Set<Draft>();
-  // The 26.1021 Model hook pairs its current settings mode with this exact
+  // The Model hook pairs its current settings mode with this exact
   // draft setter. A stored draft's mode can belong to an earlier Account.
   for (const row of rows) {
+    // Desktop 26.1106 inserts a cache slot at index 8; the null at index 7 stays put.
+    const modelOffset = row.length === 25 ? 1 : 0;
     if (
-      row.length !== 24 ||
+      (row.length !== 24 && row.length !== 25) ||
       row[7] !== null ||
-      row[10] !== true ||
-      !updates.has(row[13] as UpdateDraft)
+      row[10 + modelOffset] !== true ||
+      !updates.has(row[13 + modelOffset] as UpdateDraft)
     )
       continue;
-    const context = row[12] as Draft | null;
-    const result = row[23] as Draft | null;
+    const context = row[12 + modelOffset] as Draft | null;
+    const result = row[23 + modelOffset] as Draft | null;
     if (
       context &&
-      context === row[21] &&
+      context === row[21 + modelOffset] &&
       typeof context.usesAccountPreferences === "boolean" &&
       result?.usesAccountPreferences === context.usesAccountPreferences &&
-      typeof row[14] === "function" &&
-      row[14] === row[20] &&
-      result.setModelAndReasoningEffort === row[14]
+      typeof row[14 + modelOffset] === "function" &&
+      row[14 + modelOffset] === row[20 + modelOffset] &&
+      result.setModelAndReasoningEffort === row[14 + modelOffset]
     ) {
       // Each native hook can create its own setter for the same draft atom.
       // Bind through its reviewed draft identity and Model context, not through
       // function identity shared by every hook in the Composer.
-      update ??= row[13] as UpdateDraft;
+      update ??= row[13 + modelOffset] as UpdateDraft;
       modes.add(context.usesAccountPreferences);
       // Background creation receives a new client Thread id. The reviewed
       // collaboration-mode memo retains the originating draft's Model hook.
       const settings = result.modelSettings as Draft | null;
       const group = groups.get(row);
       const candidate = group?.[group.indexOf(row) - 1];
-      // Desktop 26.1029 adds one slot before the active-mode inputs. Keep
-      // identity checks for both reviewed layouts; never accept arbitrary rows.
-      const offset = candidate?.length === 53 ? 1 : 0;
+      // Desktop 26.1029/26.1106 add one/three slots before the active-mode inputs.
+      // Keep identity checks for the reviewed layouts; never accept arbitrary rows.
+      const offset = candidate?.length === 55 ? 3 : candidate?.length === 53 ? 1 : 0;
       const mode = candidate?.[44 + offset] as Draft | null;
       const value = candidate?.[51 + offset] as Draft | null;
       if (
-        (candidate?.length === 52 || candidate?.length === 53) &&
+        (candidate?.length === 52 || candidate?.length === 53 || candidate?.length === 55) &&
         settings &&
         candidate[39 + offset] === settings.model &&
         candidate[40 + offset] === settings.reasoningEffort &&

@@ -7,7 +7,7 @@ import {
   type CodexRendererPolicy,
 } from "@codexhost/shared-contracts";
 const CORE: CodexRendererPolicy = { schemaVersion: 1, mode: "core", disabled: [] };
-/** Launcher records the inspected identity before spawning Controller, including direct launches.
+/** Reads the identity persisted by startup_record::desktop() in Launcher's starting record.
  * Match the actual parent PID, never the latest unrelated historical successful launch. */
 export async function readLauncherCodexVersion(
   environment: NodeJS.ProcessEnv,

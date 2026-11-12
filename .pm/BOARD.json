@@ -3,6 +3,24 @@
   "base": "79fc26e8b2b57b5cb22b6b0fd9b42142f5dde945",
   "tickets": [
     {
+      "id": "HUB-CONTROLLER-READY-1106",
+      "stage": "M1",
+      "milestone": "2-好用",
+      "owner": "codex",
+      "status": "self_verified",
+      "review": "self-reviewed-pending-independent-review",
+      "accepted": false,
+      "base": "544adb3764be081e52ca0449dfb32ce58e7be3fe",
+      "integration_parent": "82eb6b798b29018bfda39fe9056f3e3f9c361590",
+      "scope": "Controller ready once across policy sessions, EPIPE-only stdout handling, inspected Desktop identity persisted while starting; retain 24/52/53 and add reviewed 25/55 draft layouts. 145 isolated Vitest tests, 6 startup-record and 8 controller Rust tests pass; no UI edits or verified-version-list changes.",
+      "evidence_files": [
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/RESULTS.md",
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/checks.json",
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/source-sha256.json"
+      ],
+      "next_action": "独立复核；Claude 在获准隔离 Windows/Mac 真机确认策略切换不退出、26.1106 新草稿选择/创建/切回及其他关键路径后，再决定加入已适配名单。打包发布归 Claude。"
+    },
+    {
       "id": "HUB-CODEX-UPDATE-ALERT",
       "stage": "M1",
       "milestone": "2-好用",

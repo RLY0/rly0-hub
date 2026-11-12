@@ -1,0 +1,14 @@
+{
+  "base": "544adb3764be081e52ca0449dfb32ce58e7be3fe",
+  "parentAtVerification": "82eb6b798b29018bfda39fe9056f3e3f9c361590",
+  "algorithm": "sha256",
+  "files": {
+    "crates/launcher/src/startup_record.rs": "d2590a340038d4da6ee56bcd1ef1e076a8f696bcf4c5bc02494af7e5d7bf5626",
+    "packages/desktop-control/src/production-controller.ts": "136f965bf3e7311a8a8cc64d40b9dc93691042111154d846b240a1dad16b8303",
+    "packages/desktop-control/src/codex-renderer-policy.ts": "46d80879097cc1af5472e8e2ae055925da548aec16b6d9dfcfc779ad2431d115",
+    "packages/desktop-control/src/renderer-scoped-draft-model.ts": "d7a16e0206fc20f9d018b339488818816d1f72ef4c28e13edd2c917cfa7e2348",
+    "packages/desktop-control/src/codex-update-hold.ts": "cedc09630d2e9b6da0301fecb97a208478bcca5bba9318cf9dd89cf6d14ac49a",
+    "packages/desktop-control/test/production-controller.test.ts": "d08607d98966d855ac6fecc4dc9023bd7a43e782cac2a9a3d5f0f7ead74bda6d",
+    "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts": "a1c1910090b09607c96c226f48ae60112a58d4300d858b7371f1a24df962e87f"
+  }
+}

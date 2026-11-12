@@ -1,3 +1,15 @@
+# Controller ready + 26.1106 草稿绑定：self_verified
+
+2026-11-12；`feat/agent-cli-autoupdate`，输入 `544adb3764be081e52ca0449dfb32ce58e7be3fe`。A：ready 按 Controller 入口只发一次，默认 stdout 同步/事件 EPIPE 容错；Launcher 检出版本后立即写 starting 记录，并纠正策略注释。B：保留 24/52/53 位布局，加入逐位核对的 25/55 位布局，清除过时块号注释。未改已适配名单。
+
+先失败：TS 7 fail / 52 pass；Rust 新测试读到 desktop=None，5 pass / 1 fail。修复后同组 59 TS 和 6 Rust 全过；最终主会话亲跑 10 文件 145 TS pass，另 8 项 controller Rust pass，均无失败/跳过。build:typescript、build:renderer、最终 typecheck、改动文件 ESLint/Prettier、边界、launcher Clippy/fmt 通过。全程临时五目录隔离，原生更新控制关闭；未跑全仓矩阵或真机。
+
+收尾时检测到同分支已有新界面提交 `82eb6b79`（两文件），原样保留，作为本轮提交的父提交；本轮未编辑 www，也未暂存其文件。完整逐项文件行号、命令和指纹见 [RESULTS](selfheal/evidence/controller-ready-1106-20261112/RESULTS.md)。没有真实 defaults 写入、日常进程退出重启、另起 hub-service、推送或发布。
+
+仅自检；独立 reviewed/accepted 未完成。next_action：独立复核；Claude 在获准隔离 Windows/Mac 真机确认策略切换不退出、26.1106 新草稿选择/创建/切回与其他关键路径；真机确认后再决定加入已适配名单。打包发布仍归 Claude。
+
+---
+
 # Codex 官方新版弹窗复查 #2：self_verified
 
 2026-11-12；`feat/agent-cli-autoupdate`，输入 `5b4c6893526712133e42af7a5ed61d9fd7d4365b`。报告重要 1、次要 2–4 已修，次要 5 已写入卸载前恢复说明，并核对现有“恢复纯净状态”调用关闭管理。保留 Claude 界面，不改 www。

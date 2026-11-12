@@ -142,6 +142,10 @@ pub fn desktop(version: &str, build: &str, install_root: &Path) {
             install_root: install_root.display().to_string(),
         });
     }
+    drop(active);
+    // Controller reads this identity while Launcher is still starting. Waiting
+    // until Ready would make its initial version-bound policy fall back to core.
+    finish(StartupOutcome::Starting, None);
 }
 
 /// Persists the current startup with its outcome. A later call for the same
@@ -275,6 +279,47 @@ fn persist(path: &Path, record: StartupRecord) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn desktop_identity_is_persisted_while_starting_before_ready() {
+        const CHILD: &str = "CODEXHOST_SYNTHETIC_STARTUP_RECORD_CHILD";
+        if env::var_os(CHILD).is_some() {
+            begin();
+            desktop("26.1106.51428", "26605", Path::new("/synthetic/codex"));
+            return;
+        }
+        // A separate test process isolates ACTIVE and the data path without mutating
+        // this test runner's environment or launching any Desktop/Controller.
+        let directory = env::temp_dir().join(format!(
+            "synthetic-controller-startup-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        let output = std::process::Command::new(env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "startup_record::tests::desktop_identity_is_persisted_while_starting_before_ready",
+            ])
+            .env(CHILD, "1")
+            .env(DATA_DIRECTORY_ENV, &directory)
+            .output()
+            .expect("run synthetic startup recorder");
+        let file = read_existing(&directory.join("diagnostics").join(RECORD_FILE));
+        fs::remove_dir_all(&directory).expect("remove synthetic startup records");
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(file.records.len(), 1);
+        let record = &file.records[0];
+        assert_eq!(record.outcome, StartupOutcome::Starting);
+        assert_eq!(record.finished_at_ms, None);
+        assert_eq!(
+            record.desktop,
+            Some(StartupDesktop {
+                version: "26.1106.51428".into(),
+                build: "26605".into(),
+                install_root: "/synthetic/codex".into(),
+            })
+        );
+    }
 
     #[test]
     fn starting_record_has_no_finish_time_and_is_replaced_by_its_outcome() {

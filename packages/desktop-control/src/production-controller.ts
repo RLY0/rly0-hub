@@ -127,6 +127,29 @@ export function serializeDesktopControllerReadiness(readiness: DesktopController
   return line;
 }
 
+export function createDesktopControllerReadinessWriter(
+  output: NodeJS.WritableStream = process.stdout,
+): DesktopControllerDependencies["ready"] {
+  let listening = false;
+  const handleError = (error: NodeJS.ErrnoException): void => {
+    if (error?.code !== "EPIPE") throw error;
+  };
+  return (readiness) => {
+    const line = `${serializeDesktopControllerReadiness(readiness)}\n`;
+    // The launcher closes its read end after the handshake. Keep the handler for
+    // asynchronous stream errors too; checking writable alone cannot avoid that race.
+    if (!listening) {
+      output.on("error", handleError);
+      listening = true;
+    }
+    try {
+      output.write(line);
+    } catch (error) {
+      handleError(error as NodeJS.ErrnoException);
+    }
+  };
+}
+
 /** Plain `Page.bringToFront` on the primary window; nothing is evaluated in the page. */
 async function bringRendererToFront(rendererCdpEndpoint: string): Promise<void> {
   const target = selectPrimaryRendererTarget(await listCdpTargets(rendererCdpEndpoint));
@@ -147,9 +170,7 @@ const defaultDependencies: DesktopControllerDependencies = {
   readRenderer: (filePath) => readFile(filePath, "utf8"),
   install: installRendererCdpControlSession,
   startAttachmentServer: startControllerAttachmentServer,
-  ready: (readiness) => {
-    process.stdout.write(`${serializeDesktopControllerReadiness(readiness)}\n`);
-  },
+  ready: createDesktopControllerReadinessWriter(),
   publishStatus: createControllerStatusPublisher(),
   sleep: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   bringToFront: bringRendererToFront,
@@ -294,11 +315,22 @@ export async function runDesktopController(
   signal: AbortSignal,
   dependencies: DesktopControllerDependencies = defaultDependencies,
 ): Promise<void> {
+  let readyPublished = false;
+  const sessionDependencies: DesktopControllerDependencies = {
+    ...dependencies,
+    ready: (readiness) => {
+      // Readiness belongs to this Controller process, not to its replaceable
+      // Renderer sessions (including transitions into and out of safe mode).
+      if (readyPublished) return;
+      readyPublished = true;
+      dependencies.ready(readiness);
+    },
+  };
   if (!dependencies.readPolicy)
     return runDesktopControllerSession(
       options,
       signal,
-      dependencies,
+      sessionDependencies,
       { schemaVersion: 1, mode: "full", disabled: [] },
       { holdUpdates: false },
     );
@@ -342,7 +374,7 @@ export async function runDesktopController(
     await runDesktopControllerPolicies(
       options,
       signal,
-      dependencies,
+      sessionDependencies,
       policy,
       live,
       (next) => {

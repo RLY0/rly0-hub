@@ -1,5 +1,5 @@
 /**
- * Codex Desktop (26.1103, webview chunk `366057`) reports server feature gates to its main process
+ * Codex Desktop reports server feature gates from its webview to its main process
  * with `electron-sparkle-gates-changed`. Its page-side sender posts through the frozen context
  * bridge (`window.electronBridge.sendMessageFromView`) and then dispatches the same object as the
  * `codex-message-from-view` window event. The bridge cannot be wrapped, so while Hub holds updates

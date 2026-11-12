@@ -1,3 +1,15 @@
+# Controller ready + 26.1106 草稿绑定：self_verified
+
+2026-11-12；工单 `HUB-CONTROLLER-READY-1106`；输入 `544adb37`。A 完成进程入口 once、默认 stdout 的 EPIPE 过滤与 starting 版本落盘；B 完成 25/55 位草稿布局并保留旧 24/52/53，去掉固定块号注释。没有改 www 或适配名单。
+
+主会话亲跑红测：TS 7 fail / 52 pass，Rust 1 fail / 5 pass；同组修复后 59 TS / 6 Rust 全过。最终相邻回归 10 文件 145 TS pass，另 8 项 controller Rust pass。构建、renderer、类型、改动文件 ESLint/格式、边界与 launcher Clippy/fmt 通过。初次测试 mock 的未使用变量已修并复验。全部测试使用临时 HOME/USERPROFILE/CODEX_HOME/CODEXHOST_DATA_DIR/RLY0_MEMORY_DIR、关闭原生更新控制。
+
+同分支并发界面提交 `82eb6b79` 已保留；本轮逐文件暂存自己的改动。证据：[RESULTS](selfheal/evidence/controller-ready-1106-20261112/RESULTS.md)、checks.json 与源码指纹。没有真实 defaults、日常 Codex/Hub 退出重启、另起 hub-service、推送或发布。
+
+状态 self_verified；未独立 reviewed/accepted。next_action：独立复核，Claude 在获准隔离真机确认 Windows 原崩溃、Mac 原生启动和 26.1106 草稿全链路，再决定扩适配名单；打包发布归 Claude。可选 stdout drain 未实施，版本落盘仍是 best effort，非 EPIPE 保留失败。
+
+---
+
 # Codex 官方新版弹窗复查 #2：self_verified
 
 2026-11-12；`feat/agent-cli-autoupdate`，输入 `5b4c6893526712133e42af7a5ed61d9fd7d4365b`。报告重要 1、次要 2–4 已修，次要 5 已写入卸载前恢复说明，并核对现有“恢复纯净状态”调用关闭管理。保留 Claude 界面，不改 www。

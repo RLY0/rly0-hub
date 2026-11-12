@@ -1,8 +1,10 @@
 import path from "node:path";
+import { Writable } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createDesktopControllerReadinessWriter,
   parseDesktopControllerArguments,
   runDesktopController,
   RENDERER_DISABLED_MESSAGE,
@@ -18,6 +20,47 @@ import {
 } from "../src/codex-update-hold.js";
 
 const attachmentNonce = "0123456789abcdef0123456789abcdef";
+
+describe("Desktop Controller readiness pipe", () => {
+  const readiness = { schemaVersion: 2, state: "compatible", issues: [] } as const;
+  const message = () => ({ ...readiness, issues: [] as [] });
+
+  it("tolerates a synchronous EPIPE from a closed launcher pipe", () => {
+    const output = new Writable({ write: (_chunk, _encoding, callback) => callback() });
+    vi.spyOn(output, "write").mockImplementation(() => {
+      throw Object.assign(new Error("synthetic closed launcher pipe"), { code: "EPIPE" });
+    });
+    expect(() => createDesktopControllerReadinessWriter(output)(message())).not.toThrow();
+  });
+
+  it("handles an asynchronous EPIPE emitted by stdout, with one listener per writer", () => {
+    const output = new Writable({ write: (_chunk, _encoding, callback) => callback() });
+    const ready = createDesktopControllerReadinessWriter(output);
+    ready(message());
+    ready(message());
+    expect(() =>
+      output.emit("error", Object.assign(new Error("synthetic broken pipe"), { code: "EPIPE" })),
+    ).not.toThrow();
+    expect(output.listenerCount("error")).toBe(1);
+    const other = Object.assign(new Error("synthetic IO failure"), { code: "EIO" });
+    expect(() => output.emit("error", other)).toThrow(other);
+  });
+
+  it("preserves non-EPIPE write failures and rejects invalid readiness before writing", () => {
+    const output = new Writable({ write: (_chunk, _encoding, callback) => callback() });
+    const other = Object.assign(new Error("synthetic IO failure"), { code: "EIO" });
+    const write = vi.spyOn(output, "write").mockImplementation(() => {
+      throw other;
+    });
+    const ready = createDesktopControllerReadinessWriter(output);
+    expect(() => ready(message())).toThrow(other);
+    write.mockClear();
+    expect(() => ready({ ...message(), state: "incompatible" } as never)).toThrow(
+      "readiness is invalid",
+    );
+    expect(write).not.toHaveBeenCalled();
+  });
+});
 
 function controllerOptions() {
   return {
@@ -577,6 +620,90 @@ it.each([false, true])(
     expect(coreInstall).toHaveBeenCalledOnce();
     expect(installed.map((entry) => entry.renderer.state)).toContain(fail ? "disabled" : "core");
     if (!fail) expect(session.dispose).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, true])(
+  "publishes ready once across core→full→safe→core even if initial core fails=%s",
+  async (coreFails) => {
+    const abort = new AbortController();
+    const ready = vi
+      .fn<DesktopControllerDependencies["ready"]>()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementation(() => {
+        throw Object.assign(new Error("synthetic launcher closed its reader after ready"), {
+          code: "EPIPE",
+        });
+      });
+    const session = (): RendererCdpControlSession => ({
+      snapshot: controllerSnapshot(),
+      ensureInstalled: vi.fn(async () => controllerSnapshot()),
+      activateDesktop: vi.fn(async () => 1),
+      executeRenderer: vi.fn(async () => true as never),
+      close: vi.fn(),
+      dispose: vi.fn(async () => undefined),
+    });
+    const core = session();
+    const full = session();
+    const coreInstall = vi.fn(async () => {
+      if (coreFails) throw new Error("synthetic initial core fetch failed");
+      return core;
+    });
+    const install = vi.fn(async () => full);
+    const servers: ReturnType<typeof attachmentServer>[] = [];
+    const modes = ["core", "full", "safe", "core"] as const;
+    let phase = 0;
+    let ticks = 0;
+    const realSetInterval = globalThis.setInterval;
+    const intervals: (() => void)[] = [];
+    vi.stubGlobal("setInterval", (callback: () => void) => {
+      intervals.push(callback);
+      return realSetInterval(() => undefined, 1_000_000);
+    });
+    try {
+      await expect(
+        runDesktopController(controllerOptions(), abort.signal, {
+          readPolicy: async () => ({
+            schemaVersion: 1,
+            mode: modes[phase] ?? "core",
+            disabled: [],
+          }),
+          readRenderer: async () => "synthetic production renderer",
+          installCore: coreInstall,
+          install,
+          startAttachmentServer: async () => {
+            const server = attachmentServer();
+            servers.push(server);
+            return server;
+          },
+          ready,
+          sleep: async () => {
+            ticks += 1;
+            if (ticks === 2 || ticks === 4 || ticks === 6) {
+              phase += 1;
+              for (const callback of intervals.splice(0)) callback();
+            }
+            if (ticks >= 8) abort.abort();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+          },
+          monitorIntervalMs: 1,
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      abort.abort();
+      vi.unstubAllGlobals();
+    }
+    expect(ready).toHaveBeenCalledExactlyOnceWith({
+      schemaVersion: 2,
+      state: "compatible",
+      issues: [],
+    });
+    expect(coreInstall).toHaveBeenCalledTimes(2);
+    expect(install).toHaveBeenCalledOnce();
+    expect(servers).toHaveLength(4);
+    for (const server of servers) expect(server.close).toHaveBeenCalledOnce();
+    expect(full.dispose).toHaveBeenCalledOnce();
+    if (!coreFails) expect(core.dispose).toHaveBeenCalledTimes(2);
   },
 );
 

@@ -1,0 +1,468 @@
+{
+  "task": "HUB-CONTROLLER-READY-1106",
+  "status": "self_verified",
+  "accepted": false,
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "branch": "feat/agent-cli-autoupdate",
+  "requestedBase": "544adb3764be081e52ca0449dfb32ce58e7be3fe",
+  "parentAtVerification": "82eb6b798b29018bfda39fe9056f3e3f9c361590",
+  "concurrentCommit": {
+    "sha": "82eb6b798b29018bfda39fe9056f3e3f9c361590",
+    "files": [
+      "apps/hub-desktop/www/pages/codex-updates.js",
+      "packages/host-runtime/test/rly0-codex-updates-ui.test.ts"
+    ],
+    "preserved": true
+  },
+  "isolation": {
+    "perCommand": true,
+    "HOME": "<isolationRoot>/home",
+    "USERPROFILE": "<isolationRoot>/home",
+    "CODEX_HOME": "<isolationRoot>/codex",
+    "CODEXHOST_DATA_DIR": "<isolationRoot>/data",
+    "RLY0_MEMORY_DIR": "<isolationRoot>/memory",
+    "RLY0_SKIP_LEGACY_IMPORT": "1",
+    "RLY0_CODEX_UPDATE_CONTROL": "0",
+    "RUSTUP_HOME": "/Volumes/RLY0Dev/Dev/Cache/rustup",
+    "CARGO_HOME": "/Volumes/RLY0Dev/Dev/Cache/cargo",
+    "CARGO_NET_OFFLINE": "true"
+  },
+  "toolchain": [
+    "v24.22.2",
+    "11.19.1",
+    "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+    "macOS-27.2-arm64-arm-64bit"
+  ],
+  "protectedWorkingTreePathsUnchanged": [
+    "apps/hub-desktop/www",
+    "packages/shared-contracts/src/desktop-compatibility.ts",
+    "codex-compat.json"
+  ],
+  "rawLogs": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5",
+  "runs": [
+    {
+      "label": "red-cargo",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--package",
+        "codexhost-launcher",
+        "--bin",
+        "codexhost",
+        "startup_record::tests"
+      ],
+      "shellDisplay": "cargo test --locked --package codexhost-launcher --bin codexhost startup_record::tests",
+      "startedAt": "2026-11-12T01:18:12.163745+00:00",
+      "durationSeconds": 8.437,
+      "exitCode": 101,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-red-cargo-bkt4t9tc",
+      "logSha256": "6fcfa02cc86656915b7606e41b26e650c4b4fe43525c0b4d411bcdb4c3f5e689",
+      "observations": [
+        "left: None",
+        "right: Some(StartupDesktop { version: \"26.1106.51428\", build: \"26605\", install_root: \"/synthetic/codex\" })",
+        "test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 63 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "label": "red-vitest",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "tests/vitest.config.js",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts"
+      ],
+      "shellDisplay": "node node_modules/vitest/vitest.mjs run --config tests/vitest.config.js packages/desktop-control/test/production-controller.test.ts packages/desktop-control/test/renderer-scoped-creation.test.ts packages/desktop-control/test/renderer-scoped-creation-1106.test.ts",
+      "startedAt": "2026-11-12T01:18:12.209510+00:00",
+      "durationSeconds": 0.602,
+      "exitCode": 1,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-red-vitest-_rxfl14c",
+      "logSha256": "82fbaeac6ea202f94e70d879cd22321f8ef59628bb4383198ac3f557c63c3a8f",
+      "observations": [
+        "⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯",
+        "FAIL  packages/desktop-control/test/production-controller.test.ts > Desktop Controller readiness pipe > tolerates a synchronous EPIPE from a closed launcher pipe",
+        "AssertionError: expected [Function] to not throw an error but 'Error: synthetic closed launcher pipe' was thrown",
+        "FAIL  packages/desktop-control/test/production-controller.test.ts > Desktop Controller readiness pipe > handles an asynchronous EPIPE emitted by stdout, with one listener per writer",
+        "AssertionError: expected [Function] to not throw an error but 'Error: synthetic broken pipe' was thrown",
+        "FAIL  packages/desktop-control/test/production-controller.test.ts > publishes ready once across core→full→safe→core even if initial core fails=false",
+        "FAIL  packages/desktop-control/test/production-controller.test.ts > publishes ready once across core→full→safe→core even if initial core fails=true",
+        "AssertionError: promise rejected \"Error: synthetic launcher closed its read… { code: '…' }\" instead of resolving",
+        "FAIL  packages/desktop-control/test/renderer-scoped-creation-1106.test.ts > 26.1106 draft-scoped model binding > binds the 25-slot model hook to the unchanged 14-slot draft identity",
+        "AssertionError: expected null to deeply equal { update: [Function Mock], …(1) }",
+        "FAIL  packages/desktop-control/test/renderer-scoped-creation-1106.test.ts > 26.1106 draft-scoped model binding > recognizes the 55-slot collaboration tuple independently of the new Model layout",
+        "AssertionError: expected undefined to deeply equal [ { mode: 'default', …(1) } ]",
+        "FAIL  packages/desktop-control/test/renderer-scoped-creation-1106.test.ts > 26.1106 draft-scoped model binding > selects an external Agent in a 25/55-slot draft and routes background creation",
+        "AssertionError: expected null not to be null",
+        "Test Files  2 failed | 1 passed (3)",
+        "Tests  7 failed | 52 passed (59)"
+      ]
+    },
+    {
+      "label": "green-cargo",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--package",
+        "codexhost-launcher",
+        "--bin",
+        "codexhost",
+        "startup_record::tests"
+      ],
+      "shellDisplay": "cargo test --locked --package codexhost-launcher --bin codexhost startup_record::tests",
+      "startedAt": "2026-11-12T01:19:44.482316+00:00",
+      "durationSeconds": 1.064,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-green-cargo-mp75rc_j",
+      "logSha256": "c28994e9713241ea22c13b6d73fb18995e6b562f97195b9fab1e2d2a82343189",
+      "observations": [
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 63 filtered out; finished in 0.02s"
+      ]
+    },
+    {
+      "label": "green-focused-vitest",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "tests/vitest.config.js",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts"
+      ],
+      "shellDisplay": "node node_modules/vitest/vitest.mjs run --config tests/vitest.config.js packages/desktop-control/test/production-controller.test.ts packages/desktop-control/test/renderer-scoped-creation.test.ts packages/desktop-control/test/renderer-scoped-creation-1106.test.ts",
+      "startedAt": "2026-11-12T01:19:44.521053+00:00",
+      "durationSeconds": 0.616,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-green-focused-vitest-un91q3yp",
+      "logSha256": "bd619b707c3b119c6c78da36095f4303bf65a20a149cb82874341a00c1a1c661",
+      "observations": ["Test Files  3 passed (3)", "Tests  59 passed (59)"]
+    },
+    {
+      "label": "cargo-fmt",
+      "command": ["cargo", "fmt", "--package", "codexhost-launcher", "--check"],
+      "shellDisplay": "cargo fmt --package codexhost-launcher --check",
+      "startedAt": "2026-11-12T01:20:40.730859+00:00",
+      "durationSeconds": 0.107,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-cargo-fmt-tkx0bqvz",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "observations": []
+    },
+    {
+      "label": "cargo-clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "--package",
+        "codexhost-launcher",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "shellDisplay": "cargo clippy --locked --package codexhost-launcher --all-targets -- -D warnings",
+      "startedAt": "2026-11-12T01:20:40.762650+00:00",
+      "durationSeconds": 4.543,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-cargo-clippy-s5jwhvr9",
+      "logSha256": "885807e7116a954d20358e42339ecdd7b3e5acda5a6666a45801b9cb09776584",
+      "observations": [
+        "   Compiling bindgen v0.72.1",
+        "    Checking plist v1.10.0",
+        "   Compiling libproc v0.14.11",
+        "    Checking codexhost-platform v0.11.39 (/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/crates/platform)",
+        "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.48s"
+      ]
+    },
+    {
+      "label": "typecheck",
+      "command": ["npm", "run", "typecheck"],
+      "shellDisplay": "npm run typecheck",
+      "startedAt": "2026-11-12T01:20:40.809221+00:00",
+      "durationSeconds": 16.059,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-typecheck-jsj5apvh",
+      "logSha256": "82b94f5aa2b2d09f7c20e9a2a3bd658ff96901ee069db7659ad67afb215ffe5c",
+      "observations": [
+        "npm notice",
+        "npm notice New major version of npm available! 11.19.1 -> 12.2.2",
+        "npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2",
+        "npm notice To update run: npm install -g npm@12.2.2",
+        "npm notice"
+      ]
+    },
+    {
+      "label": "format-source",
+      "command": [
+        "node",
+        "node_modules/prettier/bin/prettier.cjs",
+        "--write",
+        "packages/desktop-control/src/production-controller.ts",
+        "packages/desktop-control/src/codex-renderer-policy.ts",
+        "packages/desktop-control/src/codex-update-hold.ts",
+        "packages/desktop-control/src/renderer-scoped-draft-model.ts",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts"
+      ],
+      "shellDisplay": "node node_modules/prettier/bin/prettier.cjs --write packages/desktop-control/src/production-controller.ts packages/desktop-control/src/codex-renderer-policy.ts packages/desktop-control/src/codex-update-hold.ts packages/desktop-control/src/renderer-scoped-draft-model.ts packages/desktop-control/test/production-controller.test.ts packages/desktop-control/test/renderer-scoped-creation-1106.test.ts",
+      "startedAt": "2026-11-12T01:22:06.740749+00:00",
+      "durationSeconds": 0.186,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-format-source-sv_6lqjd",
+      "logSha256": "67779e278541092b3dceb726e918b02ea972ab4177feb57ea8ba5182e967bedf",
+      "observations": [
+        "packages/desktop-control/src/codex-renderer-policy.ts 7ms (unchanged)",
+        "packages/desktop-control/src/codex-update-hold.ts 8ms (unchanged)",
+        "packages/desktop-control/src/renderer-scoped-draft-model.ts 8ms (unchanged)",
+        "packages/desktop-control/test/production-controller.test.ts 36ms",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts 7ms"
+      ]
+    },
+    {
+      "label": "build-typescript",
+      "command": ["npm", "run", "build:typescript"],
+      "shellDisplay": "npm run build:typescript",
+      "startedAt": "2026-11-12T01:22:07.008316+00:00",
+      "durationSeconds": 1.108,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-build-typescript-ie83qbia",
+      "logSha256": "838ccf766377a46bc4442f6132dac2d01f5198421cfadd258d1bf4634109556e",
+      "observations": [
+        "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.",
+        "",
+        "> codexhost@0.11.39 build:plugins",
+        "> node scripts/release/harness-plugins.mjs --output packages/host-runtime/dist/plugins",
+        ""
+      ]
+    },
+    {
+      "label": "cargo-controller",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--package",
+        "codexhost-launcher",
+        "--bin",
+        "codexhost",
+        "controller"
+      ],
+      "shellDisplay": "cargo test --locked --package codexhost-launcher --bin codexhost controller",
+      "startedAt": "2026-11-12T01:22:08.194545+00:00",
+      "durationSeconds": 1.357,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-cargo-controller-cfqecm0n",
+      "logSha256": "33c67bef118c3df6eca46ce484b937eeaf1c1acc01ca4a09c45fb50d8a5c93a4",
+      "observations": [
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 61 filtered out; finished in 1.07s"
+      ]
+    },
+    {
+      "label": "boundaries",
+      "command": ["node", "tools/check-boundaries.mjs"],
+      "shellDisplay": "node tools/check-boundaries.mjs",
+      "startedAt": "2026-11-12T01:22:30.542498+00:00",
+      "durationSeconds": 1.677,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-boundaries-_sk00gif",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "observations": []
+    },
+    {
+      "label": "build-renderer",
+      "command": ["npm", "run", "build:renderer"],
+      "shellDisplay": "npm run build:renderer",
+      "startedAt": "2026-11-12T01:22:30.571692+00:00",
+      "durationSeconds": 0.63,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-build-renderer-ui4c7ops",
+      "logSha256": "da18614bab02d347e6931e30cfdb5f9484c20108d4126f031f1e32cb00729507",
+      "observations": [
+        "npm warn Unknown env config \"store-dir\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.",
+        "",
+        "> @codexhost/renderer-extension@0.0.0 build",
+        "> node scripts/build.mjs",
+        ""
+      ]
+    },
+    {
+      "label": "eslint-changed",
+      "command": [
+        "node",
+        "node_modules/eslint/bin/eslint.js",
+        "packages/desktop-control/src/production-controller.ts",
+        "packages/desktop-control/src/codex-renderer-policy.ts",
+        "packages/desktop-control/src/codex-update-hold.ts",
+        "packages/desktop-control/src/renderer-scoped-draft-model.ts",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts"
+      ],
+      "shellDisplay": "node node_modules/eslint/bin/eslint.js packages/desktop-control/src/production-controller.ts packages/desktop-control/src/codex-renderer-policy.ts packages/desktop-control/src/codex-update-hold.ts packages/desktop-control/src/renderer-scoped-draft-model.ts packages/desktop-control/test/production-controller.test.ts packages/desktop-control/test/renderer-scoped-creation-1106.test.ts",
+      "startedAt": "2026-11-12T01:22:30.607768+00:00",
+      "durationSeconds": 0.653,
+      "exitCode": 1,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-eslint-changed-0qae8g58",
+      "logSha256": "d9a3dd1f5b83483222ed20143da6b2811460a6058afaf6104e6fc91006754171",
+      "observations": [
+        "106:55  error  '_options' is defined but never used  @typescript-eslint/no-unused-vars"
+      ]
+    },
+    {
+      "label": "typecheck-final",
+      "command": ["npm", "run", "typecheck"],
+      "shellDisplay": "npm run typecheck",
+      "startedAt": "2026-11-12T01:23:29.513030+00:00",
+      "durationSeconds": 11.306,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-typecheck-final-qx95rlwu",
+      "logSha256": "82b94f5aa2b2d09f7c20e9a2a3bd658ff96901ee069db7659ad67afb215ffe5c",
+      "observations": [
+        "npm notice",
+        "npm notice New major version of npm available! 11.19.1 -> 12.2.2",
+        "npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2",
+        "npm notice To update run: npm install -g npm@12.2.2",
+        "npm notice"
+      ]
+    },
+    {
+      "label": "eslint-final",
+      "command": [
+        "node",
+        "node_modules/eslint/bin/eslint.js",
+        "packages/desktop-control/src/production-controller.ts",
+        "packages/desktop-control/src/codex-renderer-policy.ts",
+        "packages/desktop-control/src/codex-update-hold.ts",
+        "packages/desktop-control/src/renderer-scoped-draft-model.ts",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts"
+      ],
+      "shellDisplay": "node node_modules/eslint/bin/eslint.js packages/desktop-control/src/production-controller.ts packages/desktop-control/src/codex-renderer-policy.ts packages/desktop-control/src/codex-update-hold.ts packages/desktop-control/src/renderer-scoped-draft-model.ts packages/desktop-control/test/production-controller.test.ts packages/desktop-control/test/renderer-scoped-creation-1106.test.ts",
+      "startedAt": "2026-11-12T01:23:29.553827+00:00",
+      "durationSeconds": 0.375,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-eslint-final-25jp4sg7",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "observations": []
+    },
+    {
+      "label": "regression-vitest",
+      "command": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "tests/vitest.config.js",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/codex-renderer-policy.test.ts",
+        "packages/desktop-control/test/controller-status.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-routing.test.ts",
+        "packages/desktop-control/test/renderer-draft-prewarm-policy.test.ts",
+        "packages/desktop-control/test/renderer-prewarm-cleanup.test.ts",
+        "packages/desktop-control/test/codex-update-hold.test.ts",
+        "packages/desktop-control/test/early-update-hold.test.ts"
+      ],
+      "shellDisplay": "node node_modules/vitest/vitest.mjs run --config tests/vitest.config.js packages/desktop-control/test/production-controller.test.ts packages/desktop-control/test/codex-renderer-policy.test.ts packages/desktop-control/test/controller-status.test.ts packages/desktop-control/test/renderer-scoped-creation.test.ts packages/desktop-control/test/renderer-scoped-creation-1106.test.ts packages/desktop-control/test/renderer-scoped-creation-routing.test.ts packages/desktop-control/test/renderer-draft-prewarm-policy.test.ts packages/desktop-control/test/renderer-prewarm-cleanup.test.ts packages/desktop-control/test/codex-update-hold.test.ts packages/desktop-control/test/early-update-hold.test.ts",
+      "startedAt": "2026-11-12T01:23:53.099261+00:00",
+      "durationSeconds": 1.019,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-regression-vitest-j94_ttds",
+      "logSha256": "7d07f9b7d86af6f827ac4682e615912eb6c7455f3d5f877ca1a84f7e089deb51",
+      "observations": ["Test Files  10 passed (10)", "Tests  145 passed (145)"]
+    },
+    {
+      "label": "format-source-check",
+      "command": [
+        "node",
+        "node_modules/prettier/bin/prettier.cjs",
+        "--check",
+        "packages/desktop-control/src/production-controller.ts",
+        "packages/desktop-control/src/codex-renderer-policy.ts",
+        "packages/desktop-control/src/codex-update-hold.ts",
+        "packages/desktop-control/src/renderer-scoped-draft-model.ts",
+        "packages/desktop-control/test/production-controller.test.ts",
+        "packages/desktop-control/test/renderer-scoped-creation-1106.test.ts"
+      ],
+      "shellDisplay": "node node_modules/prettier/bin/prettier.cjs --check packages/desktop-control/src/production-controller.ts packages/desktop-control/src/codex-renderer-policy.ts packages/desktop-control/src/codex-update-hold.ts packages/desktop-control/src/renderer-scoped-draft-model.ts packages/desktop-control/test/production-controller.test.ts packages/desktop-control/test/renderer-scoped-creation-1106.test.ts",
+      "startedAt": "2026-11-12T01:25:38.883868+00:00",
+      "durationSeconds": 0.195,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-format-source-check-evxo07db",
+      "logSha256": "17aa973d3f004560237d9a95171210b0671deff23d61628eecf7322ff5938f20",
+      "observations": ["All matched files use Prettier code style!"]
+    },
+    {
+      "label": "toolchain",
+      "command": [
+        "python3",
+        "-c",
+        "import platform, subprocess; print(platform.platform()); [subprocess.run([tool, \"--version\"], check=True) for tool in [\"node\", \"npm\", \"cargo\", \"rustc\"]]"
+      ],
+      "shellDisplay": "python3 -c 'import platform, subprocess; print(platform.platform()); [subprocess.run([tool, \"--version\"], check=True) for tool in [\"node\", \"npm\", \"cargo\", \"rustc\"]]'",
+      "startedAt": "2026-11-12T01:25:38.909495+00:00",
+      "durationSeconds": 0.346,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-toolchain-vozd37co",
+      "logSha256": "a27e37badfb4ce9f8ccefcc1f33e8cd48575e414ad27fe2da268c3b34a128b4f",
+      "observations": [
+        "v24.22.2",
+        "11.19.1",
+        "cargo 1.97.1 (c980f4866 2026-06-30)",
+        "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+        "macOS-27.2-arm64-arm-64bit"
+      ]
+    },
+    {
+      "label": "format-evidence",
+      "command": [
+        "node",
+        "node_modules/prettier/bin/prettier.cjs",
+        "--write",
+        ".pm/BOARD.json",
+        ".pm/PROGRESS.md",
+        ".pm/PROGRESS_CODEX.md",
+        "老板看这里.md",
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/RESULTS.md",
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/checks.json",
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/source-sha256.json"
+      ],
+      "shellDisplay": "node node_modules/prettier/bin/prettier.cjs --write .pm/BOARD.json .pm/PROGRESS.md .pm/PROGRESS_CODEX.md '老板看这里.md' .pm/selfheal/evidence/controller-ready-1106-20261112/RESULTS.md .pm/selfheal/evidence/controller-ready-1106-20261112/checks.json .pm/selfheal/evidence/controller-ready-1106-20261112/source-sha256.json",
+      "startedAt": "2026-11-12T01:30:25.843456+00:00",
+      "durationSeconds": 0.077,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-format-evidence-cro37i8k",
+      "logSha256": "6ef25207ce83289161eac3052b527c833c0aa40798e6feba5ceb43d92f0a7d32",
+      "observations": [
+        ".pm/BOARD.json 15ms",
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/checks.json 6ms",
+        ".pm/selfheal/evidence/controller-ready-1106-20261112/source-sha256.json 0ms (unchanged)"
+      ]
+    },
+    {
+      "label": "typecheck-integration-parent",
+      "command": ["npm", "run", "typecheck"],
+      "shellDisplay": "npm run typecheck",
+      "startedAt": "2026-11-12T01:31:30.263444+00:00",
+      "durationSeconds": 11.544,
+      "exitCode": 0,
+      "isolationRoot": "/var/folders/26/hknb18vn1nd8htgh9zql6czm0000gn/T/rly0-controller-ready-1106-20261112-86yyzgw5/synthetic-typecheck-integration-parent-_p6a5wyp",
+      "logSha256": "82b94f5aa2b2d09f7c20e9a2a3bd658ff96901ee069db7659ad67afb215ffe5c",
+      "observations": [
+        "npm notice",
+        "npm notice New major version of npm available! 11.19.1 -> 12.2.2",
+        "npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2",
+        "npm notice To update run: npm install -g npm@12.2.2",
+        "npm notice"
+      ]
+    }
+  ]
+}
