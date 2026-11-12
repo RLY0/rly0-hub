@@ -1,9 +1,9 @@
 # Changelog
 
-## 0.11.40-rc.8
+## 0.11.40-rc.9
 
 ### Updates
-- Test build only (not published): upstream codexhost v0.18.0 fused into the Hub, plus Codex update gate, AI 助手 CLI auto-update, Codex 26.1106 support.
+- Test build only (not published): upstream codexhost v0.18.0 fused into the Hub, plus Codex update gate, AI 助手 CLI auto-update, Codex 26.1106 support; the shared host follows a Claude token switch and keeps its keys after a Hub update.
 
 ## 0.11.39
 
