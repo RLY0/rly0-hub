@@ -50,7 +50,7 @@ export type DesktopCompatibility = z.infer<typeof desktopCompatibilitySchema>;
  * has been verified against. A fresh install with no proven version yet opens these in full
  * mode; any other version opens in safe mode until the interface integration is proven.
  */
-export const RLY0_VERIFIED_DESKTOP_VERSION_FAMILIES: readonly string[] = ["26.1029", "26.1103"];
+export const RLY0_VERIFIED_DESKTOP_VERSION_FAMILIES: readonly string[] = ["26.1029", "26.1103", "26.1106"];
 
 export function desktopVersionFamily(version: string): string | null {
   const match = /^(\d+)\.(\d+)(?:[.+-]|$)/u.exec(version);
