@@ -1,9 +1,32 @@
 # Changelog
 
-## 0.11.40-rc.9
+## 0.11.40
 
 ### Updates
-- Test build only (not published): upstream codexhost v0.18.0 fused into the Hub, plus Codex update gate, AI 助手 CLI auto-update, Codex 26.1106 support; the shared host follows a Claude token switch and keeps its keys after a Hub update.
+- Built on upstream codexhost v0.18.0. Its new browser and phone access stays off and listens only on this computer unless you turn it on; chats, settings and usage stay in the Hub's own data folder, and chats from the stock CodexHost are still imported.
+- Codex updates go through the Hub: Codex Desktop stays on the version the Hub has verified, and once a newer one is verified the Hub updates Codex while no task is running and the computer has been left alone for five minutes. 设置 → 更新 → Codex 更新 shows the state and has the switch (on by default); 恢复纯净 turns it off.
+- The command-line tools in AI 助手 update themselves: checked daily, updated only while the tool is idle, checked right after the update and put back to the previous version if it no longer works. AI 助手 has the switch (on by default) and one line per tool.
+- Codex Desktop 26.1106 is supported.
+
+### Fixes
+- Changing the Claude token or key in the Hub takes effect in Codex at once, for open and new Claude chats, without restarting anything.
+- macOS: after the Hub is updated, Claude in Codex keeps working. Before, Codex's background helper kept the old Hub's key service, could no longer read saved tokens, and Claude answered "Not logged in" until the helper was restarted.
+- Windows: opening Codex through the Hub no longer ends with Codex closing when the enhancements load.
+- Windows: 立即检查 and other Codex actions find Codex again when Windows reused an old process number.
+- 绕过权限 in Claude Code no longer stops on questions Claude Code still asks; 阿零 shows on the Windows home page again.
+
+### 更新
+- 基于上游 codexhost v0.18.0。新增的浏览器、手机访问默认关闭，不开就只在本机可用；对话、设置和用量仍放在 Hub 自己的数据文件夹里，原版 CodexHost 的对话照常导入。
+- Codex 更新交给 Hub 管：Codex 停在 Hub 验证过的版本；新版本验证过后，Hub 会在没有任务在跑、电脑 5 分钟没人操作时帮你更新。“设置 → 更新 → Codex 更新”能看状态、有开关（默认开）；“恢复纯净”会关掉它。
+- AI 助手里的命令行工具会自动更新：每天检查，只在工具空闲时更新，更新完马上检查还能不能用，不能用就退回旧版。AI 助手页有开关（默认开），每个工具一行状态。
+- 支持 Codex 桌面版 26.1106。
+
+### 修复
+- 在 Hub 里换 Claude 令牌或 Key，Codex 里马上生效，已打开和新开的 Claude 对话都跟着换，不用重启任何东西。
+- Mac：Hub 更新后，Codex 里的 Claude 照常可用。以前 Codex 的后台程序还拿着旧版 Hub 的密钥服务，读不出已存的令牌，Claude 会一直说“没登录”，要重启才好。
+- Windows：经 Hub 打开 Codex 时，不会再在加载增强时把 Codex 一起关掉。
+- Windows：系统复用了旧的进程号时，“立即检查”等 Codex 操作也能找到 Codex。
+- Claude Code 的“绕过权限”不会再停在它仍会发出的提问上；Windows 首页的阿零又能显示了。
 
 ## 0.11.39
 
