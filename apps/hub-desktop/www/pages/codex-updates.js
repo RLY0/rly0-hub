@@ -148,7 +148,12 @@
         );
         return;
       }
-      const [tone, line] = s.reopening ? ["wait", "正在重新打开 Codex…"] : describe(s);
+      const prefsFailing = s.phase !== "failed" && s.error === "CODEX_PREFERENCES_FAILED";
+      const [tone, line] = s.reopening
+        ? ["wait", "正在重新打开 Codex…"]
+        : prefsFailing
+          ? ["hold", "读取 Codex 更新设置失败，Hub 稍后自动重试"]
+          : describe(s);
       const mac = s.supported !== false;
       const sw = h("button", {
         class: "switch",
@@ -162,10 +167,8 @@
       // [text, keep]: failures and the degraded-mode note are warnings, shown whole rather than
       // shortened behind an ⓘ.
       const notes = [
-        // Reading Codex's update settings keeps failing while waiting or downloading.
-        s.phase !== "failed" && s.error === "CODEX_PREFERENCES_FAILED"
-          ? ["读取 Codex 更新设置失败，稍后重试。", true]
-          : null,
+        // Settings reads keep failing: the main line carries the error, keep the phase visible here.
+        prefsFailing ? [describe(s)[1], false] : null,
         s.phase === "failed" && s.error
           ? [
               s.error === "CODEX_REOPEN_FAILED" && s.reopenGivenUp

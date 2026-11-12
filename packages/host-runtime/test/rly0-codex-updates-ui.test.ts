@@ -251,7 +251,11 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
       latestVersion: "26.1106.51428",
       error: "CODEX_PREFERENCES_FAILED",
     });
-    expect(page.root.textContent).toContain("读取 Codex 更新设置失败，稍后重试");
+    const status = [...page.root.walk()].find((el) =>
+      String(el.props?.class ?? "").startsWith("cu-status"),
+    );
+    expect(status?.props.class).toBe("cu-status hold");
+    expect(status?.textContent).toContain("读取 Codex 更新设置失败");
   });
 
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {
