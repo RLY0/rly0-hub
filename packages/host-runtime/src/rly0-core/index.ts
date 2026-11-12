@@ -266,6 +266,9 @@ export class Rly0CoreBridge {
   readonly #client: Rly0CoreClient;
   readonly #proxySettingsPath: string | null;
   #proxySettings: Rly0ProxySettings | undefined;
+  /** The providers last handed to the proxy; a restarted core gets them again. */
+  #customProviders: readonly Rly0CoreCustomProvider[] | null = null;
+  #restarting: Promise<void> | null = null;
 
   constructor(options: Rly0CoreBridgeOptions = {}) {
     const { proxySettingsPath, ...clientOptions } = options;
@@ -305,22 +308,47 @@ export class Rly0CoreBridge {
     if (this.#proxySettingsPath) await writeRly0ProxySettings(this.#proxySettingsPath, next);
     this.#proxySettings = next;
     if (!this.#client.isRunning) return { settings: next, coreRestarted: false };
-    let proxyPort: number | undefined;
-    try {
-      const status = await this.proxyStatus();
-      if (status.available && status.running) proxyPort = status.port;
-    } catch {
-      proxyPort = undefined;
-    }
-    this.#client.restart();
-    if (proxyPort !== undefined) {
+    await this.#restartKeepingProxy();
+    return { settings: next, coreRestarted: true };
+  }
+
+  /**
+   * Restarts rly0-core when RLY/0 Hub replaced its binary since it started (see
+   * `Rly0CoreClient.binaryReplaced`): until then its proxy cannot decrypt any saved key or token.
+   * Resolves whether a restart happened.
+   */
+  async restartIfBinaryReplaced(): Promise<boolean> {
+    if (this.#restarting || !this.#client.binaryReplaced()) return false;
+    await this.#restartKeepingProxy();
+    return true;
+  }
+
+  /**
+   * Restarts the core; a local routing proxy that was running is started again on the same port
+   * (once the old process has let it go) with the custom providers it had.
+   */
+  #restartKeepingProxy(): Promise<void> {
+    this.#restarting ??= (async () => {
+      let proxyPort: number | undefined;
+      try {
+        const status = await this.proxyStatus();
+        if (status.available && status.running) proxyPort = status.port;
+      } catch {
+        proxyPort = undefined;
+      }
+      this.#client.restart();
+      if (proxyPort === undefined) return;
+      await this.#client.stopped();
       try {
         await this.proxyStart({ port: proxyPort });
+        if (this.#customProviders) await this.proxyCustomProviders(this.#customProviders);
       } catch {
         // The page shows the proxy as stopped; the user can start it again.
       }
-    }
-    return { settings: next, coreRestarted: true };
+    })().finally(() => {
+      this.#restarting = null;
+    });
+    return this.#restarting;
   }
 
   async status(): Promise<Rly0CoreStatusResult> {
@@ -680,6 +708,7 @@ export class Rly0CoreBridge {
   async proxyCustomProviders(
     providers: readonly Rly0CoreCustomProvider[],
   ): Promise<{ available: boolean; count?: number }> {
+    this.#customProviders = providers;
     const response = await this.#client.request<{ count?: unknown }>("proxy/customProviders", {
       providers,
     });

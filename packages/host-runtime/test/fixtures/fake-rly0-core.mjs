@@ -29,6 +29,7 @@ const USAGE = {
 const relays = new Map();
 let relaySeq = 0;
 let proxy = null;
+let customProviderCount = null;
 
 function publicRelay(relay) {
   // Deliberately leaks `apiKey` and an unknown field: the host bridge must strip both.
@@ -206,6 +207,15 @@ rl.on("line", (line) => {
     const stopped = proxy !== null;
     proxy = null;
     ok({ stopped });
+    return;
+  }
+  if (method === "proxy/customProviders") {
+    customProviderCount = Array.isArray(params?.providers) ? params.providers.length : 0;
+    ok({ count: customProviderCount });
+    return;
+  }
+  if (method === "debug/customProviders") {
+    ok({ count: customProviderCount });
     return;
   }
   if (method === "proxy/status") {

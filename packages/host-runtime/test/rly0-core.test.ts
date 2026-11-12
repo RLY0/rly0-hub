@@ -1,4 +1,6 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -127,6 +129,94 @@ describe("Rly0CoreBridge", () => {
       liveUnsaved: false,
     });
     await bridge.dispose();
+  });
+});
+
+describe("a binary replaced by a Hub update", () => {
+  /** A stand-in binary file the fake spawn ignores; `replace` puts a new file at the same path. */
+  function binaryFile() {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "rly0-core-binary-"));
+    const file = path.join(dir, "rly0-core");
+    writeFileSync(file, "v1");
+    return {
+      file,
+      replace(content: string) {
+        writeFileSync(`${file}.new`, content);
+        renameSync(`${file}.new`, file);
+      },
+      remove: () => rmSync(file),
+      cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    };
+  }
+
+  it("is noticed for a running child, and a respawned child starts clean", async () => {
+    const binary = binaryFile();
+    const client = new Rly0CoreClient({
+      binaryPath: binary.file,
+      spawn: spawnFake,
+      separateLocalReads: true,
+    });
+    try {
+      expect(client.binaryReplaced()).toBe(false);
+      await client.request("core/hello", {});
+      await client.request("relay/list", {});
+      expect(client.binaryReplaced()).toBe(false);
+      binary.remove();
+      // Still being copied: nothing to compare against yet.
+      expect(client.binaryReplaced()).toBe(false);
+      binary.replace("v2");
+      expect(client.binaryReplaced()).toBe(true);
+      client.restart();
+      await client.stopped();
+      expect(client.binaryReplaced()).toBe(false);
+      await client.request("core/hello", {});
+      expect(client.binaryReplaced()).toBe(false);
+    } finally {
+      await client.dispose();
+      binary.cleanup();
+    }
+  });
+
+  it("restarts the core with its proxy on the same port and the custom providers it had", async () => {
+    const binary = binaryFile();
+    // What each spawned core was asked, in spawn order (local reads go to a separate child).
+    const asked: string[][] = [];
+    const recording = ((...args: Parameters<typeof spawnFake>) => {
+      const child = spawnFake(...args) as ChildProcessWithoutNullStreams;
+      const methods: string[] = [];
+      asked.push(methods);
+      const write = child.stdin.write.bind(child.stdin) as (...rest: unknown[]) => boolean;
+      child.stdin.write = ((chunk: unknown, ...rest: unknown[]) => {
+        const { method, params } = JSON.parse(String(chunk)) as {
+          method: string;
+          params?: { port?: number };
+        };
+        methods.push(params?.port ? `${method}:${params.port}` : method);
+        return write(chunk, ...rest);
+      }) as typeof child.stdin.write;
+      return child;
+    }) as unknown as typeof spawn;
+    const bridge = new Rly0CoreBridge({ binaryPath: binary.file, spawn: recording });
+    try {
+      await bridge.proxyStart({ port: 25_977 });
+      await bridge.proxyCustomProviders([
+        { id: "local", name: "Local", baseUrl: "http://127.0.0.1:1/v1", requiresOpenaiAuth: false },
+      ]);
+      await expect(bridge.restartIfBinaryReplaced()).resolves.toBe(false);
+      binary.replace("v2");
+      await expect(bridge.restartIfBinaryReplaced()).resolves.toBe(true);
+      await expect(bridge.proxyStatus()).resolves.toMatchObject({
+        available: true,
+        running: true,
+        port: 25_977,
+      });
+      await expect(bridge.restartIfBinaryReplaced()).resolves.toBe(false);
+      expect(asked).toHaveLength(2);
+      expect(asked[1]).toEqual(["proxy/start:25977", "proxy/customProviders", "proxy/status"]);
+    } finally {
+      await bridge.dispose();
+      binary.cleanup();
+    }
   });
 });
 

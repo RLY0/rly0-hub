@@ -1728,6 +1728,15 @@ export class AppServerHost {
           // Only a rebuild that went through counts; a failed one is retried on the next tick.
           if (await this.#refreshRelayOverlays()) this.#relaySettingsStamp = stamp;
         });
+      // A Hub update replaces the rly0-core this long-lived Host started; the old process can no
+      // longer decrypt saved keys. Restart it between turns, then rebuild the overlays on it.
+      if (!this.#hasActiveWork())
+        void this.#rly0Core
+          .restartIfBinaryReplaced()
+          .then((restarted) => {
+            if (restarted) this.#relaySettingsStamp = "";
+          })
+          .catch((error: unknown) => this.#diagnose(error));
     };
     // Heartbeat for the standalone Hub: "Codex is open through RLY/0 Hub" (see codex-control).
     const heartbeat = path.join(path.dirname(this.#rly0AgentRelays.path()), CODEX_HEARTBEAT_FILE);
@@ -1915,7 +1924,8 @@ export class AppServerHost {
   async #currentClaudeRelay(): Promise<ClaudeRelayTarget | null> {
     const saved = await this.#rly0AgentRelays.get();
     if (saved.claudeCode !== this.#claudeCodeRelaySaved) await this.#refreshRelayOverlays();
-    if (!saved.claudeCode || this.#claudeRelayTarget?.relayId === saved.claudeCode)
+    // A rebuild that saw this choice decided it (a disabled or keyless relay leaves no target).
+    if (!saved.claudeCode || saved.claudeCode === this.#claudeCodeRelaySaved)
       return followSavedClaudeRelay(saved.claudeCode, this.#claudeRelayTarget, null);
     const proxyBaseUrl =
       this.#relayProxyBaseUrl ??

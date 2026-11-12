@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -59,6 +59,16 @@ export type Rly0CoreResponse<T> = { available: true; result: T } | { available: 
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+/** Which file a path names now (links followed); `null` while it is missing. */
+function fileIdentity(file: string): string | null {
+  try {
+    const stat = statSync(file);
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    return null;
+  }
+}
+
 const LOCAL_READS = new Set([
   "accounts/list",
   "accounts/current",
@@ -95,6 +105,10 @@ export class Rly0CoreClient {
   readonly #timeoutMs: number;
   readonly #prepareEnvironment: ((environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv) | undefined;
   #child: ChildProcessWithoutNullStreams | null = null;
+  /** The binary path the running child was started from, and which file it named then. */
+  #spawned: { readonly binary: string; readonly identity: string | null } | null = null;
+  /** Settles once the child stopped by the last restart() has exited. */
+  #stopping: Promise<void> = Promise.resolve();
   #buffer = "";
   #nextId = 1;
   readonly #pending = new Map<number, PendingRequest>();
@@ -148,6 +162,7 @@ export class Rly0CoreClient {
       return null;
     }
     this.#child = child;
+    this.#spawned = { binary, identity: fileIdentity(binary) };
     this.#buffer = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
@@ -288,6 +303,32 @@ export class Rly0CoreClient {
     });
   }
 
+  /**
+   * Whether a running child's binary was replaced on disk since it started (RLY/0 Hub installed a
+   * new version over the app the binary lives in). Such a child keeps running the removed file,
+   * and macOS no longer lets it use the keychain key that decrypts the saved keys and tokens: its
+   * proxy then forwards relay requests without any key. A path that is missing right now (the new
+   * app is still being copied) does not count yet.
+   */
+  binaryReplaced(): boolean {
+    if (this.#localReader?.binaryReplaced()) return true;
+    if (!this.#child || !this.#spawned?.identity) return false;
+    const now = fileIdentity(this.#spawned.binary);
+    return now !== null && now !== this.#spawned.identity;
+  }
+
+  /** Resolves once the child stopped by the last restart() has exited (or after `timeoutMs`). */
+  async stopped(timeoutMs = 3000): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.all([this.#stopping, this.#localReader?.stopped(timeoutMs)]),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+  }
+
   /** Whether a child process is currently spawned (not whether the binary exists). */
   get isRunning(): boolean {
     return this.#child !== null;
@@ -303,9 +344,16 @@ export class Rly0CoreClient {
     const localRunning = this.#localReader?.restart() ?? false;
     const child = this.#child;
     this.#child = null;
+    this.#spawned = null;
     this.#failAllPending(new Error("RLY0_CORE_RESTARTED"));
     if (!child) return localRunning;
-    if (child.exitCode === null && child.signalCode === null) child.kill();
+    if (child.exitCode === null && child.signalCode === null) {
+      this.#stopping = new Promise<void>((resolve) => {
+        child.once("exit", () => resolve());
+        child.once("error", () => resolve());
+      });
+      child.kill();
+    }
     return true;
   }
 
