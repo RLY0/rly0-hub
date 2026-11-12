@@ -245,7 +245,8 @@ fn command(request: &UpdateRequest) -> Command {
             }
         }
     };
-    codexhost_platform::configure_rly0_data_directory(&mut command);
+    // Only a data directory the user chose is forwarded; the launcher falls back to the Hub root
+    // itself, so Codex Desktop (and terminals inside it) never inherit an implicit value.
     if let Some(data) = &request.data_directory {
         command.env("CODEXHOST_DATA_DIR", data);
     }
@@ -439,12 +440,14 @@ mod tests {
             "installation": {"kind":"npm", "node_path":home.join("node"), "npm_cli_path":home.join("npm.js"), "npm_launcher_path":home.join("wrapper.js"), "npm_package_root":home.join("package")}
         })).unwrap();
         let command = command(&request);
+        // The relaunched launcher falls back to ~/.rly0-hub itself; an implicit value would be
+        // forwarded to Codex Desktop as if the user had chosen it.
         assert!(
-            command
+            !command
                 .get_envs()
-                .any(|(key, value)| key == "CODEXHOST_DATA_DIR"
-                    && value == Some(home.join(".rly0-hub").as_os_str()))
+                .any(|(key, _)| key == "CODEXHOST_DATA_DIR")
         );
+        assert!(home.is_absolute());
     }
 
     #[test]

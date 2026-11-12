@@ -27,17 +27,29 @@ const MERGE_DIRECTORIES = ["antigravity-history"] as const;
  * Hub files that Hub releases before the v0.18.0 fusion kept in `~/.codexhost` (no data-directory
  * override in packaged builds). Copied once, only while absent in the Hub root; never moved.
  */
-const HUB_CARRY_OVER = ["harness-display-settings-v1.json", "usage-statistics", "pricing"] as const;
+const HUB_CARRY_OVER = [
+  "harness-display-settings-v1.json",
+  "pricing.json",
+  "usage-statistics",
+  "pricing",
+] as const;
 
 function carryOverHubFiles(legacyRoot: string, targetRoot: string): void {
   for (const name of HUB_CARRY_OVER) {
+    const source = path.join(legacyRoot, name);
     const target = path.join(targetRoot, name);
-    if (existsSync(target)) continue;
+    if (existsSync(target) || !existsSync(source)) continue;
+    // Copied under a temporary name and renamed, so an interrupted or concurrent copy is never
+    // mistaken for a finished one.
+    const temporary = `${target}.carry-${process.pid}-${Date.now()}`;
     try {
       mkdirSync(targetRoot, { recursive: true });
-      copyMissing(path.join(legacyRoot, name), target);
+      cpSync(source, temporary, { recursive: true, force: false, errorOnExist: false });
+      if (!existsSync(target)) renameSync(temporary, target);
     } catch {
       /* Best effort: caches rebuild and settings fall back to defaults. */
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
     }
   }
 }

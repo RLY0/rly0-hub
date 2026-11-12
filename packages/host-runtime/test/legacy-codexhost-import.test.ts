@@ -253,6 +253,7 @@ describe("importLegacyCodexHostData", () => {
     const home = makeHome();
     const legacy = path.join(home, ".codexhost");
     writeFileSync(path.join(legacy, "harness-display-settings-v1.json"), "legacy-settings");
+    writeFileSync(path.join(legacy, "pricing.json"), "custom-prices");
     mkdirSync(path.join(legacy, "usage-statistics", "v7"), { recursive: true });
     writeFileSync(path.join(legacy, "usage-statistics", "v7", "s.json"), "stats");
     mkdirSync(path.join(home, ".rly0-hub", "pricing"), { recursive: true });
@@ -263,6 +264,8 @@ describe("importLegacyCodexHostData", () => {
     const hub = (...parts: string[]) => path.join(home, ".rly0-hub", ...parts);
     expect(readFileSync(hub("harness-display-settings-v1.json"), "utf8")).toBe("legacy-settings");
     expect(readFileSync(hub("usage-statistics", "v7", "s.json"), "utf8")).toBe("stats");
+    expect(readFileSync(hub("pricing.json"), "utf8")).toBe("custom-prices");
+    expect(readdirSync(path.join(home, ".rly0-hub")).some((n) => n.includes(".carry-"))).toBe(false);
     // An existing Hub directory is left as it is.
     expect(existsSync(hub("pricing", "old.json"))).toBe(false);
     writeFileSync(hub("harness-display-settings-v1.json"), "hub-settings");

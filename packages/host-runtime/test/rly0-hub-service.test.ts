@@ -927,6 +927,22 @@ describe("Codex safe-mode launch from the Hub", () => {
     expect(f.started.map((entry) => entry.safe)).toEqual([undefined, undefined]);
   });
 
+  it("does not pass the Hub service's legacy-import switch on to Codex", async () => {
+    const environments: NodeJS.ProcessEnv[] = [];
+    const codex = new Rly0CodexControl({
+      environment: { RLY0_SKIP_LEGACY_IMPORT: "1", KEEP: "yes" },
+      installRoot: "C:\\Hub",
+      platform: "win32",
+      fileExists: () => true,
+      startDetached: (_file, environment) => {
+        environments.push(environment);
+      },
+    });
+    expect(await codex.open()).toEqual({ ok: true });
+    expect(environments[0]?.RLY0_SKIP_LEGACY_IMPORT).toBeUndefined();
+    expect(environments[0]?.KEEP).toBe("yes");
+  });
+
   it("falls back to core mode when the decision fails", async () => {
     const started: (string | undefined)[] = [];
     const policies: string[] = [];

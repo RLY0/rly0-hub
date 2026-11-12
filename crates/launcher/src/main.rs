@@ -114,6 +114,12 @@ fn safe_mode_requested(value: Option<OsString>) -> bool {
     value.as_deref() == Some(std::ffi::OsStr::new("1"))
 }
 
+/// A data directory the user set, when it is absolute (the same rule as the launcher's own
+/// fallback); Desktop never receives an implicit or relative value.
+fn explicit_data_directory() -> Option<OsString> {
+    env::var_os(DATA_DIRECTORY_ENV).filter(|value| Path::new(value).is_absolute())
+}
+
 fn managed_desktop_data_directory(
     data_directory: Option<OsString>,
     remote_ssh_managed: Option<OsString>,
@@ -1345,7 +1351,7 @@ fn launch_gui(
             &launcher_executable,
             &descriptor_path,
             managed_desktop_data_directory(
-                env::var_os(DATA_DIRECTORY_ENV),
+                explicit_data_directory(),
                 env::var_os(REMOTE_SSH_MANAGED_ENV),
             ),
         );
@@ -1461,7 +1467,7 @@ fn launch_gui(
         &launcher_executable,
         &descriptor_path,
         managed_desktop_data_directory(
-            env::var_os(DATA_DIRECTORY_ENV),
+            explicit_data_directory(),
             env::var_os(REMOTE_SSH_MANAGED_ENV),
         ),
     );

@@ -152,10 +152,14 @@ export class Rly0CodexControl {
     // An undecidable version keeps Codex usable with only the passive core bridge.
     const mode: Rly0CodexLaunchMode =
       (await this.#options.launchModes?.decide().catch(() => "core" as const)) ?? "core";
-    // An inherited switch never leaks into a full-mode start.
+    // An inherited switch never leaks into a full-mode start. RLY0_SKIP_LEGACY_IMPORT belongs to
+    // the Hub service only; Codex's Host merges chats from the old CodexHost on every start.
     const environment = Object.fromEntries(
       Object.entries(this.#options.environment).filter(
-        ([name]) => name !== RLY0_SAFE_MODE_ENV && name !== "CODEXHOST_RENDERER_POLICY",
+        ([name]) =>
+          name !== RLY0_SAFE_MODE_ENV &&
+          name !== "CODEXHOST_RENDERER_POLICY" &&
+          name !== "RLY0_SKIP_LEGACY_IMPORT",
       ),
     );
     const version = await this.#options.launchModes?.version?.().catch(() => null);
