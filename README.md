@@ -4,9 +4,9 @@
 
 **一个窗口管好 Codex 和各家 AI 编程助手：多账号、中转站、Claude Code / Pi / Hermes / OpenCode 一键接入**
 
-<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.39/RLY0-Hub-0.11.39-setup.exe"><img src="https://img.shields.io/badge/Windows-%E4%B8%8B%E8%BD%BD%E5%AE%89%E8%A3%85%E5%8C%85-1D1D19?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI0Y1RjVGMCIgZD0iTTAgMGgxMS40djExLjRIMHpNMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHpNMTIuNiAxMi42SDI0VjI0SDEyLjZ6Ii8%2BPC9zdmc%2B&labelColor=0D0D0B" alt="下载 Windows 版" height="40"></a>
+<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.40/RLY0-Hub-0.11.40-setup.exe"><img src="https://img.shields.io/badge/Windows-%E4%B8%8B%E8%BD%BD%E5%AE%89%E8%A3%85%E5%8C%85-1D1D19?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI0Y1RjVGMCIgZD0iTTAgMGgxMS40djExLjRIMHpNMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHpNMTIuNiAxMi42SDI0VjI0SDEyLjZ6Ii8%2BPC9zdmc%2B&labelColor=0D0D0B" alt="下载 Windows 版" height="40"></a>
 &nbsp;&nbsp;
-<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.39/RLY0-Hub-0.11.39-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS-%E4%B8%8B%E8%BD%BD%E5%AE%89%E8%A3%85%E5%8C%85-1D1D19?style=for-the-badge&logo=apple&logoColor=F5F5F0&labelColor=0D0D0B" alt="下载 Mac 版" height="40"></a>
+<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.40/RLY0-Hub-0.11.40-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS-%E4%B8%8B%E8%BD%BD%E5%AE%89%E8%A3%85%E5%8C%85-1D1D19?style=for-the-badge&logo=apple&logoColor=F5F5F0&labelColor=0D0D0B" alt="下载 Mac 版" height="40"></a>
 
 <sub>点按钮直接下载最新版 · Windows 10/11 64 位 · Mac 需 Apple 芯片（M 系列）、macOS 12 或更新 · <a href="https://github.com/RLY0/rly0-hub/releases">全部版本</a> · <a href="README.en.md">English</a></sub>
 
