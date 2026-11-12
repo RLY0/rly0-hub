@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.11.40-rc.7
+## 0.11.40-rc.8
 
 ### Updates
 - Test build only (not published): upstream codexhost v0.18.0 fused into the Hub, plus Codex update gate, AI 助手 CLI auto-update, Codex 26.1106 support.
