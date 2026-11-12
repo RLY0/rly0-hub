@@ -4,9 +4,9 @@
 
 **One window for Codex and the other AI coding agents: multiple accounts, relays, and one-click Claude Code / Pi / Hermes / OpenCode**
 
-<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.38/RLY0-Hub-0.11.38-setup.exe"><img src="https://img.shields.io/badge/Windows-Download-1D1D19?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI0Y1RjVGMCIgZD0iTTAgMGgxMS40djExLjRIMHpNMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHpNMTIuNiAxMi42SDI0VjI0SDEyLjZ6Ii8%2BPC9zdmc%2B&labelColor=0D0D0B" alt="Download for Windows" height="40"></a>
+<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.39/RLY0-Hub-0.11.39-setup.exe"><img src="https://img.shields.io/badge/Windows-Download-1D1D19?style=for-the-badge&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI%2BPHBhdGggZmlsbD0iI0Y1RjVGMCIgZD0iTTAgMGgxMS40djExLjRIMHpNMTIuNiAwSDI0djExLjRIMTIuNnpNMCAxMi42aDExLjRWMjRIMHpNMTIuNiAxMi42SDI0VjI0SDEyLjZ6Ii8%2BPC9zdmc%2B&labelColor=0D0D0B" alt="Download for Windows" height="40"></a>
 &nbsp;&nbsp;
-<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.38/RLY0-Hub-0.11.38-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Download-1D1D19?style=for-the-badge&logo=apple&logoColor=F5F5F0&labelColor=0D0D0B" alt="Download for macOS" height="40"></a>
+<a href="https://github.com/RLY0/rly0-hub/releases/download/v0.11.39/RLY0-Hub-0.11.39-macos-arm64.dmg"><img src="https://img.shields.io/badge/macOS-Download-1D1D19?style=for-the-badge&logo=apple&logoColor=F5F5F0&labelColor=0D0D0B" alt="Download for macOS" height="40"></a>
 
 <sub>Click to download the latest version · Windows 10/11 64-bit · Mac with Apple silicon (M series), macOS 12 or later · <a href="https://github.com/RLY0/rly0-hub/releases">All releases</a> · <a href="README.md">中文</a></sub>
 
