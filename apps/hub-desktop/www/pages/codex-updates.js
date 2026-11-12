@@ -61,6 +61,12 @@
         return ["wait", "正在更新，Codex 会自动重新打开"];
       case "health-check":
         return ["wait", "已更新，正在检查是否正常"];
+      // The user chose "跳过这个版本" in Codex's own window: kept as their choice, not a failure.
+      case "user-skipped":
+        return [
+          "off",
+          `你已跳过 Codex ${v(s.userSkippedVersion || s.latestVersion)}，Hub 会保留这个选择，Codex 照常可用`,
+        ];
       case "failed":
         return ["bad", "这次更新没成功"];
       default:

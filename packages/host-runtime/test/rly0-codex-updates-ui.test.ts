@@ -221,6 +221,18 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
     expect(retrying.root.textContent).not.toContain("已停止");
   });
 
+  it("tells a version the user skipped in Codex apart from a failure", async () => {
+    const page = await card({
+      ...base,
+      phase: "user-skipped",
+      latestVersion: "26.1106.51428",
+      userSkippedVersion: "26.1106.51428",
+    });
+    expect(page.root.textContent).toContain("你已跳过 Codex v26.1106.51428");
+    expect(page.root.textContent).not.toContain("没成功");
+    expect(page.root.textContent).not.toContain("正在更新");
+  });
+
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {
     const page = await card({
       ...base,
