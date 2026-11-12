@@ -63,6 +63,9 @@
         return ["wait", "已更新，正在检查是否正常"];
       // The user chose "跳过这个版本" in Codex's own window: kept as their choice, not a failure.
       case "user-skipped":
+        // The skip may be the Hub's own unconfirmed write: do not say the user chose it.
+        if (s.skipOwnershipUnconfirmed)
+          return ["hold", "Codex 的跳过设置来源尚未确认，Hub 暂缓更新"];
         return [
           "off",
           `你已跳过 Codex ${v(s.userSkippedVersion || s.latestVersion)}，Hub 会保留这个选择，Codex 照常可用`,
@@ -159,6 +162,10 @@
       // [text, keep]: failures and the degraded-mode note are warnings, shown whole rather than
       // shortened behind an ⓘ.
       const notes = [
+        // Reading Codex's update settings keeps failing while waiting or downloading.
+        s.phase !== "failed" && s.error === "CODEX_PREFERENCES_FAILED"
+          ? ["读取 Codex 更新设置失败，稍后重试。", true]
+          : null,
         s.phase === "failed" && s.error
           ? [
               s.error === "CODEX_REOPEN_FAILED" && s.reopenGivenUp

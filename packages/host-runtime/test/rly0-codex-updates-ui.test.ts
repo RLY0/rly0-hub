@@ -233,6 +233,27 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
     expect(page.root.textContent).not.toContain("正在更新");
   });
 
+  it("does not claim the user skipped when the skip's origin is unconfirmed", async () => {
+    const page = await card({
+      ...base,
+      phase: "user-skipped",
+      userSkippedVersion: "26.1106.51428",
+      skipOwnershipUnconfirmed: true,
+    });
+    expect(page.root.textContent).toContain("跳过设置来源尚未确认");
+    expect(page.root.textContent).not.toContain("你已跳过");
+  });
+
+  it("shows a settings read failure while still waiting", async () => {
+    const page = await card({
+      ...base,
+      phase: "waiting-idle",
+      latestVersion: "26.1106.51428",
+      error: "CODEX_PREFERENCES_FAILED",
+    });
+    expect(page.root.textContent).toContain("读取 Codex 更新设置失败，稍后重试");
+  });
+
   it("explains an unreachable adapted list without hiding the cached judgement", async () => {
     const page = await card({
       ...base,
