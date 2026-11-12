@@ -6,9 +6,9 @@
 
 当前源码启动路径可以加载原先不认识的外部 Harness ID，通过 `codexhost/harness/plugins/list` 返回描述，并通过公共 Harness 检查接口和 `thread/start` 调用该插件。
 
-16 个预装 Adapter 通过同样的 `manifest.json` 和 `createHarnessAdapter` 工厂加载；`adapter-composition.ts` 已删除，Host 源码、包依赖和 TypeScript references 不再直接引用具体 Adapter 包。预装集合仅由发行清单 [`scripts/release/harness-plugins.json`](../../scripts/release/harness-plugins.json) 决定。原生构造参数、预取和 Claude Code 的直接/Broker 选择仍由相应插件负责。
+预装 Adapter 通过同样的 `manifest.json` 和 `createHarnessAdapter` 工厂加载；`adapter-composition.ts` 已删除，Host 源码、包依赖和 TypeScript references 不再直接引用具体 Adapter 包。预装集合仅由发行清单 [`scripts/release/harness-plugins.json`](../../scripts/release/harness-plugins.json) 决定。原生构造参数、预取和 Claude Code 的直接/Broker 选择仍由相应插件负责。
 
-本地会话导入已使用公共 `sessionImport` 契约、Host 映射事务与动态设置页；Claude Code、Pi、Hermes 和 DSH 已提供实际实现。DSH 通过本机托管 Web 接入，只对接 V4；`0.1.7-rc.1` / `0.1.7-rc.2` / `0.2.0-rc.1` / `0.2.0-rc.2` / `0.2.1-rc.1` / `0.2.1-rc.2` 已通过对应验证，低于 `0.1.7-rc.1` 的版本明确拒绝，其他 SemVer 版本可尝试连接，但仍须通过原生协议校验。Legacy 协议与 V0/V3 已移除。完整原生引用只在 Adapter 与 Host 间流转，详见[会话导入](harness-session-import.md)。普通 Agent Picker、Sidebar 和连接设置也读取同一 Host 的插件描述，不再内置外部 Harness 名单或图标。
+本地会话导入已使用公共 `sessionImport` 契约、Host 映射事务与动态设置页；Claude Code、Pi、Hermes 和 DSH 已提供实际实现。DSH 通过本机托管 Web 接入，只对接 V4；`0.1.7-rc.1` / `0.1.7-rc.2` / `0.2.0-rc.1` / `0.2.0-rc.2` / `0.2.1-rc.1` / `0.2.1-rc.2` / `0.2.1-rc.3` / `0.2.1-rc.4` / `0.2.1-rc.5` / `0.2.2-rc.1` 已通过对应验证，低于 `0.1.7-rc.1` 的版本明确拒绝，其他 SemVer 版本可尝试连接，但仍须通过原生协议校验。Legacy 协议与 V0/V3 已移除。完整原生引用只在 Adapter 与 Host 间流转，详见[会话导入](harness-session-import.md)。普通 Agent Picker、Sidebar 和连接设置也读取同一 Host 的插件描述，不再内置外部 Harness 名单或图标。
 
 尚未实现的目标包括：
 
@@ -54,7 +54,13 @@ plugins/
 }
 ```
 
-每个根目录都有自己的 `enabled.json`。发行版生成预装目录的启用文件，作为对随包交付插件的显式信任；用户目录由用户配置。发现但未启用的插件不执行，也不进入目录查询结果。缺少某个根目录或其 `enabled.json` 时不加载该根目录插件；配置无效时拒绝该根目录，不回退到硬编码内置实现。不扫描项目目录，不自动安装或下载依赖，不热替换。
+默认启用配置来自每个根目录的 `enabled.json`。发行版生成预装目录的启用文件，作为对随包交付插件的显式信任；用户目录由用户配置。发现但未启用的插件不执行，也不进入目录查询结果。缺少某个根目录或其 `enabled.json` 时不加载该根目录插件；配置无效时拒绝该根目录，不回退到硬编码内置实现。不扫描项目目录，不自动安装或下载依赖，不热替换。
+
+服务端装配的 owner 也可以通过公共 Loader 的 `enabledIds` 提供显式启用集合，替代读取这些根目录的 `enabled.json`；该集合不是浏览器参数，不写回 external 配置。此路径仍复用公共发现、校验、超时、工厂调用和 Registry 关闭机制。
+
+启用许可与运行时所有权是两个条件。公共 Manifest、配置和通用描述可以使用 `codex` ID；Desktop / CH Host 加载器和 Registry 只使用 `external` 范围，在模块导入、工厂和预取之前排除 `codex`。`onlyIds`、`enabled.json` 或显式启用集合都不能扩大这个范围，也没有第二个执行范围。范围由服务端装配决定，不由浏览器请求或插件自行声明。
+
+Desktop / CH 的公开插件目录、外部 Harness 路由、Broker 和会话导入仍拒绝 `codex`。GUI 原生 Codex 不注册成 external Thread，也不通过这个执行插件创建、恢复或操作会话；是否共用进程不改变这些边界。
 
 用户目录不是覆盖层；两个根目录出现相同 ID 时，两份候选都拒绝加载。用户 `enabled.json` 也不用于修改预装根目录的启用集合。
 
@@ -80,7 +86,7 @@ plugins/
 }
 ```
 
-- ID 为最长 128 字符的小写可移植标识；`codex` 保留给官方路径。
+- ID 为最长 128 字符的小写可移植标识；通用安装身份允许 `codex`，外部 Harness 身份仍将其保留给 GUI 官方路径。
 - `manifestVersion` 当前为 `1`；`adapterApiVersion` 与 Host 的整数 API 版本精确匹配。尚未采用版本范围协商。
 - `entry` 是插件内的 `.js` 或 `.mjs` ESM 文件；`.js` 需要按 Node.js ESM 规则声明所属包。Manifest 不负责安装依赖。
 - 资源只能是插件内部相对路径；拒绝目录遍历和解析后逃出根目录的符号链接。
@@ -113,7 +119,7 @@ Context 包含环境变量快照、平台、是否为受管远程 Host，以及�
 
 这类插件复用同一可信目录、显式启用、身份校验、加载超时、失败隔离和关闭流程；目录描述保留 `kind: "usage"`。Registry 将其与可创建 Session 的 Adapter 分开，Host 把统计能力接入公共全局统计，可选的 `sessionUsage` 能力接入会话浮窗，不将它加入聊天、模型选择、会话导入或委派路由。加载失败通过统计失败信息报告，不伪造空结果或 Session 方法。
 
-预装的 `codex-usage`（显示名 Codex）是这种插件，实现在 `packages/adapters/codex-usage`。官方 `codex` 身份仍保留给原生路径；插件只读 rollout，并观察现有官方连接的会话用量与轮次通知，不改变 Codex 的聊天、分叉和恢复操作，也不读取账户配额。统计插件可以脱离 Desktop 加载，私有解析与公共 Host 汇总分离，详见[全局用量统计](../product/usage-statistics.md)。
+预装的 `codex-usage`（显示名 Codex）是这种插件，实现在 `packages/adapters/codex-usage`。官方 `codex` 身份属于 Web 与 Desktop 共用的原生路径，不是执行插件。统计插件只读 rollout，并观察现有官方连接的会话用量与轮次通知，不改变 Codex 的聊天、分叉和恢复操作，也不读取账户配额。统计插件可以脱离 Desktop 加载，私有解析与公共 Host 汇总分离，详见[全局用量统计](../product/usage-statistics.md)。
 
 ### 可选的独立会话用量
 
@@ -218,6 +224,7 @@ Mapping Store 使用 `store.lock` 限制同一目录只有一个写入实例。W
 - 诊断仅包含稳定错误码和公开 ID，不透传插件抛出的路径、环境值或异常正文。
 - Manifest 最大 32 KiB，图标最大 128 KiB，总候选插件最多 128；加载器 API 最多接受 8 个根目录，当前启动组合使用预装和用户两个根目录。
 - 最多 4 个加载 worker；每个插件的异步导入和工厂有独立的默认 10 秒超时，后加载的插件不会分到前一个插件剩下的时间。文件系统发现、同步代码和关闭操作不保证可被超时中断。
+- 插件模块导入在同步求值，worker 之间逐个执行导入，每次导入前先让出一次事件循环，使后台加载期间最长停顿限于单个插件，Host 端点仍能响应健康检查；工厂与预取仍并发。排队时间计入该插件的超时，超时或取消的插件轮到时不再执行其模块。客户端健康检查的 5 秒上限与事件通道连接期限一致：已停止的 Host 会立即拒绝连接，上限只约束仍在启动的繁忙 Host。
 - Host 先初始化官方 app-server，再后台整体加载已启用插件。涉及外部 Harness 的查询、创建、恢复及委派等待同一批加载完成，不采用按需加载或按 Harness 独立等待，原有同步 Adapter 注册表保持不变。
 - Desktop 请求在读取循环之外派发，同 Thread 的请求路由和 Session 打开按接收顺序执行；不同 Thread 及无 Thread 的请求独立处理。命令列表、创建或恢复等待插件时，不阻塞后续官方请求。官方初始化仍在读取循环内完成；运行中 Turn、命令及中断维持原有异步处理方式，不把整个 Turn 串行排队。
 - 关闭或 Desktop 输入 EOF 时先取消插件加载，再等待已接收的路由和 Session 打开任务完成，最后取 Session 快照并关闭资源，避免遗漏迟到的 Session。取消后迟到的 Adapter 仍会关闭；未加载或不可用的外部 Harness 不回退到官方 Codex。
@@ -326,3 +333,5 @@ DeepSeek 插件通过自身的 HTTP/WebSocket 实现连接受支持的本机 DSH
 - 恢复、Pi/DeepSeek 导入、委派、协议路由和 Renderer 的定向回归。
 
 这些是合成测试、构建和分离 Bundle 冒烟检查，不等同于真实 Codex Desktop、所有原生 Harness、macOS Broker、SSH 远端或完整安装/升级验收。后续仍须按架构方案的能力基线和发布 Gate 完成迁移与验证。
+
+官方 Codex 通过 Host 的原生通道接入，不使用 Adapter 工厂；宿主的来源隔离与会话存储职责不进入插件。

@@ -27,6 +27,9 @@ function setup(
   } = {},
 ) {
   const rpc = {
+    getConversation: vi.fn(async () => ({ requests: [] })),
+    replyWithCommandExecutionApprovalDecision: vi.fn(async () => undefined),
+    replyWithFileChangeApprovalDecision: vi.fn(async () => undefined),
     sendRequest: vi.fn(async () => ({ entries: [] })),
     clearPrewarmedThreads: vi.fn(async () => undefined),
   };
@@ -153,6 +156,31 @@ async function install(fixture: ReturnType<typeof setup>): Promise<Routing> {
   await installRendererDraftPrewarmPolicyDirect(fixture.renderer);
   return fixture.target.__codexhostHostRoutingV1 as Routing;
 }
+
+it("forwards remote approvals through native owner coordination and rejects retired RPC managers", async () => {
+  const f = setup({ hosts: ["local", "ssh:a", "ssh:b"] });
+  const routing = await install(f);
+  try {
+    const route = routing.forHost("ssh:a");
+    if (!route || !("kind" in route.manager)) throw new Error("RPC route missing");
+    await expect(route.manager.getConversation?.("same")).resolves.toEqual({ requests: [] });
+    await route.manager.replyWithCommandExecutionApprovalDecision?.("same", 7, "accept");
+    expect(f.rpc.replyWithCommandExecutionApprovalDecision).toHaveBeenCalledWith(
+      "same",
+      7,
+      "accept",
+    );
+    const connection = f.connections.get("ssh:a");
+    if (!connection) throw new Error("Fixture connection missing");
+    connection.status = "disconnected";
+    await expect(
+      route.manager.replyWithFileChangeApprovalDecision?.("same", 7, "decline"),
+    ).rejects.toThrow("retired");
+    expect(f.rpc.replyWithFileChangeApprovalDecision).not.toHaveBeenCalled();
+  } finally {
+    routing.dispose();
+  }
+});
 
 it("does not search Composer trees when reading or sending through a known RPC Host", async () => {
   vi.useFakeTimers();
@@ -446,6 +474,7 @@ it.each(["disconnected", "connecting", "ambiguous", "unreadable"])(
       else state = failure;
       expect(() => before?.policy.requestTarget()).toThrow("retired");
       expect(routing.forHost(hostId)).toBeNull();
+      expect(routing.knownHostIds?.()).not.toContain(hostId);
       f.composerFiber.memoizedProps.executionTargetHostId = hostId;
       expect(routing.forComposer()).toBeNull();
       expect(f.rpc.sendRequest).not.toHaveBeenCalled();
@@ -456,6 +485,7 @@ it.each(["disconnected", "connecting", "ambiguous", "unreadable"])(
       const after = routing.forHost(hostId);
       expect(after).not.toBeNull();
       expect(after).not.toBe(before);
+      expect(routing.knownHostIds?.()).toContain(hostId);
       await after?.manager.sendRequest("model/list", {});
       expect(f.rpc.sendRequest).toHaveBeenCalledOnce();
     } finally {
@@ -830,3 +860,22 @@ it.each([true, false])(
     }
   },
 );
+
+it("excludes Desktop's reserved durable Host and disconnected catalog entries from knownHostIds", async () => {
+  const sshHostId = "remote-ssh-discovered:yuwk-201";
+  const disconnectedEnvId = "remote-control:env_e_6ac33e9d40788325a48a8c0aa62bc454";
+  const f = setup({
+    hosts: ["local", "durable", sshHostId, disconnectedEnvId],
+  });
+  const disconnected = f.connections.get(disconnectedEnvId);
+  if (!disconnected) throw new Error("Missing disconnected Remote Control fixture");
+  disconnected.status = "disconnected";
+  const routing = await install(f);
+  try {
+    expect(routing.forHost("durable")).toBeNull();
+    expect(routing.forHost(disconnectedEnvId)).toBeNull();
+    expect(routing.knownHostIds?.()).toEqual(["local", sshHostId]);
+  } finally {
+    routing.dispose();
+  }
+});

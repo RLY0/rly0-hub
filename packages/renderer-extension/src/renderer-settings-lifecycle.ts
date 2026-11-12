@@ -294,9 +294,9 @@ export function installRendererSettingsLifecycle(
     if (disposed || preferencesRequest || !client?.rly0CodexPreferences) return;
     const request = client
       .rly0CodexPreferences()
-      .then((result) => {
+      .then(async (result) => {
         if (disposed) return;
-        applyCodexPreferences(ownerWindow, result.preferences);
+        await applyCodexPreferences(ownerWindow, result.preferences);
         applyHubAgentDefaults(ownerWindow, result.agentDefaults);
       })
       .catch(() => undefined)

@@ -1,5 +1,6 @@
 import type { IconNode } from "lucide";
 import createElement from "lucide/dist/esm/createElement.mjs";
+import Smartphone from "lucide/dist/esm/icons/smartphone.mjs";
 import Boxes from "lucide/dist/esm/icons/boxes.mjs";
 import CalendarClock from "lucide/dist/esm/icons/calendar-clock.mjs";
 import Check from "lucide/dist/esm/icons/circle-check.mjs";
@@ -44,7 +45,6 @@ import X from "lucide/dist/esm/icons/x.mjs";
 import Users from "lucide/dist/esm/icons/users.mjs";
 import Waypoints from "lucide/dist/esm/icons/waypoints.mjs";
 import Plus from "lucide/dist/esm/icons/plus.mjs";
-import codexhostLogoUrl from "../assets/codexhost-app-icon.svg";
 
 export const RENDERER_SETTINGS_ICON_NAMES = [
   "settings",
@@ -64,6 +64,7 @@ export const RENDERER_SETTINGS_ICON_NAMES = [
   "model-pool",
   "routes",
   "gateway",
+  "mobile",
   "updates",
   "schedules",
   "about",
@@ -124,6 +125,7 @@ const iconNodes = {
   "model-pool": Boxes,
   routes: Route,
   gateway: Network,
+  mobile: Smartphone,
   updates: CircleArrowUp,
   schedules: CalendarClock,
   about: Info,
@@ -200,19 +202,4 @@ export function createRendererSettingsBrandGlyph(size = 20): SVGElement {
   svg.append(figure, signal);
   svg.classList.add("codexhost-settings-icon");
   return svg;
-}
-
-export function createRendererSettingsBrandIcon(size = 22): HTMLImageElement {
-  const icon = document.createElement("img");
-  icon.src = codexhostLogoUrl;
-  icon.alt = "";
-  icon.width = size;
-  icon.height = size;
-  icon.draggable = false;
-  icon.setAttribute("aria-hidden", "true");
-  icon.style.width = `${size}px`;
-  icon.style.height = `${size}px`;
-  icon.style.objectFit = "contain";
-  icon.classList.add("codexhost-settings-icon");
-  return icon;
 }

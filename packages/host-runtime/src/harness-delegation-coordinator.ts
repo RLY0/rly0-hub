@@ -43,6 +43,7 @@ import {
   type ThreadSendResult,
   type ThreadWaitInput,
 } from "./delegation-types.js";
+import { originClientName } from "./external-client-origin.js";
 import { projectDelegationThreadSnapshot, validateReadOptions } from "./delegation-snapshot.js";
 import {
   createExternalThreadRecordInput,
@@ -241,6 +242,12 @@ export class HarnessDelegationCoordinator {
 
   async start(input: DelegationStartInput): Promise<DelegationStartResult> {
     validateStart(input);
+    // An external client has no workspace of its own for the child to inherit.
+    if (originClientName(input.parentThreadId) && !input.cwd)
+      throw new DelegationControlError(
+        "INVALID_ARGUMENT",
+        "--cwd is required when an external client starts work without a parent Thread",
+      );
     const parentThreadId = await this.#resolveParent(input.parentThreadId);
     const parent = await this.#parentMetadata(parentThreadId);
     const selectedCwd = input.cwd ?? parent.cwd ?? process.cwd();
@@ -255,7 +262,12 @@ export class HarnessDelegationCoordinator {
         cwd: selectedCwd,
         title,
       });
-      return { ...result, parentThreadId, cwd: result.cwd ?? selectedCwd };
+      return {
+        ...result,
+        parentThreadId,
+        cwd: result.cwd ?? selectedCwd,
+        title: result.title ?? title,
+      };
     }
     const startInput = { ...input, parentThreadId, cwd: path.resolve(selectedCwd) };
     if (!this.#adapters.has(input.harnessId)) {
@@ -436,6 +448,7 @@ export class HarnessDelegationCoordinator {
             },
           }),
           cwd: record.cwd,
+          title: record.title,
           parentThreadId,
         };
       } catch (error) {
@@ -572,6 +585,9 @@ export class HarnessDelegationCoordinator {
     if (location.kind === "error")
       throw new DelegationControlError("THREAD_NOT_FOUND", location.error.message);
     const resolution = await this.#externalRuntime.resolve(input.threadId);
+    if (resolution.kind === "error") {
+      throw new DelegationControlError("INTERNAL_ERROR", resolution.error.message);
+    }
     if (resolution.kind !== "external") {
       throw new DelegationControlError("THREAD_NOT_FOUND", "Thread was not found");
     }
@@ -765,6 +781,10 @@ export class HarnessDelegationCoordinator {
   async #parentMetadata(
     parentThreadId: string,
   ): Promise<ParentMetadata & { harnessId: RoutedHarnessId }> {
+    // A client origin is no Thread: the stored source Harness keeps the native default, and
+    // the client's name stands in for a parent title, so titles read "<subtask> · <client>".
+    const client = originClientName(parentThreadId);
+    if (client) return { harnessId: "codex", title: client };
     const record = await this.#repository.find(parentThreadId);
     if (record)
       return {
@@ -787,7 +807,7 @@ export class HarnessDelegationCoordinator {
         delegation.targetHarnessId as RoutedHarnessId,
         delegation.status,
       ),
-      ...(record ? { cwd: record.cwd } : {}),
+      ...(record ? { cwd: record.cwd, title: record.title } : {}),
       parentThreadId: delegation.parentHostThreadId,
     };
   }

@@ -8,36 +8,17 @@
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
   },
   "references": [
-    {
-      "path": "../desktop-control/tsconfig.json"
-    },
-    {
-      "path": "../harness-adapter/tsconfig.json"
-    },
-    {
-      "path": "../harness-broker/tsconfig.json"
-    },
-    {
-      "path": "../harness-discovery/tsconfig.json"
-    },
-    {
-      "path": "../mapping-store/tsconfig.json"
-    },
-    {
-      "path": "../protocol-core/tsconfig.json"
-    },
-    {
-      "path": "../shared-contracts/tsconfig.json"
-    },
-    {
-      "path": "../update-manager/tsconfig.json"
-    },
-    {
-      "path": "../sandbox-runtime/tsconfig.json"
-    },
-    {
-      "path": "../harness-plugin-files/tsconfig.json"
-    }
+    { "path": "../session-runtime/tsconfig.json" },
+    { "path": "../desktop-control/tsconfig.json" },
+    { "path": "../harness-adapter/tsconfig.json" },
+    { "path": "../harness-broker/tsconfig.json" },
+    { "path": "../harness-plugin-files/tsconfig.json" },
+    { "path": "../mapping-store/tsconfig.json" },
+    { "path": "../protocol-core/tsconfig.json" },
+    { "path": "../shared-contracts/tsconfig.json" },
+    { "path": "../update-manager/tsconfig.json" },
+    { "path": "../harness-discovery/tsconfig.json" },
+    { "path": "../sandbox-runtime/tsconfig.json" }
   ],
   "include": ["src/**/*.ts"]
 }

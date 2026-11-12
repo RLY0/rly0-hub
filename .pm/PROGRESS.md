@@ -1,4 +1,7 @@
-# Controller ready + 26.1106 草稿绑定：self_verified
+# v0.18.0 融合：本地验证完成
+
+2026-11-12 HUB-FUSION-V0180 implemented / self_verified / targeted reviewed，accepted=false：独立 feat/fusion-v0180 将 aee79402 与上游 v0.18.0（2fc956e2）保留历史合并，40冲突已解；Hub特性与RLY/0图标保留；Web随Desktop默认关闭，源码/打包预览默认127.0.0.1。最终全量11804项中11698过、21既有失败、85跳过；基线23失败，新增失败0。Rust314过/0失败/5忽略；typecheck/eslint/边界/clippy/fmt通过；指定Mac npm rc.5本地产物可构建，压缩21.38MiB/展开88.44MiB。独立定向复核3轮已收口（reviewer后两轮只读源码，非亲跑测试）；7个日常进程PID/启动时间不变。仅本地merge提交，不推送/tag/发布/安装/重启；真实账号、Windows/Mac/手机完整验收与最终许可分发核对待Claude。报告：/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/FUSION-V0180-REPORT.md。next_action：Claude依报告接续真机/视觉/正式包验收，发布须用户放行。
+
 
 2026-11-12；`feat/agent-cli-autoupdate`，输入 `544adb3764be081e52ca0449dfb32ce58e7be3fe`。A：ready 按 Controller 入口只发一次，默认 stdout 同步/事件 EPIPE 容错；Launcher 检出版本后立即写 starting 记录，并纠正策略注释。B：保留 24/52/53 位布局，加入逐位核对的 25/55 位布局，清除过时块号注释。未改已适配名单。
 

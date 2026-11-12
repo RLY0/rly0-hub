@@ -7,7 +7,7 @@ import {
   setRendererQuotaAlertThresholdPercent,
   setRendererQuotaRefreshFrequency,
 } from "./renderer-appearance-preferences.js";
-import { writeIdleReleasePreference } from "./renderer-idle-release-preference.js";
+import { writeRendererHarnessPreferences } from "./renderer-harness-preferences.js";
 import { setReasoningTranscriptSoftWrap } from "./renderer-transcript-dom.js";
 
 /** When the Hub's Codex preferences were last applied in this Codex profile. */
@@ -17,10 +17,10 @@ export const CODEX_PREFERENCES_APPLIED_STORAGE_KEY = "codexhost.rly0-codex-prefe
  * Applies preferences set in the Hub window (设置 → 通用 → Codex 里) to this renderer's local
  * settings, once per Hub change. Returns whether anything was applied.
  */
-export function applyCodexPreferences(
+export async function applyCodexPreferences(
   owner: Window,
   preferences: Rly0CodexPreferences | null,
-): boolean {
+): Promise<boolean> {
   if (!preferences) return false;
   try {
     const applied = Number(owner.localStorage.getItem(CODEX_PREFERENCES_APPLIED_STORAGE_KEY) ?? 0);
@@ -38,7 +38,9 @@ export function applyCodexPreferences(
       setRendererQuotaAlertThresholdPercent(owner, preferences.quotaAlert.thresholdPercent);
     }
     if (preferences.idleRelease !== undefined)
-      writeIdleReleasePreference(owner, preferences.idleRelease);
+      await writeRendererHarnessPreferences(owner, "local", [
+        { kind: "idleRelease", value: preferences.idleRelease },
+      ]);
     owner.localStorage.setItem(
       CODEX_PREFERENCES_APPLIED_STORAGE_KEY,
       String(preferences.updatedAt),

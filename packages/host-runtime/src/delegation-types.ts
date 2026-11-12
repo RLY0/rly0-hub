@@ -13,6 +13,11 @@ export const DELEGATION_CLI_PATH_ENV = "CODEXHOST_CLI_PATH";
 /** Node for the Launcher's delegation CLI in npm installations; read only by the Launcher. */
 export const DELEGATION_CLI_NODE_PATH_ENV = "CODEXHOST_CLI_NODE_PATH";
 export const DELEGATION_THREAD_ID_ENV = "CODEXHOST_THREAD_ID";
+/** An external client token from `codexhost client add`, used when no Host connection is provided. */
+export const EXTERNAL_CLIENT_TOKEN_ENV = "CODEXHOST_CLIENT_TOKEN";
+export const EXTERNAL_CLIENT_TOKEN_FILE_ENV = "CODEXHOST_CLIENT_TOKEN_FILE";
+/** Port of the external client listener; `off` disables it. */
+export const EXTERNAL_CLIENT_PORT_ENV = "CODEXHOST_EXTERNAL_CLIENT_PORT";
 /**
  * Native Codex shares one app-server across Threads, so the Host cannot set
  * CODEXHOST_THREAD_ID per Thread; Codex exports the calling Thread here instead.
@@ -44,6 +49,7 @@ export interface DelegationThreadSnapshot {
   hostId?: string;
   threadId: string;
   harnessId: RoutedHarnessId;
+  title?: string;
   status: DelegationThreadStatus;
   turn: { turnId: string; status: DelegationThreadStatus } | null;
   progress: DelegationProgress[];
@@ -55,6 +61,8 @@ export interface DelegationThreadSnapshot {
   messages?: DelegationMessage[];
   hasMore?: boolean;
   nextCursor: string | null;
+  /** Omitted when the Thread carries no references. */
+  refs?: string[];
 }
 
 export interface DelegationStartInput {
@@ -72,12 +80,21 @@ export interface DelegationStartInput {
    * keeps that Harness's normal permission semantics (no unattended full access) and is titled.
    */
   handoff?: { title: string; permissionModeId?: HarnessPermissionModeId };
+  /** Absolute URIs of where the work came from; children inherit them. */
+  refs?: string[];
 }
 
 export interface HarnessInspectInput {
   harnessId: RoutedHarnessId;
   cwd?: string;
   refresh?: boolean;
+  /** Calling Thread; an official parent cannot inspect a Harness Desktop must not present. */
+  parentThreadId?: string;
+}
+
+export interface HarnessListInput {
+  /** Calling Thread; an official parent cannot list a Harness Desktop must not present. */
+  parentThreadId?: string;
 }
 
 export interface HarnessInspectResult {
@@ -107,8 +124,11 @@ export interface DelegationStartResult {
   deepLink: string;
   status: DelegationThreadStatus;
   cwd?: string;
+  title?: string;
   parentThreadId?: string;
   configuration?: DelegationConfigurationResult;
+  /** References the child carries, inherited ones first; omitted when there are none. */
+  refs?: string[];
   /** Present only when the caller asked `delegate start` to also watch the child. */
   watch?: ThreadWatchResult | { state: "notRegistered"; reason: string };
   next: { read: string; wait: string };
@@ -156,6 +176,10 @@ export interface ThreadWaitInput extends ThreadReadInput {
 export interface ThreadListInput {
   cwd?: string;
   parentThreadId?: string;
+  /** Threads an external client started without a parent Thread. */
+  client?: string;
+  /** Threads that carry this reference. */
+  ref?: string;
   limit: number;
   cursor?: string;
   sort:
@@ -178,6 +202,7 @@ export interface DelegationThreadListItem {
   updatedAt?: string;
   /** Set by native rows; recency-* sorts order by it, falling back to updatedAt. */
   recencyAt?: string;
+  refs?: string[];
 }
 
 export interface DelegationThreadListResult {
@@ -239,7 +264,7 @@ export interface DelegationWatchApi {
 }
 
 export interface DelegationControlApi {
-  listHarnesses(): Promise<HarnessListResult>;
+  listHarnesses(input?: HarnessListInput): Promise<HarnessListResult>;
   inspect(input: HarnessInspectInput): Promise<HarnessInspectResult>;
   start(input: DelegationStartInput): Promise<DelegationStartResult>;
   send(input: ThreadSendInput): Promise<ThreadSendResult>;
@@ -264,6 +289,10 @@ export type DelegationControlErrorCode =
   | "RESPONSE_TOO_LARGE"
   | "RUNTIME_UNREACHABLE"
   | "DELEGATION_FAILED"
+  /** The external client token is missing, unknown, or revoked. */
+  | "UNAUTHORIZED"
+  /** The event cursor is older than the oldest retained event. */
+  | "CURSOR_EXPIRED"
   | "INTERNAL_ERROR";
 
 export class DelegationControlError extends Error {

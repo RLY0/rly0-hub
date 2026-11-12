@@ -1,0 +1,12 @@
+.codexhost-colored-brand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.codexhost-colored-brand__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

@@ -3,6 +3,36 @@
   "base": "79fc26e8b2b57b5cb22b6b0fd9b42142f5dde945",
   "tickets": [
     {
+      "id": "HUB-FUSION-V0180",
+      "stage": "M1",
+      "milestone": "3-能发",
+      "title": "codexhost v0.18.0 本地融合与隔离门禁",
+      "owner": "codex",
+      "collaborators": ["claude"],
+      "status": "reviewed",
+      "review": "targeted_independent_review_pass_after_fixes",
+      "accepted": false,
+      "approved_by": "用户2026-11-12：按 FUSION-V0180.md 完成融合，仅本地提交，不推送不发布。",
+      "depends_on": [],
+      "allowed_scope": [
+        ".runtime/fusion-v0180",
+        "管理根指定融合报告与进度文件"
+      ],
+      "done_when": "40冲突逐项解决；上游历史merge保留；隔离门禁与aee79402对比新增失败0；指定Mac npm本地产物可构建；本地提交与指定中文报告落盘。",
+      "test_ids": [],
+      "evidence_files": [
+        "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/FUSION-V0180-REPORT.md",
+        "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/FUSION-V0180-REVIEW-1.md",
+        "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/FUSION-V0180-REVIEW-2.md",
+        "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/FUSION-V0180-REVIEW-3.md",
+        "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/evidence/fusion-v0180-20261112/test-baseline-comparison.json",
+        "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/evidence/fusion-v0180-20261112/source-snapshot-delivery.json",
+        "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/evidence/fusion-v0180-20261112/package-final.json"
+      ],
+      "scope": "aee79402 + upstream v0.18.0 2fc956e2；40冲突；保留Hub品牌/账号/中转/更新管控/full-core-safe；Web自动启动关闭、预览默认回环；Vitest11698过/21既有失败/85跳过、新增失败0；Rust314过/5忽略；定向独立复核通过。",
+      "next_action": "Claude接续新增Web界面品牌/中文和Windows/macOS/手机真机验收、最终许可文本核对与正式包检查；用户放行后方可发布。Codex本轮不安装/推送/发布。"
+    },
+    {
       "id": "HUB-CONTROLLER-READY-1106",
       "stage": "M1",
       "milestone": "2-好用",

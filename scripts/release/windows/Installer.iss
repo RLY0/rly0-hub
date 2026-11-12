@@ -74,8 +74,15 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Dirs]
 Name: "{app}"
 
+[UninstallRun]
+Filename: "{app}\bin\codexhost.exe"; Parameters: "stop"; Flags: runhidden; RunOnceId: "StopCodexhostServices"
+Filename: "{app}\bin\codexhost.exe"; Parameters: "autostart off"; Flags: runhidden; RunOnceId: "DisableCodexhostAutostart"
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
+
+[Messages]
+UninstalledAll=%1 was successfully removed from your computer.%n%nTailscale Serve configuration is still retained. Run "tailscale serve status" to check it. If the HTTPS 443 root path points to codexhost, remove only that path with "tailscale serve --https=443 --set-path=/ off" (use the actual HTTPS port if different).
 
 [Code]
 var

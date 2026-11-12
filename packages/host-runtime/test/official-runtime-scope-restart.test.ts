@@ -44,6 +44,7 @@ function fixture(recovery?: OfficialRuntimeRecoveryOptions) {
   return {
     scope,
     events,
+    backends,
     createBackend,
     failNextStart: () => {
       failNextStart = true;
@@ -52,6 +53,51 @@ function fixture(recovery?: OfficialRuntimeRecoveryOptions) {
 }
 
 describe("OfficialRuntimeScope.restartBackend", () => {
+  it("closes admission before yielding during a replacement", async () => {
+    const f = fixture();
+    try {
+      await f.scope.start();
+      const restarting = f.scope.restartBackend();
+      expect(() => f.scope.gate.admit()).toThrow("unavailable");
+      expect(f.scope.gate.busy).toBe(false);
+      await restarting;
+      expect(f.scope.owner.running).toBe(true);
+      expect(f.scope.gate.phase).toBe("ready");
+    } finally {
+      await f.scope.close();
+    }
+  });
+
+  it("retires an in-flight replacement before stop completes and can start again", async () => {
+    const f = fixture();
+    const replacementReady = Promise.withResolvers<undefined>();
+    try {
+      await f.scope.start();
+      const create = f.createBackend.getMockImplementation();
+      if (!create) throw new Error("Missing synthetic backend factory");
+      f.createBackend.mockImplementationOnce(() => {
+        const backend = create();
+        backend.start = () => replacementReady.promise;
+        return backend;
+      });
+      const restarting = f.scope.restartBackend();
+      await vi.waitFor(() => expect(f.backends).toHaveLength(2));
+      const stopping = f.scope.stop();
+      await expect(f.scope.restartBackend()).rejects.toMatchObject({ code: "unavailable" });
+      replacementReady.resolve(undefined);
+      await Promise.all([restarting, stopping]);
+      expect(f.scope.owner.running).toBe(false);
+      expect(f.scope.gate.phase).toBe("unavailable");
+      await f.scope.start();
+      expect(f.scope.owner.running).toBe(true);
+      expect(f.scope.gate.phase).toBe("ready");
+      expect(f.backends).toHaveLength(3);
+    } finally {
+      replacementReady.resolve(undefined);
+      await f.scope.close();
+    }
+  });
+
   it("replaces the backend in place without reporting a Scope failure", async () => {
     const f = fixture();
     try {

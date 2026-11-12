@@ -8,7 +8,8 @@ function source(bodies: Array<string | Error>, clock = { t: 0 }) {
   let calls = 0;
   const promo = new Rly0PromoSource(
     async () => async () => {
-      const next = bodies[Math.min(calls++, bodies.length - 1)]!;
+      const next = bodies[Math.min(calls++, bodies.length - 1)];
+      if (next === undefined) throw new Error("Missing synthetic promo response");
       if (next instanceof Error) throw next;
       return {
         status: 200,

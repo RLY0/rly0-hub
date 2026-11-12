@@ -87,7 +87,8 @@ describe("Renderer settings localization", () => {
     ).toEqual([
       "仪表盘",
       "连接",
-      "远程连接",
+      "手机与浏览器",
+      "其他电脑（SSH）",
       "账号",
       "中转站",
       "会话导入",

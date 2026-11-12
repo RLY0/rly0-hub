@@ -13,6 +13,11 @@ declare module "*.svg" {
   export default dataUrl;
 }
 
+declare module "*.svg?raw" {
+  const svgText: string;
+  export default svgText;
+}
+
 declare module "*.css" {
   const cssText: string;
   export default cssText;

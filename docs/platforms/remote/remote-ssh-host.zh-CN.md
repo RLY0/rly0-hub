@@ -1,6 +1,6 @@
 # 通过 SSH 使用远程电脑上的 AI 编程工具
 
-Web 控制台的「远程连接」（`#remote-connections`）也提供同一套连接管理、安装、更新、修复和卸载功能；需要本机已通过 codexhost 启动 Codex Desktop。参见[控制台说明](../../operations/codexhost-console.md#远程连接)。
+Web 控制台的「其他电脑（SSH）」（`#remote-connections`）也提供同一套连接管理、安装、更新、修复和卸载功能；需要本机已通过 codexhost 启动 Codex Desktop。参见[控制台说明](../../operations/codexhost-console.md#其他电脑ssh)。
 
 你可以在本机的 Codex Desktop 中，使用另一台电脑上已安装并登录的 Claude Code、Pi 等 Harness（AI 编程工具）。项目和工具都在远程电脑上运行，你在本机查看回复、发送消息和操作会话。
 
@@ -44,6 +44,10 @@ Web 控制台的「远程连接」（`#remote-connections`）也提供同一套�
 
 如果只使用 Codex 自带的远程编程功能，不使用其他 Harness，就不需要在远程电脑上安装 codexhost。
 
+远程机器上新建的外部 Harness 会话与该机器的本地 Desktop、Web 共用独立 Host，通过 SSH 打开或续聊时保留同一 Thread ID 和原生会话。旧 SSH 专用目录中的会话仍可从 SSH 读取，不自动复制或改换归属。升级时需同时重启共享 Host 和 SSH 监听器；共享执行方不可用时会返回错误，不会退回 Codex 创建会话。
+
+如果 Desktop 或 Web 使用自定义 Host 数据目录，在该机器执行 `codexhost remote install --shared-data /绝对路径/host-data`，然后重启 SSH 监听器。未传选项时，安装会读取 `CODEXHOST_SHARED_DATA_DIR` 或非 SSH 环境中的 `CODEXHOST_DATA_DIR`；重新安装会保留已保存的选择。共享目录写入远程 manifest 和 SSH profile，不覆盖独立的 SSH 专用数据目录。原生 Agent 对共享会话的委派读取、发送、取消和等待也路由到共享执行方；历史 SSH 会话作为父会话时仍保留原有委派归属。
+
 ### 图片与文件附件
 
 外部 Harness 继续接收文字及文件路径，不通过各 Harness 的专用图片接口发送。普通文件沿用 Desktop 原生上传和远程路径引用；能否读取文件、理解图片或解析其格式，由 Harness 的工具及所选模型决定。
@@ -54,7 +58,25 @@ Web 控制台的「远程连接」（`#remote-connections`）也提供同一套�
 
 该绑定依据 Desktop 26.930.31730 的附件存储与请求接口；Desktop 更新后需核对兼容性。
 
+## macOS：让任务使用桌面登录凭据
+
+默认 SSH 安全会话可能读不到有效的登录钥匙串凭据，例如普通 Codex 任务执行 `gh` 时提示 token 失效。在远程 Mac 上执行以下命令，可选择使用已登录的桌面会话：
+
+```sh
+codexhost remote stop
+codexhost remote install --session desktop
+codexhost remote start
+```
+
+停止服务会中断远程任务；启动后重新连接项目。后续安装、更新和修复会保留这个选择。桌面模式下，`remote status` 显示 `executionSession: "desktop"`；字段缺省表示默认 SSH 模式。将上述安装命令改为 `--session ssh` 可恢复默认后台执行。已有安装不会自动切换；此选项仅支持 macOS。
+
+桌面登录用户必须与 SSH 用户相同，并保持登录。锁屏、屏保和关闭显示器都不会结束桌面会话；退出登录、重启或关机会结束其中的任务。系统睡眠期间任务暂停，唤醒后继续。单独锁定的钥匙串仍可能要求用户交互，此模式不会自动解锁它。
+
+原生启动桥接只运行一次，随后退出并卸载临时 LaunchAgent。参数、SSH 环境和工作目录通过仅当前用户可访问的本机 socket 传递，不写入 plist。listener 保留原生监管及原有的进程身份校验和停止路径。明确选择桌面模式后，桌面会话不可用时会报错，不会自动退回 SSH。已有 Harness Aqua Broker 继续独立工作。
+
 ## 日常管理连接
+
+连接页可见且稳定时每 30 秒检查状态，操作、更新或检查失败时每 5 秒检查。隐藏或离开页面停止周期查询，恢复可见立即补读；手动刷新和操作后的状态核对仍然可用。
 
 在「远程连接」页面中，你可以编辑连接信息、断开连接或移除不再使用的连接。
 

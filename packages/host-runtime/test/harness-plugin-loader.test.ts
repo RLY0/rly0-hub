@@ -518,7 +518,7 @@ describe("Harness plugin discovery and loading", () => {
     expect(diagnose).toHaveBeenCalledExactlyOnceWith({ id: "duplicate", code: "duplicateId" });
   });
 
-  it("does not shadow a transitional built-in and rejects the official identity", async () => {
+  it("does not shadow a transitional built-in or register the official identity", async () => {
     const directory = await root(["sample-agent"]);
     await plugin(directory, "sample-agent");
     await plugin(directory, "codex");
@@ -530,10 +530,7 @@ describe("Harness plugin discovery and loading", () => {
       diagnose,
     });
     expect(registry.list()).toEqual([]);
-    expect(diagnose.mock.calls.map(([entry]) => entry.code)).toEqual([
-      "invalidManifest",
-      "duplicateId",
-    ]);
+    expect(diagnose.mock.calls.map(([entry]) => entry.code)).toEqual(["duplicateId"]);
   });
 
   it("keeps an incompatible plugin visible but never imports its entry", async () => {
@@ -705,6 +702,35 @@ describe("Harness plugin discovery and loading", () => {
       expect(inspections.every((inspection) => inspection.status === "ready")).toBe(true);
     } finally {
       await registry.close();
+    }
+  });
+
+  it("evaluates plugin modules one at a time so a load wave never stalls the Host", async () => {
+    const ids = ["one-agent", "two-agent", "three-agent", "four-agent", "five-agent"];
+    const directory = await root(ids);
+    for (const id of ids) {
+      await plugin(directory, id, {
+        code: `
+      import { FakeHarnessAdapter } from ${JSON.stringify(fakeModule)};
+      globalThis.__pluginEvaluation.push("start");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      globalThis.__pluginEvaluation.push("end");
+      export function createHarnessAdapter() { return new FakeHarnessAdapter(${JSON.stringify(id)}); }
+    `,
+      });
+    }
+    const evaluation: string[] = [];
+    Reflect.set(globalThis, "__pluginEvaluation", evaluation);
+    try {
+      const registry = await loadHarnessPlugins({ roots: [directory], context });
+      try {
+        expect(registry.list()).toHaveLength(ids.length);
+        expect(evaluation).toEqual(ids.flatMap(() => ["start", "end"]));
+      } finally {
+        await registry.close();
+      }
+    } finally {
+      Reflect.deleteProperty(globalThis, "__pluginEvaluation");
     }
   });
 

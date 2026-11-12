@@ -50,8 +50,12 @@ describe("platform packagers", () => {
     expect(workflow).toContain("npm_tag: result.npmTag");
     expect(workflow).toContain("ref: ${{ needs.prepare.outputs.commit_sha }}");
     expect(workflow).not.toContain("ref: ${{ needs.prepare.outputs.tag }}");
-    expect(workflow).toContain("Revalidate tag and CI immediately before npm publication");
-    expect(workflow).toContain("Revalidate tag and CI immediately before GitHub publication");
+    expect(workflow).toContain(
+      "Revalidate tag and selected CI policy immediately before npm publication",
+    );
+    expect(workflow).toContain(
+      "Revalidate tag and selected CI policy immediately before GitHub publication",
+    );
 
     expect(workflow).toContain("codexhost-*.dmg");
     expect(workflow).toContain("codexhost-*.exe");
@@ -107,6 +111,40 @@ describe("platform packagers", () => {
     expect(releaseClient).toContain("size");
     expect(releaseClient).toContain("digest");
     expect(releaseClient).toContain("sha256:");
+  });
+
+  it("keeps Hub shutdown after Install and requires consent before closing Codex", async () => {
+    const installer = await readFile(path.join(root, "scripts/release/windows/Installer.iss"), "utf8");
+    const helper = 'Source: "stop-install-processes.ps1"; Flags: dontcopy';
+    expect(installer).toContain(helper);
+    expect(installer.indexOf(helper)).toBeLessThan(installer.indexOf('Source: "{#PayloadRoot}\\*"'));
+    const code = installer.split("[Code]")[1];
+    expect(code).toContain("function PrepareToInstall(var NeedsRestart: Boolean): String;");
+    expect(code).not.toMatch(/InitializeSetup|InitializeWizard/);
+    expect(code).toContain("ExtractTemporaryFile('stop-install-processes.ps1')");
+    expect(code).toContain("Code := RunStopper('Detect', False)");
+    expect(code).toContain("SuppressibleMsgBox(");
+    expect(code.indexOf("SuppressibleMsgBox(")).toBeLessThan(code.indexOf("RunStopper('Stop', CloseCodex)"));
+    expect(code).toContain("-InstallDir");
+    expect(code).toContain("ExpandConstant('{app}')");
+    expect(installer).toContain("RestartApplications=no");
+    expect(installer).not.toMatch(/taskkill/i);
+  });
+
+  it("runs service shutdown and autostart removal only during uninstall, before deleting files", async () => {
+    const installer = await readFile(
+      path.join(root, "scripts/release/windows/Installer.iss"),
+      "utf8",
+    );
+    const uninstall = installer.slice(installer.lastIndexOf("[UninstallRun]")).split(/\r?\n\[/u)[0];
+    expect(uninstall).toContain('Filename: "{app}\\bin\\codexhost.exe"; Parameters: "stop"');
+    expect(uninstall).toContain('Filename: "{app}\\bin\\codexhost.exe"; Parameters: "autostart off"');
+    expect(installer).toContain('Parameters: "--exit"; Flags: runhidden skipifdoesntexist; RunOnceId: "StopHub"');
+    expect(installer).toContain('ValueName: "RLY0Hub"; Flags: uninsdeletevalue dontcreatekey');
+    expect(installer).not.toMatch(/RegDelete|taskkill/iu);
+    expect(installer).toContain("UninstalledAll=%1 was successfully removed");
+    expect(installer).toContain("Tailscale Serve configuration is still retained");
+    expect(installer).toContain("tailscale serve --https=443 --set-path=/ off");
   });
 
   it("statically links the MSVC runtime so Windows executables need no VC++ Redistributable", async () => {

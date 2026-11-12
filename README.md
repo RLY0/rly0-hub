@@ -176,3 +176,7 @@ npm run lint               # ESLint + 包边界检查
 ---
 
 [English README](README.en.md)
+
+## 上游 Web 功能（本地融合候选）
+
+已融合 CodexHost v0.18.0 的 Web/手机访问与远程 relay 实现，尚待发布和设备验收。默认不随 Desktop 自动启动 Web；需要时显式运行 `codexhost web`，初始只监听本机回环地址。relay 默认关闭，局域网或公网访问须主动配置。上游新增页面暂保留原样，Hub 入口与视觉由 Claude 后续处理。使用与信任边界见 [Web 远程访问](docs/product/web-remote-access.md)。

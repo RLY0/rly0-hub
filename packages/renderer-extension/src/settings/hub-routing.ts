@@ -14,6 +14,7 @@ export const HUB_PAGE_FOR_SETTINGS_PAGE: Readonly<
   dashboard: "home",
   connections: "agents",
   "remote-connections": "remote",
+  "mobile-web": "remote",
   accounts: "accounts",
   relay: "relays",
   "session-import": "sessions",

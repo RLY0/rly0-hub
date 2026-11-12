@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { glob, readFile } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -11,18 +11,13 @@ import path from "node:path";
 export async function workspacePackageDirectories(repositoryRoot) {
   const manifest = JSON.parse(await readFile(path.join(repositoryRoot, "package.json"), "utf8"));
   const directories = new Map();
-  for (const pattern of manifest.workspaces ?? []) {
-    if (!pattern.endsWith("/*")) throw new Error(`Unsupported workspace pattern: ${pattern}`);
-    const parent = path.join(repositoryRoot, pattern.slice(0, -2));
-    for (const entry of await readdir(parent, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const directory = path.join(parent, entry.name);
-      const name = await readFile(path.join(directory, "package.json"), "utf8")
-        .then((text) => JSON.parse(text).name)
-        .catch(() => null);
-      if (typeof name === "string" && name.startsWith("@codexhost/"))
-        directories.set(name, directory);
-    }
+  for await (const relative of glob(manifest.workspaces ?? [], { cwd: repositoryRoot })) {
+    const directory = path.join(repositoryRoot, relative);
+    const name = await readFile(path.join(directory, "package.json"), "utf8")
+      .then((text) => JSON.parse(text).name)
+      .catch(() => null);
+    if (typeof name === "string" && name.startsWith("@codexhost/"))
+      directories.set(name, directory);
   }
   return directories;
 }

@@ -74,6 +74,7 @@ export class OfficialRuntimeScope {
   readonly #diagnosticOutput: Writable;
   readonly #recovery: { delaysMs: readonly number[]; stableMs: number } | undefined;
   #starting: Promise<void> | undefined;
+  #stopping: Promise<void> | undefined;
   #started = false;
   #closed = false;
   #restarting: Promise<void> | undefined;
@@ -122,6 +123,7 @@ export class OfficialRuntimeScope {
 
   start(): Promise<void> {
     if (this.#closed) return Promise.reject(new Error("Official Codex is unavailable"));
+    if (this.#stopping) return this.#stopping.then(() => this.start());
     if (this.#restarting) return this.#restarting;
     if (this.#starting) return this.#starting;
     if (this.#started && (!this.#recovery || this.owner.running)) return Promise.resolve();
@@ -138,7 +140,7 @@ export class OfficialRuntimeScope {
       if (this.#closed) throw new OfficialAdmissionError("unavailable");
       this.#started = true;
       this.#readyAt = Date.now();
-      this.gate.initialized();
+      if (!this.#restartActive && !this.#stopping) this.gate.initialized();
     })();
     this.#starting = starting;
     void starting.then(
@@ -203,12 +205,15 @@ export class OfficialRuntimeScope {
    * and lazily resumes remembered threads. Rejects with `busy` while official work is active.
    */
   restartBackend(): Promise<void> {
-    if (this.#closed) return Promise.reject(new OfficialAdmissionError("unavailable"));
+    if (this.#closed || this.#stopping)
+      return Promise.reject(new OfficialAdmissionError("unavailable"));
     if (this.#restarting) return this.#restarting;
     if (this.gate.busy) return Promise.reject(new OfficialAdmissionError("busy"));
     // Must be set before owner.stop() synchronously marks the gate unavailable.
     this.#clearRecoveryTimer();
     this.#restartActive = true;
+    // Close admission synchronously before yielding to startup or process teardown.
+    this.gate.unavailable();
     const restarting = (async () => {
       await this.#starting?.catch(() => undefined);
       await this.owner.stop();
@@ -217,7 +222,7 @@ export class OfficialRuntimeScope {
       if (this.#closed) throw new OfficialAdmissionError("unavailable");
       this.#started = true;
       this.#readyAt = Date.now();
-      this.gate.initialized();
+      if (!this.#stopping) this.gate.initialized();
     })();
     this.#restarting = restarting;
     void restarting.then(
@@ -230,7 +235,28 @@ export class OfficialRuntimeScope {
   #finishRestart(): void {
     this.#restartActive = false;
     this.#restarting = undefined;
-    if (this.#started && this.gate.phase === "unavailable") this.#generationFailed();
+    if (this.#started && !this.#stopping && this.gate.phase === "unavailable")
+      this.#generationFailed();
+  }
+
+  /** Retire an idle generation without closing its clients or scheduling recovery. */
+  stop(): Promise<void> {
+    if (this.#stopping) return this.#stopping;
+    const stopping = (async () => {
+      // Finish replacement before retiring it, so restart cannot restore #started after stop.
+      if (this.#restarting) await this.#restarting.catch(() => undefined);
+      if (this.#starting) await this.#starting.catch(() => undefined);
+      this.#started = false;
+      this.#clearRecoveryTimer();
+      await this.owner.stop();
+    })();
+    this.#stopping = stopping;
+    void stopping
+      .finally(() => {
+        if (this.#stopping === stopping) this.#stopping = undefined;
+      })
+      .catch(() => undefined);
+    return stopping;
   }
 
   async close(): Promise<void> {
@@ -260,6 +286,7 @@ export class OfficialRuntimeScope {
       !this.#recovery ||
       this.#closed ||
       this.#restartActive ||
+      this.#stopping ||
       this.#recoveryTimer ||
       this.#starting
     )

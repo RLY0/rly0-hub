@@ -317,6 +317,20 @@ describe("Renderer fixed Model request client", () => {
     await expect(remote?.listHarnessPlugins?.()).rejects.toThrow();
   });
 
+  it("opens Web through its fixed Host method and validates the result", async () => {
+    const sendRequest = vi
+      .fn()
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ url: "https://example.com/" })
+      .mockRejectedValueOnce(new Error("Host unavailable"));
+    const client = createRendererModelClient([{ addNotificationCallback: vi.fn(), sendRequest }]);
+    if (!client?.openWeb) throw new Error("Synthetic Model client cannot open Web");
+    await expect(client.openWeb()).resolves.toEqual({});
+    expect(sendRequest).toHaveBeenCalledWith("codexhost/web/open", {});
+    await expect(client.openWeb()).rejects.toThrow();
+    await expect(client.openWeb()).rejects.toThrow("Host unavailable");
+  });
+
   it("opens the console through its fixed Host method and validates the address", async () => {
     const sendRequest = vi
       .fn()
@@ -412,8 +426,10 @@ describe("Renderer fixed Model request client", () => {
       "deactivateRly0Skill",
       "executeThreadCommand",
       "forkThread",
+      "getHarnessDisplayCapabilities",
       "getHarnessDisplaySettings",
       "getHarnessLaunchSettings",
+      "getHarnessPreferences",
       "handoffThread",
       "importCurrentRly0Account",
       "importHarnessSession",
@@ -443,6 +459,8 @@ describe("Renderer fixed Model request client", () => {
       "listThreadOwnership",
       "openConsole",
       "openHarnessWebUi",
+      "openWeb",
+      "patchHarnessPreferences",
       "readDelegationThread",
       "readUpdateStatus",
       "refreshCodexAccounts",
@@ -501,6 +519,8 @@ describe("Renderer fixed Model request client", () => {
       "startRly0AddAccountLogin",
       "startUpdate",
       "subscribeCodexAccounts",
+      "subscribeHarnessDisplaySettings",
+      "subscribeHarnessPreferences",
       "subscribeThreadUsage",
       "switchRly0Account",
       "testRly0Relay",

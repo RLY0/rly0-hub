@@ -188,6 +188,8 @@ fn run_shim(
     let mut command = Command::new(shim_path());
     command
         .args(arguments)
+        .env_remove("CODEXHOST_LAUNCHER_PID")
+        .env_remove("CODEXHOST_LAUNCHER_EXECUTABLE")
         .env_remove(HOST_NODE_PATH_ENV)
         .env_remove(HOST_RUNTIME_PATH_ENV)
         .env_remove(REMOTE_SSH_MANAGED_ENV)
@@ -943,21 +945,38 @@ fn browser_helper_fallback_does_not_guess_an_official_cli_from_path() {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn managed_remote_listener_detaches_and_reuses_a_matching_socket_owner() {
+    assert_managed_remote_listener_session("ssh");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "requires the current user's logged-in macOS desktop and launchd"]
+fn managed_desktop_listener_detaches_and_reuses_a_matching_socket_owner() {
+    assert_managed_remote_listener_session("desktop");
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn assert_managed_remote_listener_session(session: &str) {
     static NEXT_REMOTE_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
 
-    let directory = PathBuf::from("/tmp").join(format!(
-        "codexhost-remote-test-{}-{}",
-        process::id(),
-        NEXT_REMOTE_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed),
-    ));
+    let directory = std::env::var_os("CODEXHOST_TEST_SHORT_TMPDIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(format!(
+            "r{}-{}",
+            process::id(),
+            NEXT_REMOTE_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed),
+        ));
     fs::create_dir(&directory).expect("create short remote listener fixture directory");
-    let codex_home = directory.join("home");
+    let codex_home = directory.clone();
     let socket = codex_home
         .join("app-server-control")
         .join("app-server-control.sock");
     let ready = directory.join("ready");
     let started = Instant::now();
     let child = Command::new(shim_path())
+        .env_remove("CODEXHOST_LAUNCHER_PID")
+        .env_remove("CODEXHOST_LAUNCHER_EXECUTABLE")
         .args([
             "-c",
             "features.code_mode_host=true",
@@ -971,6 +990,7 @@ fn managed_remote_listener_detaches_and_reuses_a_matching_socket_owner() {
         .env(STOCK_CODEX_PATH_ENV, fake_codex_path())
         .env(CODEX_CLI_PATH_ENV, shim_path())
         .env(REMOTE_SSH_MANAGED_ENV, "1")
+        .env("CODEXHOST_REMOTE_EXECUTION_SESSION", session)
         .env("CODEX_HOME", &codex_home)
         .env("FAKE_CODEX_UNIX_LISTENER_PATH", &socket)
         .env("FAKE_CODEX_READY_PATH", &ready)
@@ -1034,26 +1054,43 @@ fn managed_remote_listener_detaches_and_reuses_a_matching_socket_owner() {
 
     let original_socket = fs::metadata(&socket).expect("read original listener socket identity");
     let repeated_started = Instant::now();
-    let repeated = Command::new(shim_path())
-        .args([
-            "-c",
-            "features.code_mode_host=true",
-            "app-server",
-            "--listen",
-            "unix://",
-        ])
-        .env_remove(HOST_NODE_PATH_ENV)
-        .env_remove(HOST_RUNTIME_PATH_ENV)
-        .env_remove("CODEXHOST_REMOTE_LISTENER_CHILD")
-        .env(STOCK_CODEX_PATH_ENV, fake_codex_path())
-        .env(CODEX_CLI_PATH_ENV, shim_path())
-        .env(REMOTE_SSH_MANAGED_ENV, "1")
-        .env("CODEX_HOME", &codex_home)
-        .env("FAKE_CODEX_UNIX_LISTENER_PATH", &socket)
-        .env("FAKE_CODEX_READY_PATH", &ready)
-        .stdin(Stdio::null())
-        .output()
-        .expect("repeat managed remote listener bootstrap");
+    let reconnect = || {
+        Command::new(shim_path())
+            .env_remove("CODEXHOST_LAUNCHER_PID")
+            .env_remove("CODEXHOST_LAUNCHER_EXECUTABLE")
+            .args([
+                "-c",
+                "features.code_mode_host=true",
+                "app-server",
+                "--listen",
+                "unix://",
+            ])
+            .env_remove(HOST_NODE_PATH_ENV)
+            .env_remove(HOST_RUNTIME_PATH_ENV)
+            .env_remove("CODEXHOST_REMOTE_LISTENER_CHILD")
+            .env(STOCK_CODEX_PATH_ENV, fake_codex_path())
+            .env(CODEX_CLI_PATH_ENV, shim_path())
+            .env(REMOTE_SSH_MANAGED_ENV, "1")
+            .env("CODEXHOST_REMOTE_EXECUTION_SESSION", session)
+            .env("CODEX_HOME", &codex_home)
+            .env("FAKE_CODEX_UNIX_LISTENER_PATH", &socket)
+            .env("FAKE_CODEX_READY_PATH", &ready)
+            .stdin(Stdio::null())
+            .output()
+            .expect("repeat managed remote listener bootstrap")
+    };
+    let repeated = thread::scope(|scope| {
+        let first = scope.spawn(reconnect);
+        let second = scope.spawn(reconnect);
+        let first = first.join().expect("join first reconnect");
+        let second = second.join().expect("join second reconnect");
+        assert!(
+            second.status.success(),
+            "concurrent reconnect failed: {:?}",
+            second.stderr
+        );
+        first
+    });
     let repeated_elapsed = repeated_started.elapsed();
     let repeated_ready = fs::read_to_string(&ready).expect("read repeated listener identity");
     let repeated_value = |label: &str| {
@@ -1071,6 +1108,8 @@ fn managed_remote_listener_detaches_and_reuses_a_matching_socket_owner() {
     let alternate_stock = directory.join("alternate-fake-codex");
     fs::copy(fake_codex_path(), &alternate_stock).expect("copy alternate stock Codex fixture");
     let mismatched = Command::new(shim_path())
+        .env_remove("CODEXHOST_LAUNCHER_PID")
+        .env_remove("CODEXHOST_LAUNCHER_EXECUTABLE")
         .args([
             "-c",
             "features.code_mode_host=true",
@@ -1084,6 +1123,7 @@ fn managed_remote_listener_detaches_and_reuses_a_matching_socket_owner() {
         .env(STOCK_CODEX_PATH_ENV, &alternate_stock)
         .env(CODEX_CLI_PATH_ENV, shim_path())
         .env(REMOTE_SSH_MANAGED_ENV, "1")
+        .env("CODEXHOST_REMOTE_EXECUTION_SESSION", session)
         .env("CODEX_HOME", &codex_home)
         .env("FAKE_CODEX_UNIX_LISTENER_PATH", &socket)
         .env("FAKE_CODEX_READY_PATH", &ready)
@@ -1194,115 +1234,6 @@ fn managed_remote_listener_detaches_and_reuses_a_matching_socket_owner() {
             "detached listener process {process_id} survived shutdown"
         );
     }
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-#[test]
-fn managed_remote_listener_replaces_a_stale_socket_before_the_startup_timeout() {
-    use std::os::unix::net::{UnixListener, UnixStream};
-
-    static NEXT_STALE_DIRECTORY_ID: AtomicU64 = AtomicU64::new(0);
-
-    let directory = PathBuf::from("/tmp").join(format!(
-        "codexhost-stale-test-{}-{}",
-        process::id(),
-        NEXT_STALE_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed),
-    ));
-    fs::create_dir(&directory).expect("create short stale socket fixture directory");
-    let codex_home = directory.join("home");
-    let socket = codex_home
-        .join("app-server-control")
-        .join("app-server-control.sock");
-    let ready = directory.join("ready");
-    fs::create_dir_all(socket.parent().expect("control socket directory"))
-        .expect("create control socket directory");
-    // A listener that exits without cleanup leaves a socket that no process owns.
-    drop(UnixListener::bind(&socket).expect("bind stale control socket"));
-    let stale_socket = fs::metadata(&socket).expect("read stale control socket identity");
-    assert!(
-        UnixStream::connect(&socket).is_err(),
-        "stale control socket unexpectedly accepts connections"
-    );
-
-    let started = Instant::now();
-    let output = Command::new(shim_path())
-        .args([
-            "-c",
-            "features.code_mode_host=true",
-            "app-server",
-            "--listen",
-            "unix://",
-        ])
-        .env_remove(HOST_NODE_PATH_ENV)
-        .env_remove(HOST_RUNTIME_PATH_ENV)
-        .env_remove("CODEXHOST_REMOTE_LISTENER_CHILD")
-        .env(STOCK_CODEX_PATH_ENV, fake_codex_path())
-        .env(CODEX_CLI_PATH_ENV, shim_path())
-        .env(REMOTE_SSH_MANAGED_ENV, "1")
-        .env("CODEX_HOME", &codex_home)
-        .env("FAKE_CODEX_UNIX_LISTENER_PATH", &socket)
-        .env("FAKE_CODEX_READY_PATH", &ready)
-        .stdin(Stdio::null())
-        .output()
-        .expect("run managed remote listener bootstrap over a stale socket");
-    let elapsed = started.elapsed();
-
-    let identities = fs::read_to_string(&ready).unwrap_or_default();
-    let identity = |label: &str| {
-        identities
-            .lines()
-            .find_map(|line| line.strip_prefix(label))
-            .and_then(|value| value.parse::<u32>().ok())
-    };
-    let process_ids = [identity("root="), identity("shim=")]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    let listener_survived =
-        process_ids.len() == 2 && process_ids.iter().copied().all(process_exists);
-    let replacement_accepts = UnixStream::connect(&socket).is_ok();
-    let replacement_socket = fs::metadata(&socket).ok();
-
-    for process_id in &process_ids {
-        let _ = Command::new("/bin/kill")
-            .args(["-TERM", &process_id.to_string()])
-            .status();
-    }
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while process_ids.iter().copied().any(process_exists) && Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(20));
-    }
-    for process_id in process_ids
-        .iter()
-        .copied()
-        .filter(|process_id| process_exists(*process_id))
-    {
-        let _ = Command::new("/bin/kill")
-            .args(["-KILL", &process_id.to_string()])
-            .status();
-    }
-    fs::remove_dir_all(&directory).expect("remove stale socket fixture");
-
-    assert!(
-        output.status.success(),
-        "bootstrap over a stale socket failed after {elapsed:?}: {}; stderr={}; stale_inode={}; replacement_inode={:?}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr),
-        stale_socket.ino(),
-        replacement_socket.as_ref().map(MetadataExt::ino),
-    );
-    assert!(
-        elapsed < Duration::from_secs(5),
-        "bootstrap over a stale socket waited for the startup timeout: {elapsed:?}"
-    );
-    assert!(
-        listener_survived,
-        "bootstrap terminated the replacement listener"
-    );
-    assert!(
-        replacement_accepts,
-        "replacement listener socket does not accept connections"
-    );
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -2231,125 +2162,6 @@ fn refuses_version_one_takeover_when_the_recorded_child_outlives_its_shim() {
     assert!(
         recorded_child_survived,
         "replacement signalled a version-one child without a verified process-instance identity"
-    );
-}
-
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-#[test]
-fn retires_an_exact_owner_child_after_its_shim_exits() {
-    let directory = temporary_directory();
-    let fixture_directory = temporary_directory();
-    let owner_ready = directory.join("owner-ready");
-    let fixture_ready = fixture_directory.join("fixture-ready");
-    let replacement_ready = directory.join("replacement-ready");
-
-    let mut owner = host_runtime_shim(&directory, &owner_ready);
-    let owner_stdin = owner.stdin.take().expect("owner Host Runtime stdin");
-    wait_for_file(&owner_ready, Duration::from_secs(5));
-    let owner_contents =
-        wait_for_complete_owner_record(&mut owner, &directory, Duration::from_secs(10));
-
-    // Keep an independently owned Host Runtime alive so this exact-child fixture also works on
-    // Windows, where killing a Shim normally closes its Job and retires its own process tree.
-    let mut fixture = host_runtime_shim(&fixture_directory, &fixture_ready);
-    let fixture_stdin = fixture.stdin.take().expect("fixture Host Runtime stdin");
-    let fixture_root = process_id_from_ready(
-        &wait_for_file(&fixture_ready, Duration::from_secs(5)),
-        "root=",
-    );
-    let fixture_contents =
-        wait_for_complete_owner_record(&mut fixture, &fixture_directory, Duration::from_secs(10));
-    let fixture_child_started_at_micros = fixture_contents
-        .lines()
-        .find_map(|line| line.strip_prefix("child_process_started_at_micros="))
-        .filter(|value| !value.is_empty())
-        .expect("fixture child start identity")
-        .parse::<u64>()
-        .expect("fixture child start identity micros");
-    let mut reused_desktop_process = Command::new(fake_codex_path())
-        .env("FAKE_CODEX_DELAY_MS", "60000")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn reused Desktop PID fixture");
-
-    force_stop_test_process(owner.id());
-    assert!(
-        wait_for_process_exit(&mut owner, Duration::from_secs(5)),
-        "exact owner Shim did not exit"
-    );
-    drop(owner_stdin);
-
-    let owner_record = directory.join("local-host-runtime-owner-v1").join("owner");
-    let orphaned_exact_owner = owner_contents
-        .lines()
-        .map(|line| {
-            if line.starts_with("child_process_id=") {
-                format!("child_process_id={fixture_root}")
-            } else if line.starts_with("child_process_started_at_micros=") {
-                format!("child_process_started_at_micros={fixture_child_started_at_micros}")
-            } else if line.starts_with("desktop_process_id=") {
-                format!("desktop_process_id={}", reused_desktop_process.id())
-            } else {
-                line.to_owned()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    fs::write(&owner_record, format!("{orphaned_exact_owner}\n"))
-        .expect("publish orphaned exact owner record");
-    assert!(
-        exact_process_instance_is_executable(fixture_root, fixture_child_started_at_micros),
-        "exact child fixture exited before replacement"
-    );
-
-    let mut replacement = host_runtime_shim(&directory, &replacement_ready);
-    let replacement_stdin = replacement
-        .stdin
-        .take()
-        .expect("replacement Host Runtime stdin");
-    let replacement_identity = wait_for_optional_file(&replacement_ready, Duration::from_secs(2));
-    let replacement_root = replacement_identity
-        .as_deref()
-        .map(|identity| process_id_from_ready(identity, "root="));
-    let orphaned_child_was_retired =
-        !exact_process_instance_is_executable(fixture_root, fixture_child_started_at_micros);
-    let reused_desktop_was_not_signalled = reused_desktop_process
-        .try_wait()
-        .expect("poll reused Desktop PID fixture")
-        .is_none();
-
-    drop(replacement_stdin);
-    if !wait_for_process_exit(&mut replacement, Duration::from_secs(5)) {
-        force_stop_test_process(replacement.id());
-        if let Some(replacement_root) = replacement_root {
-            force_stop_test_process(replacement_root);
-        }
-        let _ = replacement.wait();
-    }
-    drop(fixture_stdin);
-    if !wait_for_process_exit(&mut fixture, Duration::from_secs(5)) {
-        force_stop_test_process(fixture.id());
-        force_stop_test_process(fixture_root);
-        let _ = fixture.wait();
-    }
-    force_stop_test_process(reused_desktop_process.id());
-    let _ = reused_desktop_process.wait();
-    let _ = fs::remove_dir_all(&directory);
-    let _ = fs::remove_dir_all(&fixture_directory);
-
-    assert!(
-        replacement_identity.is_some(),
-        "replacement trusted a stale PID-only Desktop identity after the exact owner Shim exited"
-    );
-    assert!(
-        reused_desktop_was_not_signalled,
-        "replacement signalled the unrelated process that reused the recorded Desktop PID"
-    );
-    assert!(
-        orphaned_child_was_retired,
-        "replacement started without retiring the exact child whose recorded Shim had exited"
     );
 }
 

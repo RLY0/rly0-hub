@@ -140,12 +140,6 @@ function optionalField<Name extends string>(
   return value === undefined ? {} : ({ [name]: value } as Partial<Record<Name, string>>);
 }
 
-function detail(error: HarnessError): string {
-  const message =
-    typeof error.message === "string" ? error.message.replace(/\s+/gu, " ").trim() : "";
-  return message ? `: ${message.slice(0, 240)}` : "";
-}
-
 export function mapExternalThreadHarnessError(
   error: HarnessError,
   operation: "create" | "read" | "resume" | "fork" | "turn",
@@ -154,7 +148,13 @@ export function mapExternalThreadHarnessError(
     case "invalidRequest":
       return { code: -32602, message: `External Thread ${operation} request is invalid` };
     case "sessionBusy":
-      return { code: -32072, message: "External Thread has an active operation" };
+      return {
+        code: -32072,
+        message:
+          operation === "resume"
+            ? "External Native Session is busy. Close it in the other client or wait for its active operation to finish, then retry."
+            : "External Thread has an active operation",
+      };
     case "unsupported":
       return { code: -32076, message: `External Harness does not support ${operation}` };
     case "sessionNotFound":
@@ -165,17 +165,13 @@ export function mapExternalThreadHarnessError(
     case "unavailable":
     case "authenticationRequired":
     case "configurationRequired":
-      return { code: -32077, message: `External Harness is unavailable${detail(error)}` };
+      return { code: -32077, message: "External Harness is unavailable" };
     case "nativeFailure":
     case "protocolError":
     case "processExited":
     case "internalError":
     case "invalidState":
-      // The adapter's own (already sanitized) reason, so the person can see why it failed.
-      return {
-        code: -32076,
-        message: `External Thread ${operation} failed${detail(error)}`,
-      };
+      return { code: -32076, message: `External Thread ${operation} failed` };
   }
 }
 

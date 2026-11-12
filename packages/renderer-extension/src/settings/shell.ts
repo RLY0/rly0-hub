@@ -7,6 +7,8 @@ import welcomeCss from "./rly0-welcome.css";
 import consoleComponentsCss from "../console/components.css";
 import usageCss from "../console/usage/usage.css";
 import tailwindCss from "./tailwind.css";
+import coloredBrandCss from "../renderer-brand-mark.css";
+import { createRendererColoredBrandMark } from "../renderer-brand-mark.js";
 import {
   RendererSettingsNavigationState,
   RendererSettingsPageScope,
@@ -14,7 +16,7 @@ import {
   type RendererSettingsPageDefinition,
   type RendererSettingsPageRegistry,
 } from "./core.js";
-import { createRendererSettingsBrandIcon, createRendererSettingsIcon } from "./icons.js";
+import { createRendererSettingsIcon } from "./icons.js";
 import {
   DEFAULT_RENDERER_SETTINGS_MESSAGES,
   type RendererSettingsMessages,
@@ -77,7 +79,7 @@ export function mountRendererSettingsShell(
   const shadow = root.attachShadow({ mode: "open" });
   const style = ownerDocument.createElement("style");
   // Tailwind declares the cascade layer order, so it must precede the unlayered settings CSS.
-  style.textContent = `${tailwindCss}\n${settingsCss}\n${accountsCss}\n${consoleComponentsCss}\n${usageCss}\n${accountCardsCss}\n${relayCardsCss}\n${showcaseCss}\n${welcomeCss}`;
+  style.textContent = `${tailwindCss}\n${settingsCss}\n${accountsCss}\n${consoleComponentsCss}\n${usageCss}\n${coloredBrandCss}\n${accountCardsCss}\n${relayCardsCss}\n${showcaseCss}\n${welcomeCss}`;
 
   // A page beside the native navigation rail, not a modal: the rail stays
   // usable and native navigation replaces the page.
@@ -93,7 +95,7 @@ export function mountRendererSettingsShell(
   brand.className = "settings-brand";
   const brandMark = ownerDocument.createElement("span");
   brandMark.className = "settings-brand__mark";
-  brandMark.append(createRendererSettingsBrandIcon(32));
+  brandMark.append(createRendererColoredBrandMark(ownerDocument, 24));
   const brandCopy = ownerDocument.createElement("span");
   brandCopy.className = "settings-brand__copy";
   const brandName = ownerDocument.createElement("span");

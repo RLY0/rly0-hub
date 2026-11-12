@@ -20,7 +20,8 @@ describe("Renderer settings foundation", () => {
     expect(pages.map(({ label }) => label)).toEqual([
       "Dashboard",
       "Connections",
-      "Remote connections",
+      "Phone & browser",
+      "Other computers (SSH)",
       "Accounts",
       "Relays",
       "Session Import",
@@ -36,6 +37,7 @@ describe("Renderer settings foundation", () => {
     expect(pages.map(({ icon }) => icon)).toEqual([
       "dashboard",
       "connections",
+      "mobile",
       "gateway",
       "accounts",
       "relay",
@@ -60,6 +62,7 @@ describe("Renderer settings foundation", () => {
     expect(pages.map(({ id }) => id)).toEqual([
       "dashboard",
       "connections",
+      "mobile-web",
       "remote-connections",
       "accounts",
       "relay",

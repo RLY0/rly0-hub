@@ -15,6 +15,17 @@ import type { RendererConnectionGeneration } from "./renderer-connection-generat
 /** A main-process AppServerManager reached through its Renderer RPC client. It
  * exposes only Host requests and notifications, never native manager internals. */
 export interface RendererHostRpcManager {
+  getConversation?(threadId: string): Promise<unknown>;
+  replyWithCommandExecutionApprovalDecision?(
+    threadId: string,
+    requestId: string | number,
+    decision: string,
+  ): Promise<unknown>;
+  replyWithFileChangeApprovalDecision?(
+    threadId: string,
+    requestId: string | number,
+    decision: string,
+  ): Promise<unknown>;
   readonly kind: "main-process-rpc";
   getHostId(): string;
   sendRequest(method: string, params: unknown, options?: unknown): Promise<unknown>;
@@ -107,7 +118,7 @@ export function installRendererHostRouting(
     hostId: string,
     discovery?: RendererHostDiscovery,
   ): RendererNativeRequestManager | null => {
-    if (disposed) return null;
+    if (disposed || hostId === "durable") return null;
     try {
       return resolve(discovery ?? read(), hostId);
     } catch {
@@ -207,7 +218,9 @@ export function installRendererHostRouting(
     knownHostIds() {
       if (disposed) return [];
       try {
-        return [...read().hostIds];
+        return [...read().hostIds].filter(
+          (hostId) => hostId !== "durable" && connectionFor(hostId) !== null,
+        );
       } catch {
         return [];
       }
