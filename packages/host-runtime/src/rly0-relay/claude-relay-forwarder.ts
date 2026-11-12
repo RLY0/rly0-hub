@@ -34,6 +34,24 @@ export interface ClaudeRelayForwarderOptions {
   readonly observeResponse?: (relayId: string, headers: http.IncomingHttpHeaders) => void;
 }
 
+/**
+ * Where a forwarded request goes: always the relay saved now. `built` is the target from the last
+ * successful rebuild of the relay overlays; when that rebuild failed or has not seen the switch
+ * yet (rly0-core busy or timed out, relay list unavailable), the saved relay is still used through
+ * the known local proxy, which itself checks the relay and adds its current key. Without this a
+ * failed rebuild kept every open Thread on the previous credential until the host restarted.
+ */
+export function followSavedClaudeRelay(
+  savedRelayId: string | null,
+  built: ClaudeRelayTarget | null,
+  proxyBaseUrl: string | null,
+): ClaudeRelayTarget | null {
+  if (!savedRelayId) return null;
+  if (built?.relayId === savedRelayId) return built;
+  const proxy = built?.proxyBaseUrl || proxyBaseUrl;
+  return proxy ? { proxyBaseUrl: proxy, relayId: savedRelayId } : null;
+}
+
 const PREFIX = "/claude-code";
 const MAX_REWRITTEN_ERROR_BYTES = 64 * 1024;
 

@@ -12,6 +12,7 @@ import {
 import {
   ClaudeRelayForwarder,
   describeClaudeAlternatives,
+  followSavedClaudeRelay,
   type ClaudeRelayTarget,
 } from "../src/rly0-relay/claude-relay-forwarder.js";
 
@@ -233,6 +234,36 @@ describe("Claude relay forwarder", () => {
 
     current = { proxyBaseUrl: proxy.baseUrl, relayId: "bbbbbbbbbbbb" };
     expect(await post(url, "{}")).toEqual({ status: 200, text: '{"ok":true}' });
+  });
+});
+
+describe("followSavedClaudeRelay", () => {
+  const proxy = "http://127.0.0.1:25918/v1";
+
+  it("uses the rebuilt target when it matches the saved relay", () => {
+    const built = { proxyBaseUrl: proxy, relayId: "aaaaaaaaaaaa" };
+    expect(followSavedClaudeRelay("aaaaaaaaaaaa", built, null)).toBe(built);
+  });
+
+  it("follows a switch the last rebuild missed instead of keeping the old credential", () => {
+    // The rebuild after the switch failed (rly0-core busy): the old target is still built.
+    const stale = { proxyBaseUrl: proxy, relayId: "aaaaaaaaaaaa" };
+    expect(followSavedClaudeRelay("bbbbbbbbbbbb", stale, null)).toEqual({
+      proxyBaseUrl: proxy,
+      relayId: "bbbbbbbbbbbb",
+    });
+    // A rebuild that did not list the new relay leaves no target; the known proxy is used.
+    expect(followSavedClaudeRelay("bbbbbbbbbbbb", null, proxy)).toEqual({
+      proxyBaseUrl: proxy,
+      relayId: "bbbbbbbbbbbb",
+    });
+  });
+
+  it("goes back to Claude Code's own login only when nothing is saved", () => {
+    expect(
+      followSavedClaudeRelay(null, { proxyBaseUrl: proxy, relayId: "aaaaaaaaaaaa" }, proxy),
+    ).toBe(null);
+    expect(followSavedClaudeRelay("bbbbbbbbbbbb", null, null)).toBe(null);
   });
 });
 

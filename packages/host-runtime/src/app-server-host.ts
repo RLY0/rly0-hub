@@ -299,6 +299,7 @@ import { officialVendorOf, Rly0OfficialKeyModels } from "./rly0-relay/official-k
 import {
   ClaudeRelayForwarder,
   describeClaudeAlternatives,
+  followSavedClaudeRelay,
   type ClaudeRelayTarget,
 } from "./rly0-relay/claude-relay-forwarder.js";
 import { Rly0OfficialKeyUsage } from "./rly0-relay/official-key-usage.js";
@@ -1004,6 +1005,8 @@ export class AppServerHost {
   #claudeCodeRelaySaved: string | null | undefined;
   /** Where the forwarder sends Claude Code's requests now (see ClaudeRelayForwarder). */
   #claudeRelayTarget: ClaudeRelayTarget | null = null;
+  /** The local proxy the last rebuild used; lets the forwarder follow a switch a rebuild missed. */
+  #relayProxyBaseUrl: string | null = null;
   readonly #unifiedResponsesForwarder = new UnifiedResponsesForwarder();
   readonly #claudeRelayForwarder = new ClaudeRelayForwarder({
     resolve: () => this.#currentClaudeRelay(),
@@ -1036,7 +1039,7 @@ export class AppServerHost {
     string,
     (environment: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
   >();
-  #relayRefresh: Promise<void> | null = null;
+  #relayRefresh: Promise<boolean> | null = null;
   #relayWatchTimer: ReturnType<typeof setInterval> | undefined;
   #relaySettingsStamp = "";
   /** The standalone Hub's requests to reload the official backend after an account switch. */
@@ -1719,10 +1722,11 @@ export class AppServerHost {
         .stat(this.#rly0AgentRelays.path())
         .then((stat) => `${stat.mtimeMs}:${stat.size}`)
         .catch(() => "missing")
-        .then((stamp) => {
-          if (stamp === this.#relaySettingsStamp) return;
-          this.#relaySettingsStamp = stamp;
-          return this.#refreshRelayOverlays();
+        .then(async (stamp) => {
+          // Wait out a rebuild in flight: it may have read the file before this change.
+          if (stamp === this.#relaySettingsStamp || this.#relayRefresh) return;
+          // Only a rebuild that went through counts; a failed one is retried on the next tick.
+          if (await this.#refreshRelayOverlays()) this.#relaySettingsStamp = stamp;
         });
     };
     // Heartbeat for the standalone Hub: "Codex is open through RLY/0 Hub" (see codex-control).
@@ -1807,9 +1811,16 @@ export class AppServerHost {
     });
   }
 
-  #refreshRelayOverlays(): Promise<void> {
+  /** Rebuilds the relay overlays once at a time; resolves whether the rebuild went through. */
+  #refreshRelayOverlays(): Promise<boolean> {
     this.#relayRefresh ??= this.#buildRelayOverlays()
-      .catch((error: unknown) => this.#diagnose(error))
+      .then(
+        () => true,
+        (error: unknown) => {
+          this.#diagnose(error);
+          return false;
+        },
+      )
       .finally(() => {
         this.#relayRefresh = null;
       });
@@ -1841,6 +1852,7 @@ export class AppServerHost {
       };
       const needsProxy = wanted.some((id) => usable(id));
       const proxyBaseUrl = needsProxy ? await this.#rly0RelayModels.ensureProxy() : "";
+      if (proxyBaseUrl) this.#relayProxyBaseUrl = proxyBaseUrl;
       const claude = usable(saved.claudeCode);
       if (claude) {
         claudeApplied = claude.id;
@@ -1896,11 +1908,22 @@ export class AppServerHost {
     this.#claudeCodeOfficialKey = claudeOfficialKey;
   }
 
-  /** Per forwarded request: the relay saved now, rebuilt first when the Hub changed it. */
+  /**
+   * Per forwarded request: the relay saved now, rebuilt first when the Hub changed it. A rebuild
+   * that fails or misses the new relay must not keep the request on the previous credential.
+   */
   async #currentClaudeRelay(): Promise<ClaudeRelayTarget | null> {
     const saved = await this.#rly0AgentRelays.get();
     if (saved.claudeCode !== this.#claudeCodeRelaySaved) await this.#refreshRelayOverlays();
-    return this.#claudeRelayTarget;
+    if (!saved.claudeCode || this.#claudeRelayTarget?.relayId === saved.claudeCode)
+      return followSavedClaudeRelay(saved.claudeCode, this.#claudeRelayTarget, null);
+    const proxyBaseUrl =
+      this.#relayProxyBaseUrl ??
+      (await this.#rly0RelayModels.ensureProxy().catch((error: unknown) => {
+        this.#diagnose(error);
+        return null;
+      }));
+    return followSavedClaudeRelay(saved.claudeCode, this.#claudeRelayTarget, proxyBaseUrl);
   }
 
   /** The other saved Anthropic tokens/keys and their last known quota, for a 429. */
