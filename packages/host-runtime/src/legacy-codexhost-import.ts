@@ -23,6 +23,24 @@ const MARKER_FILE = ".legacy-codexhost-import.json";
 const SUPERSEDED_DIRECTORY = "legacy-superseded";
 /** Top-level data folders whose files are merged in without overwriting anything. */
 const MERGE_DIRECTORIES = ["antigravity-history"] as const;
+/**
+ * Hub files that Hub releases before the v0.18.0 fusion kept in `~/.codexhost` (no data-directory
+ * override in packaged builds). Copied once, only while absent in the Hub root; never moved.
+ */
+const HUB_CARRY_OVER = ["harness-display-settings-v1.json", "usage-statistics", "pricing"] as const;
+
+function carryOverHubFiles(legacyRoot: string, targetRoot: string): void {
+  for (const name of HUB_CARRY_OVER) {
+    const target = path.join(targetRoot, name);
+    if (existsSync(target)) continue;
+    try {
+      mkdirSync(targetRoot, { recursive: true });
+      copyMissing(path.join(legacyRoot, name), target);
+    } catch {
+      /* Best effort: caches rebuild and settings fall back to defaults. */
+    }
+  }
+}
 
 export interface LegacyImportResult {
   readonly imported: boolean;
@@ -243,7 +261,13 @@ function resolveRoots(
   environment: NodeJS.ProcessEnv,
   home: string,
 ): { roots: Roots } | { skip: string } {
-  if (environment.CODEXHOST_DATA_DIR) return { skip: "custom-data-dir" };
+  // The launcher and shared Host pass the Hub's own default explicitly; only another root is custom.
+  if (
+    environment.CODEXHOST_DATA_DIR &&
+    path.resolve(environment.CODEXHOST_DATA_DIR) !==
+      path.resolve(home, RLY0_HOME_DATA_DIRECTORY_NAME)
+  )
+    return { skip: "custom-data-dir" };
   if (environment.RLY0_SKIP_LEGACY_IMPORT === "1") return { skip: "disabled" };
   const legacyRoot = path.join(home, LEGACY_CODEXHOST_DIRECTORY_NAME);
   const targetRoot = path.join(home, RLY0_HOME_DATA_DIRECTORY_NAME);
@@ -377,6 +401,7 @@ export function importLegacyCodexHostData(
   const resolved = resolveRoots(environment, options.home ?? os.homedir());
   if ("skip" in resolved) return { imported: false, reason: resolved.skip };
   const { legacyRoot, targetRoot, legacyStore, store } = resolved.roots;
+  carryOverHubFiles(legacyRoot, targetRoot);
   const threads = readLegacyThreads(legacyStore);
   if (threads.length === 0) {
     // Imported earlier and the old CodexHost removed since: still repair what was brought over.

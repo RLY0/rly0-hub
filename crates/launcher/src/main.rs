@@ -1345,7 +1345,7 @@ fn launch_gui(
             &launcher_executable,
             &descriptor_path,
             managed_desktop_data_directory(
-                startup_record::data_directory().map(PathBuf::into_os_string),
+                env::var_os(DATA_DIRECTORY_ENV),
                 env::var_os(REMOTE_SSH_MANAGED_ENV),
             ),
         );
@@ -1461,7 +1461,7 @@ fn launch_gui(
         &launcher_executable,
         &descriptor_path,
         managed_desktop_data_directory(
-            startup_record::data_directory().map(PathBuf::into_os_string),
+            env::var_os(DATA_DIRECTORY_ENV),
             env::var_os(REMOTE_SSH_MANAGED_ENV),
         ),
     );

@@ -240,6 +240,37 @@ describe("importLegacyCodexHostData", () => {
     expect(existsSync(target(home, "threads", "cccccccc.json"))).toBe(false);
   });
 
+  it("still imports when the launcher passes the Hub's own default data directory", () => {
+    const home = makeHome();
+    const result = importLegacyCodexHostData(
+      { CODEXHOST_DATA_DIR: path.join(home, ".rly0-hub") },
+      { home },
+    );
+    expect(result).toEqual({ imported: true, reason: "imported", threads: 2 });
+  });
+
+  it("carries pre-fusion Hub files over once, never replacing or moving them", () => {
+    const home = makeHome();
+    const legacy = path.join(home, ".codexhost");
+    writeFileSync(path.join(legacy, "harness-display-settings-v1.json"), "legacy-settings");
+    mkdirSync(path.join(legacy, "usage-statistics", "v7"), { recursive: true });
+    writeFileSync(path.join(legacy, "usage-statistics", "v7", "s.json"), "stats");
+    mkdirSync(path.join(home, ".rly0-hub", "pricing"), { recursive: true });
+    writeFileSync(path.join(home, ".rly0-hub", "pricing", "p.json"), "hub");
+    mkdirSync(path.join(legacy, "pricing"), { recursive: true });
+    writeFileSync(path.join(legacy, "pricing", "old.json"), "old");
+    importLegacyCodexHostData({}, { home });
+    const hub = (...parts: string[]) => path.join(home, ".rly0-hub", ...parts);
+    expect(readFileSync(hub("harness-display-settings-v1.json"), "utf8")).toBe("legacy-settings");
+    expect(readFileSync(hub("usage-statistics", "v7", "s.json"), "utf8")).toBe("stats");
+    // An existing Hub directory is left as it is.
+    expect(existsSync(hub("pricing", "old.json"))).toBe(false);
+    writeFileSync(hub("harness-display-settings-v1.json"), "hub-settings");
+    importLegacyCodexHostData({}, { home });
+    expect(readFileSync(hub("harness-display-settings-v1.json"), "utf8")).toBe("hub-settings");
+    expect(existsSync(path.join(legacy, "harness-display-settings-v1.json"))).toBe(true);
+  });
+
   it("skips for a custom data directory, when disabled, or without legacy data", () => {
     const home = makeHome();
     expect(importLegacyCodexHostData({ CODEXHOST_DATA_DIR: "/x" }, { home }).reason).toBe(

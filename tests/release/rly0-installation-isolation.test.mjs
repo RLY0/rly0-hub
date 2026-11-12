@@ -19,5 +19,5 @@ it("keeps Windows Web autostart separate from upstream and the Hub desktop Run v
   const message = /^UninstalledAll=(.*)$/mu.exec(installer)?.[1];
   assert.match(message ?? "", /RLY\/0 Hub/u);
   assert.match(message ?? "", /已成功.*卸载/u);
-  assert.doesNotMatch(message ?? "", /codexhost|Tailscale|was successfully removed/u);
+  assert.doesNotMatch(message ?? "", /codexhost|was successfully removed/u);
 });

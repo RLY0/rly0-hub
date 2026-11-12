@@ -24,8 +24,8 @@ fn missing_tools_report_specific_failures_before_installation_or_service_changes
         let bin = home.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         if action != "install" {
-            std::fs::create_dir_all(home.join(".rly0-hub/remote")).unwrap();
-            std::fs::write(home.join(".rly0-hub/remote/manifest.json"), "{}").unwrap();
+            std::fs::create_dir_all(home.join(".codexhost/remote")).unwrap();
+            std::fs::write(home.join(".codexhost/remote/manifest.json"), "{}").unwrap();
         }
         // Restrict PATH to this fixture: a tool installed on the test host must not mask
         // a missing remote prerequisite. Only filesystem/OS helpers are real executables.
@@ -59,7 +59,7 @@ fn missing_tools_report_specific_failures_before_installation_or_service_changes
             .unwrap();
         assert_eq!(result.status.code(), Some(expected), "{action}: {missing}");
         assert!(!home.join("calls").exists(), "{action}: {missing}");
-        assert!(!home.join(".rly0-hub/ssh-setup.lock").exists());
+        assert!(!home.join(".codexhost/ssh-setup.lock").exists());
     }
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -137,8 +137,8 @@ fn inspect_does_not_require_a_shell_or_node_and_requires_a_state_marker() {
             .unwrap()
     };
     assert_eq!(response_state(&run().stdout).unwrap(), "not-installed");
-    std::fs::create_dir_all(root.join(".rly0-hub/remote")).unwrap();
-    std::fs::write(root.join(".rly0-hub/remote/manifest.json"), "{}").unwrap();
+    std::fs::create_dir_all(root.join(".codexhost/remote")).unwrap();
+    std::fs::write(root.join(".codexhost/remote/manifest.json"), "{}").unwrap();
     assert_eq!(response_state(&run().stdout).unwrap(), "installed");
     for invalid in ["installed", "welcome", "__CODEXHOST_SSH_STATE__=unexpected"] {
         assert!(response_state(invalid.as_bytes()).is_err());
@@ -163,7 +163,7 @@ fn repair_preserves_desktop_selection_before_uninstalling_and_keeps_legacy_argum
     let mocks = r#"
 codexhost(){
   printf '%s\n' "$*" >> "$HOME/calls"
-  if [ "$2" = uninstall ]; then rm -f "$HOME/.rly0-hub/remote/manifest.json"; fi
+  if [ "$2" = uninstall ]; then rm -f "$HOME/.codexhost/remote/manifest.json"; fi
   return 0
 }
 "#;
@@ -179,7 +179,7 @@ codexhost(){
         ("invalid", Some("invalid"), "", 47),
     ] {
         let home = root.join(name);
-        let manifest = home.join(".rly0-hub/remote/manifest.json");
+        let manifest = home.join(".codexhost/remote/manifest.json");
         std::fs::create_dir_all(manifest.parent().unwrap()).unwrap();
         std::fs::write(
             &manifest,
@@ -241,7 +241,7 @@ codexhost(){
   case "$2" in
     stop) [ "${FAIL:-}" != stop ];;
     status) printf '%s\n' '{"protocol": "codexhost"}';;
-    uninstall) [ "${FAIL:-}" != uninstall ] || return 1; rm -f "$HOME/.rly0-hub/remote/manifest.json";;
+    uninstall) [ "${FAIL:-}" != uninstall ] || return 1; rm -f "$HOME/.codexhost/remote/manifest.json";;
     *) return 99;;
   esac
 }
@@ -290,7 +290,7 @@ codexhost(){
         ),
     ] {
         let home = root.join(name);
-        let remote = home.join(".rly0-hub/remote");
+        let remote = home.join(".codexhost/remote");
         let package = home.join("npm/@codexhost/cli");
         std::fs::create_dir_all(remote.join("data")).unwrap();
         std::fs::create_dir_all(&package).unwrap();
@@ -334,7 +334,7 @@ codexhost(){
             std::fs::read_to_string(remote.join("data/chat")).unwrap(),
             "keep"
         );
-        assert!(!home.join(".rly0-hub/ssh-setup.lock").exists());
+        assert!(!home.join(".codexhost/ssh-setup.lock").exists());
         if code == 0 {
             assert_eq!(response_state(&result.stdout).unwrap(), "not-installed");
         }
@@ -373,8 +373,8 @@ fn maintenance_finds_tools_beside_the_recorded_node() {
     std::fs::create_dir_all(&system).unwrap();
     executable(&system.join("node"), "#!/bin/sh\nexit 1\n");
     std::fs::create_dir_all(&bin).unwrap();
-    std::fs::create_dir_all(root.join(".rly0-hub/remote")).unwrap();
-    std::fs::write(root.join(".rly0-hub/remote/manifest.json"), "{}").unwrap();
+    std::fs::create_dir_all(root.join(".codexhost/remote")).unwrap();
+    std::fs::write(root.join(".codexhost/remote/manifest.json"), "{}").unwrap();
     for tool in ["node", "npm", "codexhost"] {
         use std::os::unix::fs::PermissionsExt;
         let path = bin.join(tool);
@@ -406,7 +406,7 @@ fn maintenance_finds_tools_beside_the_recorded_node() {
 #[test]
 fn takes_over_a_lock_left_by_an_interrupted_run() {
     let root = std::env::temp_dir().join(format!("codexhost-ssh-lock-{}", std::process::id()));
-    let lock = root.join(".rly0-hub/ssh-setup.lock");
+    let lock = root.join(".codexhost/ssh-setup.lock");
     std::fs::create_dir_all(&lock).unwrap();
     let mut r = request();
     r.action = "repair".into();
@@ -468,8 +468,8 @@ fn executes_initial_setup_and_refuses_an_existing_installation() {
         calls,
         "install -g @codexhost/cli@1.2.3\nremote install\nremote start\n"
     );
-    std::fs::create_dir_all(root.join(".rly0-hub/remote")).unwrap();
-    std::fs::write(root.join(".rly0-hub/remote/manifest.json"), "{}").unwrap();
+    std::fs::create_dir_all(root.join(".codexhost/remote")).unwrap();
+    std::fs::write(root.join(".codexhost/remote/manifest.json"), "{}").unwrap();
     let second = Command::new("sh")
         .args(["-c", &value])
         .env("HOME", &root)
@@ -477,7 +477,7 @@ fn executes_initial_setup_and_refuses_an_existing_installation() {
         .unwrap();
     assert_eq!(second.status.code(), Some(43));
     assert_eq!(std::fs::read_to_string(root.join("calls")).unwrap(), calls);
-    assert!(!root.join(".rly0-hub/ssh-setup.lock").exists());
+    assert!(!root.join(".codexhost/ssh-setup.lock").exists());
     r.action = "update".into();
     r.version = Some("1.2.4".into());
     let update = format!("{mocks}{}", script(&r).unwrap());
@@ -491,7 +491,7 @@ fn executes_initial_setup_and_refuses_an_existing_installation() {
         "{calls}view @codexhost/cli@1.2.4 version --fetch-retries=0 --fetch-timeout=30000\nremote stop\ninstall -g @codexhost/cli@1.2.4\nremote install\nremote stop\nremote start\n"
     );
     assert_eq!(std::fs::read_to_string(root.join("calls")).unwrap(), calls);
-    assert!(!root.join(".rly0-hub/ssh-setup.lock").exists());
+    assert!(!root.join(".codexhost/ssh-setup.lock").exists());
     r.action = "repair".into();
     r.version = None;
     let repair = format!("{mocks}{}", script(&r).unwrap());
