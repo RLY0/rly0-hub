@@ -63,6 +63,8 @@ mod windows_ui;
 /// Kept separate from upstream CodexHost so both can be installed side by side;
 /// `CODEXHOST_DATA_DIR` still overrides the data directory at runtime.
 pub const RLY0_HOME_DATA_DIRECTORY_NAME: &str = ".rly0-hub";
+mod data_directory;
+pub use data_directory::{configure_rly0_data_directory, rly0_data_directory};
 /// Directory under platform app-data roots (LOCALAPPDATA, Application Support, XDG state).
 pub const RLY0_APP_DATA_DIRECTORY_NAME: &str = "rly0-hub";
 

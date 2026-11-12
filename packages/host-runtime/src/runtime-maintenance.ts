@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
@@ -86,7 +87,8 @@ export class RuntimeMaintenance {
     this.#running = installation(options.runtimePath, options.environment);
     const home = options.environment.HOME ?? homedir();
     this.#statusPath = path.join(
-      options.environment.CODEXHOST_DATA_DIR ?? path.join(home, ".codexhost", "remote", "data"),
+      options.environment.CODEXHOST_DATA_DIR ??
+        path.join(home, RLY0_HOME_DATA_DIRECTORY_NAME, "remote", "data"),
       "remote-update.json",
     );
     this.#cancelPath = path.join(path.dirname(this.#statusPath), "remote-update.cancel");

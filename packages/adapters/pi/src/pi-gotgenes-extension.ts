@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -49,7 +50,10 @@ export async function ensureGotgenesExtension(environment: NodeJS.ProcessEnv): P
   const digest = createHash("sha256").update(GOTGENES_EXTENSION).digest("hex").slice(0, 16);
   const root =
     environment.CODEXHOST_DATA_DIR ??
-    path.join(environment.HOME ?? environment.USERPROFILE ?? homedir(), ".codexhost");
+    path.join(
+      environment.HOME ?? environment.USERPROFILE ?? homedir(),
+      RLY0_HOME_DATA_DIRECTORY_NAME,
+    );
   const directory = path.resolve(root, "extensions", "pi-subagent-observer");
   const file = path.join(directory, `${digest}.mjs`);
   if ((await readFile(file, "utf8").catch(() => "")) === GOTGENES_EXTENSION) return file;

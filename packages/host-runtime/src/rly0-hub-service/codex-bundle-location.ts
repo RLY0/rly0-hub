@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,7 +20,7 @@ export async function readLauncherCodexBundle(
   const directory =
     environment.CODEXHOST_DATA_DIR && path.isAbsolute(environment.CODEXHOST_DATA_DIR)
       ? environment.CODEXHOST_DATA_DIR
-      : path.join(environment.HOME ?? os.homedir(), ".codexhost");
+      : path.join(environment.HOME ?? os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME);
   try {
     const bytes = await fs.readFile(
       path.join(directory, "diagnostics", "launcher-startup-v1.json"),

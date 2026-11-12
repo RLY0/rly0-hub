@@ -5,7 +5,7 @@ use std::process::Command;
 use super::{home, read_file, remove_file, systemd_arguments, systemd_unit, validate_arguments};
 use crate::PlatformError;
 
-const UNIT: &str = "codexhost-autostart.service";
+const UNIT: &str = "rly0-hub-autostart.service";
 
 fn path() -> Result<PathBuf, PlatformError> {
     let config = match std::env::var_os("XDG_CONFIG_HOME") {

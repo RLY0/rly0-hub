@@ -54,7 +54,7 @@ export async function restartDevelopmentHost({
   for (const key of Object.keys(env)) {
     if (key.startsWith("CODEXHOST_NPM_") || key === "CODEXHOST_DEV_VERSION") delete env[key];
   }
-  const data = path.resolve(env.CODEXHOST_DATA_DIR || path.join(homedir(), ".codexhost"));
+  const data = path.resolve(env.CODEXHOST_DATA_DIR || path.join(homedir(), ".rly0-hub"));
   const owner = await readHost(data);
   const currentFingerprint = await fingerprint(root);
   const recordPath = path.join(data, "dev-host-fingerprint.json");

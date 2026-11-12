@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import {
   AgentCliUpdateAdmission,
   AGENT_CLI_UPDATE_BUSY_MESSAGE,
@@ -1137,7 +1138,10 @@ export class AppServerHost {
       new UsageMeasurementsStore(
         path.resolve(
           (options.environment ?? process.env).CODEXHOST_DATA_DIR ??
-            path.join((options.environment ?? process.env).HOME ?? os.homedir(), ".codexhost"),
+            path.join(
+              (options.environment ?? process.env).HOME ?? os.homedir(),
+              RLY0_HOME_DATA_DIRECTORY_NAME,
+            ),
         ),
         (error) => this.#diagnose(error),
       ),
@@ -1192,7 +1196,8 @@ export class AppServerHost {
     this.#displaySettings = new HarnessDisplaySettingsStore(options.environment ?? process.env);
     this.#preferences = new HarnessPreferencesStore(
       path.resolve(
-        environment.CODEXHOST_DATA_DIR ?? path.join(environment.HOME ?? os.homedir(), ".codexhost"),
+        environment.CODEXHOST_DATA_DIR ??
+          path.join(environment.HOME ?? os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
       ),
     );
     this.#launchSettings = new HarnessLaunchSettingsStore(

@@ -89,7 +89,7 @@ describe("Pi Host Fast", () => {
     ]);
     if (!file) throw new Error("Missing bundled resource");
     expect(file).toBe(second);
-    expect(file).toContain(path.join(".codexhost", "extensions", "pi-codex-fast"));
+    expect(file).toContain(path.join(".rly0-hub", "extensions", "pi-codex-fast"));
     expect(await readFile(file, "utf8")).toBe(PI_FAST_EXTENSION);
     await expect(readFile(path.join(home, ".pi/agent/settings.json"))).rejects.toThrow();
     const dataDirectory = path.join(home, "host-data");
@@ -127,7 +127,7 @@ describe("Pi Host Fast", () => {
       });
 
       await expect(ensurePiFastExtension({ HOME: home })).rejects.toBe(failure);
-      const files = await readdir(path.join(home, ".codexhost", "extensions", "pi-codex-fast"));
+      const files = await readdir(path.join(home, ".rly0-hub", "extensions", "pi-codex-fast"));
       expect(files).toHaveLength(state === "invalid" ? 1 : 0);
       expect(files.every((file) => file.endsWith(".mjs"))).toBe(true);
     },

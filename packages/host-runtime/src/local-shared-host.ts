@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import path from "node:path";
 import { homedir } from "node:os";
 import {
@@ -33,7 +34,7 @@ export function sharedHostDataDirectory(
   home = environment.HOME ?? environment.USERPROFILE ?? homedir(),
 ): string {
   const configured = environment.CODEXHOST_SHARED_DATA_DIR;
-  if (!configured?.trim()) return path.resolve(home, ".codexhost");
+  if (!configured?.trim()) return path.resolve(home, RLY0_HOME_DATA_DIRECTORY_NAME);
   if (!path.isAbsolute(configured))
     throw new Error("Shared Host data directory must be an absolute path");
   return path.resolve(configured);
@@ -120,7 +121,7 @@ export async function runLocalDesktopBridge(
       runtime,
       stockCodex,
       dataDirectory: path.resolve(
-        environment.CODEXHOST_DATA_DIR ?? path.join(homedir(), ".codexhost"),
+        environment.CODEXHOST_DATA_DIR ?? path.join(homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
       ),
       ...(environment.CODEX_HOME ? { codexHome: environment.CODEX_HOME } : {}),
     },

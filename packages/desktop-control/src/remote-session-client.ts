@@ -2,6 +2,7 @@ import { readFile, lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, isAbsolute } from "node:path";
 import {
+  RLY0_APP_DATA_DIRECTORY_NAME,
   remoteSessionOperationSchema,
   remoteSessionRequestBytes,
   REMOTE_CONTROLLER_REQUEST_MAX_BYTES,
@@ -37,7 +38,7 @@ export function remoteSessionDescriptorPaths(
     ...new Set(
       bases
         .filter((base): base is string => !!base && isAbsolute(base))
-        .map((base) => join(base, "codexhost", "desktop-runtime-v1.json")),
+        .map((base) => join(base, RLY0_APP_DATA_DIRECTORY_NAME, "desktop-runtime-v1.json")),
     ),
   ];
 }

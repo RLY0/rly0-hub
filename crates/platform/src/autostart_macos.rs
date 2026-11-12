@@ -7,7 +7,7 @@ use super::{home, launch_agent, read_file, remove_file, validate_arguments};
 use crate::PlatformError;
 
 fn path() -> Result<PathBuf, PlatformError> {
-    Ok(home()?.join("Library/LaunchAgents/ai.bytepioneer.codexhost.autostart.plist"))
+    Ok(home()?.join("Library/LaunchAgents/ai.rly0.hub.autostart.plist"))
 }
 
 pub(super) fn read() -> Result<Option<String>, PlatformError> {

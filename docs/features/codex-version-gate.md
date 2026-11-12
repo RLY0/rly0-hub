@@ -20,4 +20,6 @@ Codex 自己的主进程会按服务器开关（渲染进程发送的 `electron-
 
 技术接口、枚举、缓存边界及尚未通过的真实系统路径见 [.pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md](../../.pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md)。显示层、发布与线上验收由 Claude 集成；当前文档不表示已发布或真机验收。
 
+独立共享 Host 与 Web/Launcher/更新器默认共用 `~/.rly0-hub`，显式 `CODEXHOST_DATA_DIR` 仍用于隔离实例。早期 hold、Launcher 版本记录和状态诊断也从同一目录读取。关停 Desktop 的辅助进程时保留独立 Host/Web 的监管进程。Sparkle 更新正常退出前，Hub 在退出会话中绑定当前放行租约；独立 Host 仅在原生工作空闲时关闭原生后端准入并确认进程退出，保留外部助手任务。没有匹配确认时不发送退出；暂停期间 Web 与自动恢复不能重开旧后端。放行租约撤销或停止续期后解除暂停，按原有恢复策略启动曾运行的原生后端。真实 Sparkle 安装与跨平台进程验收仍需在获准环境执行。
+
 空闲判定集中为可替换的 CodexIdleDriver：心跳无任务且系统键鼠空闲 ≥5 分钟，再叠加连续 15 秒复核。Launcher 身份从实际 diagnostics 目录读取；辅助偏好损坏不丢失已保存的原自动更新值。第二次复查修复仅完成隔离自检，真实升级和修复后独立审查待验收。

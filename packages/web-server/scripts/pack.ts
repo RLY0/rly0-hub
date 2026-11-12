@@ -286,7 +286,7 @@ Recovery reconnects and reloads history; it does not resend uncertain commands.
 For an authenticated preview, use \`node preview.mjs\`.
 This launcher removes inherited CODEXHOST_* variables, CODEX_CLI_PATH, NODE_OPTIONS and NODE_PATH from the server environment.
 It defaults to every bundled session Harness (including Codex and Pi), listens on 127.0.0.1 (LAN access requires an explicit --host 0.0.0.0), keeps authentication enabled,
-and uses ~/.codexhost/web and ~/codexhost-web-preview-workspace.
+and uses ~/.rly0-hub/web and ~/codexhost-web-preview-workspace.
 Without --data, a custom --ch-data <root> also selects <root>/web.
 Old profiles, lock files and migration markers are not inspected or moved. There is no standalone migration or rollback entry.
 No Harness selection is needed; \`--harness <id,...>\` remains an optional advanced subset override.
@@ -319,7 +319,7 @@ The packed server uses only its bundled plugins unless --adapters is supplied.
 Install and authenticate each Harness CLI separately on the server machine.
 \`--adapters\` overrides the plugin directories (comma-separated); it does not install Harness CLIs.
 
-Web data lives in \`~/.codexhost/web\` (settings, the access token, push keys and uploaded attachments).
+Web data lives in \`~/.rly0-hub/web\` (settings, the access token, push keys and uploaded attachments).
 Shared canonical metadata remains in the Host's \`~/.codexhost\` and history remains native to each Harness.
 The default listener of app/server.mjs is localhost, and the first output line is a sign-in link for this computer.
 Other devices sign in with the access token shown on this computer in Settings → Connect devices; it

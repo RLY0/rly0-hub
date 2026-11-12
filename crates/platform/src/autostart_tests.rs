@@ -63,7 +63,7 @@ fn linux_registration_uses_only_the_isolated_user_service() {
     assert_eq!(linux::read().unwrap().unwrap(), content);
     #[cfg(target_os = "linux")]
     {
-        let path = home.join("config/systemd/user/codexhost-autostart.service");
+        let path = home.join("config/systemd/user/rly0-hub-autostart.service");
         let unchanged = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(3600);
         fs::File::open(&path)
             .unwrap()
@@ -81,7 +81,7 @@ fn linux_registration_uses_only_the_isolated_user_service() {
     linux::remove().unwrap();
     assert_eq!(
         fs::read_to_string(home.join("systemctl.calls")).unwrap(),
-        "--user show-environment\n--user show-environment\n--user enable codexhost-autostart.service\n--user show-environment\n--user disable codexhost-autostart.service\n"
+        "--user show-environment\n--user show-environment\n--user enable rly0-hub-autostart.service\n--user show-environment\n--user disable rly0-hub-autostart.service\n"
     );
     fs::remove_file(home.join("systemctl")).unwrap();
     assert!(
@@ -100,6 +100,7 @@ fn macos_launch_agent_runs_once_without_keepalive() {
         "--background".into(),
     ];
     let content = launch_agent(&arguments);
+    assert!(content.contains("<key>Label</key><string>ai.rly0.hub.autostart</string>"));
     assert!(content.contains("<key>RunAtLoad</key><true/>"));
     assert!(!content.contains("KeepAlive"));
     assert!(!content.contains("launchctl"));
@@ -276,6 +277,9 @@ fn macos_registration_lifecycle_in_temporary_home() {
     }
     let home = home().unwrap();
     assert!(home.starts_with(env::temp_dir()));
+    let upstream = home.join("Library/LaunchAgents/ai.bytepioneer.codexhost.autostart.plist");
+    fs::create_dir_all(upstream.parent().unwrap()).unwrap();
+    fs::write(&upstream, "synthetic upstream autostart; preserve verbatim").unwrap();
     let node = home.join("node");
     let wrapper = home.join("cli.js");
     fs::write(&node, "fixture").unwrap();
@@ -286,11 +290,19 @@ fn macos_registration_lifecycle_in_temporary_home() {
     };
     assert_eq!(autostart_status(), AutostartStatus::Off);
     refresh_autostart(&command).unwrap();
-    assert!(!home.join("Library").exists());
+    assert_eq!(
+        fs::read_to_string(&upstream).unwrap(),
+        "synthetic upstream autostart; preserve verbatim"
+    );
+    assert!(
+        !home
+            .join("Library/LaunchAgents/ai.rly0.hub.autostart.plist")
+            .exists()
+    );
     disable_autostart().unwrap();
     enable_autostart(&command).unwrap();
     assert_eq!(autostart_status(), AutostartStatus::On);
-    let path = home.join("Library/LaunchAgents/ai.bytepioneer.codexhost.autostart.plist");
+    let path = home.join("Library/LaunchAgents/ai.rly0.hub.autostart.plist");
     let before = fs::read(&path).unwrap();
     let unchanged = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(3600);
     fs::File::open(&path)
@@ -330,6 +342,10 @@ fn macos_registration_lifecycle_in_temporary_home() {
     disable_autostart().unwrap();
     assert!(!path.exists());
     disable_autostart().unwrap();
+    assert_eq!(
+        fs::read_to_string(upstream).unwrap(),
+        "synthetic upstream autostart; preserve verbatim"
+    );
     refresh_autostart(&command).unwrap();
     assert_eq!(autostart_status(), AutostartStatus::Off);
 }

@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -33,7 +34,7 @@ const TOKEN_PREFIX = "chc_";
 export function codexhostDataDirectory(environment: NodeJS.ProcessEnv): string {
   return environment.CODEXHOST_DATA_DIR
     ? path.resolve(environment.CODEXHOST_DATA_DIR)
-    : path.join(os.homedir(), ".codexhost");
+    : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME);
 }
 
 export function defaultExternalClientsPath(environment: NodeJS.ProcessEnv): string {

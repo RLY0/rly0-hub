@@ -212,7 +212,9 @@ fn run_delegation_cli(arguments: &[String]) -> Result<(), Box<dyn Error>> {
     let executable = env::current_exe()?.canonicalize()?;
     let resources = InstalledResources::from_executable(&executable)?;
     let node = delegation_node(&resources.node, env::var_os(CODEXHOST_CLI_NODE_PATH_ENV))?;
-    let status = Command::new(&node)
+    let mut command = Command::new(&node);
+    codexhost_platform::configure_rly0_data_directory(&mut command);
+    let status = command
         .arg(node_entrypoint_path(&resources.host_runtime))
         .arg("--codexhost-delegation-cli")
         .args(arguments)
@@ -1343,7 +1345,7 @@ fn launch_gui(
             &launcher_executable,
             &descriptor_path,
             managed_desktop_data_directory(
-                env::var_os(DATA_DIRECTORY_ENV),
+                startup_record::data_directory().map(PathBuf::into_os_string),
                 env::var_os(REMOTE_SSH_MANAGED_ENV),
             ),
         );
@@ -1459,7 +1461,7 @@ fn launch_gui(
         &launcher_executable,
         &descriptor_path,
         managed_desktop_data_directory(
-            env::var_os(DATA_DIRECTORY_ENV),
+            startup_record::data_directory().map(PathBuf::into_os_string),
             env::var_os(REMOTE_SSH_MANAGED_ENV),
         ),
     );

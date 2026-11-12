@@ -93,7 +93,7 @@ describe("delegation Skill installation", () => {
 
   it("briefly explains external integration and credentials without replacing Host access", () => {
     expect(CODEXHOST_DELEGATION_SKILL).toContain("suggest the external CLI, HTTP or MCP");
-    expect(CODEXHOST_DELEGATION_SKILL).toContain("~/.codexhost/cli-credentials.json");
+    expect(CODEXHOST_DELEGATION_SKILL).toContain("~/.rly0-hub/cli-credentials.json");
     expect(CODEXHOST_DELEGATION_SKILL).toContain("same-user CLI calls read them automatically");
     expect(CODEXHOST_DELEGATION_SKILL).toContain("Authorization: Bearer <token>");
     expect(CODEXHOST_DELEGATION_SKILL).toContain("codexhost client add <name>");

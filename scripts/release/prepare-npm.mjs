@@ -606,7 +606,7 @@ if (userArguments.length === 0) {
 } else if (userArguments[0] === "host") {
   if (userArguments[1] !== "ensure" && userArguments[1] !== "stop") fail("host expects ensure or stop");
   launchArguments = ["host", userArguments[1], "--node", process.execPath, "--host-runtime", hostRuntime,
-    "--data", updateEnvironment.CODEXHOST_DATA_DIR || path.join(homedir(), ".codexhost"), ...userArguments.slice(2)];
+    "--data", updateEnvironment.CODEXHOST_DATA_DIR || path.join(homedir(), ${JSON.stringify(RLY0_HOME_DATA_DIRECTORY_NAME)}), ...userArguments.slice(2)];
 } else if (userArguments[0] === "console" || userArguments[0] === "update") {
   launchArguments = null;
   consoleArguments = userArguments.slice(1);

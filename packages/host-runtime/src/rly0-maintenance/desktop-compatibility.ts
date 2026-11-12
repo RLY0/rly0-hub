@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { open, mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -121,7 +122,7 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     this.#controllerDirectory = path.join(
       options.environment.CODEXHOST_DATA_DIR
         ? path.resolve(options.environment.CODEXHOST_DATA_DIR)
-        : path.join(os.homedir(), ".codexhost"),
+        : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
       "diagnostics",
     );
   }

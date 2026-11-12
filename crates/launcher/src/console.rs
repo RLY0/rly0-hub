@@ -100,6 +100,7 @@ pub fn set_presentation(presentation: Presentation) {
 fn node_command(command: &ConsoleCommand) -> Result<Command, Box<dyn Error>> {
     let launcher = env::current_exe()?.canonicalize()?;
     let mut process = Command::new(&command.node);
+    codexhost_platform::configure_rly0_data_directory(&mut process);
     process
         // Suppress only the experimental proxy notice, not other diagnostics.
         .arg("--disable-warning=UNDICI-EHPA")

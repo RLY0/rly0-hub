@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -62,7 +63,10 @@ export async function ensurePiFastExtension(environment: NodeJS.ProcessEnv): Pro
   const digest = createHash("sha256").update(PI_FAST_EXTENSION).digest("hex").slice(0, 16);
   const dataDirectory =
     environment.CODEXHOST_DATA_DIR ??
-    path.join(environment.HOME ?? environment.USERPROFILE ?? homedir(), ".codexhost");
+    path.join(
+      environment.HOME ?? environment.USERPROFILE ?? homedir(),
+      RLY0_HOME_DATA_DIRECTORY_NAME,
+    );
   const directory = path.resolve(dataDirectory, "extensions", "pi-codex-fast");
   const file = path.join(directory, `${digest}.mjs`);
   if ((await readFile(file, "utf8").catch(() => "")) === PI_FAST_EXTENSION) return file;

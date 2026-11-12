@@ -25,11 +25,11 @@ it("does not let legacy listener environments select cwd for an empty shared dir
   const home = path.resolve("/profile"),
     custom = path.join(home, "custom");
   expect(sharedHostDataDirectory({ HOME: home, CODEXHOST_SHARED_DATA_DIR: "" })).toBe(
-    path.join(home, ".codexhost"),
+    path.join(home, ".rly0-hub"),
   );
   for (const value of [undefined, "", "  "])
     expect(sharedHostDataDirectory({ CODEXHOST_SHARED_DATA_DIR: value }, home)).toBe(
-      path.join(home, ".codexhost"),
+      path.join(home, ".rly0-hub"),
     );
   expect(sharedHostDataDirectory({ CODEXHOST_SHARED_DATA_DIR: custom }, home)).toBe(custom);
   expect(() => sharedHostDataDirectory({ CODEXHOST_SHARED_DATA_DIR: "relative" }, home)).toThrow(

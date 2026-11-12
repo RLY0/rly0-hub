@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,7 +10,7 @@ export const LAUNCHER_EXECUTABLE_ENV = "CODEXHOST_LAUNCHER_EXECUTABLE";
 export function dataDirectory(environment: NodeJS.ProcessEnv = process.env): string {
   return environment.CODEXHOST_DATA_DIR
     ? path.resolve(environment.CODEXHOST_DATA_DIR)
-    : path.join(os.homedir(), ".codexhost");
+    : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME);
 }
 
 export interface ConsolePaths {

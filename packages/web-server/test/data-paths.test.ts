@@ -5,6 +5,6 @@ import { it } from "node:test";
 import { defaultWebDataDirectory } from "../src/data-paths.ts";
 
 it("defaults to the Web subdirectory of the Host data root", () => {
-  assert.equal(defaultWebDataDirectory(), join(homedir(), ".codexhost", "web"));
+  assert.equal(defaultWebDataDirectory(), join(homedir(), ".rly0-hub", "web"));
   assert.equal(defaultWebDataDirectory("custom-host"), resolve("custom-host", "web"));
 });

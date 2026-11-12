@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { randomBytes } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -34,7 +35,7 @@ export interface ConsoleControlServer {
 export function consoleHostDescriptorDirectory(environment: NodeJS.ProcessEnv): string {
   const dataDirectory = environment.CODEXHOST_DATA_DIR
     ? path.resolve(environment.CODEXHOST_DATA_DIR)
-    : path.join(os.homedir(), ".codexhost");
+    : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME);
   return path.join(dataDirectory, CONSOLE_HOST_DESCRIPTOR_DIRECTORY);
 }
 

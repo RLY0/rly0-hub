@@ -298,7 +298,7 @@ fn background_web_refreshes_only_enabled_autostart_without_printing_login_link()
     let fixture = Fixture::new();
     let path = fixture
         .root
-        .join("Library/LaunchAgents/ai.bytepioneer.codexhost.autostart.plist");
+        .join("Library/LaunchAgents/ai.rly0.hub.autostart.plist");
     let output = fixture
         .public_command("web")
         .args(["--background", "--port", "4472"])
@@ -392,8 +392,8 @@ fn update_stop_leaves_console_and_remote_untouched() {
     }
     let mut fixture = Fixture::new();
     assert!(fixture.run("ensure").status.success());
-    fs::create_dir_all(fixture.root.join(".codexhost/remote")).unwrap();
-    fs::write(fixture.root.join(".codexhost/remote/manifest.json"), "{}").unwrap();
+    fs::create_dir_all(fixture.root.join(".rly0-hub/remote")).unwrap();
+    fs::write(fixture.root.join(".rly0-hub/remote/manifest.json"), "{}").unwrap();
     let output = fixture.public_command("stop-for-update").output().unwrap();
     assert!(
         output.status.success(),
@@ -632,8 +632,8 @@ fn stop_continues_after_failures_and_keeps_configuration() {
         "{}",
         String::from_utf8_lossy(&started.stderr)
     );
-    fs::create_dir_all(fixture.root.join(".codexhost/remote")).unwrap();
-    fs::write(fixture.root.join(".codexhost/remote/manifest.json"), "{}").unwrap();
+    fs::create_dir_all(fixture.root.join(".rly0-hub/remote")).unwrap();
+    fs::write(fixture.root.join(".rly0-hub/remote/manifest.json"), "{}").unwrap();
     fs::write(fixture.root.join("remote-fail"), "fail").unwrap();
     #[cfg(target_os = "macos")]
     {
@@ -649,12 +649,7 @@ fn stop_continues_after_failures_and_keeps_configuration() {
     }
     assert!(!fixture.root.join("web-service-ready.json").exists());
     assert!(!fixture.root.join("shared-host-ready.json").exists());
-    assert!(
-        fixture
-            .root
-            .join(".codexhost/remote/manifest.json")
-            .exists()
-    );
+    assert!(fixture.root.join(".rly0-hub/remote/manifest.json").exists());
     #[cfg(unix)]
     {
         let events = fs::read_to_string(fixture.root.join("events")).unwrap();
@@ -680,8 +675,8 @@ fn stopped_remote_installation_does_not_report_running_services_or_raw_json() {
             .status
             .success()
     );
-    fs::create_dir_all(fixture.root.join(".codexhost/remote")).unwrap();
-    fs::write(fixture.root.join(".codexhost/remote/manifest.json"), "{}").unwrap();
+    fs::create_dir_all(fixture.root.join(".rly0-hub/remote")).unwrap();
+    fs::write(fixture.root.join(".rly0-hub/remote/manifest.json"), "{}").unwrap();
     let first = fixture.public_command("stop").output().unwrap();
     assert!(
         first.status.success(),

@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 /**
  * codexhost Web server entry point.
  *
@@ -196,7 +197,7 @@ const displayDirectory = resolve(
   values["ch-data"] ??
     (values["ch-control-directory"]
       ? dirname(resolve(values["ch-control-directory"]))
-      : join(homedir(), ".codexhost")),
+      : join(homedir(), RLY0_HOME_DATA_DIRECTORY_NAME)),
 );
 const displayEntries = () => displaySettings.entries();
 const enabledHarnesses =
@@ -235,7 +236,7 @@ const chHost = await createChHostClient({
       values["ch-data"] ??
         (values["ch-control-directory"]
           ? dirname(resolve(values["ch-control-directory"]))
-          : join(homedir(), ".codexhost")),
+          : join(homedir(), RLY0_HOME_DATA_DIRECTORY_NAME)),
     ),
     bundledPlugins:
       PACKED && pluginSource === resolve(DISTRIBUTION_ROOT, "adapters")

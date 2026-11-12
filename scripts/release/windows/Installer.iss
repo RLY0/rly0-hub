@@ -82,7 +82,7 @@ Filename: "{app}\bin\codexhost.exe"; Parameters: "autostart off"; Flags: runhidd
 Type: filesandordirs; Name: "{app}"
 
 [Messages]
-UninstalledAll=%1 was successfully removed from your computer.%n%nTailscale Serve configuration is still retained. Run "tailscale serve status" to check it. If the HTTPS 443 root path points to codexhost, remove only that path with "tailscale serve --https=443 --set-path=/ off" (use the actual HTTPS port if different).
+UninstalledAll=%1 已成功从你的电脑中卸载。%n%nRLY/0 Hub 的用户数据已保留。%n%n如果你开启过 Tailscale 远程访问，相关配置仍保留，可运行以下命令关闭：%ntailscale serve --https=443 --set-path=/ off
 
 [Code]
 var

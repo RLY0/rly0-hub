@@ -16,6 +16,7 @@ import {
 import { createOwnedLoopbackBackend } from "./codex-runtime/owned-official-backends.js";
 import { OfficialAdmissionError } from "./codex-runtime/official-work-gate.js";
 import { resolveOfficialCodexExecutable } from "./codex-runtime/command.js";
+import { watchDesktopUpdatePause } from "./codex-runtime/desktop-update-pause.js";
 
 export interface PreparedLocalCodex {
   officialRuntimeScope: OfficialRuntimeScope;
@@ -125,6 +126,10 @@ export async function prepareLocalCodex(input: {
     throw error;
   }
   let current: ReturnType<typeof currentCodexAccountFromOfficialRead> = null;
+  const updatePause =
+    input.deferStart && !input.remoteControl
+      ? watchDesktopUpdatePause(scope, input.environment)
+      : undefined;
   const snapshot = () => ({
     version: 2 as const,
     currentAccountId: current?.accountId ?? null,
@@ -186,6 +191,7 @@ export async function prepareLocalCodex(input: {
       if (changed && scope.owner.generation > 0) await scope.stop();
     },
     close: async () => {
+      await updatePause?.close();
       await scope.close();
       identityReader.close();
     },

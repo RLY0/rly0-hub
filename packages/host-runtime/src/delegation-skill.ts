@@ -56,7 +56,7 @@ target is unknown. Prefer compact output when supported, and use its task links
 directly for subsequent commands.
 
 When users want delegation in another app, suggest the external CLI, HTTP or MCP.
-The running Host saves private local credentials in ~/.codexhost/cli-credentials.json
+The running Host saves private local credentials in ~/.rly0-hub/cli-credentials.json
 (or the configured data directory); same-user CLI calls read them automatically.
 HTTP/MCP clients can use that token in Authorization: Bearer <token>.
 For a separate client identity, run \`codexhost client add <name>\` and store the

@@ -142,8 +142,9 @@ describe("platform packagers", () => {
     expect(installer).toContain('Parameters: "--exit"; Flags: runhidden skipifdoesntexist; RunOnceId: "StopHub"');
     expect(installer).toContain('ValueName: "RLY0Hub"; Flags: uninsdeletevalue dontcreatekey');
     expect(installer).not.toMatch(/RegDelete|taskkill/iu);
-    expect(installer).toContain("UninstalledAll=%1 was successfully removed");
-    expect(installer).toContain("Tailscale Serve configuration is still retained");
+    expect(installer).toContain("UninstalledAll=%1 已成功从你的电脑中卸载。");
+    expect(installer).toContain("RLY/0 Hub 的用户数据已保留");
+    expect(installer).toContain("Tailscale 远程访问");
     expect(installer).toContain("tailscale serve --https=443 --set-path=/ off");
   });
 

@@ -15,6 +15,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
 const DATA_DIRECTORY_ENV: &str = "CODEXHOST_DATA_DIR";
 const RECORD_FILE: &str = "launcher-startup-v1.json";
 const RECORD_SCHEMA_VERSION: u8 = 1;
@@ -179,24 +180,10 @@ fn bounded_error(message: &str) -> String {
     message.chars().take(MAX_ERROR_CHARS).collect()
 }
 
-fn home_directory() -> Option<PathBuf> {
-    let name = if cfg!(target_os = "windows") {
-        "USERPROFILE"
-    } else {
-        "HOME"
-    };
-    env::var_os(name)
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-}
-
 /// Matches the Host Runtime's data directory
-/// rule: `CODEXHOST_DATA_DIR` when set, otherwise `~/.codexhost`.
+/// rule: `CODEXHOST_DATA_DIR` when set, otherwise `~/.rly0-hub`.
 pub fn data_directory() -> Option<PathBuf> {
-    env::var_os(DATA_DIRECTORY_ENV)
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| home_directory().map(|home| home.join(".codexhost")))
+    codexhost_platform::rly0_data_directory()
 }
 
 pub fn diagnostics_directory() -> Option<PathBuf> {

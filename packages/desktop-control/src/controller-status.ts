@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { randomBytes } from "node:crypto";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -42,7 +43,7 @@ export function defaultControllerStatusPath(
 ): string {
   const dataDirectory = environment.CODEXHOST_DATA_DIR
     ? path.resolve(environment.CODEXHOST_DATA_DIR)
-    : path.join(os.homedir(), ".codexhost");
+    : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME);
   return path.join(dataDirectory, "diagnostics", fileName);
 }
 

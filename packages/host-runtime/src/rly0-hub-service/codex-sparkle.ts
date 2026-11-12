@@ -15,6 +15,7 @@ import path from "node:path";
 import { compareCodexVersions } from "@codexhost/shared-contracts";
 import type { CodexUpdateDriver } from "./codex-update-manager.js";
 import type { UpdateHttpGet } from "./hub-update-net.js";
+import { waitForDesktopUpdatePause } from "../codex-runtime/desktop-update-pause.js";
 
 export interface CodexAppcastUpdate {
   version: string;
@@ -420,6 +421,7 @@ export function createMacCodexUpdateDriver(options: {
       const app = await runningBundle();
       if (!app) throw new Error("CODEX_INSTALLATION_UNAVAILABLE");
       bundle = app;
+      await waitForDesktopUpdatePause(options.environment);
       // The guard keeps a Desktop that already exited from being launched by the quit event.
       await exec("/usr/bin/osascript", [
         "-e",
@@ -446,7 +448,7 @@ export function createMacCodexUpdateDriver(options: {
           (line) =>
             (line.includes(`${app}/Contents/`) ||
               line.includes("/com.openai.codex/org.sparkle-project.Sparkle/")) &&
-            /\/(?:Autoupdate|Updater\.app\/Contents\/MacOS\/Updater)(?:\s|$)/u.test(line),
+            /\/(?:codex|Autoupdate|Updater\.app\/Contents\/MacOS\/Updater)(?:\s|$)/u.test(line),
         );
     },
     reopen: options.reopen,

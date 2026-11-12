@@ -36,7 +36,7 @@ describe("Host Runtime log", () => {
       path.join(directory, "logs", "host-runtime-4242.log"),
     );
     expect(runtimeLogPath({}, 4242)).toBe(
-      path.join(os.homedir(), ".codexhost", "logs", "host-runtime-4242.log"),
+      path.join(os.homedir(), ".rly0-hub", "logs", "host-runtime-4242.log"),
     );
   });
 

@@ -41,8 +41,9 @@ foreach ($p in Get-CimInstance Win32_Process) {
   if (-not $hit -and $portable) { $hit = $exe.StartsWith($portable, [StringComparison]::OrdinalIgnoreCase) }
   if (-not $hit -and $root -and $exe.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
     if ($helpers -contains $name) { $hit = $true }
-    elseif ($name -eq 'node.exe' -and $p.CommandLine -notlike '*hub-service*') { $hit = $true }
+    elseif ($name -eq 'node.exe' -and $p.CommandLine -match '(host-runtime|desktop-controller)\.mjs(?:\s|$)' -and $p.CommandLine -notlike '*--codexhost-shared-host*') { $hit = $true }
   }
+  if ($p.CommandLine -like '*--codexhost-shared-host*' -or $p.CommandLine -match '\b(host|web-service)\s+serve\b') { $hit = $false }
   if ($hit) { Stop-Process -Id $p.ProcessId -Force; if ($?) { $n++ } }
 }
 Write-Output $n
@@ -115,6 +116,8 @@ export function selectMacCodexProcesses(
     : null;
   for (const { pid, args } of entries) {
     if (!Number.isSafeInteger(pid) || pid <= 1 || keep.has(pid)) continue;
+    if (/(?:^|\s)--codexhost-shared-host(?:\s|$)|\b(?:host|web-service)\s+serve\b/u.test(args))
+      continue;
     if (appPattern.test(args)) app.push(pid);
     else if (helperPattern.test(args) || installedPattern?.test(args)) helpers.push(pid);
   }

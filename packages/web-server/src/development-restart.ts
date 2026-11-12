@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -96,7 +97,7 @@ export async function restartDevelopmentPreview(
     options["ch-data"] ??
       (options["ch-control-directory"]
         ? dirname(resolve(options["ch-control-directory"]))
-        : join(homedir(), ".codexhost")),
+        : join(homedir(), RLY0_HOME_DATA_DIRECTORY_NAME)),
   );
   const payload = await snapshot(distribution, data);
   const runtime = resolve(options["ch-host-runtime"] ?? join(payload, "app/host-runtime.mjs"));

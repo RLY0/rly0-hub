@@ -464,7 +464,7 @@ export async function installRemoteHost(
       ? nonempty(environment.CODEXHOST_DATA_DIR)
       : undefined) ??
     previousManifest?.sharedDataDirectory ??
-    path.join(paths.home, ".codexhost");
+    path.join(paths.home, RLY0_HOME_DATA_DIRECTORY_NAME);
   if (
     typeof sharedSelection !== "string" ||
     !sharedSelection.trim() ||

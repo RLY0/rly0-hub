@@ -46,6 +46,7 @@ fn script(request: &Request) -> Result<String, Box<dyn Error>> {
     // The login shell has loaded the user's version manager. Existing installations keep
     // their recorded runtime ahead of that default, provided the executable still exists.
     // The version gate follows the published npm engines: >=22.19.0 <23.0.0 || >=24.0.0.
+    let data_name = codexhost_platform::RLY0_HOME_DATA_DIRECTORY_NAME;
     let node = r#"if [ -n "${CODEXHOST_HOST_NODE_PATH:-}" ] && [ -x "$CODEXHOST_HOST_NODE_PATH" ]; then PATH="$(dirname "$CODEXHOST_HOST_NODE_PATH"):$PATH"; export PATH; fi;
 command -v node >/dev/null 2>&1 || exit 45;
 node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major >= 24 || (major === 22 && minor >= 19) ? 0 : 1)' >/dev/null 2>&1 || exit 55;
@@ -60,14 +61,14 @@ node -e 'const [major, minor] = process.versions.node.split(".").map(Number); pr
     // One installation at a time. A dropped connection can kill the script before it releases
     // the lock, and nothing else would ever remove it, so a lock older than any run can last
     // (runs are limited to five minutes) is taken over.
-    let lock = "mkdir -p \"$HOME/.codexhost\"; L=\"$HOME/.codexhost/ssh-setup.lock\"; mkdir \"$L\" 2>/dev/null || { [ -n \"$(find \"$L\" -maxdepth 0 -mmin +15 2>/dev/null)\" ] && rmdir \"$L\" 2>/dev/null && mkdir \"$L\" 2>/dev/null; } || exit 49; trap 'rmdir \"$L\"' EXIT; ";
-    let probe = "if [ -f \"$HOME/.codexhost/remote/manifest.json\" ]; then printf '\\n__CODEXHOST_SSH_STATE__=installed\\n'; else printf '\\n__CODEXHOST_SSH_STATE__=not-installed\\n'; fi";
+    let lock = r#"mkdir -p "$HOME/{data_name}"; L="$HOME/{data_name}/ssh-setup.lock"; mkdir "$L" 2>/dev/null || { [ -n "$(find "$L" -maxdepth 0 -mmin +15 2>/dev/null)" ] && rmdir "$L" 2>/dev/null && mkdir "$L" 2>/dev/null; } || exit 49; trap 'rmdir "$L"' EXIT; "#.replace("{data_name}", data_name);
+    let probe = "if [ -f \"$HOME/{data_name}/remote/manifest.json\" ]; then printf '\\n__CODEXHOST_SSH_STATE__=installed\\n'; else printf '\\n__CODEXHOST_SSH_STATE__=not-installed\\n'; fi".replace("{data_name}", codexhost_platform::RLY0_HOME_DATA_DIRECTORY_NAME);
     match request.action.as_str() {
-        "inspect" => Ok(probe.into()),
+        "inspect" => Ok(probe),
         "install" => {
             let version = release_version(request)?;
             Ok(format!(
-                "{node}set -e; {lock}[ ! -f \"$HOME/.codexhost/remote/manifest.json\" ] || exit 43; case $(uname -s) in Darwin|Linux) ;; *) exit 44;; esac; command -v npm >/dev/null 2>&1 || exit 56; command -v codex >/dev/null 2>&1 || exit 57; npm install -g @codexhost/cli@{version} >/dev/null 2>&1 || exit 46; codexhost remote install >/dev/null 2>&1 || exit 47; codexhost remote start >/dev/null 2>&1 || {started} || exit 48; printf '\\n__CODEXHOST_SSH_STATE__=installed\\n'"
+                "{node}set -e; {lock}[ ! -f \"$HOME/{data_name}/remote/manifest.json\" ] || exit 43; case $(uname -s) in Darwin|Linux) ;; *) exit 44;; esac; command -v npm >/dev/null 2>&1 || exit 56; command -v codex >/dev/null 2>&1 || exit 57; npm install -g @codexhost/cli@{version} >/dev/null 2>&1 || exit 46; codexhost remote install >/dev/null 2>&1 || exit 47; codexhost remote start >/dev/null 2>&1 || {started} || exit 48; printf '\\n__CODEXHOST_SSH_STATE__=installed\\n'"
             ))
         }
         // For services too old to update themselves. A newer CLI refuses to stop an installation
@@ -76,7 +77,7 @@ node -e 'const [major, minor] = process.versions.node.split(".").map(Number); pr
         "update" => {
             let version = release_version(request)?;
             Ok(format!(
-                "{node}set -e; {lock}[ -f \"$HOME/.codexhost/remote/manifest.json\" ] || exit 52; command -v npm >/dev/null 2>&1 || exit 56; npm view @codexhost/cli@{version} version --fetch-retries=0 --fetch-timeout=30000 >/dev/null 2>&1 || exit 53; if command -v codexhost >/dev/null; then codexhost remote stop >/dev/null 2>&1 || true; fi; npm install -g @codexhost/cli@{version} >/dev/null 2>&1 || {{ codexhost remote start >/dev/null 2>&1 || true; exit 46; }}; command -v codexhost >/dev/null || exit 54; codexhost remote install >/dev/null 2>&1 || exit 47; codexhost remote stop >/dev/null 2>&1 || {stock} || exit 50; codexhost remote start >/dev/null 2>&1 || {started} || exit 48; printf '\\n__CODEXHOST_SSH_STATE__=installed\\n'"
+                "{node}set -e; {lock}[ -f \"$HOME/{data_name}/remote/manifest.json\" ] || exit 52; command -v npm >/dev/null 2>&1 || exit 56; npm view @codexhost/cli@{version} version --fetch-retries=0 --fetch-timeout=30000 >/dev/null 2>&1 || exit 53; if command -v codexhost >/dev/null; then codexhost remote stop >/dev/null 2>&1 || true; fi; npm install -g @codexhost/cli@{version} >/dev/null 2>&1 || {{ codexhost remote start >/dev/null 2>&1 || true; exit 46; }}; command -v codexhost >/dev/null || exit 54; codexhost remote install >/dev/null 2>&1 || exit 47; codexhost remote stop >/dev/null 2>&1 || {stock} || exit 50; codexhost remote start >/dev/null 2>&1 || {started} || exit 48; printf '\\n__CODEXHOST_SSH_STATE__=installed\\n'"
             ))
         }
         // A damaged installation is exactly what the CLI refuses to stop, so the first stop is
@@ -84,7 +85,7 @@ node -e 'const [major, minor] = process.versions.node.split(".").map(Number); pr
         "repair" => {
             // Uninstall removes the manifest. Read the opt-in before any service mutation;
             // leave legacy SSH installs on the command line their CLI already supports.
-            let session = r#"CH_SESSION=$(node -e 'const fs = require("node:fs"); try { const session = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).executionSession; if (session !== undefined && session !== "ssh" && session !== "desktop") process.exit(1); if (session === "desktop") process.stdout.write(session); } catch (error) { if (error.code !== "ENOENT") process.exit(1); }' "$HOME/.codexhost/remote/manifest.json" 2>/dev/null) || exit 47; "#;
+            let session = r#"CH_SESSION=$(node -e 'const fs = require("node:fs"); try { const session = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).executionSession; if (session !== undefined && session !== "ssh" && session !== "desktop") process.exit(1); if (session === "desktop") process.stdout.write(session); } catch (error) { if (error.code !== "ENOENT") process.exit(1); }' "$HOME/{data_name}/remote/manifest.json" 2>/dev/null) || exit 47; "#.replace("{data_name}", codexhost_platform::RLY0_HOME_DATA_DIRECTORY_NAME);
             Ok(format!(
                 "{node}set -e; command -v codexhost >/dev/null 2>&1 || exit 58; {lock}{session}codexhost remote stop >/dev/null 2>&1 || true; codexhost remote uninstall >/dev/null 2>&1 || exit 51; if [ \"$CH_SESSION\" = desktop ]; then codexhost remote install --session desktop; else codexhost remote install; fi >/dev/null 2>&1 || exit 47; codexhost remote stop >/dev/null 2>&1 || {stock} || exit 50; codexhost remote start >/dev/null 2>&1 || {started} || exit 48; printf '\\n__CODEXHOST_SSH_STATE__=installed\\n'"
             ))
@@ -107,7 +108,7 @@ node -e 'const fs = require("node:fs"), path = require("node:path"); try { const
             // Keep the npm package until its CLI has stopped the service and removed the
             // managed entrypoint/profile (and the macOS broker). No user data is deleted.
             Ok(format!(
-                "{node}set -e; {lock}command -v codexhost >/dev/null 2>&1 || exit 58; {package_check}if [ -f \"$HOME/.codexhost/remote/manifest.json\" ]; then codexhost remote stop >/dev/null 2>&1 || {{ {stock}; }} || exit 50; fi; codexhost remote uninstall >/dev/null 2>&1 || exit 51; [ ! -f \"$HOME/.codexhost/remote/manifest.json\" ] || exit 51; {package_remove}printf '\\n__CODEXHOST_SSH_STATE__=not-installed\\n'"
+                "{node}set -e; {lock}command -v codexhost >/dev/null 2>&1 || exit 58; {package_check}if [ -f \"$HOME/{data_name}/remote/manifest.json\" ]; then codexhost remote stop >/dev/null 2>&1 || {{ {stock}; }} || exit 50; fi; codexhost remote uninstall >/dev/null 2>&1 || exit 51; [ ! -f \"$HOME/{data_name}/remote/manifest.json\" ] || exit 51; {package_remove}printf '\\n__CODEXHOST_SSH_STATE__=not-installed\\n'"
             ))
         }
         _ => Err("Unknown SSH action".into()),

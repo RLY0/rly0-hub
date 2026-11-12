@@ -48,9 +48,9 @@ describe("remote session authenticated Controller client", () => {
   });
   it("discovers the standard Linux Desktop runtime when Web lacks its XDG environment", () => {
     const paths = remoteSessionDescriptorPaths({}, "linux", "/home/test", 1234);
-    expect(paths).toContain(join("/run/user/1234", "codexhost", "desktop-runtime-v1.json"));
+    expect(paths).toContain(join("/run/user/1234", "rly0-hub", "desktop-runtime-v1.json"));
     expect(paths).toContain(
-      join("/home/test", ".local", "state", "codexhost", "desktop-runtime-v1.json"),
+      join("/home/test", ".local", "state", "rly0-hub", "desktop-runtime-v1.json"),
     );
     const explicit = join(tmpdir(), "explicit-descriptor.json");
     expect(

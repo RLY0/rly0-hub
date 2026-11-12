@@ -150,11 +150,11 @@ it("the policy filesystem reader exposes non-ENOENT failures instead of publishi
   await expect(readCodexRendererPolicy(f.environment)).rejects.toThrow();
 });
 
-it("matches the Launcher's default ~/.codexhost/diagnostics location, ignoring the old wrong location", async () => {
+it("matches the Launcher's default ~/.rly0-hub/diagnostics location, ignoring the old wrong location", async () => {
   const { readLauncherCodexVersion } = await import("../src/codex-renderer-policy.js");
   const f = await fixture();
   const environment = { HOME: f.root };
-  const file = path.join(f.root, ".codexhost", "diagnostics", "launcher-startup-v1.json");
+  const file = path.join(f.root, ".rly0-hub", "diagnostics", "launcher-startup-v1.json");
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(
     file,

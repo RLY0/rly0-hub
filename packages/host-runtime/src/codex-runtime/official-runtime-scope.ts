@@ -77,6 +77,8 @@ export class OfficialRuntimeScope {
   #stopping: Promise<void> | undefined;
   #started = false;
   #closed = false;
+  #desktopUpdatePaused = false;
+  #resumeDesktopBackend = false;
   #restarting: Promise<void> | undefined;
   #restartActive = false;
   #readyAt = 0;
@@ -101,7 +103,8 @@ export class OfficialRuntimeScope {
     this.gate = new OfficialWorkGate();
     this.owner = new OfficialRuntimeOwner({
       createBackend: () => {
-        if (this.#closed) throw new OfficialAdmissionError("unavailable");
+        if (this.#closed || this.#desktopUpdatePaused)
+          throw new OfficialAdmissionError("unavailable");
         return input.createBackend();
       },
       diagnosticOutput: input.diagnosticOutput,
@@ -122,6 +125,7 @@ export class OfficialRuntimeScope {
   }
 
   start(): Promise<void> {
+    if (this.#desktopUpdatePaused) return Promise.reject(new OfficialAdmissionError("unavailable"));
     if (this.#closed) return Promise.reject(new Error("Official Codex is unavailable"));
     if (this.#stopping) return this.#stopping.then(() => this.start());
     if (this.#restarting) return this.#restarting;
@@ -205,7 +209,7 @@ export class OfficialRuntimeScope {
    * and lazily resumes remembered threads. Rejects with `busy` while official work is active.
    */
   restartBackend(): Promise<void> {
-    if (this.#closed || this.#stopping)
+    if (this.#closed || this.#stopping || this.#desktopUpdatePaused)
       return Promise.reject(new OfficialAdmissionError("unavailable"));
     if (this.#restarting) return this.#restarting;
     if (this.gate.busy) return Promise.reject(new OfficialAdmissionError("busy"));
@@ -237,6 +241,32 @@ export class OfficialRuntimeScope {
     this.#restarting = undefined;
     if (this.#started && !this.#stopping && this.gate.phase === "unavailable")
       this.#generationFailed();
+  }
+
+  /** Close admission synchronously before retiring an idle backend for a Desktop update. */
+  async pauseForDesktopUpdate(): Promise<boolean> {
+    if (
+      this.#closed ||
+      this.#starting ||
+      this.#restarting ||
+      this.gate.busy ||
+      this.owner.hasActiveWork
+    )
+      return false;
+    this.#resumeDesktopBackend ||= this.#started || this.owner.running;
+    this.#desktopUpdatePaused = true;
+    this.#started = false;
+    this.#clearRecoveryTimer();
+    this.gate.unavailable();
+    await this.stop();
+    return true;
+  }
+
+  resumeAfterDesktopUpdate(): void {
+    if (!this.#desktopUpdatePaused) return;
+    this.#desktopUpdatePaused = false;
+    if (this.#resumeDesktopBackend) this.#scheduleRecovery();
+    this.#resumeDesktopBackend = false;
   }
 
   /** Retire an idle generation without closing its clients or scheduling recovery. */
@@ -285,6 +315,7 @@ export class OfficialRuntimeScope {
     if (
       !this.#recovery ||
       this.#closed ||
+      this.#desktopUpdatePaused ||
       this.#restartActive ||
       this.#stopping ||
       this.#recoveryTimer ||

@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { watch, type FSWatcher } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -81,7 +82,7 @@ export class HarnessDisplaySettingsStore {
     this.#file = path.join(
       environment.CODEXHOST_DATA_DIR
         ? path.resolve(environment.CODEXHOST_DATA_DIR)
-        : path.join(os.homedir(), ".codexhost"),
+        : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
       "harness-display-settings-v1.json",
     );
   }

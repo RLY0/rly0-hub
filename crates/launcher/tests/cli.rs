@@ -9,6 +9,37 @@ fn launcher_path() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_codexhost"))
 }
 
+#[test]
+fn failed_launch_records_hub_data_without_a_data_directory_override() {
+    let root = std::env::temp_dir().join(format!(
+        "synthetic-hub-default-launch-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir(&root).unwrap();
+    let output = Command::new(launcher_path())
+        .env_clear()
+        .env("HOME", &root)
+        .env("USERPROFILE", &root)
+        .env("LOCALAPPDATA", &root)
+        .env("CODEXHOST_WEB_SERVICE", "0")
+        .env("CODEXHOST_CONSOLE", "0")
+        .args(["launch", "--custom-install"])
+        .arg(root.join("missing-desktop"))
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        root.join(".rly0-hub/diagnostics/launcher-startup-v1.json")
+            .is_file()
+    );
+    assert!(!root.join(".codexhost").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// Runs a binary this test just copied. On Linux a child forked by a parallel test can
 /// briefly inherit the copy's write descriptor, so exec fails with ETXTBSY until it exits.
 fn output_of_copied_binary(command: &mut Command) -> io::Result<Output> {

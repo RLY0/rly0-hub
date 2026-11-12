@@ -147,7 +147,7 @@ fn launch_agent(arguments: &[String]) -> String {
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"https://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
 <plist version=\"1.0\"><dict>\n\
-<key>Label</key><string>ai.bytepioneer.codexhost.autostart</string>\n\
+<key>Label</key><string>ai.rly0.hub.autostart</string>\n\
 <key>ProgramArguments</key><array>\n{arguments}\n</array>\n\
 <key>RunAtLoad</key><true/>\n\
 </dict></plist>\n"

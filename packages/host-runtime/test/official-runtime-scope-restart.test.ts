@@ -53,6 +53,30 @@ function fixture(recovery?: OfficialRuntimeRecoveryOptions) {
 }
 
 describe("OfficialRuntimeScope.restartBackend", () => {
+  it("fences all native clients during a Desktop update, preserves busy work and resumes on release", async () => {
+    const f = fixture({ delaysMs: [0] });
+    try {
+      await f.scope.start();
+      const release = f.scope.gate.admit();
+      expect(await f.scope.pauseForDesktopUpdate()).toBe(false);
+      expect(f.scope.owner.running).toBe(true);
+      release();
+      const paused = f.scope.pauseForDesktopUpdate();
+      expect(() => f.scope.gate.admit()).toThrow("unavailable");
+      await expect(f.scope.start()).rejects.toMatchObject({ code: "unavailable" });
+      await expect(f.scope.restartBackend()).rejects.toMatchObject({ code: "unavailable" });
+      expect(await paused).toBe(true);
+      expect(f.scope.owner.running).toBe(false);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(f.backends).toHaveLength(1);
+      f.scope.resumeAfterDesktopUpdate();
+      await vi.waitFor(() => expect(f.scope.owner.running).toBe(true));
+      expect(f.backends).toHaveLength(2);
+      expect(f.scope.gate.phase).toBe("ready");
+    } finally {
+      await f.scope.close();
+    }
+  });
   it("closes admission before yielding during a replacement", async () => {
     const f = fixture();
     try {

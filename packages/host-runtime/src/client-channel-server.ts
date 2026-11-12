@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage } from "node:http";
 import { mkdir, writeFile, rename, rm } from "node:fs/promises";
@@ -174,7 +175,7 @@ export async function startClientChannelServer(options: {
   const directory =
     options.directory ??
     path.join(
-      options.environment.CODEXHOST_DATA_DIR ?? path.join(homedir(), ".codexhost"),
+      options.environment.CODEXHOST_DATA_DIR ?? path.join(homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
       "client-hosts",
     );
   const descriptorPath = path.join(

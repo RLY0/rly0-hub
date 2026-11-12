@@ -300,7 +300,11 @@ fn stop_all(options: &Options) -> Result<(), Box<dyn Error>> {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        if home.join(".codexhost/remote/manifest.json").is_file() {
+        if home
+            .join(codexhost_platform::RLY0_HOME_DATA_DIRECTORY_NAME)
+            .join("remote/manifest.json")
+            .is_file()
+        {
             let remote = || -> Result<bool, Box<dyn Error>> {
                 let output = Command::new(&options.host_node)
                     .arg(node_entrypoint_path(&options.host_runtime))

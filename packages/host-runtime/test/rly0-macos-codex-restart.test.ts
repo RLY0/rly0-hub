@@ -53,6 +53,19 @@ function fakeSystem(options: { quitWorks: boolean; helpersFollow: boolean }) {
 }
 
 describe("macOS Codex restart (synthetic processes)", () => {
+  it("keeps the independent Host and its native supervisor alive when closing Desktop helpers", () => {
+    const independent = [
+      {
+        pid: 600,
+        args: `/n ${pkg}/app/host-runtime.mjs --codexhost-shared-host --data /synthetic/data`,
+      },
+      { pid: 601, args: `${pkg}/bin/codexhost host serve --data /synthetic/data` },
+    ];
+    expect(selectMacCodexProcesses([...rows, ...independent], new Set())).toEqual({
+      app: [100, 302],
+      helpers: [200, 201, 202],
+    });
+  });
   it("matches only the Desktop main executable and codexhost Launcher/Host/controller", () => {
     expect(selectMacCodexProcesses(rows, new Set())).toEqual({
       app: [100, 302],

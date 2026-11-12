@@ -97,7 +97,7 @@ describe("console instance identity", () => {
       ).toBe(localId);
       expect(await consoleBuildId(entry, {})).toBe(
         await consoleBuildId(entry, {
-          CODEXHOST_DATA_DIR: path.join(os.homedir(), ".codexhost"),
+          CODEXHOST_DATA_DIR: path.join(os.homedir(), ".rly0-hub"),
         }),
       );
     } finally {

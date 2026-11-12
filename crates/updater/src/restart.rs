@@ -91,11 +91,7 @@ fn verify_available_services(request: &UpdateRequest) -> Result<(), Box<dyn Erro
     let data = request
         .data_directory
         .clone()
-        .or_else(|| std::env::var_os("CODEXHOST_DATA_DIR").map(PathBuf::from))
-        .or_else(|| {
-            std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-                .map(|home| PathBuf::from(home).join(".codexhost"))
-        });
+        .or_else(codexhost_platform::rly0_data_directory);
     if let Some(data) = data {
         let app = request.installation.resources_root().join("app");
         for (file, runtime) in [
@@ -249,6 +245,7 @@ fn command(request: &UpdateRequest) -> Command {
             }
         }
     };
+    codexhost_platform::configure_rly0_data_directory(&mut command);
     if let Some(data) = &request.data_directory {
         command.env("CODEXHOST_DATA_DIR", data);
     }
@@ -401,6 +398,52 @@ mod tests {
         assert_eq!(
             legacy.get_args().collect::<Vec<_>>(),
             [root.join("wrapper.js").as_os_str()]
+        );
+    }
+
+    #[test]
+    fn restart_defaults_to_hub_without_data_directory_override() {
+        use std::{env, fs};
+        if env::var_os("RLY0_UPDATER_DEFAULT_DATA_CHILD").is_none() {
+            let home = env::temp_dir().join(format!(
+                "synthetic-updater-default-data-{}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&home).unwrap();
+            let output = Command::new(env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "restart::tests::restart_defaults_to_hub_without_data_directory_override",
+                ])
+                .env_remove("CODEXHOST_DATA_DIR")
+                .env("RLY0_UPDATER_DEFAULT_DATA_CHILD", "1")
+                .env("HOME", &home)
+                .env("USERPROFILE", &home)
+                .output()
+                .unwrap();
+            fs::remove_dir_all(home).unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let home = PathBuf::from(env::var_os("HOME").unwrap());
+        assert!(env::var_os("CODEXHOST_DATA_DIR").is_none());
+        let request: UpdateRequest = serde_json::from_value(serde_json::json!({
+            "schema_version": 1, "version": "1.2.3", "wait_pid": 1,
+            "wait_executable": home.join("node"), "runtime_descriptor_path": home.join("desktop.json"),
+            "status_path": home.join("status.json"),
+            "installation": {"kind":"npm", "node_path":home.join("node"), "npm_cli_path":home.join("npm.js"), "npm_launcher_path":home.join("wrapper.js"), "npm_package_root":home.join("package")}
+        })).unwrap();
+        let command = command(&request);
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "CODEXHOST_DATA_DIR"
+                    && value == Some(home.join(".rly0-hub").as_os_str()))
         );
     }
 

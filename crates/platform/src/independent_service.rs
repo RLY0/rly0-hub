@@ -16,8 +16,11 @@ struct Record {
 }
 
 fn directory() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
-        .map(|home| PathBuf::from(home).join(".codexhost/independent-processes"))
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(|home| {
+        PathBuf::from(home)
+            .join(crate::RLY0_HOME_DATA_DIRECTORY_NAME)
+            .join("independent-processes")
+    })
 }
 
 pub struct IndependentServiceRegistration {

@@ -8,6 +8,7 @@ use crate::request::UpdateRequest;
 
 fn stop_command(request: &UpdateRequest) -> Command {
     let mut command = Command::new(request.installation.launcher_path());
+    codexhost_platform::configure_rly0_data_directory(&mut command);
     command
         .arg("stop-for-update")
         .arg("--node")

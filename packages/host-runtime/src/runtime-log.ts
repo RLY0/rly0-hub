@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import {
   chmodSync,
   closeSync,
@@ -107,7 +108,7 @@ function pruneRuntimeLogs(input: {
 export function runtimeLogPath(environment: NodeJS.ProcessEnv, pid: number): string {
   const dataDirectory = environment.CODEXHOST_DATA_DIR
     ? path.resolve(environment.CODEXHOST_DATA_DIR)
-    : path.join(os.homedir(), ".codexhost");
+    : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME);
   return path.join(dataDirectory, "logs", `host-runtime-${pid}.log`);
 }
 

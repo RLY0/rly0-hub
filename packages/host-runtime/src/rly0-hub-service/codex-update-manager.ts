@@ -43,7 +43,7 @@ export interface CodexUpdateDriver {
   downloadReady(version: string, revalidate?: boolean): Promise<boolean>;
   /** No force kill: saves Codex state through its own normal quit. */
   quit(): Promise<void>;
-  /** True only when Desktop and its Sparkle Autoupdate have exited. */
+  /** True only when Desktop, its native Codex backend and Sparkle Autoupdate have exited. */
   installationStopped(): Promise<boolean>;
   isRunning(): Promise<boolean>;
   /** A Launcher still exiting makes a new start a no-op; reopen waits for it (bounded). */
@@ -216,6 +216,7 @@ export class CodexUpdateManager {
       target: this.#target ?? this.#latest,
       at: this.#now(),
       closedByHub: true,
+      leaseId: this.#leaseId,
     });
   }
   #leaseFile() {

@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -374,7 +375,9 @@ export interface ModelPriceCatalogOptions {
 
 export function defaultModelPriceDirectory(environment: NodeJS.ProcessEnv): string {
   const dataDirectory = environment.CODEXHOST_DATA_DIR;
-  return dataDirectory ? path.resolve(dataDirectory) : path.join(os.homedir(), ".codexhost");
+  return dataDirectory
+    ? path.resolve(dataDirectory)
+    : path.join(os.homedir(), RLY0_HOME_DATA_DIRECTORY_NAME);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 /** Connect to one shared Host; native Launcher starts it on demand without Desktop.
  * This gateway never owns a Mapping Store or spawns a Harness. Explicit CDP is legacy-only.
  */
@@ -251,7 +252,10 @@ export async function createChHostClient(
   const desktop = new DesktopChHostClient(options.cdp);
   const directory =
     options.directory ??
-    join(options.launch?.dataDirectory ?? join(homedir(), ".codexhost"), "client-hosts");
+    join(
+      options.launch?.dataDirectory ?? join(homedir(), RLY0_HOME_DATA_DIRECTORY_NAME),
+      "client-hosts",
+    );
   const legacy = options.cdp && !options.directory;
   let endpoint = legacy ? null : await discoverHostClientChannel(directory);
   if (!legacy && options.launch && (!endpoint || !(await isHostClientChannelOnline(endpoint)))) {

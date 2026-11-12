@@ -11,7 +11,7 @@ pub(super) use super::windows_run_command as render;
 use crate::PlatformError;
 
 const KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const NAME: PCWSTR = w!("codexhost");
+const NAME: PCWSTR = w!("RLY0HubWeb");
 
 fn check(result: WIN32_ERROR) -> Result<(), PlatformError> {
     result

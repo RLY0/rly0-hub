@@ -29,7 +29,7 @@ fn cli_contract_and_status_are_read_only_in_isolated_home() {
             .args(args);
         command
     };
-    let path = root.join("Library/LaunchAgents/ai.bytepioneer.codexhost.autostart.plist");
+    let path = root.join("Library/LaunchAgents/ai.rly0.hub.autostart.plist");
     let off = command(&["autostart", "status"]).output().unwrap();
     assert!(off.status.success());
     assert_eq!(off.stdout, b"off\n");
