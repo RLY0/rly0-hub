@@ -8,20 +8,24 @@
       "milestone": "2-好用",
       "owner": "codex",
       "status": "self_verified",
-      "review": "review-1-fixed-self-verified-pending-independent-review",
+      "review": "review-2-fixed-self-verified-pending-independent-review",
       "accepted": false,
       "base": "5d07cdaf057acf82033c422dc9d34be73772f025",
-      "review_base": "a5da7809095786315b20e0055547d11f55d0bdf9",
-      "scope": "Review 1 important 1-3 and minor 4-5 fixed: hold every newer build until actual release, defer transient refresh failures, respect user skips before quit, preserve integer types and require confirmed ownership. 5 isolated command-injected files, 199 pass. No real defaults/App/process/service/push/release mutation.",
+      "review_base": "5b4c6893526712133e42af7a5ed61d9fd7d4365b",
+      "scope": "Review 2 important 1 and minor 2-4 fixed; minor 5 documented. Five-minute final revalidation cooldown, acknowledged-write recovery, bounded skip reads and observable errors without blocking timeouts, OS-aware and major skip comparisons. 5 isolated command-injected files, 217 pass; actual 60-second timers: 30 ticks each, feed 1/0/0 and skip reads 0/0/0. No www/native defaults/daily process/service/push/release mutation.",
       "contract": ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md",
       "evidence_files": [
         ".pm/selfheal/evidence/codex-update-alert-20261111/RESULTS.md",
         ".pm/selfheal/evidence/codex-update-alert-20261111/RESEARCH.md",
         ".pm/selfheal/evidence/codex-update-alert-review1-20261112/RESULTS.md",
         ".pm/selfheal/evidence/codex-update-alert-review1-20261112/checks.json",
-        ".pm/selfheal/evidence/codex-update-alert-review1-20261112/source-sha256.json"
+        ".pm/selfheal/evidence/codex-update-alert-review1-20261112/source-sha256.json",
+        ".pm/selfheal/evidence/codex-update-alert-review2-20261112/RESULTS.md",
+        ".pm/selfheal/evidence/codex-update-alert-review2-20261112/checks.json",
+        ".pm/selfheal/evidence/codex-update-alert-review2-20261112/cadence.json",
+        ".pm/selfheal/evidence/codex-update-alert-review2-20261112/source-sha256.json"
       ],
-      "next_action": "修复后独立复核；Claude 接入 CONTRACT 复查 #1 的 user-skipped/userSkippedVersion；获准独立真机验收偏好刷新、定时无弹窗、critical/稍后提醒、空闲下载/退出安装、关闭管理与 watchdog。打包发布归 Claude。"
+      "next_action": "修复后独立复核；Claude 接 CONTRACT 复查 #2 的 skipOwnershipUnconfirmed 及 active phase 偏好错误优先显示；获准独立真机验收偏好刷新/定时无弹窗、整数与大版本跳过、critical/ignore 阈值、实际后台下载/安装与关闭管理/watchdog。卸载前先恢复设置。打包发布归 Claude。"
     },
     {
       "id": "HUB-CODEX-VERSION-GATE",

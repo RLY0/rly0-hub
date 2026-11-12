@@ -1,0 +1,181 @@
+[
+  {
+    "name": "baseline-lint",
+    "command": ["npm", "run", "lint"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 1,
+    "isolated": true,
+    "seconds": 10.904,
+    "outputSummary": [
+      "> codexhost@0.11.39 lint",
+      "> eslint . && node tools/check-boundaries.mjs",
+      "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/rly0-hub-promo.test.ts",
+      "  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion",
+      "✖ 1 problem (1 error, 0 warnings)"
+    ]
+  },
+  {
+    "name": "red-regressions",
+    "command": [
+      "npx",
+      "--no-install",
+      "vitest",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/codex-update-alert.test.ts",
+      "-t",
+      "bounds a failed|does not fetch feed|reports consecutive|confirms a successful write after|uses only OS-installable|respects major skip"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 1,
+    "isolated": true,
+    "seconds": 0.986,
+    "outputSummary": [
+      " ❯ packages/host-runtime/test/codex-update-alert.test.ts (73 tests | 11 failed | 59 skipped) 108ms",
+      "   × bounds a failed final revalidation (429) to one feed request over 60 seconds 18ms",
+      "   × bounds a failed final revalidation (503) to one feed request over 60 seconds 9ms",
+      "   × bounds a failed final revalidation (write-failure) to one feed request over 60 seconds 20ms",
+      "   × confirms a successful write after failed readback on recheck and restores the first original 5ms",
+      "   × confirms a successful write after failed readback on disable and restores the first original 4ms",
+      "   × confirms a successful write after failed readback on restart-disable and restores the first original 4ms",
+      "   × uses only OS-installable builds when deciding whether the user skipped a display version 3ms",
+      " FAIL  packages/host-runtime/test/codex-update-alert.test.ts > bounds a failed final revalidation (429) to one feed request over 60 seconds",
+      " FAIL  packages/host-runtime/test/codex-update-alert.test.ts > bounds a failed final revalidation (503) to one feed request over 60 seconds",
+      " FAIL  packages/host-runtime/test/codex-update-alert.test.ts > bounds a failed final revalidation (write-failure) to one feed request over 60 seconds",
+      "AssertionError: expected \"vi.fn()\" to be called 1 times, but got 30 times",
+      "AssertionError: expected 60 to be +0 // Object.is equality",
+      "AssertionError: expected { enabled: true, …(10) } to match object { phase: 'downloading', …(1) }",
+      " FAIL  packages/host-runtime/test/codex-update-alert.test.ts > confirms a successful write after failed readback on recheck and restores the first original",
+      " FAIL  packages/host-runtime/test/codex-update-alert.test.ts > confirms a successful write after failed readback on disable and restores the first original",
+      " FAIL  packages/host-runtime/test/codex-update-alert.test.ts > confirms a successful write after failed readback on restart-disable and restores the first original",
+      "AssertionError: expected { schemaVersion: 1, …(3) } to match object { confirmed: false, …(1) }",
+      " FAIL  packages/host-runtime/test/codex-update-alert.test.ts > uses only OS-installable builds when deciding whether the user skipped a display version",
+      "AssertionError: expected { enabled: true, …(10) } to match object { phase: 'user-skipped', error: null }",
+      "-   \"phase\": \"user-skipped\",",
+      "    1011|   expect(await f.manager.check()).toMatchObject({ phase: \"user-skipped…",
+      "AssertionError: expected 'waiting-idle' to be 'user-skipped' // Object.is equality",
+      "Expected: \"user-skipped\"",
+      " Test Files  1 failed (1)",
+      "      Tests  11 failed | 3 passed | 59 skipped (73)"
+    ]
+  },
+  {
+    "name": "focused-first",
+    "command": [
+      "npx",
+      "--no-install",
+      "vitest",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/codex-update-alert.test.ts",
+      "packages/host-runtime/test/codex-version-gate.test.ts",
+      "packages/host-runtime/test/codex-update-watchdog.test.ts",
+      "packages/host-runtime/test/codex-input-idle.test.ts",
+      "packages/host-runtime/test/rly0-codex-updates-ui.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "seconds": 1.629,
+    "outputSummary": [
+      " RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+      " Test Files  5 passed (5)",
+      "      Tests  215 passed (215)",
+      "   Start at  08:50:22",
+      "   Duration  1.12s (transform 737ms, setup 0ms, import 1.07s, tests 1.26s, environment 0ms)"
+    ]
+  },
+  {
+    "name": "typecheck",
+    "command": ["npm", "run", "typecheck"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "seconds": 14.172,
+    "outputSummary": [
+      "> codexhost@0.11.39 typecheck",
+      "> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false"
+    ]
+  },
+  {
+    "name": "final-focused",
+    "command": [
+      "npx",
+      "--no-install",
+      "vitest",
+      "run",
+      "--config",
+      "tests/vitest.config.js",
+      "packages/host-runtime/test/codex-update-alert.test.ts",
+      "packages/host-runtime/test/codex-version-gate.test.ts",
+      "packages/host-runtime/test/codex-update-watchdog.test.ts",
+      "packages/host-runtime/test/codex-input-idle.test.ts",
+      "packages/host-runtime/test/rly0-codex-updates-ui.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "seconds": 62.356,
+    "outputSummary": [
+      " RUN  v4.1.10 /Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+      "CODEX_UPDATE_ALERT_CADENCE {\"elapsedMs\":60053,\"metrics\":[{\"scenario\":\"429-before-release\",\"timerTicks\":30,\"feedRequests\":1,\"skipReads\":0,\"phase\":\"waiting-idle\"},{\"scenario\":\"busy-wait\",\"timerTicks\":30,\"feedRequests\":0,\"skipReads\":0,\"phase\":\"waiting-idle\"},{\"scenario\":\"download-read-unavailable\",\"timerTicks\":30,\"feedRequests\":0,\"skipReads\":0,\"phase\":\"downloading\"}]}",
+      " Test Files  5 passed (5)",
+      "      Tests  217 passed (217)",
+      "   Start at  08:55:42",
+      "   Duration  61.69s (transform 1.17s, setup 0ms, import 1.70s, tests 62.05s, environment 0ms)"
+    ]
+  },
+  {
+    "name": "final-typecheck",
+    "command": ["npm", "run", "typecheck"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "seconds": 15.724,
+    "outputSummary": [
+      "> codexhost@0.11.39 typecheck",
+      "> tsc -b --pretty false && tsc -p tests/tsconfig.json --noEmit --pretty false"
+    ]
+  },
+  {
+    "name": "final-lint",
+    "command": ["npm", "run", "lint"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 1,
+    "isolated": true,
+    "seconds": 12.724,
+    "outputSummary": [
+      "> codexhost@0.11.39 lint",
+      "> eslint . && node tools/check-boundaries.mjs",
+      "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate/packages/host-runtime/test/rly0-hub-promo.test.ts",
+      "  11:20  error  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion",
+      "✖ 1 problem (1 error, 0 warnings)"
+    ]
+  },
+  {
+    "name": "changed-eslint",
+    "command": [
+      "./node_modules/.bin/eslint",
+      "packages/host-runtime/src/rly0-hub-service/codex-skipped-version.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts",
+      "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts",
+      "packages/host-runtime/test/codex-update-alert.test.ts"
+    ],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "seconds": 0.884,
+    "outputSummary": []
+  },
+  {
+    "name": "boundaries",
+    "command": ["node", "tools/check-boundaries.mjs"],
+    "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+    "exitCode": 0,
+    "isolated": true,
+    "seconds": 2.926,
+    "outputSummary": []
+  }
+]

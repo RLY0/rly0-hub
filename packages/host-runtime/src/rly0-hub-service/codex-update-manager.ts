@@ -29,8 +29,10 @@ export interface CodexUpdateDriver {
   hasVersionAlertHold?(): Promise<boolean>;
   holdVersionAlerts?(current: string): Promise<void>;
   restoreVersionAlerts?(): Promise<void>;
-  /** True when a user-owned skip would suppress every build of the release target. */
+  /** True when a non-Hub skip suppresses every OS-installable build of the release target. */
   isVersionSkipped?(version: string): Promise<boolean>;
+  /** A lost write reply/readback leaves the source of the matching skip uncertain. */
+  hasUnconfirmedVersionAlertHold?(): Promise<boolean>;
   currentVersion(): Promise<string | null>;
   latestVersion(current: string): Promise<string>;
   readCheckPreferences(): Promise<CodexCheckPreferences>;
@@ -94,6 +96,8 @@ export interface CodexUpdateStatus {
   latestVersion: string | null;
   /** Present only in user-skipped; the display version whose build the user has skipped. */
   userSkippedVersion?: string;
+  /** Present only in user-skipped when ownership cannot be attributed to the user or Hub. */
+  skipOwnershipUnconfirmed?: true;
   error: CodexUpdateError;
   checkedAt: string | null;
   compatibility: ReturnType<CodexCompatibilityCatalog["status"]>;
@@ -110,6 +114,7 @@ const ACTIVE = new Set<CodexUpdatePhase>([
   "installing",
   "health-check",
 ]);
+const REVALIDATION_RETRY_MS = 5 * 60_000;
 class ReopenInterrupted extends Error {
   constructor() {
     super("reopen interrupted by stop");
@@ -123,11 +128,14 @@ export class CodexUpdateManager {
   #latest: string | null = null;
   #target: string | null = null;
   #userSkippedVersion: string | null = null;
+  #skipOwnershipUnconfirmed = false;
   #candidates: string[] = [];
   #error: CodexUpdateError = null;
   #checkedAt: string | null = null;
   #stageAt = 0;
   #idleSince: number | null = null;
+  #revalidateAfter = 0;
+  #skipReadFailures = 0;
   #initialized = false;
   #armed = false;
   #leaseId = randomUUID();
@@ -336,6 +344,9 @@ export class CodexUpdateManager {
       ...(this.#phase === "user-skipped" && this.#userSkippedVersion
         ? { userSkippedVersion: this.#userSkippedVersion }
         : {}),
+      ...(this.#phase === "user-skipped" && this.#skipOwnershipUnconfirmed
+        ? { skipOwnershipUnconfirmed: true as const }
+        : {}),
       error: this.#error,
       checkedAt: this.#checkedAt,
       compatibility: this.options.catalog.status(),
@@ -520,6 +531,8 @@ export class CodexUpdateManager {
         this.#error = null;
         this.#phase = enabled ? "checking" : "disabled";
         this.#idleSince = null;
+        this.#revalidateAfter = 0;
+        this.#skipReadFailures = 0;
       } catch {
         this.#fail("CODEX_PREFERENCES_FAILED");
       }
@@ -567,6 +580,7 @@ export class CodexUpdateManager {
           return this.status();
         }
         if (ACTIVE.has(this.#phase)) {
+          let refreshed = true;
           // A busy wait/download can last hours. Keep alert suppression current on the ordinary
           // feed check, rather than waiting until the next idle quit revalidation.
           if (this.#phase === "waiting-idle" || this.#phase === "downloading") {
@@ -577,13 +591,14 @@ export class CodexUpdateManager {
               ];
               if (this.#blockedCandidate()) this.#latest = latest;
               await this.#holdVersionAlerts();
-            } catch {
+            } catch (error) {
               // Polling is advisory. Keep the current hold/download and retry on the next check;
               // only confirmed incompatible candidates may stop the active release below.
-              if (!this.#blockedCandidate()) return this.status();
+              refreshed = false;
+              this.#deferRelease(error);
             }
           }
-          await this.#advance();
+          await this.#advance(refreshed);
           return this.status();
         }
         if (this.#closedByHub) {
@@ -649,7 +664,7 @@ export class CodexUpdateManager {
           this.#staged = false;
           this.#target = null;
           if (!this.#candidates.includes(this.#latest)) this.#candidates.push(this.#latest);
-          await this.#advance();
+          await this.#advance(true);
         }
       } catch (error) {
         this.#fail(
@@ -721,16 +736,41 @@ export class CodexUpdateManager {
     }
   }
   async #respectUserSkip(version: string): Promise<boolean> {
-    if (!(await this.options.driver?.isVersionSkipped?.(version))) return false;
+    const skipped = await this.options.driver?.isVersionSkipped?.(version);
+    const unconfirmed = skipped
+      ? await this.options.driver?.hasUnconfirmedVersionAlertHold?.()
+      : false;
+    if (this.#skipReadFailures && this.#error === "CODEX_PREFERENCES_FAILED") this.#error = null;
+    this.#skipReadFailures = 0;
+    if (!skipped) return false;
     await this.#disarm();
     if (this.#phase !== "failed") {
       this.#phase = "user-skipped";
       this.#userSkippedVersion = version;
+      this.#skipOwnershipUnconfirmed = unconfirmed === true;
       this.#error = null;
     }
     this.#idleSince = null;
     this.#backgroundStarted = false;
     return true;
+  }
+  #skipTarget(): string {
+    return (
+      this.#target ??
+      this.options.driver
+        ?.installableVersions?.()
+        .find((version) => compareCodexVersions(version, this.#current ?? "0.0") > 0) ??
+      this.#latest ??
+      "0.0"
+    );
+  }
+  #deferRelease(error: unknown) {
+    this.#idleSince = null;
+    this.#revalidateAfter = this.#now() + REVALIDATION_RETRY_MS;
+    if (error instanceof Error && error.message === "CODEX_PREFERENCES_FAILED") {
+      // Advisory reads must not stop an active download or count as a failed update attempt.
+      if (++this.#skipReadFailures >= 3) this.#error = "CODEX_PREFERENCES_FAILED";
+    }
   }
   async #reopened() {
     this.#closedByHub = false;
@@ -813,7 +853,7 @@ export class CodexUpdateManager {
     // Backoff and timeout counts persist even when a preference restore failed.
     if (this.#phase === "failed") await this.#saveAttempt().catch(() => undefined);
   }
-  async #advance(): Promise<void> {
+  async #advance(pollUserSkip = false): Promise<void> {
     const driver = this.options.driver;
     if (!driver || !this.#latest) return;
     if (this.#stopped) {
@@ -849,20 +889,28 @@ export class CodexUpdateManager {
           }
         }
         this.#phase = this.#staged || !this.#backgroundStarted ? "waiting-idle" : "downloading";
-        try {
-          if (await this.#respectUserSkip(this.#target ?? this.#latest)) return;
-        } catch {
-          // A temporary preference read cannot authorize a quit or fail an ongoing download.
-          return;
-        }
         // Download time excludes the unlimited wait for fresh idle heartbeats.
-        if (!this.#staged && this.#backgroundStarted) {
-          if (this.#now() - this.#stageAt > (this.options.downloadTimeoutMs ?? 30 * 60_000)) {
-            this.#fail("CODEX_DOWNLOAD_TIMEOUT");
-            await this.#disarm();
-          }
+        if (
+          !this.#staged &&
+          this.#backgroundStarted &&
+          this.#now() - this.#stageAt > (this.options.downloadTimeoutMs ?? 30 * 60_000)
+        ) {
+          this.#fail("CODEX_DOWNLOAD_TIMEOUT");
+          await this.#disarm();
           return;
         }
+        if (pollUserSkip) {
+          try {
+            if (await this.#respectUserSkip(this.#skipTarget())) return;
+          } catch {
+            this.#deferRelease(new Error("CODEX_PREFERENCES_FAILED"));
+            return;
+          }
+        }
+        if (!this.#staged && this.#backgroundStarted) {
+          return;
+        }
+        if (this.#now() < this.#revalidateAfter) return;
         if (!(await this.#idle())) {
           this.#idleSince = null;
           return;
@@ -873,9 +921,10 @@ export class CodexUpdateManager {
         try {
           latest = await driver.latestVersion(this.#current ?? "");
           await this.#holdVersionAlerts();
-        } catch {
+        } catch (error) {
           // Never quit using a stale feed, but a temporary revalidation failure is not a failed
           // update attempt and must not impose a six-hour retry delay.
+          this.#deferRelease(error);
           return;
         }
         if (compareCodexVersions(latest, this.#latest) !== 0) {
@@ -910,6 +959,12 @@ export class CodexUpdateManager {
         }
         if (!(await this.#idle()) || this.#stopped) {
           this.#idleSince = null;
+          return;
+        }
+        try {
+          if (await this.#respectUserSkip(this.#skipTarget())) return;
+        } catch {
+          this.#deferRelease(new Error("CODEX_PREFERENCES_FAILED"));
           return;
         }
         if (!this.#staged) {
@@ -953,11 +1008,11 @@ export class CodexUpdateManager {
           return;
         }
         try {
-          if (await this.#respectUserSkip(this.#target ?? this.#latest)) return;
+          if (await this.#respectUserSkip(this.#skipTarget())) return;
         } catch {
           await this.#disarm();
           this.#backgroundStarted = false;
-          this.#idleSince = null;
+          this.#deferRelease(new Error("CODEX_PREFERENCES_FAILED"));
           return;
         }
         await this.#recordSession();

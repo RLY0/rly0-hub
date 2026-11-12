@@ -19,6 +19,8 @@ import type { UpdateHttpGet } from "./hub-update-net.js";
 export interface CodexAppcastUpdate {
   version: string;
   build: string | null;
+  minimumAutoupdateVersion?: string;
+  ignoreSkippedUpgradesBelowVersion?: string;
 }
 export function parseCodexAppcastUpdates(
   xml: string,
@@ -41,7 +43,17 @@ export function parseCodexAppcastUpdates(
       /sparkle:version="([\d.]+)"/u.exec(block)?.[1] ??
       null;
     if (build !== null && !/^\d+(?:\.\d+)*$/u.test(build)) throw new Error("CODEX_APPCAST_FAILED");
-    return [{ version, build }];
+    const upgrade: Pick<
+      CodexAppcastUpdate,
+      "minimumAutoupdateVersion" | "ignoreSkippedUpgradesBelowVersion"
+    > = {};
+    for (const key of ["minimumAutoupdateVersion", "ignoreSkippedUpgradesBelowVersion"] as const) {
+      const value = new RegExp(`<sparkle:${key}>\\s*([\\d.]+)\\s*<\\/`, "u").exec(block)?.[1];
+      if (block.includes(`<sparkle:${key}`) && (!value || !/^\d+(?:\.\d+)*$/u.test(value)))
+        throw new Error("CODEX_APPCAST_FAILED");
+      if (value) upgrade[key] = value;
+    }
+    return [{ version, build, ...upgrade }];
   });
 }
 export function parseCodexAppcast(xml: string, systemVersion?: string): string[] {
@@ -57,7 +69,7 @@ export async function latestCodexAppcast(options: {
   systemVersion?: string;
   onFeed?: (identity: string) => void;
   onEligibleVersions?: (versions: string[]) => void;
-  onUpdates?: (updates: CodexAppcastUpdate[]) => void;
+  onUpdates?: (updates: CodexAppcastUpdate[], eligible: CodexAppcastUpdate[]) => void;
 }): Promise<string> {
   const home = options.environment.HOME ?? os.homedir();
   const bootstrap: unknown = JSON.parse(
@@ -101,7 +113,10 @@ export async function latestCodexAppcast(options: {
     options.onVersions?.(versions);
     const latest = versions[0];
     if (!latest) throw new Error("CODEX_APPCAST_FAILED");
-    options.onUpdates?.(parseCodexAppcastUpdates(xml));
+    options.onUpdates?.(
+      parseCodexAppcastUpdates(xml),
+      parseCodexAppcastUpdates(xml, options.systemVersion),
+    );
     return latest;
   } finally {
     response.cancel();
@@ -210,6 +225,7 @@ export function createMacCodexUpdateDriver(options: {
   const skipped = new CodexSkippedVersion(resolveRly0DataDir(options.environment), preferences);
   const cache = new Map<string, string>();
   let updates: CodexAppcastUpdate[] = [];
+  let eligibleUpdates: CodexAppcastUpdate[] = [];
   let versions: string[] = [];
   let eligibleVersions: string[] = [];
   let feedIdentity: string | null = null;
@@ -292,6 +308,7 @@ export function createMacCodexUpdateDriver(options: {
     readAutoUpdate: () => readBoolean("SUAutomaticallyUpdate"),
     writeAutoUpdate: (value) => write("SUAutomaticallyUpdate", value),
     hasVersionAlertHold: () => skipped.pending(),
+    hasUnconfirmedVersionAlertHold: () => skipped.unconfirmed(),
     restoreVersionAlerts: () => skipped.restore(),
     async holdVersionAlerts(current) {
       const newer = updates.filter((update) => compareCodexVersions(update.version, current) > 0);
@@ -305,18 +322,42 @@ export function createMacCodexUpdateDriver(options: {
       await skipped.hold(builds[0] ?? "");
     },
     async isVersionSkipped(version) {
-      const candidates = updates.filter(
+      const candidates = eligibleUpdates.filter(
         (update) => compareCodexVersions(update.version, version) === 0,
       );
       if (!candidates.length) throw new Error("CODEX_APPCAST_FAILED");
-      // A display version can have several builds; a lower skip must not block a higher build.
-      const builds = candidates
-        .map((update) => {
-          if (!update.build) throw new Error("CODEX_APPCAST_FAILED");
-          return update.build;
-        })
-        .sort((a, b) => compareSparkleBuilds(b, a));
-      return skipped.userSkipped(builds[0] ?? "");
+      const userSkip = await skipped.userSkip();
+      const remaining = candidates.filter((update) => {
+        if (!update.build) throw new Error("CODEX_APPCAST_FAILED");
+        return userSkip === null || compareSparkleBuilds(userSkip, update.build) < 0;
+      });
+      if (!remaining.length) return true;
+      if (remaining.some((update) => !update.minimumAutoupdateVersion)) return false;
+      // Sparkle 2.9.1 SUAppcastDriver containsSkippedUpdate: also compares the installed build
+      // against the skipped major's minimum-autoupdate build, never the display-version family.
+      const major = await preferences.readScalar("SUSkippedMajorVersion");
+      if (major?.type !== "string") return false;
+      const app = (await runningBundle()) ?? (await readLauncherCodexBundle(options.environment));
+      if (!app) throw new Error("CODEX_PREFERENCES_FAILED");
+      const installedBuild = await exec("/usr/bin/plutil", [
+        "-extract",
+        "CFBundleVersion",
+        "raw",
+        path.join(app, "Contents/Info.plist"),
+      ]);
+      if (compareSparkleBuilds(installedBuild, major.value) >= 0) return false;
+      const subrelease = remaining.some((update) => update.ignoreSkippedUpgradesBelowVersion)
+        ? await preferences.readScalar("SUSkippedMajorSubreleaseVersion")
+        : null;
+      return remaining.every(
+        (update) =>
+          update.minimumAutoupdateVersion !== undefined &&
+          compareSparkleBuilds(major.value, update.minimumAutoupdateVersion) >= 0 &&
+          (!update.ignoreSkippedUpgradesBelowVersion ||
+            (subrelease?.type === "string" &&
+              compareSparkleBuilds(subrelease.value, update.ignoreSkippedUpgradesBelowVersion) >=
+                0)),
+      );
     },
     async readCheckPreferences() {
       return {
@@ -338,8 +379,9 @@ export function createMacCodexUpdateDriver(options: {
         onFeed: (identity) => {
           feedIdentity = identity;
         },
-        onUpdates: (offered) => {
+        onUpdates: (offered, eligible) => {
           updates = offered;
+          eligibleUpdates = eligible;
         },
         environment: options.environment,
         current,

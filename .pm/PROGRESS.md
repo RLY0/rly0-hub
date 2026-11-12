@@ -1,3 +1,17 @@
+# Codex 官方新版弹窗复查 #2：self_verified
+
+2026-11-12；`feat/agent-cli-autoupdate`，输入 `5b4c6893526712133e42af7a5ed61d9fd7d4365b`。报告重要 1、次要 2–4 已修，次要 5 已写入卸载前恢复说明，并核对现有“恢复纯净状态”调用关闭管理。保留 Claude 界面，不改 www。
+
+退出前复核失败会清空空闲起点并至少等 5 分钟；等待期间 2 秒 tick 不读跳过值。连续三次偏好刷新/读取失败报告现有错误，恢复后清除，下载超时仍会判定。成功写命令回执落盘，后续匹配读回补确认并恢复最早原值；回执和读回同时丢失时保守保留值，并用 `skipOwnershipUnconfirmed:true` 避免确定归因为用户选择。用户跳过比较按本机系统筛选 build，按需只读大版本跳过及忽略阈值，使用 bundle build。
+
+最终主会话运行：5 文件、217 pass、0 fail、0 skip；实际 60,053 ms 的 2 秒定时采样，三个场景各 30 tick，feed 次数 1/0/0，跳过偏好 read/read-type 次数均 0。429/503/压窗写失败另有 60 秒注入时钟测试，均只 1 次 feed；修复前红测试复现 30 次 feed 和 60 次跳过读取。类型、改动文件 ESLint、依赖边界通过；全仓 lint 仍仅输入已有 rly0-hub-promo.test.ts:11，SHA256 与输入相同。格式及最终 diff 结果见证据。
+
+[RESULTS](selfheal/evidence/codex-update-alert-review2-20261112/RESULTS.md) 记录逐条文件行号、完整命令、退出码及真机缺口。契约新增复查 #2 节交 Claude：来源未确认字段和 active phase 的偏好错误优先显示。所有测试均临时隔离五个用户/配置/数据/记忆目录、关闭原生控制并注入系统命令。没有写真实 defaults、退出/重启用户 Codex/Hub、另起 hub-service、推送或发布。
+
+仅 self_verified；独立 reviewed/accepted、Claude 新字段接线与真实 Mac/Windows 验收仍未完成。next_action：独立复核、Claude 核对新契约，获准独立真机确认偏好刷新/定时无弹窗、已弹窗口、整数/大版本/critical/ignore 阈值、真实下载/安装、关闭管理与 watchdog。直接删除 App 没有恢复钩子，卸载前先关闭管理或恢复纯净；defaults 最终比较与写入仍有跨进程竞争。
+
+---
+
 # Codex 官方新版弹窗复查 #1：self_verified
 
 2026-11-12；`feat/agent-cli-autoupdate`，输入 `a5da7809095786315b20e0055547d11f55d0bdf9`。报告重要 1–3、次要 4–5 已处理。管理开启但未实际放行时跳过所有较新候选的最大 build，包含已适配的等待/退避/挂起；放行中止重新压住。定期和退出前复核的临时 feed/偏好失败只延后，不计更新失败。用户自己的跳过值覆盖目标时不退出，返回 `user-skipped` 和 `userSkippedVersion`；未确认写入不认领，整数原值按原类型恢复。

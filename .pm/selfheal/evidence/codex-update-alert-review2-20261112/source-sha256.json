@@ -1,0 +1,25 @@
+{
+  "base": "5b4c6893526712133e42af7a5ed61d9fd7d4365b",
+  "branch": "feat/agent-cli-autoupdate",
+  "cwd": "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.runtime/agent-cli-autoupdate",
+  "node": "v24.22.2",
+  "npm": "11.19.1",
+  "files": {
+    "packages/host-runtime/src/rly0-hub-service/codex-skipped-version.ts": "e4624beff650dbfdc39f41b883fbfd6c94aed74233a0ae0eb7f8b2b7fd362fbf",
+    "packages/host-runtime/src/rly0-hub-service/codex-sparkle.ts": "db0ab5542b0128bdb1dc962c90f803e06c8d75388f079f1a72a1b484d2e7b92d",
+    "packages/host-runtime/src/rly0-hub-service/codex-update-manager.ts": "221ff7631f184e204589b2360f71886230e84af20a92863be7d3a5e31c691d46",
+    "packages/host-runtime/test/codex-update-alert.test.ts": "75657f0994720f9804ef5f6d33fb3beb6e532bf22cfd2420dec2a1178afb9d19",
+    ".pm/selfheal/CODEX-VERSION-GATE-CONTRACT.md": "f477d81d8bba8c0372449f84437afaa7cdacfb796bb5e07dd6a5373cc9509b81",
+    "docs/features/codex-version-gate.md": "27143343f23474e0aa960049938bea3641d3f66a8129cc4b4853875804bf7871"
+  },
+  "reviewReports": {
+    "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/CODEX-UPDATE-ALERT-REVIEW-1.md": "1ce122d37d048c76acd6b4236eafde3507ec63b83331ca7833d5a573efe711a7",
+    "/Volumes/RLY0Dev/Dev/Projects/codex插件助手/.pm/selfheal/CODEX-UPDATE-ALERT-REVIEW-2.md": "340541f922af83922bc2c22541c94008c92d7abb844a8a76af17c161b5d9d422"
+  },
+  "lintBaseline": {
+    "path": "packages/host-runtime/test/rly0-hub-promo.test.ts",
+    "currentSha256": "ffda9088fbf18a02d9990616cee66705446f66f1ea38f201f917062131893caa",
+    "baseSha256": "ffda9088fbf18a02d9990616cee66705446f66f1ea38f201f917062131893caa"
+  },
+  "wwwDiffExitCode": 0
+}

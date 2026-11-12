@@ -10,6 +10,8 @@ interface SkippedVersionRecord {
   written: string;
   /** Absent in legacy/confirmed records. A pending intent alone does not establish ownership. */
   confirmed?: false;
+  /** The native write returned successfully; a later matching read may finish confirmation. */
+  writeSucceeded?: true;
   /** Previous owned value during a durable, interrupted replacement. */
   previous?: string;
 }
@@ -58,6 +60,8 @@ export class CodexSkippedVersion {
       !("written" in value) ||
       !version(value.written) ||
       ("confirmed" in value && value.confirmed !== false) ||
+      ("writeSucceeded" in value &&
+        (value.writeSucceeded !== true || !("confirmed" in value) || value.confirmed !== false)) ||
       ("originalType" in value &&
         (value.originalType !== "integer" ||
           typeof value.original !== "string" ||
@@ -71,6 +75,7 @@ export class CodexSkippedVersion {
       written: value.written,
       ...("originalType" in value ? { originalType: "integer" as const } : {}),
       ...("confirmed" in value ? { confirmed: false as const } : {}),
+      ...("writeSucceeded" in value ? { writeSucceeded: true as const } : {}),
       ...("previous" in value ? { previous: value.previous as string } : {}),
     };
   }
@@ -101,12 +106,32 @@ export class CodexSkippedVersion {
     if (current !== null && !version(current.value)) throw new Error("CODEX_PREFERENCES_FAILED");
     return current;
   }
-  /** Compare the value that release would leave behind, excluding only confirmed Hub ownership. */
-  async userSkipped(build: string): Promise<boolean> {
+  async #confirm(record: SkippedVersionRecord | null, current: CodexVersionPreference | null) {
+    if (
+      record?.confirmed === false &&
+      record.writeSucceeded === true &&
+      current?.type === "string" &&
+      current.value === record.written
+    ) {
+      delete record.confirmed;
+      delete record.writeSucceeded;
+      delete record.previous;
+      await this.#save(record);
+    }
+  }
+  /** Value release would leave behind, excluding only confirmed Hub ownership. */
+  async userSkip(): Promise<string | null> {
     const record = await this.#read();
     const current = await this.#current();
+    await this.#confirm(record, current);
     const user = record && this.#owns(record, current) ? this.#original(record) : current;
-    return user !== null && compareSparkleBuilds(user.value, build) >= 0;
+    return user?.value ?? null;
+  }
+  async unconfirmed(): Promise<boolean> {
+    const record = await this.#read();
+    if (record?.confirmed !== false || record.writeSucceeded === true) return false;
+    const current = await this.#current();
+    return current?.type === "string" && current.value === record.written;
   }
   async pending(): Promise<boolean> {
     return (await this.#read()) !== null;
@@ -115,6 +140,7 @@ export class CodexSkippedVersion {
     if (!version(build)) throw new Error("CODEX_APPCAST_FAILED");
     const record = await this.#read();
     const current = await this.#current();
+    await this.#confirm(record, current);
     if (current?.value === build) return; // A pre-existing user skip is never claimed as Hub-owned.
     const owned = record !== null && this.#owns(record, current);
     // A higher user threshold already suppresses this build; never weaken or claim it.
@@ -132,15 +158,22 @@ export class CodexSkippedVersion {
     const before = await this.#current();
     if (before?.value !== current?.value || before?.type !== current?.type)
       throw new Error("CODEX_PREFERENCES_FAILED");
+    let writeSucceeded = false;
     try {
       await this.preferences.write("SUSkippedVersion", build);
+      writeSucceeded = true;
     } catch {
       // A lost command reply is not proof of failure. Only a successful readback can claim it.
+    }
+    if (writeSucceeded) {
+      next.writeSucceeded = true;
+      await this.#save(next);
     }
     const after = await this.#current();
     if (after?.type !== "string" || after.value !== build)
       throw new Error("CODEX_PREFERENCES_FAILED");
     delete next.confirmed;
+    delete next.writeSucceeded;
     delete next.previous;
     await this.#save(next);
   }
@@ -148,6 +181,7 @@ export class CodexSkippedVersion {
     const record = await this.#read();
     if (!record) return;
     const current = await this.#current();
+    await this.#confirm(record, current);
     if (this.#owns(record, current)) {
       await this.preferences.write("SUSkippedVersion", record.original, record.originalType);
       const after = await this.#current();

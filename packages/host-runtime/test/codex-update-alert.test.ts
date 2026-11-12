@@ -54,8 +54,6 @@ async function fixture(original: string | null = null) {
     ["SUAutomaticallyUpdate", "1"],
     ["SUEnableAutomaticChecks", "1"],
     ["SULastCheckTime", "2026-11-10 12:00:00 +0000"],
-    ["SUSkippedMajorVersion", "synthetic-user-major"],
-    ["SUSkippedMajorSubreleaseVersion", "synthetic-user-subrelease"],
     ["CodexSparkleSeenUpdateVersions", '("25000", "26000")'],
   ]);
   const types = new Map([
@@ -66,7 +64,9 @@ async function fixture(original: string | null = null) {
   ]);
   if (original !== null) prefs.set("SUSkippedVersion", original);
   let failWrite: string | null = null;
+  let failRead: string | null = null;
   let loseWriteReply = false;
+  let running = true;
   const exec = vi.fn(async (file: string, args: string[]) => {
     if (file === "/usr/bin/defaults") {
       const [action, domain, key = ""] = args;
@@ -75,6 +75,8 @@ async function fixture(original: string | null = null) {
         throw Object.assign(new Error("synthetic missing"), {
           stderr: `Error: Could not find key '${key}' in domain '${domain}'.\n`,
         });
+      if ((action === "read" || action === "read-type") && key === failRead)
+        throw new Error("synthetic preferences unavailable");
       if (action === "read") return `${prefs.get(key) ?? ""}\n`;
       if (action === "read-type") return `Type is ${types.get(key) ?? "string"}\n`;
       if (key === failWrite) throw new Error("synthetic permission denied");
@@ -101,10 +103,23 @@ async function fixture(original: string | null = null) {
     if (file === "/usr/bin/sw_vers") return "27.2";
     if (file === "/usr/bin/env") return "Wed Nov 11 09:00:00 2026";
     if (file === "/usr/bin/lsappinfo") return '    bundle path="/Applications/ChatGPT.app"';
-    if (file === "/usr/bin/osascript") return args[1]?.includes(" to quit") ? "" : "true";
+    if (file === "/usr/bin/osascript") {
+      if (args[1]?.includes(" to quit")) {
+        running = false;
+        return "";
+      }
+      return running ? "true" : "false";
+    }
+    if (file === "/bin/ps") return "";
+    if (file === "/usr/bin/plutil" && args.includes("CFBundleVersion")) return "25894";
     throw new Error(`unexpected system command ${file}`);
   });
   let xml = `<rss><channel>${item()}</channel></rss>`;
+  let feedStatus = 200;
+  const feedGet = vi.fn<UpdateHttpGet>(async (...args) => ({
+    ...(await http(xml)(...args)),
+    status: feedStatus,
+  }));
   const verified: { family: string; minHub: string }[] = [];
   const state = new Rly0HubStateStore(environment);
   const catalog = new CodexCompatibilityCatalog({
@@ -125,9 +140,12 @@ async function fixture(original: string | null = null) {
   const startWatchdog = vi.fn(async () => undefined);
   const driver = createMacCodexUpdateDriver({
     environment,
-    get: async () => http(xml),
+    get: async () => feedGet,
     currentVersion: async () => "26.1103.60933",
-    reopen: async () => true,
+    reopen: async () => {
+      running = true;
+      return true;
+    },
     healthy: async () => true,
     exec,
     startWatchdog,
@@ -140,6 +158,7 @@ async function fixture(original: string | null = null) {
     busy: async () => false,
     now: () => now,
     idleMs: 10,
+    downloadTimeoutMs: 30 * 60_000,
   };
   const manager = new CodexUpdateManager(options);
   managers.push(manager);
@@ -155,6 +174,7 @@ async function fixture(original: string | null = null) {
     catalog,
     state,
     startWatchdog,
+    feedGet,
     advance: (ms = 10) => {
       now += ms;
     },
@@ -163,6 +183,12 @@ async function fixture(original: string | null = null) {
     },
     feed: (value: string) => {
       xml = value;
+    },
+    feedStatus: (value: number) => {
+      feedStatus = value;
+    },
+    denyRead: (key: string | null) => {
+      failRead = key;
     },
     denyWrite: (key: string | null) => {
       failWrite = key;
@@ -545,6 +571,10 @@ it("a temporary feed failure at final idle revalidation defers the quit without 
   expect(await f.manager.tick()).toMatchObject({ phase: "waiting-idle", error: null });
   expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
   expect(f.startWatchdog).not.toHaveBeenCalled();
+  expect((await f.manager.tick()).phase).toBe("waiting-idle");
+  f.advance(5 * 60_000);
+  expect((await f.manager.tick()).phase).toBe("waiting-idle");
+  f.advance();
   expect((await f.manager.tick()).phase).toBe("installing");
 });
 
@@ -711,6 +741,12 @@ it("keeps an unconfirmed successful write when both its reply and readback were 
   expect(JSON.parse(await fs.readFile(journal(f), "utf8"))).toMatchObject({ confirmed: false });
   f.exec.mockImplementation(native);
   f.loseReply(false);
+  f.allow();
+  f.advance(24 * 60 * 60_000);
+  expect(await f.manager.check()).toMatchObject({
+    phase: "user-skipped",
+    skipOwnershipUnconfirmed: true,
+  });
   expect((await f.manager.setEnabled(false)).phase).toBe("disabled");
   expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
 });
@@ -849,6 +885,262 @@ it("a corrupt ownership journal prevents release and is preserved for diagnosis"
   expect(f.startWatchdog).not.toHaveBeenCalled();
   expect(await fs.readFile(journal(f), "utf8")).toContain('"original":false');
 });
+
+const skipReads = (f: Awaited<ReturnType<typeof fixture>>) =>
+  f.exec.mock.calls.filter(
+    ([file, args]) =>
+      file === "/usr/bin/defaults" &&
+      (args[0] === "read" || args[0] === "read-type") &&
+      args[2]?.startsWith("SUSkipped"),
+  ).length;
+
+it.each([429, 503, "write-failure"] as const)(
+  "bounds a failed final revalidation (%s) to one feed request over 60 seconds",
+  async (failure) => {
+    const f = await fixture("25000");
+    f.allow();
+    f.options.idleMs = 15_000;
+    await f.manager.check();
+    if (typeof failure === "number") f.feedStatus(failure);
+    else {
+      f.feed(`<rss>${item("26.1106.51428", "30002")}</rss>`);
+      f.denyWrite("SUSkippedVersion");
+    }
+    f.feedGet.mockClear();
+    f.exec.mockClear();
+    for (let step = 0; step < 30; step++) {
+      f.advance(2000);
+      expect((await f.manager.tick()).phase).toBe("waiting-idle");
+    }
+    expect(f.feedGet).toHaveBeenCalledTimes(1);
+    expect(skipReads(f)).toBeLessThanOrEqual(6);
+    expect(f.startWatchdog).not.toHaveBeenCalled();
+    expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+    await expect(
+      fs.stat(path.join(f.environment.CODEXHOST_DATA_DIR, "codex-update-attempt.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    f.feedStatus(200);
+    f.denyWrite(null);
+    f.advance(5 * 60_000);
+    expect((await f.manager.tick()).phase).toBe("waiting-idle");
+    f.advance(15_000);
+    expect((await f.manager.tick()).phase).toBe("installing");
+  },
+);
+
+it("does not fetch feed or read skip preferences in 30 busy ticks spanning 60 seconds", async () => {
+  const f = await fixture();
+  f.allow();
+  f.options.busy = async () => true;
+  await f.manager.check();
+  f.feedGet.mockClear();
+  f.exec.mockClear();
+  for (let step = 0; step < 30; step++) {
+    f.advance(2000);
+    expect((await f.manager.tick()).phase).toBe("waiting-idle");
+  }
+  expect(f.feedGet).not.toHaveBeenCalled();
+  expect(skipReads(f)).toBe(0);
+});
+
+it("reports consecutive periodic preference failures, clears on recovery and still times out downloads", async () => {
+  const f = await fixture("10000");
+  f.allow();
+  await f.manager.check();
+  f.advance();
+  expect((await f.manager.tick()).phase).toBe("installing");
+  expect((await f.manager.tick()).phase).toBe("downloading");
+  f.denyRead("SUSkippedVersion");
+  for (let check = 0; check < 3; check++) {
+    f.advance(5 * 60_000);
+    expect(await f.manager.check()).toMatchObject({
+      phase: "downloading",
+      error: check === 2 ? "CODEX_PREFERENCES_FAILED" : null,
+    });
+  }
+  f.denyRead(null);
+  expect(await f.manager.check()).toMatchObject({ phase: "downloading", error: null });
+  f.denyRead("SUSkippedVersion");
+  f.feedGet.mockClear();
+  f.exec.mockClear();
+  for (let step = 0; step < 30; step++) {
+    f.advance(2000);
+    expect((await f.manager.tick()).phase).toBe("downloading");
+  }
+  expect(f.feedGet).not.toHaveBeenCalled();
+  expect(skipReads(f)).toBe(0);
+  f.advance(30 * 60_000);
+  expect(await f.manager.tick()).toMatchObject({
+    phase: "failed",
+    error: "CODEX_DOWNLOAD_TIMEOUT",
+  });
+});
+
+it("reports three failed held-preference refreshes without leaving the idle wait", async () => {
+  const f = await fixture();
+  f.allow();
+  f.options.busy = async () => true;
+  await f.manager.check();
+  f.denyRead("SUSkippedVersion");
+  for (let check = 0; check < 3; check++) {
+    f.advance(5 * 60_000);
+    expect(await f.manager.check()).toMatchObject({
+      phase: "waiting-idle",
+      error: check === 2 ? "CODEX_PREFERENCES_FAILED" : null,
+    });
+  }
+  f.denyRead(null);
+  expect(await f.manager.check()).toMatchObject({ phase: "waiting-idle", error: null });
+});
+
+it.each(["recheck", "disable", "restart-disable"])(
+  "confirms a successful write after failed readback on %s and restores the first original",
+  async (action) => {
+    const f = await fixture("25000");
+    const native = f.exec.getMockImplementation();
+    if (!native) throw new Error("missing injected commands");
+    let written = false;
+    f.exec.mockImplementation(async (file, args) => {
+      if (written && args[0] === "read" && args[2] === "SUSkippedVersion")
+        throw new Error("synthetic readback unavailable");
+      const result = await native(file, args);
+      if (args[0] === "write" && args[2] === "SUSkippedVersion") written = true;
+      return result;
+    });
+    expect((await f.manager.check()).error).toBe("CODEX_PREFERENCES_FAILED");
+    expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
+    expect(JSON.parse(await fs.readFile(journal(f), "utf8"))).toMatchObject({
+      confirmed: false,
+      writeSucceeded: true,
+    });
+    f.exec.mockImplementation(native);
+    let manager = f.manager;
+    if (action === "recheck") {
+      f.allow();
+      f.advance(24 * 60 * 60_000);
+      expect((await manager.check()).phase).toBe("waiting-idle");
+      expect(JSON.parse(await fs.readFile(journal(f), "utf8"))).not.toHaveProperty("confirmed");
+    } else if (action === "restart-disable") {
+      await manager.stop();
+      manager = new CodexUpdateManager(f.options);
+      managers.push(manager);
+    }
+    expect((await manager.setEnabled(false)).phase).toBe("disabled");
+    expect(f.prefs.get("SUSkippedVersion")).toBe("25000");
+    await expect(fs.stat(journal(f))).rejects.toMatchObject({ code: "ENOENT" });
+  },
+);
+
+it("uses only OS-installable builds when deciding whether the user skipped a display version", async () => {
+  const f = await fixture("30001");
+  f.allow();
+  f.feed(
+    `<rss>${item()}${item("26.1106.51428", "40000").replace("<enclosure", "<sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion><enclosure")}</rss>`,
+  );
+  expect(await f.manager.check()).toMatchObject({ phase: "user-skipped", error: null });
+  expect(f.prefs.get("SUSkippedVersion")).toBe("40000");
+  expect(f.startWatchdog).not.toHaveBeenCalled();
+});
+
+it("checks the newest installable display version when the feed's latest needs a newer OS", async () => {
+  const f = await fixture("30001");
+  f.allow();
+  f.feed(
+    `<rss>${item()}${item("26.1106.60000", "40000").replace("<enclosure", "<sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion><enclosure")}</rss>`,
+  );
+  expect(await f.manager.check()).toMatchObject({
+    phase: "user-skipped",
+    userSkippedVersion: "26.1106.51428",
+    latestVersion: "26.1106.60000",
+    error: null,
+  });
+  expect(f.startWatchdog).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["27000", null, null, true],
+  ["27000", "30001", "30001", true],
+  ["27000", "30001", "30002", false],
+  ["27000", null, "30001", false],
+  ["25000", "30001", null, false],
+] as const)(
+  "respects major skip %s, subrelease %s and ignore threshold %s (blocked=%s)",
+  async (major, subrelease, ignore, blocked) => {
+    const f = await fixture();
+    f.allow();
+    f.prefs.set("SUSkippedMajorVersion", major);
+    if (subrelease) f.prefs.set("SUSkippedMajorSubreleaseVersion", subrelease);
+    const metadata = `<sparkle:minimumAutoupdateVersion>27000</sparkle:minimumAutoupdateVersion>${ignore ? `<sparkle:ignoreSkippedUpgradesBelowVersion>${ignore}</sparkle:ignoreSkippedUpgradesBelowVersion>` : ""}`;
+    f.feed(`<rss>${item().replace("<enclosure", `${metadata}<enclosure`)}</rss>`);
+    expect((await f.manager.check()).phase).toBe(blocked ? "user-skipped" : "waiting-idle");
+    expect(f.prefs.get("SUSkippedMajorVersion")).toBe(major);
+    expect(f.prefs.get("SUSkippedMajorSubreleaseVersion") ?? null).toBe(subrelease);
+    expect(
+      f.exec.mock.calls.some(
+        ([, args]) => (args[0] === "write" || args[0] === "delete") && /Major/.test(args[2] ?? ""),
+      ),
+    ).toBe(false);
+    expect(f.startWatchdog).not.toHaveBeenCalled();
+  },
+);
+
+it(
+  "samples actual two-second timers for 60 seconds with injected native commands",
+  { timeout: 70_000 },
+  async () => {
+    const rateLimited = await fixture("25000");
+    rateLimited.allow();
+    rateLimited.options.now = Date.now;
+    await rateLimited.manager.start();
+    rateLimited.feedStatus(429);
+
+    const busy = await fixture();
+    busy.allow();
+    busy.options.now = Date.now;
+    busy.options.busy = async () => true;
+    await busy.manager.start();
+
+    const downloading = await fixture("10000");
+    downloading.allow();
+    await downloading.manager.check();
+    downloading.advance();
+    await downloading.manager.tick();
+    expect((await downloading.manager.tick()).phase).toBe("downloading");
+    const downloadClockStart = Date.now();
+    downloading.options.now = () => 100_010 + Date.now() - downloadClockStart;
+    downloading.denyRead("SUSkippedVersion");
+    await downloading.manager.start();
+
+    const cases = [rateLimited, busy, downloading];
+    const ticks = cases.map((f) => vi.spyOn(f.manager, "tick"));
+    for (const f of cases) {
+      f.feedGet.mockClear();
+      f.exec.mockClear();
+    }
+    const started = performance.now();
+    await new Promise((resolve) => setTimeout(resolve, 60_050));
+    const metrics = [];
+    for (const [index, f] of cases.entries()) {
+      const timerTicks = ticks[index]?.mock.calls.length ?? 0;
+      await f.manager.tick(); // Drain the serialized timer work before reading counts.
+      expect(timerTicks).toBeGreaterThanOrEqual(29);
+      expect(timerTicks).toBeLessThanOrEqual(31);
+      metrics.push({
+        scenario: ["429-before-release", "busy-wait", "download-read-unavailable"][index],
+        timerTicks,
+        feedRequests: f.feedGet.mock.calls.length,
+        skipReads: skipReads(f),
+        phase: f.manager.status().phase,
+      });
+    }
+    expect(metrics.map((m) => m.feedRequests)).toEqual([1, 0, 0]);
+    expect(metrics.map((m) => m.skipReads)).toEqual([0, 0, 0]);
+    expect(metrics.map((m) => m.phase)).toEqual(["waiting-idle", "waiting-idle", "downloading"]);
+    process.stdout.write(
+      `CODEX_UPDATE_ALERT_CADENCE ${JSON.stringify({ elapsedMs: Math.round(performance.now() - started), metrics })}\n`,
+    );
+  },
+);
 
 it("the real watchdog runner restores scheduled checks but never rewrites skip or seen values", async () => {
   const f = await fixture("25000");

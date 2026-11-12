@@ -1,0 +1,36 @@
+{
+  "elapsedMs": 60053,
+  "metrics": [
+    {
+      "scenario": "429-before-release",
+      "timerTicks": 30,
+      "feedRequests": 1,
+      "skipReads": 0,
+      "phase": "waiting-idle"
+    },
+    {
+      "scenario": "busy-wait",
+      "timerTicks": 30,
+      "feedRequests": 0,
+      "skipReads": 0,
+      "phase": "waiting-idle"
+    },
+    {
+      "scenario": "download-read-unavailable",
+      "timerTicks": 30,
+      "feedRequests": 0,
+      "skipReads": 0,
+      "phase": "downloading"
+    }
+  ],
+  "scope": "Actual wall-clock two-second manager timers; synthetic appcast and injected system commands; no hub-service or native defaults.",
+  "simulated60Seconds": {
+    "429FeedRequests": 1,
+    "503FeedRequests": 1,
+    "failedHoldWriteFeedRequests": 1,
+    "failedHoldWriteSkipReadUpperBound": 6,
+    "busySkipReads": 0,
+    "downloadSkipReads": 0,
+    "source": "codex-update-alert.test.ts bounds a failed final revalidation / busy ticks / consecutive periodic failures"
+  }
+}
