@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,11 @@ import type { Rly0CoreBridge } from "../src/rly0-core/index.js";
 import { Rly0CodexControl } from "../src/rly0-hub-service/codex-control.js";
 import { evaluateRly0HubAlerts } from "../src/rly0-hub-service/alerts.js";
 import { listRly0HubAgents } from "../src/rly0-hub-service/agents.js";
+import {
+  hubReleaseManifestUrl,
+  Rly0HubReleaseSource,
+} from "../src/rly0-hub-service/hub-release.js";
+import type { UpdateHttpGet } from "../src/rly0-hub-service/hub-update-net.js";
 import { isRly0Relay, Rly0HubService } from "../src/rly0-hub-service/service.js";
 import { serveRly0HubStdio } from "../src/rly0-hub-service/stdio-server.js";
 
@@ -138,6 +144,96 @@ describe("RLY/0 Hub service", () => {
       });
     }
     expect(forceQuit).not.toHaveBeenCalled();
+    await service.dispose();
+  });
+
+  it("macOS: a found update is downloaded and offered, then dropped once the app is replaced", async () => {
+    const root = await tempDir();
+    const resources = path.join(root, "apps", "RLY0 Hub.app", "Contents", "Resources");
+    const installed = async (version: string) => {
+      await fs.mkdir(path.join(resources, "app"), { recursive: true });
+      await fs.writeFile(
+        path.join(resources, "app", "codexhost-distribution.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          version,
+          distribution: "installer",
+          target: "macos-arm64",
+        }),
+      );
+    };
+    await installed("1.0.0");
+    // The disk image is already in the download folder and intact, so nothing goes to the network.
+    const image = Buffer.from("synthetic disk image");
+    const dmg = (version: string) => `RLY0-Hub-${version}-macos-arm64.dmg`;
+    const updates = path.join(root, "data", "updates");
+    await fs.mkdir(updates, { recursive: true });
+    await fs.writeFile(path.join(updates, dmg("1.1.0")), image);
+    let latest = "1.1.0";
+    const get: UpdateHttpGet = async (url) => {
+      const ok = url === hubReleaseManifestUrl("macos");
+      const json = {
+        schemaVersion: 1,
+        version: latest,
+        name: dmg(latest),
+        size: image.length,
+        sha256: createHash("sha256").update(image).digest("hex"),
+        publishedAt: "2026-11-13T00:00:00.000Z",
+      };
+      return {
+        status: ok ? 200 : 404,
+        headers: {},
+        body: (async function* () {
+          if (ok) yield new Uint8Array(Buffer.from(JSON.stringify(json)));
+        })(),
+        cancel: () => undefined,
+      };
+    };
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: path.join(root, "data") },
+      installRoot: resources,
+      platform: "darwin",
+      arch: "arm64",
+      releaseSource: new Rly0HubReleaseSource({ get: async () => get, kind: "macos" }),
+      core: fakeCore([]).core,
+    });
+    const progress = async (phase: string) => {
+      for (let i = 0; i < 200; i += 1) {
+        const state = (await service.handle("updates.progress", {})) as { phase: string };
+        if (state.phase === phase) return state;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`never reached ${phase}`);
+    };
+    expect(await service.handle("updates.status", { force: true })).toMatchObject({
+      updateAvailable: true,
+      latestVersion: "1.1.0",
+    });
+    expect(await progress("downloaded")).toMatchObject({
+      version: "1.1.0",
+      file: path.join(updates, dmg("1.1.0")),
+      appFolder: path.join(root, "apps"),
+    });
+    await expect(service.handle("updates.reveal", { path: "/etc/hosts" })).rejects.toThrow();
+    // A newer release than the downloaded one: the old image is not offered and is replaced.
+    latest = "1.2.0";
+    await fs.writeFile(path.join(updates, dmg("1.2.0")), image);
+    await service.handle("updates.status", { force: true });
+    expect(await progress("downloaded")).toMatchObject({ version: "1.2.0" });
+    expect(await fs.readdir(updates)).toEqual([dmg("1.2.0")]);
+    // The image went missing: the window is told so, and the state starts over.
+    await fs.rm(path.join(updates, dmg("1.2.0")));
+    expect(await service.handle("updates.reveal", {})).toEqual({ ok: false, missing: true });
+    expect(await progress("idle")).toMatchObject({ file: null });
+    // Replaced by the person: up to date, so nothing is kept for updating.
+    await fs.writeFile(path.join(updates, dmg("1.2.0")), image);
+    await installed("1.2.0");
+    expect(await service.handle("updates.status", { force: true })).toMatchObject({
+      updateAvailable: false,
+    });
+    for (let i = 0; i < 100 && (await fs.readdir(updates)).length; i += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(await fs.readdir(updates)).toEqual([]);
     await service.dispose();
   });
 

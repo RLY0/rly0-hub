@@ -201,6 +201,8 @@ export interface Rly0HubServiceOptions {
   readonly platform?: NodeJS.Platform;
   /** CPU architecture: which macOS package (if any) updates this Hub. Defaults to process.arch. */
   readonly arch?: string;
+  /** Where releases are looked up (tests); GitHub through the update proxy when absent. */
+  readonly releaseSource?: Rly0HubReleaseSource;
   readonly core?: Rly0CoreBridge;
   readonly updates?: Pick<HostUpdateCoordinator, "check">;
   readonly codex?: Rly0CodexControl;
@@ -637,10 +639,13 @@ export class Rly0HubService {
 
   /** Shared by the check and the update, so 立即更新 reuses what the check just found. */
   #releases(): Rly0HubReleaseSource {
-    this.#releaseSource ??= new Rly0HubReleaseSource({
-      get: async () => createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
-      kind: this.#packageKind() ?? "windows",
-    });
+    this.#releaseSource ??=
+      this.#options.releaseSource ??
+      new Rly0HubReleaseSource({
+        get: async () =>
+          createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+        kind: this.#packageKind() ?? "windows",
+      });
     return this.#releaseSource;
   }
 
@@ -675,7 +680,10 @@ export class Rly0HubService {
    */
   #macAppFolder(): string | null {
     if ((this.#options.platform ?? process.platform) !== "darwin") return null;
-    return path.dirname(path.resolve(this.#options.installRoot, "..", ".."));
+    const folder = path.dirname(path.resolve(this.#options.installRoot, "..", ".."));
+    // An app opened straight from Downloads or a disk image runs from a random translocated
+    // copy; that path means nothing to the person, so the window names no folder then.
+    return folder.includes("/AppTranslocation/") ? null : folder;
   }
 
   #updateProgress() {
@@ -716,15 +724,19 @@ export class Rly0HubService {
     )
       .then((result) => {
         if (!result.error) this.#updateCache = { at: Date.now(), result };
-        // macOS: a newer version found by a real lookup is downloaded in the background, so the
-        // window can offer the checked disk image instead of the download page.
-        const phase = this.#hubUpdater().progress().phase;
-        if (
-          result.updateAvailable &&
-          this.#packageKind() === "macos" &&
-          (phase === "idle" || phase === "error")
-        )
-          this.#hubUpdater().start({ reopenCodex: false });
+        // macOS: a newer version found by a real lookup is downloaded in the background (again
+        // when the one downloaded earlier is no longer the newest), so the window can offer the
+        // checked disk image instead of the download page; once up to date, the image goes.
+        if (this.#packageKind() === "macos" && !result.error) {
+          const progress = this.#hubUpdater().progress();
+          if (!result.updateAvailable) void this.#hubUpdater().discardDownloads();
+          else if (
+            progress.phase === "idle" ||
+            progress.phase === "error" ||
+            (progress.phase === "downloaded" && progress.version !== result.latestVersion)
+          )
+            this.#hubUpdater().start({ reopenCodex: false });
+        }
         return result;
       })
       .finally(() => {

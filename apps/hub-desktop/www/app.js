@@ -517,10 +517,11 @@
     const reveal = (folder) =>
       call("updates.reveal", folder ? { folder: true } : {})
         .then((result) => {
-          if (!result || !result.ok) {
+          if (result && result.ok) return;
+          if (result && result.missing) {
             toast("找不到下载好的安装包，正在重新下载");
             start();
-          }
+          } else toast("访达没能打开安装包，可以点“在访达中显示”，或去下载页下载");
         })
         .catch(failed);
     const render = (state) => {
@@ -543,7 +544,11 @@
         setFoot(releasesPage);
         return;
       }
-      if (state.phase === "downloaded") {
+      // An image downloaded for an older release than the one found now is not offered.
+      const current =
+        state.phase === "downloaded" &&
+        (!updateInfo || !state.version || state.version === updateInfo.latestVersion);
+      if (current) {
         stop();
         const folder = state.appFolder || "原来放 RLY0 Hub 的文件夹";
         box.replaceChildren(
@@ -578,8 +583,18 @@
         return;
       }
       stop();
+      // Only the download page helps when no disk image can be fetched for this Mac or release.
+      const noPackage = {
+        UPDATE_UNSUPPORTED: UPDATE_ERRORS.UPDATE_UNSUPPORTED,
+        UPDATE_ASSET_MISSING: "这一版暂时没有 Mac 安装包，Mac 版可以先不更新。",
+      }[state.phase === "error" ? state.error : ""];
+      if (noPackage) {
+        box.replaceChildren(h("p", { class: "sub" }, noPackage));
+        setFoot(releasesPage);
+        return;
+      }
       const problem =
-        state.phase === "error" && state.error && state.error !== "UPDATE_UNSUPPORTED"
+        state.phase === "error" && state.error && state.error !== "UPDATE_NONE"
           ? UPDATE_ERRORS[state.error] || "下载没有完成，请重试。"
           : null;
       box.replaceChildren(

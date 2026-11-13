@@ -146,10 +146,10 @@ export class Rly0HubUpdater {
    * macOS: shows the verified disk image (Finder mounts it and opens its window) or, with
    * `folder`, selects it in its folder. Nothing is mounted, copied or replaced by the Hub itself.
    */
-  async reveal(folder: boolean): Promise<{ ok: boolean }> {
+  async reveal(folder: boolean): Promise<{ ok: boolean; missing?: true }> {
     const file = this.#progress.file;
     if (this.#kind() !== "macos" || this.#progress.phase !== "downloaded" || !file)
-      return { ok: false };
+      return { ok: false, missing: true };
     if (
       !(await fs.stat(file).then(
         (stat) => stat.isFile(),
@@ -157,7 +157,7 @@ export class Rly0HubUpdater {
       ))
     ) {
       this.#set({ phase: "idle", file: null });
-      return { ok: false };
+      return { ok: false, missing: true };
     }
     const opened = await (this.#options.open ?? openWithFinder)(
       folder ? ["-R", file] : [file],
@@ -165,10 +165,33 @@ export class Rly0HubUpdater {
     return { ok: opened };
   }
 
+  /**
+   * macOS, once the check finds no newer version (the app was replaced): drops the disk images and
+   * partial downloads kept for updating. Nothing is touched while a download is running.
+   */
+  async discardDownloads(): Promise<void> {
+    if (this.#kind() !== "macos") return;
+    const phase = this.#progress.phase;
+    if (phase === "downloading" || phase === "verifying") return;
+    await this.#clean(null);
+    if (phase === "downloaded") this.#set({ phase: "idle", file: null });
+  }
+
+  /** Removes package files from the download folder, except `keep`. */
+  async #clean(keep: string | null): Promise<void> {
+    const dir = this.#options.downloadDir;
+    for (const entry of await fs.readdir(dir).catch(() => []))
+      if (PACKAGE_FILE.test(entry) && entry !== keep)
+        await fs.rm(path.join(dir, entry), { force: true });
+  }
+
   async #run(kind: HubPackageKind, reopenCodex: boolean): Promise<void> {
     const current = await installedHubVersion(this.#options.installRoot);
     const release = await this.#options.release();
-    if (compareSemanticVersions(current, release.version) >= 0) throw new Error("UPDATE_NONE");
+    if (compareSemanticVersions(current, release.version) >= 0) {
+      if (kind === "macos") await this.#clean(null);
+      throw new Error("UPDATE_NONE");
+    }
     const source = release.installer;
     if (!source) throw new Error(release.installerProblem ?? "UPDATE_ASSET_MISSING");
     this.#set({ version: release.version, totalBytes: source.size ?? 0 });
@@ -180,13 +203,12 @@ export class Rly0HubUpdater {
     const installer = path.join(dir, name);
     // A disk image already downloaded and still intact is offered again, not fetched again.
     if (kind === "macos" && (await this.#intact(source, installer))) {
+      await this.#clean(name);
       this.#set({ phase: "downloaded", file: installer, downloadedBytes: source.size ?? 0 });
       return;
     }
     // Other versions' files are of no use; this version's partial download is kept to continue.
-    for (const entry of await fs.readdir(dir).catch(() => []))
-      if (PACKAGE_FILE.test(entry) && entry !== partialName)
-        await fs.rm(path.join(dir, entry), { force: true });
+    await this.#clean(partialName);
     const partial = path.join(dir, partialName);
 
     const result = await this.#options.download(source, partial, (progress) => {

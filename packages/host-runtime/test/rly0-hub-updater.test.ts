@@ -493,7 +493,7 @@ describe("macOS: download and check the disk image, the person replaces the app"
       [`${PREFIX}v1.1.0/${DMG("1.1.0")}`]: installerServer(),
     });
     const { updater, opened, launched } = macUpdater(root, get);
-    expect(await updater.reveal(false)).toEqual({ ok: false });
+    expect(await updater.reveal(false)).toEqual({ ok: false, missing: true });
     updater.start({ reopenCodex: false });
     await settle(updater);
     const file = path.join(root, "updates", DMG("1.1.0"));
@@ -572,7 +572,7 @@ describe("macOS: download and check the disk image, the person replaces the app"
       file: null,
     });
     expect(await readdir(path.join(root, "updates"))).toEqual([]);
-    expect(await updater.reveal(false)).toEqual({ ok: false });
+    expect(await updater.reveal(false)).toEqual({ ok: false, missing: true });
     expect(opened).toEqual([]);
   });
 
