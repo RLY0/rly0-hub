@@ -729,7 +729,10 @@ export class Rly0HubService {
         // checked disk image instead of the download page; once up to date, the image goes.
         if (this.#packageKind() === "macos" && !result.error) {
           const progress = this.#hubUpdater().progress();
-          if (!result.updateAvailable) void this.#hubUpdater().discardDownloads();
+          if (!result.updateAvailable)
+            void this.#hubUpdater()
+              .discardDownloads()
+              .catch(() => undefined);
           else if (
             progress.phase === "idle" ||
             progress.phase === "error" ||

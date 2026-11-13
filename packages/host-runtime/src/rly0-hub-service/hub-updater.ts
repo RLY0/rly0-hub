@@ -174,7 +174,8 @@ export class Rly0HubUpdater {
     const phase = this.#progress.phase;
     if (phase === "downloading" || phase === "verifying") return;
     await this.#clean(null);
-    if (phase === "downloaded") this.#set({ phase: "idle", file: null });
+    // A download started meanwhile keeps its own state.
+    if (this.#progress.phase === "downloaded") this.#set({ phase: "idle", file: null });
   }
 
   /** Removes package files from the download folder, except `keep`. */
