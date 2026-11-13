@@ -430,13 +430,7 @@
             notes.length > 1200 ? `${notes.slice(0, 1200)}…` : notes,
           )
         : h("p", { class: "sub" }, "这次更新的说明在发布页里。"),
-      window.HubUI.isMac
-        ? h(
-            "p",
-            { class: "sub" },
-            "Mac 版：下载新的安装包，把 RLY0 Hub 拖进“应用程序”替换旧版即可，账号和设置都会保留。",
-          )
-        : null,
+      window.HubUI.isMac ? macUpdateBox(ui) : null,
     );
     ui.foot.append(
       h(
@@ -457,28 +451,20 @@
       ),
       h("span", { class: "spacer" }),
       h("button", { class: "btn", type: "button", onclick: () => ui.close() }, "稍后"),
-      window.HubUI.isMac
-        ? h(
-            "button",
-            {
-              class: "btn paper",
-              type: "button",
-              onclick: () => {
-                call("links.open", { target: "releases" }).catch(failed);
-                ui.close();
+      // macOS: the buttons come from macUpdateBox (download, then open the disk image).
+      ...(window.HubUI.isMac
+        ? []
+        : [
+            h(
+              "button",
+              {
+                class: "btn paper",
+                type: "button",
+                onclick: () => installUpdate(ui, false),
               },
-            },
-            "去下载页",
-          )
-        : h(
-            "button",
-            {
-              class: "btn paper",
-              type: "button",
-              onclick: () => installUpdate(ui, false),
-            },
-            "立即更新",
-          ),
+              "立即更新",
+            ),
+          ]),
     );
   }
 
@@ -494,9 +480,146 @@
     UPDATE_NETWORK: "连不上 GitHub，检查网络或在 设置→网络代理 配置代理。",
     UPDATE_CHECK_FAILED: "暂时查不到新版本的信息，请稍后重试。",
     UPDATE_UNSUPPORTED: window.HubUI.isMac
-      ? "Mac 版请到下载页下载新的安装包。"
+      ? "这台 Mac 不能自动下载安装包（只支持 Apple 芯片），请到下载页下载。"
       : "这个系统不支持自动更新。",
   };
+  /* macOS: the Hub downloads and checks the disk image in the background; the person opens it and
+     replaces the app themselves in the folder it already lives in (no Developer ID, so the Hub
+     never replaces its own bundle). Buttons are added to the dialog's foot next to 稍后. */
+  function macUpdateBox(ui) {
+    const box = h("div", { class: "mac-update" });
+    const extra = [];
+    const setFoot = (...buttons) => {
+      for (const node of extra) node.remove();
+      extra.length = 0;
+      for (const node of buttons.filter(Boolean)) {
+        ui.foot.append(node);
+        extra.push(node);
+      }
+    };
+    const releasesPage = h(
+      "button",
+      {
+        class: "btn",
+        type: "button",
+        onclick: () => {
+          call("links.open", { target: "releases" }).catch(failed);
+          ui.close();
+        },
+      },
+      "去下载页",
+    );
+    let timer = null;
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+    const reveal = (folder) =>
+      call("updates.reveal", folder ? { folder: true } : {})
+        .then((result) => {
+          if (!result || !result.ok) {
+            toast("找不到下载好的安装包，正在重新下载");
+            start();
+          }
+        })
+        .catch(failed);
+    const render = (state) => {
+      if (!state) return;
+      if (state.phase === "downloading" || state.phase === "verifying") {
+        const total = state.totalBytes || 0;
+        const ratio = total ? Math.min(1, state.downloadedBytes / total) : 0;
+        const bar = h("i");
+        bar.style.width = state.phase === "verifying" ? "100%" : `${Math.round(ratio * 100)}%`;
+        box.replaceChildren(
+          h(
+            "p",
+            null,
+            state.phase === "verifying"
+              ? "已下载完，正在核对安装包和发布页上的是否一致…"
+              : `正在后台下载新版本的 Mac 安装包${total ? `（${megabytes(state.downloadedBytes)} / ${megabytes(total)}）` : ""}，可以先关掉这个窗口。`,
+          ),
+          h("div", { class: "update-progress" }, bar),
+        );
+        setFoot(releasesPage);
+        return;
+      }
+      if (state.phase === "downloaded") {
+        stop();
+        const folder = state.appFolder || "原来放 RLY0 Hub 的文件夹";
+        box.replaceChildren(
+          h("p", null, h("b", null, "新版本已经下载好，并核对无误。")),
+          h(
+            "ol",
+            { class: "mac-update-steps" },
+            h("li", null, "点“打开安装包”。"),
+            h("li", null, "先退出 RLY0 Hub（按 ⌘Q）。"),
+            h(
+              "li",
+              null,
+              "把安装包里的 RLY0 Hub 拖到你现在放 Hub 的文件夹：",
+              h("code", null, folder),
+              "，提示时选“替换”。",
+            ),
+            h("li", null, "重新打开 RLY0 Hub。账号和设置都会保留。"),
+          ),
+        );
+        setFoot(
+          h(
+            "button",
+            { class: "btn", type: "button", onclick: () => reveal(true) },
+            "在访达中显示",
+          ),
+          h(
+            "button",
+            { class: "btn paper", type: "button", onclick: () => reveal(false) },
+            "打开安装包",
+          ),
+        );
+        return;
+      }
+      stop();
+      const problem =
+        state.phase === "error" && state.error && state.error !== "UPDATE_UNSUPPORTED"
+          ? UPDATE_ERRORS[state.error] || "下载没有完成，请重试。"
+          : null;
+      box.replaceChildren(
+        h(
+          "p",
+          { class: "sub" },
+          problem || "Hub 会把新版本的 Mac 安装包下载好并核对，再告诉你怎么替换。",
+        ),
+      );
+      setFoot(
+        releasesPage,
+        h(
+          "button",
+          { class: "btn paper", type: "button", onclick: () => start() },
+          problem ? "重新下载" : "下载新版本",
+        ),
+      );
+    };
+    const poll = () => {
+      stop();
+      timer = setInterval(async () => {
+        if (!box.isConnected) return stop();
+        render(await call("updates.progress").catch(() => null));
+      }, 500);
+    };
+    const start = () =>
+      call("updates.install", {})
+        .then((state) => {
+          render(state);
+          poll();
+        })
+        .catch(failed);
+    call("updates.progress")
+      .then((state) => {
+        render(state);
+        if (state && (state.phase === "downloading" || state.phase === "verifying")) poll();
+      })
+      .catch(() => render({ phase: "idle" }));
+    return box;
+  }
   function megabytes(bytes) {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   }
@@ -1892,7 +2015,10 @@
         downloadedBytes: 11534336,
         totalBytes: 27338348,
         error: null,
+        file: null,
+        appFolder: "/Applications",
       },
+      "updates.reveal": { ok: true },
       "updates.status": {
         currentVersion: "0.10.2",
         latestVersion: "0.11.0",

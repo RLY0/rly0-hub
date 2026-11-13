@@ -4138,6 +4138,26 @@ select.input,
   }
 }
 
+/* macOS update: the checked disk image and the steps to replace the app where it lives */
+.mac-update {
+  margin-top: 14px;
+}
+.mac-update .update-progress {
+  margin-top: 10px;
+}
+.mac-update-steps {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  line-height: 1.7;
+}
+.mac-update-steps code {
+  margin: 0 2px;
+  padding: 1px 6px;
+  border-radius: var(--r-sm, 4px);
+  background: var(--well);
+  word-break: break-all;
+}
+
 /* In-app update progress */
 .update-progress {
   height: 8px;

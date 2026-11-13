@@ -85,7 +85,7 @@ import { createHubManagementRoutes } from "./management-routes.js";
 import { Rly0LocalDiscovery } from "./local-discovery.js";
 import { checkHubUpdate } from "./update-check.js";
 import { Rly0HubUpdater } from "./hub-updater.js";
-import { Rly0HubReleaseSource } from "./hub-release.js";
+import { hubPackageKind, Rly0HubReleaseSource } from "./hub-release.js";
 import {
   createUpdateHttpGet,
   downloadResumable,
@@ -199,6 +199,8 @@ export interface Rly0HubServiceOptions {
   /** What "开机自启" registers; omitted when this build has no Hub executable. */
   readonly autostartCommand?: string;
   readonly platform?: NodeJS.Platform;
+  /** CPU architecture: which macOS package (if any) updates this Hub. Defaults to process.arch. */
+  readonly arch?: string;
   readonly core?: Rly0CoreBridge;
   readonly updates?: Pick<HostUpdateCoordinator, "check">;
   readonly codex?: Rly0CodexControl;
@@ -637,12 +639,21 @@ export class Rly0HubService {
   #releases(): Rly0HubReleaseSource {
     this.#releaseSource ??= new Rly0HubReleaseSource({
       get: async () => createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+      kind: this.#packageKind() ?? "windows",
     });
     return this.#releaseSource;
   }
 
+  #packageKind() {
+    return hubPackageKind(
+      this.#options.platform ?? process.platform,
+      this.#options.arch ?? process.arch,
+    );
+  }
+
   #hubUpdater(): Rly0HubUpdater {
     this.#updater ??= new Rly0HubUpdater({
+      kind: this.#packageKind(),
       installRoot: this.#options.installRoot,
       ...(this.#options.platform ? { platform: this.#options.platform } : {}),
       downloadDir: path.join(resolveRly0DataDir(this.#options.environment), "updates"),
@@ -659,14 +670,29 @@ export class Rly0HubService {
   }
 
   /**
+   * The folder holding this Hub.app on macOS (`installRoot` is its `Contents/Resources`), named in
+   * the window's "replace the app there" steps: people keep it outside /Applications too.
+   */
+  #macAppFolder(): string | null {
+    if ((this.#options.platform ?? process.platform) !== "darwin") return null;
+    return path.dirname(path.resolve(this.#options.installRoot, "..", ".."));
+  }
+
+  #updateProgress() {
+    return { ...this.#hubUpdater().progress(), appFolder: this.#macAppFolder() };
+  }
+
+  /**
    * Downloads and installs the latest version. Codex holds the bundled runtime open, so it is
    * closed first (only when the window confirmed it) and the installer opens it again.
    */
   async #installUpdate(closeCodex: boolean) {
-    // Only the Windows installer updates in place: elsewhere nothing is closed, the window
-    // offers the download page (UPDATE_UNSUPPORTED).
-    if ((this.#options.platform ?? process.platform) !== "win32")
-      return { ...this.#hubUpdater().start({ reopenCodex: false }), needsCodexClose: false };
+    // Only the Windows installer updates in place. On macOS the disk image is downloaded and
+    // checked, and the person replaces the app; nothing is closed (see Rly0HubUpdater).
+    if ((this.#options.platform ?? process.platform) !== "win32") {
+      this.#hubUpdater().start({ reopenCodex: false });
+      return { ...this.#updateProgress(), needsCodexClose: false };
+    }
     const codex = await this.#codex.status();
     if (codex.running) {
       if (!closeCodex) return { ...this.#hubUpdater().progress(), needsCodexClose: true };
@@ -690,6 +716,15 @@ export class Rly0HubService {
     )
       .then((result) => {
         if (!result.error) this.#updateCache = { at: Date.now(), result };
+        // macOS: a newer version found by a real lookup is downloaded in the background, so the
+        // window can offer the checked disk image instead of the download page.
+        const phase = this.#hubUpdater().progress().phase;
+        if (
+          result.updateAvailable &&
+          this.#packageKind() === "macos" &&
+          (phase === "idle" || phase === "error")
+        )
+          this.#hubUpdater().start({ reopenCodex: false });
         return result;
       })
       .finally(() => {
@@ -1149,7 +1184,11 @@ export class Rly0HubService {
       "updates.install": route(z.object({ closeCodex: z.boolean().optional() }).strict(), (p) =>
         this.#installUpdate(p.closeCodex === true),
       ),
-      "updates.progress": route(empty, () => this.#hubUpdater().progress()),
+      "updates.progress": route(empty, () => this.#updateProgress()),
+      // macOS: shows the downloaded, checked disk image, or selects it in Finder.
+      "updates.reveal": route(z.object({ folder: z.boolean().optional() }).strict(), (p) =>
+        this.#hubUpdater().reveal(p.folder === true),
+      ),
       "accounts.autoSwitchGet": route(empty, async () =>
         cleanAutoSwitchSettings((await this.#state.read()).autoSwitch ?? RLY0_AUTO_SWITCH_DEFAULTS),
       ),

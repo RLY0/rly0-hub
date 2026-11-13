@@ -22,6 +22,29 @@ import { getUpdateJson, HubUpdateHttpError, type UpdateHttpGet } from "./hub-upd
 
 export const HUB_RELEASE_MANIFEST_NAME = "latest.json";
 export const HUB_RELEASE_MANIFEST_URL = `${RLY0_GITHUB_RELEASES_LATEST_URL}/download/${HUB_RELEASE_MANIFEST_NAME}`;
+/**
+ * The macOS package has its own manifest of the same shape: `latest.json` stays exactly as Hubs
+ * already installed parse it (they reject unknown keys).
+ */
+export const HUB_MACOS_RELEASE_MANIFEST_NAME = "latest-macos.json";
+
+/** Which published package updates this Hub: the Windows installer or the macOS disk image. */
+export type HubPackageKind = "windows" | "macos";
+
+/** The package for this computer; null where none is published (Intel Macs, Linux). */
+export function hubPackageKind(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): HubPackageKind | null {
+  if (platform === "win32") return "windows";
+  if (platform === "darwin" && arch === "arm64") return "macos";
+  return null;
+}
+
+export function hubReleaseManifestUrl(kind: HubPackageKind): string {
+  const name = kind === "macos" ? HUB_MACOS_RELEASE_MANIFEST_NAME : HUB_RELEASE_MANIFEST_NAME;
+  return `${RLY0_GITHUB_RELEASES_LATEST_URL}/download/${name}`;
+}
 /** How long a found release is reused before asking GitHub again. */
 export const HUB_RELEASE_REUSE_MS = 60 * 60_000;
 
@@ -29,13 +52,13 @@ const MAX_INSTALLER_BYTES = 2 * 1024 * 1024 * 1024;
 const SHA256_HEX = /^[0-9a-f]{64}$/u;
 const SHA256_DIGEST = /^sha256:([0-9a-f]{64})$/u;
 
-/** The installer asset name the release publishes. */
-export function hubInstallerAssetName(version: string): string {
-  return `RLY0-Hub-${version}-setup.exe`;
+/** The package asset name the release publishes (the Windows installer unless `kind` says otherwise). */
+export function hubInstallerAssetName(version: string, kind: HubPackageKind = "windows"): string {
+  return kind === "macos" ? `RLY0-Hub-${version}-macos-arm64.dmg` : `RLY0-Hub-${version}-setup.exe`;
 }
 
-function installerUrl(version: string): string {
-  return `${RLY0_GITHUB_RELEASE_DOWNLOAD_URL_PREFIX}v${version}/${hubInstallerAssetName(version)}`;
+function installerUrl(version: string, kind: HubPackageKind): string {
+  return `${RLY0_GITHUB_RELEASE_DOWNLOAD_URL_PREFIX}v${version}/${hubInstallerAssetName(version, kind)}`;
 }
 
 export interface Rly0HubRelease {
@@ -48,7 +71,7 @@ export interface Rly0HubRelease {
   readonly via: "manifest" | "api";
 }
 
-/** `latest.json`, exactly as `scripts/release/hub-latest-manifest.mjs` writes it. */
+/** `latest.json` (or `latest-macos.json`), exactly as `scripts/release/hub-latest-manifest.mjs` writes it. */
 export interface Rly0HubReleaseManifest {
   readonly schemaVersion: 1;
   readonly version: string;
@@ -69,8 +92,11 @@ const MANIFEST_KEYS = new Set([
   "notes",
 ]);
 
-/** Strict: unknown keys, a name that is not this version's installer, or a bad digest all fail. */
-export function parseHubReleaseManifest(value: unknown): Rly0HubRelease {
+/** Strict: unknown keys, a name that is not this version's package, or a bad digest all fail. */
+export function parseHubReleaseManifest(
+  value: unknown,
+  kind: HubPackageKind = "windows",
+): Rly0HubRelease {
   const fail = (why: string): never => {
     throw new Error(`release manifest is invalid: ${why}`);
   };
@@ -82,7 +108,7 @@ export function parseHubReleaseManifest(value: unknown): Rly0HubRelease {
   if (typeof version !== "string" || version.length > 64 || !UPDATE_SEMVER_PATTERN.test(version))
     fail("version");
   const release = version as string;
-  if (manifest.name !== hubInstallerAssetName(release)) fail("name");
+  if (manifest.name !== hubInstallerAssetName(release, kind)) fail("name");
   const size = manifest.size;
   if (
     !Number.isSafeInteger(size) ||
@@ -101,7 +127,7 @@ export function parseHubReleaseManifest(value: unknown): Rly0HubRelease {
     releaseNotes: typeof notes === "string" && notes.trim() ? notes : null,
     releaseNotesUrl: `${RLY0_GITHUB_RELEASE_TAG_URL_PREFIX}v${release}`,
     installer: Object.freeze({
-      url: installerUrl(release),
+      url: installerUrl(release, kind),
       sha256: manifest.sha256 as string,
       size: size as number,
     }),
@@ -110,23 +136,30 @@ export function parseHubReleaseManifest(value: unknown): Rly0HubRelease {
   });
 }
 
-/** The installer of an API release, with the SHA-256 GitHub recorded for it. */
-export function selectHubInstaller(release: CodexhostLatestRelease): ArtifactSource {
-  const name = hubInstallerAssetName(release.version);
+/** The package of an API release, with the SHA-256 GitHub recorded for it. */
+export function selectHubInstaller(
+  release: CodexhostLatestRelease,
+  kind: HubPackageKind = "windows",
+): ArtifactSource {
+  const name = hubInstallerAssetName(release.version, kind);
   const matches = release.assets.filter((asset) => asset.name === name);
   const asset = matches.length === 1 ? matches[0] : undefined;
   if (!asset) throw new Error("UPDATE_ASSET_MISSING");
   const sha256 = asset.digest ? SHA256_DIGEST.exec(asset.digest)?.[1] : undefined;
   if (!sha256) throw new Error("UPDATE_ASSET_UNVERIFIED");
-  if (asset.downloadUrl !== installerUrl(release.version)) throw new Error("UPDATE_ASSET_MISSING");
+  if (asset.downloadUrl !== installerUrl(release.version, kind))
+    throw new Error("UPDATE_ASSET_MISSING");
   return { url: asset.downloadUrl, sha256, size: asset.size };
 }
 
-export function hubReleaseFromApi(release: CodexhostLatestRelease): Rly0HubRelease {
+export function hubReleaseFromApi(
+  release: CodexhostLatestRelease,
+  kind: HubPackageKind = "windows",
+): Rly0HubRelease {
   let installer: ArtifactSource | null = null;
   let installerProblem: Rly0HubRelease["installerProblem"] = null;
   try {
-    installer = selectHubInstaller(release);
+    installer = selectHubInstaller(release, kind);
   } catch (error) {
     installerProblem =
       error instanceof Error && error.message === "UPDATE_ASSET_UNVERIFIED"
@@ -165,6 +198,8 @@ export interface Rly0HubReleaseSourceOptions {
   /** A GET with the proxy in force right now. */
   readonly get: () => Promise<UpdateHttpGet>;
   readonly now?: () => number;
+  /** Which package's manifest and asset to read; the Windows installer when absent. */
+  readonly kind?: HubPackageKind;
 }
 
 export class Rly0HubReleaseSource {
@@ -196,9 +231,13 @@ export class Rly0HubReleaseSource {
 
   async #lookup(): Promise<Rly0HubRelease> {
     const get = await this.#options.get();
+    const kind = this.#options.kind ?? "windows";
     let release: Rly0HubRelease;
     try {
-      release = parseHubReleaseManifest(await getUpdateJson(get, HUB_RELEASE_MANIFEST_URL));
+      release = parseHubReleaseManifest(
+        await getUpdateJson(get, hubReleaseManifestUrl(kind)),
+        kind,
+      );
     } catch {
       try {
         release = hubReleaseFromApi(
@@ -208,6 +247,7 @@ export class Rly0HubReleaseSource {
               "x-github-api-version": "2022-11-28",
             }),
           ),
+          kind,
         );
       } catch (error) {
         throw new Error(hubReleaseErrorCode(error), { cause: error });

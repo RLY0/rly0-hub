@@ -4,6 +4,12 @@
 //
 //   node scripts/release/hub-latest-manifest.mjs --installer <RLY0-Hub-X.Y.Z-setup.exe>
 //     --version X.Y.Z [--notes notes.md] --output latest.json
+//
+// The macOS disk image gets its own manifest of the same shape, `latest-macos.json`, so the one
+// installed Hubs already parse strictly stays unchanged:
+//
+//   node scripts/release/hub-latest-manifest.mjs --installer <RLY0-Hub-X.Y.Z-macos-arm64.dmg>
+//     --version X.Y.Z [--notes notes.md] --output latest-macos.json
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat, writeFile } from "node:fs/promises";
@@ -33,8 +39,9 @@ async function sha256(file) {
 
 export async function writeHubLatestManifest({ installer, version, notes, output, publishedAt }) {
   if (!SEMVER.test(version)) throw new Error(`not a release version: ${version}`);
-  const name = `RLY0-Hub-${version}-setup.exe`;
-  if (path.basename(installer) !== name) throw new Error(`installer must be named ${name}`);
+  const names = [`RLY0-Hub-${version}-setup.exe`, `RLY0-Hub-${version}-macos-arm64.dmg`];
+  const name = path.basename(installer);
+  if (!names.includes(name)) throw new Error(`installer must be named ${names.join(" or ")}`);
   const info = await stat(installer);
   if (!info.isFile() || info.size === 0) throw new Error(`installer is empty: ${installer}`);
   const manifest = {

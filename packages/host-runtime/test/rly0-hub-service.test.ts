@@ -113,6 +113,8 @@ describe("RLY/0 Hub service", () => {
     expect(check).toHaveBeenCalledTimes(2);
   });
 
+  // Apple-silicon Macs download the disk image (rly0-hub-updater.test.ts); this one has no package,
+  // so the call stays offline. Either way Codex is never closed for a macOS update.
   it("never closes Codex for an update on macOS: in-place install is Windows-only", async () => {
     const root = await tempDir();
     const forceQuit = vi.fn(async () => ({ ok: true }));
@@ -124,6 +126,7 @@ describe("RLY/0 Hub service", () => {
       environment: { CODEXHOST_DATA_DIR: root },
       installRoot: root,
       platform: "darwin",
+      arch: "x64",
       core: fakeCore([]).core,
       codex,
     });

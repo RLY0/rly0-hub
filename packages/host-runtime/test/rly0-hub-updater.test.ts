@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   HUB_RELEASE_MANIFEST_URL,
+  hubPackageKind,
+  hubReleaseManifestUrl,
   Rly0HubReleaseSource,
   parseHubReleaseManifest,
   type Rly0HubRelease,
@@ -154,7 +156,7 @@ async function installRoot(version: string): Promise<string> {
 async function settle(updater: Rly0HubUpdater): Promise<void> {
   for (let i = 0; i < 200; i += 1) {
     const phase = updater.progress().phase;
-    if (phase === "installing" || phase === "error") return;
+    if (phase === "installing" || phase === "error" || phase === "downloaded") return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
@@ -448,6 +450,147 @@ describe("Rly0HubUpdater", () => {
     updater.start({ reopenCodex: false });
     await settle(updater);
     expect(updater.progress()).toMatchObject({ phase: "error", error: "UPDATE_NONE" });
+  });
+});
+
+describe("macOS: download and check the disk image, the person replaces the app", () => {
+  const MAC_MANIFEST = hubReleaseManifestUrl("macos");
+  const DMG = (version: string) => `RLY0-Hub-${version}-macos-arm64.dmg`;
+
+  function macUpdater(root: string, get: UpdateHttpGet, overrides: Record<string, unknown> = {}) {
+    const opened: (readonly string[])[] = [];
+    const launched: unknown[] = [];
+    const source = new Rly0HubReleaseSource({ get: async () => get, kind: "macos" });
+    const updater = new Rly0HubUpdater({
+      installRoot: root,
+      downloadDir: path.join(root, "updates"),
+      platform: "darwin",
+      kind: "macos",
+      release: () => source.latest(),
+      download: (artifact, partial, onProgress) =>
+        downloadResumable(get, artifact, partial, onProgress),
+      launch: (installer, args) => launched.push({ installer, args }),
+      open: async (args) => {
+        opened.push(args);
+        return true;
+      },
+      ...overrides,
+    });
+    return { updater, opened, launched };
+  }
+
+  it("is the package of Apple-silicon Macs only", () => {
+    expect(hubPackageKind("darwin", "arm64")).toBe("macos");
+    expect(hubPackageKind("darwin", "x64")).toBeNull();
+    expect(hubPackageKind("win32", "x64")).toBe("windows");
+    expect(hubPackageKind("linux", "x64")).toBeNull();
+  });
+
+  it("reads latest-macos.json, stops at downloaded and only opens what the window asks for", async () => {
+    const root = await installRoot("1.0.0");
+    const { get, calls } = fakeGet({
+      [MAC_MANIFEST]: () => ({ status: 200, json: manifest("1.1.0", { name: DMG("1.1.0") }) }),
+      [`${PREFIX}v1.1.0/${DMG("1.1.0")}`]: installerServer(),
+    });
+    const { updater, opened, launched } = macUpdater(root, get);
+    expect(await updater.reveal(false)).toEqual({ ok: false });
+    updater.start({ reopenCodex: false });
+    await settle(updater);
+    const file = path.join(root, "updates", DMG("1.1.0"));
+    expect(updater.progress()).toMatchObject({ phase: "downloaded", version: "1.1.0", file });
+    expect(await readFile(file)).toEqual(PAYLOAD);
+    expect(launched).toEqual([]);
+    expect(opened).toEqual([]);
+    expect(calls.some((call) => call.url === HUB_RELEASE_MANIFEST_URL)).toBe(false);
+    expect(await updater.reveal(false)).toEqual({ ok: true });
+    expect(await updater.reveal(true)).toEqual({ ok: true });
+    expect(opened).toEqual([[file], ["-R", file]]);
+  });
+
+  it("falls back to the API and picks the disk image when the release has no macOS manifest", async () => {
+    const root = await installRoot("1.0.0");
+    const api = apiJson("1.1.0");
+    api.assets.push({
+      name: DMG("1.1.0"),
+      size: PAYLOAD.length,
+      digest: `sha256:${PAYLOAD_SHA}`,
+      browser_download_url: `${PREFIX}v1.1.0/${DMG("1.1.0")}`,
+    });
+    const { get } = fakeGet({
+      [API]: () => ({ status: 200, json: api }),
+      [`${PREFIX}v1.1.0/${DMG("1.1.0")}`]: installerServer(),
+    });
+    const { updater } = macUpdater(root, get);
+    updater.start({ reopenCodex: false });
+    await settle(updater);
+    expect(updater.progress()).toMatchObject({ phase: "downloaded", version: "1.1.0" });
+  });
+
+  it("says the disk image was not shown when Finder could not open it", async () => {
+    const root = await installRoot("1.0.0");
+    const { get } = fakeGet({
+      [MAC_MANIFEST]: () => ({ status: 200, json: manifest("1.1.0", { name: DMG("1.1.0") }) }),
+      [`${PREFIX}v1.1.0/${DMG("1.1.0")}`]: installerServer(),
+    });
+    const { updater } = macUpdater(root, get, { open: () => Promise.reject(new Error("EPERM")) });
+    updater.start({ reopenCodex: false });
+    await settle(updater);
+    expect(await updater.reveal(false)).toEqual({ ok: false });
+    expect(updater.progress().phase).toBe("downloaded");
+  });
+
+  it("offers an intact disk image again without downloading it again", async () => {
+    const root = await installRoot("1.0.0");
+    await mkdir(path.join(root, "updates"), { recursive: true });
+    await writeFile(path.join(root, "updates", DMG("1.1.0")), PAYLOAD);
+    const { get } = fakeGet({
+      [MAC_MANIFEST]: () => ({ status: 200, json: manifest("1.1.0", { name: DMG("1.1.0") }) }),
+    });
+    const { updater } = macUpdater(root, get, {
+      download: () => Promise.reject(new Error("must not download")),
+    });
+    updater.start({ reopenCodex: false });
+    await settle(updater);
+    expect(updater.progress()).toMatchObject({ phase: "downloaded", version: "1.1.0" });
+  });
+
+  it("never offers a disk image whose SHA-256 differs, and drops it", async () => {
+    const root = await installRoot("1.0.0");
+    const { get } = fakeGet({
+      [MAC_MANIFEST]: () => ({
+        status: 200,
+        json: manifest("1.1.0", { name: DMG("1.1.0"), sha256: SHA }),
+      }),
+      [`${PREFIX}v1.1.0/${DMG("1.1.0")}`]: installerServer(),
+    });
+    const { updater, opened } = macUpdater(root, get);
+    updater.start({ reopenCodex: false });
+    await settle(updater);
+    expect(updater.progress()).toMatchObject({
+      phase: "error",
+      error: "UPDATE_VERIFY_FAILED",
+      file: null,
+    });
+    expect(await readdir(path.join(root, "updates"))).toEqual([]);
+    expect(await updater.reveal(false)).toEqual({ ok: false });
+    expect(opened).toEqual([]);
+  });
+
+  it("says UPDATE_UNSUPPORTED on a Mac without a published package", async () => {
+    const root = await installRoot("1.0.0");
+    const { get } = fakeGet({});
+    const { updater } = macUpdater(root, get, { kind: null });
+    expect(updater.start({ reopenCodex: false })).toMatchObject({
+      phase: "error",
+      error: "UPDATE_UNSUPPORTED",
+    });
+  });
+
+  it("refuses a macOS manifest that names the Windows installer", () => {
+    expect(() => parseHubReleaseManifest(manifest("1.1.0"), "macos")).toThrow(/name/u);
+    expect(
+      parseHubReleaseManifest(manifest("1.1.0", { name: DMG("1.1.0") }), "macos").installer,
+    ).toMatchObject({ url: `${PREFIX}v1.1.0/${DMG("1.1.0")}` });
   });
 });
 

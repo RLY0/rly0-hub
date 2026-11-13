@@ -46,16 +46,17 @@ Codex Renderer 通过 `codexhost/rly0/hub/status` 查询安装目录下的 Hub �
 | `codex.applySettings` / `codex.applyCancel` | `Rly0CodexApplier`（`rly0-hub-service/codex-apply.ts`）：Hub 写完 Codex 设置后让它自己生效，页面不再提示“重启 Codex 生效”。`scope: "backend"`（MCP、换模型、恢复备份）先请 Hub 打开的 Codex 原地换后台（回复中则回复完再换）；`scope: "window"`（不登录 OpenAI 模式、Claude 隔离）需要 Codex 重新打开：Codex 心跳的 `busy` 为假时立即经启动器重启，为真时等任务结束再重启（最多等 30 分钟，可取消）。Codex 未打开返回 `notRunning`（下次打开读取）；心跳不报 `busy`（旧版或非 Hub 打开）时不盲目重启，返回 `needsRestart`，页面给一次“立即应用”（`restartNow`）。 |
 | `proxy.settingsGet/settingsSet` | 核心服务代理设置；同时用于 AI 助手下载和 Hub 自身更新。 |
 | `updates.check` / `updates.status` | 读取安装包版本元数据，经 `Rly0HubReleaseSource` 查最新发布并比较版本；不需要 app-server 或启动器控制参数，不下载安装。 |
-| `updates.install` / `updates.progress` | `Rly0HubUpdater`：下载安装包、校验 SHA-256、静默运行安装器（见下节）。 |
+| `updates.install` / `updates.progress` / `updates.reveal` | `Rly0HubUpdater`：下载安装包、校验 SHA-256；Windows 静默运行安装器，macOS 停在 `downloaded`，`updates.reveal {folder?}` 用 `open` 显示磁盘映像或在访达中选中它（见下节）。`updates.progress` 在 macOS 附 `appFolder`（Hub.app 所在文件夹）。 |
 
 外部网页只能通过 `links.open` 的固定目标枚举打开。Node.js 官网、项目发布页等地址由服务端 `RLY0_HUB_LINKS` 决定，页面不能提交 URL。
 
 ## Hub 自身更新
 
-- **查询**：先取 `https://github.com/RLY0/rly0-hub/releases/latest/download/latest.json`（发布时随安装包上传，走下载 CDN，不占 GitHub API 每小时 60 次的匿名额度）；缺失或校验不过时再查 `api.github.com/.../releases/latest`，取安装包资产的 `digest`。`latest.json` 严格校验：只允许 `schemaVersion/version/name/size/sha256/publishedAt/notes`，`name` 必须是 `RLY0-Hub-<version>-setup.exe`，`sha256` 为 64 位小写十六进制；下载地址由版本号拼出，不取自清单。生成脚本：`scripts/release/hub-latest-manifest.mjs`。
+- **查询**：先取 `https://github.com/RLY0/rly0-hub/releases/latest/download/latest.json`（发布时随安装包上传，走下载 CDN，不占 GitHub API 每小时 60 次的匿名额度）；缺失或校验不过时再查 `api.github.com/.../releases/latest`，取安装包资产的 `digest`。`latest.json` 严格校验：只允许 `schemaVersion/version/name/size/sha256/publishedAt/notes`，`name` 必须是 `RLY0-Hub-<version>-setup.exe`，`sha256` 为 64 位小写十六进制；下载地址由版本号拼出，不取自清单。生成脚本：`scripts/release/hub-latest-manifest.mjs`。Apple 芯片 Mac 读同格式的 `latest-macos.json`（`name` 为 `RLY0-Hub-<version>-macos-arm64.dmg`），API 回退时取同名资产；`latest.json` 不加字段，已安装的旧 Hub 照常解析。Intel Mac 和其他平台没有可用的包，更新报 `UPDATE_UNSUPPORTED`。
 - **复用**：检查和“立即更新”共用一份结果；一小时内点更新不再查询。强制检查（`force`）总是重新查询。
 - **代理**：设置→网络代理选“直连”不走代理，“自定义”用填写的地址；“跟随系统”依次用 `HTTPS_PROXY`/`ALL_PROXY`/`HTTP_PROXY`（`NO_PROXY` 含 github.com 时直连）和 Windows 系统代理（HKCU Internet Settings 的 `ProxyEnable`/`ProxyServer`）。只支持 HTTP(S) 代理（CONNECT 隧道），仅用 Node 内置模块，不给服务包加依赖。
 - **下载**：固定的 `RLY0-Hub-<version>-setup.exe.partial`，重试时用 `Range` 续传（服务器不支持则重下）；结束后必须 SHA-256 一致才改名并运行，不一致删除该文件并报 `UPDATE_VERIFY_FAILED`。
+- **macOS（没有 Developer ID）**：检查到新版本后后台自动下载磁盘映像到 `<数据目录>/updates/`，核对 SHA-256 后停在 `downloaded`；同版本已下载且仍核对一致时直接复用。Hub 不挂载、不复制、不替换自己的程序包，不改隔离属性或系统安全设置。窗口给出步骤：打开安装包、退出 Hub、把 RLY0 Hub 拖到 `appFolder`（不限于 /Applications）选择替换、重新打开。
 - **错误码**：`UPDATE_RATE_LIMITED`（API 403/429）、`UPDATE_NETWORK`（连不上，含代理失败）、`UPDATE_DOWNLOAD_FAILED`（下载中断，可续传）、`UPDATE_VERIFY_FAILED`、`UPDATE_CHECK_FAILED`（其他查询失败），页面各有中文提示。
 - **安装时的占用进程**：正在运行的 exe 不能删除（`DeleteFile` 错误 5），而 Restart Manager 关不掉无窗口的控制台助手——`libexec\codexhost-node-repl.exe` 由 Codex 自带 CLI、Claude Code 和 Codex 的 CUA Node 作为 MCP 服务启动，父进程都不在安装目录。`Installer.iss` 的 `PrepareToInstall` 在复制任何文件之前运行内嵌的 `stop-install-processes.ps1`：结束所有可执行文件位于 `{app}` 的进程（`\\?\` 前缀归一化）及其子进程，先关窗口、再强制结束，重新枚举直到清空或超时，不结束安装器自身及其祖先。若 Codex Desktop 正在使用本安装（`codexhost-shim.exe`/`codexhost.exe` 在运行），先提示“需要先关闭 Codex，安装完会自动重新打开”，同意后一并关闭 Codex 并在安装后打开；Hub 内更新已在窗口里征得同意并传 `/REOPENCODEX=1`，静默安装（`/SUPPRESSMSGBOXES`）按同意处理。仍结束不了的进程，其位于 `{app}` 的模块被改名为 `*.rly0-old-*`（运行中的 exe 允许改名），下次安装时删除；改名也失败则安装器在复制前中止并说明“没有做任何更改”，不会留下半装状态。测试：`tests/release/windows-install-processes.test.mjs`（`RLY0_INSTALLER_SANDBOX=1` 时用 `/DSandboxTest` 编译真实 `Installer.iss`——独立 AppId、无卸载项/快捷方式/注册表——装进临时目录验证）。
 
