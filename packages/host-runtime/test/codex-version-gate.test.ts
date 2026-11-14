@@ -180,6 +180,9 @@ describe("compatibility manifest (synthetic)", () => {
   it("unions the built-in table and minHub-qualified remote families", () => {
     const parsed = codexCompatManifestSchema.parse(manifest);
     expect(codexVersionVerified("26.1103.9", "0.0.0", parsed, compareSemanticVersions)).toBe(true);
+    expect(codexVersionVerified("26.1111.21308", "0.0.0", null, compareSemanticVersions)).toBe(
+      true,
+    );
     expect(codexVersionVerified("26.1200.9", "0.11.39", parsed, compareSemanticVersions)).toBe(
       false,
     );

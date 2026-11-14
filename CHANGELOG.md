@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.41
+
+### Updates
+- Codex Desktop 26.1111 is supported. Once this Hub is installed, the Hub can update Codex to 26.1111 while no task is running.
+- Claude usage estimates now price Fable 5.2, Mythos 5.2, Mythos 5.1, Opus 5.5 and Sonnet 5.5.
+
+### 更新
+- 支持 Codex 桌面版 26.1111。装好这一版 Hub 后，Hub 会在没有任务在跑时帮你把 Codex 更新到 26.1111。
+- Claude 用量估算补上了 Fable 5.2、Mythos 5.2、Mythos 5.1、Opus 5.5 和 Sonnet 5.5 的价格。
+
 ## 0.11.40
 
 ### Updates
