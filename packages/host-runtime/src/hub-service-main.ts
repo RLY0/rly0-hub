@@ -4,7 +4,7 @@ import {
   resolveRly0HubAutostartCommand,
   resolveRly0InstallRoot,
 } from "./rly0-appearance/hub-autostart.js";
-import { killCodexProcesses } from "./rly0-hub-service/codex-processes.js";
+import { codexDesktopRunning, killCodexProcesses } from "./rly0-hub-service/codex-processes.js";
 import { Rly0HubService } from "./rly0-hub-service/service.js";
 import { createHubServiceShutdown } from "./rly0-hub-service/shutdown.js";
 import { serveRly0HubStdio } from "./rly0-hub-service/stdio-server.js";
@@ -22,6 +22,7 @@ async function main(): Promise<void> {
     environment,
     installRoot,
     killCodexProcesses: () => killCodexProcesses({ environment, installRoot }),
+    codexDesktopRunning,
     // Quota / balance updates for the window (the shell forwards them to the page).
     onEvent: (event, params) => {
       if (process.stdout.writable) process.stdout.write(`${JSON.stringify({ event, params })}\n`);

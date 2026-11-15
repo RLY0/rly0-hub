@@ -205,6 +205,8 @@ export interface Rly0HubServiceOptions {
   readonly compatibility?: Rly0HubCompatibility;
   /** Ends Codex directly when the Launcher cannot (see `codex-processes.ts`); production only. */
   readonly killCodexProcesses?: () => Promise<number>;
+  /** Whether Codex Desktop itself is running (`codex-processes.ts`); production only. */
+  readonly codexDesktopRunning?: () => Promise<boolean | null>;
   readonly appearance?: Rly0AppearanceManager;
   readonly openUrl?: (url: string) => void;
   /** "Add account" sign-ins; built from `core` when omitted. */
@@ -352,6 +354,7 @@ export class Rly0HubService {
             }
           : {}),
         heartbeatAlive: () => codexHeartbeatAlive(resolveRly0DataDir(environment)),
+        ...(options.codexDesktopRunning ? { desktopRunning: options.codexDesktopRunning } : {}),
         ...(options.killCodexProcesses ? { killProcesses: options.killCodexProcesses } : {}),
         ...(options.platform ? { platform: options.platform } : {}),
       });

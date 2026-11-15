@@ -50,6 +50,11 @@ export interface Rly0CodexControlOptions {
   /** Whether the Codex side's heartbeat is fresh (Codex open through RLY/0 Hub). */
   readonly heartbeatAlive?: () => Promise<boolean>;
   /**
+   * Whether the Codex Desktop app is in the process table (null: cannot tell). On macOS the
+   * heartbeat comes from the shared Host, which outlives Codex, so it alone does not mean running.
+   */
+  readonly desktopRunning?: () => Promise<boolean | null>;
+  /**
    * Ends Codex's processes directly (`codex-processes.ts`) when the Launcher cannot: Codex opened
    * some other way, or the Launcher already exited. Returns how many were ended. Without it,
    * quitting and restarting only work through the Launcher.
@@ -143,7 +148,8 @@ export class Rly0CodexControl {
     // while Codex keeps running).
     const running =
       (await this.#descriptor()) !== null ||
-      (await (this.#options.heartbeatAlive ?? (() => Promise.resolve(false)))());
+      ((await (this.#options.heartbeatAlive ?? (() => Promise.resolve(false)))()) &&
+        (await (this.#options.desktopRunning ?? (() => Promise.resolve(null)))()) !== false);
     return { running, canOpen };
   }
 

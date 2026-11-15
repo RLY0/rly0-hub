@@ -199,6 +199,31 @@ function execText(file: string, args: readonly string[]): Promise<string> {
   });
 }
 
+/**
+ * macOS: whether the Codex Desktop app itself is running. The Codex-side heartbeat cannot answer
+ * this on macOS: it is written by the shared Host, which keeps running after Codex quits.
+ */
+export async function macCodexDesktopRunning(
+  dependencies: Pick<MacProcessDependencies, "list" | "isCodexDesktop" | "keep">,
+): Promise<boolean> {
+  const entries = await dependencies.list();
+  for (const pid of selectMacCodexProcesses(entries, dependencies.keep).app) {
+    const entry = entries.find((candidate) => candidate.pid === pid);
+    if (entry && (await (dependencies.isCodexDesktop?.(entry) ?? Promise.resolve(true))))
+      return true;
+  }
+  return false;
+}
+
+/** Whether Codex Desktop is running, where this can be told from the process table; else null. */
+export function codexDesktopRunning(): Promise<boolean | null> {
+  if (process.platform !== "darwin") return Promise.resolve(null);
+  return macCodexDesktopRunning(defaultMacProcessDependencies()).catch(() => null);
+}
+
+/** Bundle path → whether it is Codex; a bundle's identifier does not change while it runs. */
+const codexBundles = new Map<string, boolean>();
+
 function defaultMacProcessDependencies(): MacProcessDependencies {
   return {
     async list() {
@@ -211,6 +236,8 @@ function defaultMacProcessDependencies(): MacProcessDependencies {
     async isCodexDesktop(entry) {
       const bundle = /^(\/.*?\.app)\/Contents\/MacOS\//u.exec(entry.args)?.[1];
       if (!bundle) return false;
+      const known = codexBundles.get(bundle);
+      if (known !== undefined) return known;
       try {
         const id = await execText("/usr/bin/plutil", [
           "-extract",
@@ -218,7 +245,10 @@ function defaultMacProcessDependencies(): MacProcessDependencies {
           "raw",
           `${bundle}/Contents/Info.plist`,
         ]);
-        return id.trim() === "com.openai.codex";
+        const codex = id.trim() === "com.openai.codex";
+        if (codexBundles.size > 16) codexBundles.clear();
+        codexBundles.set(bundle, codex);
+        return codex;
       } catch {
         return false;
       }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  macCodexDesktopRunning,
   quitMacCodex,
   selectMacCodexProcesses,
   type MacProcessDependencies,
@@ -174,5 +175,49 @@ describe("macOS Codex restart (synthetic processes)", () => {
     expect(f.living.has(302)).toBe(true);
     expect(f.signals.map(([pid]) => pid)).not.toContain(302);
     expect(f.living.has(100)).toBe(false);
+  });
+
+  it("finds Codex Desktop itself, not the shared Host that writes the heartbeat", async () => {
+    const host = {
+      pid: 500,
+      args: `/n --disable-warning=X ${pkg}/app/host-runtime.mjs --codexhost-shared-host --data /x`,
+    };
+    const isCodex = async (entry: MacProcessEntry) => !entry.args.includes("/ChatGPT.app/");
+    const keep = new Set<number>();
+    const row = (pid: number) => rows.filter((entry) => entry.pid === pid);
+    expect(
+      await macCodexDesktopRunning({ list: async () => [host], keep, isCodexDesktop: isCodex }),
+    ).toBe(false);
+    // The ChatGPT chat app at the same relative path is not Codex.
+    expect(
+      await macCodexDesktopRunning({
+        list: async () => [host, ...row(100), ...row(400)],
+        keep,
+        isCodexDesktop: isCodex,
+      }),
+    ).toBe(false);
+    expect(
+      await macCodexDesktopRunning({
+        list: async () => [host, ...row(302)],
+        keep,
+        isCodexDesktop: isCodex,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not report Codex running from a fresh heartbeat once Desktop has quit", async () => {
+    const control = (desktop: boolean | null) =>
+      new Rly0CodexControl({
+        environment: {},
+        installRoot: "/Volumes/Synthetic/RLY0 Hub.app/Contents/Resources",
+        platform: "darwin",
+        fileExists: () => true,
+        heartbeatAlive: async () => true,
+        desktopRunning: async () => desktop,
+      });
+    expect((await control(false).status()).running).toBe(false);
+    expect((await control(true).status()).running).toBe(true);
+    // Unknown keeps the heartbeat's answer.
+    expect((await control(null).status()).running).toBe(true);
   });
 });
