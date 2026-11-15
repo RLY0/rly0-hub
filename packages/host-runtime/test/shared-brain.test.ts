@@ -266,7 +266,7 @@ describe("HUB-50 native resources", () => {
     const { env, a } = await fixture();
     await writeFile(
       path.join(env.CODEX_HOME, "config.toml"),
-      '[mcp_servers.rly0_memory]\ncommand="node"\n[mcp_servers.mine]\ncommand="mine"\n',
+      '[mcp_servers.rly0_memory]\ncommand="node"\n[mcp_servers.mine]\ncommand="node"\n',
     );
     await setSharedResourceSettings(env, { memory: false });
     const shared = await sharedResourcesProvider(env)(a, {

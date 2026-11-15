@@ -36,6 +36,32 @@ export const rly0McpServerSchema = z
     envKeys: z.array(z.string().max(128)).max(128).optional(),
     /** Names only — never the values — of any `headers`/`http_headers` table under the server. */
     headerKeys: z.array(z.string().max(128)).max(128).optional(),
+    /** Local command check (STDIO): shared only when it can start on this computer. */
+    local: z
+      .object({
+        available: z.boolean(),
+        reason: z.string().max(400).optional(),
+        /** The local equivalent used instead of a command written on another system. */
+        command: z.string().max(4096).optional(),
+      })
+      .strict()
+      .optional(),
+    /** Remote servers: whether a token is stored in the system keychain. Never the value. */
+    credential: z.enum(["configured", "missing", "unsupported"]).optional(),
+    /** The connection state each Agent last reported for this server. */
+    agents: z
+      .array(
+        z
+          .object({
+            harnessId: z.string().max(64),
+            status: z.enum(["connected", "needs-auth", "failed", "pending", "disabled"]),
+            at: z.number().int().nonnegative(),
+            error: z.string().max(200).optional(),
+          })
+          .strict(),
+      )
+      .max(16)
+      .optional(),
   })
   .strict();
 export type Rly0McpServer = z.infer<typeof rly0McpServerSchema>;

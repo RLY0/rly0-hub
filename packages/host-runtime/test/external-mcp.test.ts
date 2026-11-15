@@ -33,7 +33,15 @@ describe("external MCP discovery (synthetic)", () => {
       CODEX_HOME: path.join(root, ".codex"),
       CODEXHOST_DATA_DIR: path.join(root, "hub"),
       RLY0_MEMORY_DIR: path.join(root, "memory"),
+      // Shared STDIO servers are attached only when their command exists on this computer.
+      PATH: path.join(root, "bin"),
     };
+    await fs.mkdir(path.join(root, "bin"));
+    await fs.writeFile(
+      path.join(root, "bin", process.platform === "win32" ? "synthetic-mcp.cmd" : "synthetic-mcp"),
+      process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+      { mode: 0o755 },
+    );
     config = path.join(root, ".codex", "config.toml");
     await fs.mkdir(path.dirname(config));
     await fs.writeFile(config, 'model = "synthetic"\n');
@@ -54,6 +62,7 @@ describe("external MCP discovery (synthetic)", () => {
         command: raw.command,
         args: raw.args,
         envKeys: ["PRIVATE"],
+        local: { available: true },
         source: "claude",
         sourcePath: path.join(root, ".claude.json"),
         external: true,

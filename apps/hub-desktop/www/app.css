@@ -1205,6 +1205,12 @@ textarea.input {
   white-space: pre-wrap;
   word-break: break-all;
 }
+/* MCP 服务 → 怎么授权: steps in one column under the card's status line. */
+.mcp-auth-help {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
 .copy-buffer {
   position: fixed;
   left: -9999px;

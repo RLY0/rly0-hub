@@ -44,7 +44,22 @@ describe("HUB-52 independent review regressions (synthetic isolated home)", () =
       CLAUDE_CONFIG_DIR: path.join(root, ".claude"),
       CODEXHOST_DATA_DIR: path.join(root, "hub"),
       RLY0_MEMORY_DIR: path.join(root, "memory"),
+      // Shared STDIO servers are attached only when their command exists on this computer.
+      PATH: path.join(root, "bin"),
     };
+    await fs.mkdir(path.join(root, "bin"));
+    for (const name of [
+      "synthetic",
+      "synthetic-mcp",
+      "synthetic-v2",
+      "synthetic-other",
+      "user-owned",
+    ])
+      await fs.writeFile(
+        path.join(root, "bin", process.platform === "win32" ? `${name}.cmd` : name),
+        process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+        { mode: 0o755 },
+      );
     config = path.join(root, ".codex", "config.toml");
     await fs.mkdir(path.dirname(config));
     await fs.writeFile(config, 'model="synthetic"\n');

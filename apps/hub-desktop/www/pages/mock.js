@@ -9,6 +9,32 @@ window.hubManagementMock = (() => {
       enabled: true,
       source: "codex",
       addedAt: Date.now() - 9 * 864e5,
+      credential: "configured",
+      agents: [{ harnessId: "claude-code", status: "connected", at: Date.now() - 36e5 }],
+    },
+    // Preview of the per-computer and per-assistant states the Hub reports.
+    {
+      name: "cloudflare",
+      type: "http",
+      url: "https://mcp.cloudflare.com/mcp",
+      enabled: true,
+      source: "codex",
+      addedAt: Date.now() - 3 * 864e5,
+      credential: "missing",
+      agents: [{ harnessId: "claude-code", status: "needs-auth", at: Date.now() - 6e5 }],
+    },
+    {
+      name: "basic-memory",
+      type: "stdio",
+      command: "/Users/me/.local/bin/basic-memory.exe",
+      enabled: true,
+      source: "codex",
+      addedAt: Date.now() - 5 * 864e5,
+      local: {
+        available: false,
+        reason:
+          "这是 Windows 上的路径，本机没有找到对应的程序：/Users/me/.local/bin/basic-memory.exe",
+      },
     },
     {
       name: "figma",

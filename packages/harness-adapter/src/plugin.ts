@@ -29,10 +29,27 @@ export interface HarnessLocalPage {
 /** Native MCP options stay in process configuration, never in model-visible context. */
 export type SharedMcpServer =
   | { type: "stdio"; command: string; args: string[]; env: Record<string, string> }
-  | { type: "http"; url: string; headers: Record<string, string> };
+  | {
+      type: "http";
+      url: string;
+      headers: Record<string, string>;
+      /**
+       * Command whose stdout is a JSON object of extra headers, run by the Agent when it connects
+       * (Claude Code `headersHelper`). Holds no secret itself; only for Harnesses that run it.
+       */
+      headersHelper?: string;
+    };
+/** One shared server's connection state as the Agent itself reports it. */
+export interface SharedMcpStatusReport {
+  readonly name: string;
+  readonly status: string;
+  readonly error?: string;
+}
 export interface SharedHarnessResources {
   readonly mcpServers: Record<string, SharedMcpServer>;
   readonly context: string;
+  /** Records the Agent's own MCP connection report so RLY/0 Hub can show real status. */
+  readonly reportMcpStatus?: (servers: readonly SharedMcpStatusReport[]) => void;
   /** Skill folders (each holds SKILL.md), only for requests with `skillFiles`. */
   readonly skills?: readonly SharedSkill[];
 }

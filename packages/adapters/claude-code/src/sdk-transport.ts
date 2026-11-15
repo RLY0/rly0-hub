@@ -1,5 +1,6 @@
 import type {
   SharedResourceRequest,
+  SharedMcpStatusReport,
   SharedResourcesProvider,
 } from "@codexhost/harness-adapter/plugin";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
@@ -202,6 +203,22 @@ function rejectAfter(
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     },
   };
+}
+
+/** `mcp_servers` of a session `init` message or `mcpServerStatus()`; names and states only. */
+export function parseClaudeMcpStatus(value: unknown): SharedMcpStatusReport[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) =>
+    isRecord(entry) && typeof entry.name === "string" && typeof entry.status === "string"
+      ? [
+          {
+            name: entry.name,
+            status: entry.status,
+            ...(typeof entry.error === "string" ? { error: entry.error } : {}),
+          },
+        ]
+      : [],
+  );
 }
 
 function processExited(child: ChildProcessWithoutNullStreams): boolean {
@@ -502,6 +519,9 @@ function isRootOutput(event: ClaudeTurnEvent): boolean {
 
 export class ClaudeSdkTransport implements ClaudeTurnTransport {
   readonly #sharedResources: SharedResourcesProvider | undefined;
+  #reportMcpStatus: ((servers: readonly SharedMcpStatusReport[]) => void) | undefined;
+  /** Servers still connecting at `init` are read again once, when the first Turn ends. */
+  #mcpStatusPending = false;
   readonly sessionId: string;
   readonly #children: ChildProcessWithoutNullStreams[] = [];
   readonly #abortTimeoutMs: number;
@@ -616,6 +636,7 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
     const thinking = claudeThinkingConfiguration(this.#thinkingOptionId);
     // Claude Code attaches MCP natively and reads the skill index and memory as context.
     const shared = await this.#sharedResources?.(this.#cwd, CLAUDE_SHARED_RESOURCE_REQUEST);
+    this.#reportMcpStatus = shared?.reportMcpStatus;
     const activeQuery = this.#queryFactory({
       prompt: this.#input,
       options: {
@@ -733,6 +754,22 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
     if (!isRecord(message) || message.type !== "system" || message.subtype !== "init") return;
     this.#nativeSteer =
       Array.isArray(message.capabilities) && message.capabilities.includes("msg_lifecycle_v1");
+  }
+
+  #observeMcpStatus(message: unknown, activeQuery: Query): void {
+    const report = this.#reportMcpStatus;
+    if (!report || !isRecord(message)) return;
+    if (message.type === "system" && message.subtype === "init") {
+      const servers = parseClaudeMcpStatus(message.mcp_servers);
+      if (servers.length) report(servers);
+      this.#mcpStatusPending = servers.some((server) => server.status === "pending");
+    } else if (message.type === "result" && this.#mcpStatusPending) {
+      this.#mcpStatusPending = false;
+      void activeQuery
+        .mcpServerStatus()
+        .then((servers) => report(parseClaudeMcpStatus(servers)))
+        .catch(() => undefined);
+    }
   }
 
   #observeSlashCommands(message: unknown): void {
@@ -1458,6 +1495,7 @@ export class ClaudeSdkTransport implements ClaudeTurnTransport {
         this.#observeWorkflowAgents(message);
         this.#observeSlashCommands(message);
         this.#observeNativeCapabilities(message);
+        this.#observeMcpStatus(message, activeQuery);
         const permissionMode = permissionModeFromMessage(message);
         if (permissionMode && permissionMode !== this.#permissionMode) {
           this.#permissionMode = permissionMode;

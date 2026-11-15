@@ -90,6 +90,14 @@ Claude 已接入来源标记及停止/恢复共享；本轮新增的孤儿暂停
 `memory.add`/`memory.pin` 返回原生指令同步结果；`memory.forget` 只在同步失败时另带 `native.error`。共享设置保存后若同步失败返回 `sharingError`，保存状态和同步状态分别报告。
 参数不合法返回既有 RPC `-32602/INVALID_PARAMS`；操作失败返回 `-32000` 及脱敏错误码。置顶是本地锁内原子操作，无异步任务或取消句柄；只有真实回包后才更新界面状态，未知结果应先重新读取记录，不直接重复创建。fixture 均标记 synthetic，真实模型/新会话验收另列。
 
+## 本机可用性、远程授权与真实状态
+
+- **本机校验**：每个 STDIO 服务器下发前按当前系统检查 `command`（`rly0-mcp/local-availability.ts`）：绝对路径须存在、是文件、可执行，且不是 Windows PE（`MZ`）；裸命令按 PATH 查找，PATH 额外包含 Host 的 Node.js 目录（与助手启动时 `withNodeRuntimeOnPath` 一致）。在非 Windows 上，Windows 形态的路径（盘符、反斜杠、`.exe/.cmd/.bat/.ps1`、`AppData/Roaming|Local`）先映射本机等价物：`.venv/Scripts/python.exe` → 同目录 `.venv/bin/python3|python`（不退到系统 python）；`AppData/Roaming/npm/node_modules/…win32-x64…` → 各 npm 全局前缀下 `…darwin-<arch>…`；其余去掉扩展名，再按文件名查 PATH。找到则改用本机路径，找不到则**不下发**，原因进入上下文 `mcpUnavailableHere` 与 `mcp.list.servers[].local`。每个条目独立判断，坏条目不影响其他条目。Codex 自己的 `config.toml` 不改。
+- **远程令牌**：Hub 不复制 Codex 自己的 OAuth（刷新令牌轮换会让一方失效，也扩大泄露面）。用户可把权限最小的 API 令牌放进 macOS 登录钥匙串：服务 `RLY0 Hub MCP`、账户为 Codex 中的服务器名。Host 只用 `security find-generic-password`（不带 `-w`）判断是否存在；存在时只给 Claude Code 的 http 条目加 `headersHelper`，内容是 `node <host-runtime> --rly0-mcp-headers <名称> <头名>`（源码构建为 `dist/rly0-mcp/headers-main.js`），不含令牌。Claude Code 连接时运行它，它读钥匙串并只在 stdout 输出 `{头名: 值}`。所以令牌不进命令行参数（`--mcp-config` 在 `ps` 可见）、环境变量、配置文件、日志或模型上下文。填哪个头：有 `bearer_token_env_var` 且环境变量为空 → `Authorization: Bearer`；`env_http_headers` 中第一个缺值的头（如 Stitch 的 `X-Goog-Api-Key`）；无任何认证配置且未写静态 `Authorization` → `Authorization: Bearer`。其他助手暂不支持此通道，保持原样。Windows 凭据管理器尚未接入（`credential: "unsupported"`）。
+- **Cloudflare**：官方文档确认 `https://mcp.cloudflare.com/mcp` 接受用户或账户 API 令牌作 Bearer（不支持带客户端 IP 过滤的令牌）；bindings / builds / observability 子服务器文档未写明，以实际连接状态为准。
+- **真实状态**：Claude Code 适配器读取会话 `init` 的 `mcp_servers`（启动时仍为 pending 的，在第一轮结束时再调一次 `mcpServerStatus()`），经 `SharedHarnessResources.reportMcpStatus` 回报；Host 只记录本次实际下发的服务器，写 `<数据目录>/bridge/mcp-agent-status.json`（失败原因脱敏并截断）。`mcp.list.servers[]` 新增可选 `local`、`credential`（configured / missing / unsupported，只说有没有，不含值）和 `agents[]`（connected / needs-auth / failed / pending / disabled）。Hub MCP 页显示「本机不可用」及原因、令牌状态、各助手状态；未配置令牌且助手报需要授权或失败时显示「怎么授权」步骤（终端用 `security add-generic-password -U -s "RLY0 Hub MCP" -a <名称> -w` 按提示粘贴，Hub 不经手令牌）。
+- **给助手的说明**：上下文 `mcpMayNeedAuthorization` 列出没有凭据、且该助手上次未连上的远程服务器，并说明：真用到且报 needs-auth 时告诉用户一次，不在聊天里要令牌；交互式会话用 `/mcp` 授权，或按 Hub 步骤放钥匙串后新开会话。
+
 ## 列表安装时间
 
 `skills.list.installed[]`、`skills.list.backups[]` 和 `mcp.list.servers[]` 可选返回 `addedAt`（非负整数，Unix 毫秒）。技能按名称和来源目录区分，在 Hub 首次列出时以目录 birthtime 初始化，无有效 birthtime 则用 mtime；MCP 按名称和来源文件区分，以配置文件 mtime 初始化。已有 Codex MCP 升级后首次列出时共用 `config.toml` 的 mtime；外部 MCP（含 Hub 在 Codex 中的受管副本）使用外部来源文件。普通文件更新、重新打开页面或重启管理器不会改变已记录时间；仅当技能目录 birthtime 晚于记录时识别为同路径重装，原子更新为新的 birthtime。没有 birthtime 时不靠 mtime 推断重装。
@@ -116,6 +124,7 @@ Claude 已接入来源标记及停止/恢复共享；本轮新增的孤儿暂停
 
 ## 安全
 
+- 钥匙串令牌只经 Claude Code 的 `headersHelper` 在连接时读取，见「本机可用性、远程授权与真实状态」。
 - MCP 的 `env`、`headers`、bearer token 只进入助手进程的配置（ACP 参数、进程环境变量、或私有临时文件且进程结束即删），从不进入模型可见上下文，也不写进全局文件；上下文只列服务器名。
 - 技能元数据和记忆经过脱敏后才进入上下文；疑似含凭据的技能元数据整条跳过。
 

@@ -101,6 +101,124 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
     return el;
   }
 
+  // What each assistant can actually use: the Hub checks the command on this computer, whether
+  // a token is stored in the keychain (never its value), and the state each assistant reported.
+  const AGENT_NAMES = { "claude-code": "Claude Code", codex: "Codex" };
+  const AGENT_STATES = {
+    connected: ["已连接", "tag ok"],
+    "needs-auth": ["需要授权", "tag warn"],
+    failed: ["连接失败", "tag warn"],
+    pending: ["连接中", "tag soft"],
+    disabled: ["已停用", "tag soft"],
+  };
+  const KEYCHAIN_SERVICE = "RLY0 Hub MCP";
+  function copyText(text) {
+    const done = () => toast("已复制");
+    const fallback = () => {
+      const area = h("textarea", { class: "copy-buffer", readonly: true });
+      area.value = text;
+      document.body.append(area);
+      area.select();
+      try {
+        document.execCommand("copy");
+        done();
+      } catch {
+        toast("复制没有成功，请手动选中");
+      }
+      area.remove();
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(text).then(done, fallback);
+    else fallback();
+  }
+  const codeLine = (title, text) =>
+    h(
+      "div",
+      { class: "code-block" },
+      h(
+        "div",
+        { class: "row" },
+        h("span", { class: "label" }, title),
+        h("span", { class: "spacer" }),
+        h(
+          "button",
+          { class: "btn quiet sm", type: "button", onclick: () => copyText(text) },
+          "复制",
+        ),
+      ),
+      h("pre", null, text),
+    );
+  const mcpStatusTags = (server) => {
+    const tags = [];
+    if (server.local && !server.local.available)
+      tags.push(h("span", { class: "tag warn" }, "本机不可用"));
+    if (server.local && server.local.command)
+      tags.push(h("span", { class: "tag soft", title: server.local.command }, "已改用本机程序"));
+    if (server.credential === "configured") tags.push(h("span", { class: "tag ok" }, "令牌已配置"));
+    else if (server.credential === "missing")
+      tags.push(h("span", { class: "tag soft" }, "未配置令牌"));
+    for (const agent of server.agents || []) {
+      const [label, cls] = AGENT_STATES[agent.status] || [agent.status, "tag soft"];
+      const when = new Date(agent.at).toLocaleString();
+      tags.push(
+        h(
+          "span",
+          { class: cls, title: agent.error ? `${when}\n${agent.error}` : when },
+          `${AGENT_NAMES[agent.harnessId] || agent.harnessId} ${label}`,
+        ),
+      );
+    }
+    return tags.length ? [h("div", { class: "src-tags" }, ...tags)] : [];
+  };
+  // Steps to store a least-privilege token. The person types it into the system prompt, so the
+  // Hub never sees, shows or saves the value. Shown for remote servers without a stored token.
+  const mcpAuthRow = (server) => {
+    if (server.type !== "http" || server.credential !== "missing") return [];
+    const asked = (server.agents || []).some(
+      (a) => a.status === "needs-auth" || a.status === "failed",
+    );
+    // Steps the person has to follow stay in full (data-keep), not shortened behind an ⓘ.
+    const step = (text) => h("p", { class: "sub wrap", "data-keep": "" }, text);
+    const box = h(
+      "div",
+      { class: "mcp-auth-help" },
+      step(
+        "Codex 自己的登录不会复制给别的助手。想让夜间任务、派发的对话也能用，请给它单独做一个权限最小的令牌：",
+      ),
+      step(
+        /cloudflare\.com/.test(server.url || "")
+          ? "1. 在 Cloudflare 网站：我的个人资料 → API 令牌 → 创建令牌，只勾选要用到的权限（例如 Tunnel 编辑、Access 应用编辑）。"
+          : "1. 在这个服务的网站上创建一个只含必要权限的 API 令牌（前提是它支持用令牌登录）。",
+      ),
+      step("2. 打开“终端”，粘贴下面这行并回车，按提示粘贴令牌（输入时不显示，会存进系统钥匙串）。"),
+      codeLine(
+        "存入钥匙串",
+        `security add-generic-password -U -s "${KEYCHAIN_SERVICE}" -a ${server.name} -w`,
+      ),
+      step(
+        "3. 回来点“刷新”，看到“令牌已配置”后，新开的 Claude Code 对话会自动带上。不想用了就运行：",
+      ),
+      codeLine(
+        "从钥匙串删除",
+        `security delete-generic-password -s "${KEYCHAIN_SERVICE}" -a ${server.name}`,
+      ),
+    );
+    box.hidden = true;
+    const toggle = h(
+      "button",
+      {
+        class: asked ? "btn sm" : "btn sm quiet",
+        type: "button",
+        onclick: () => {
+          box.hidden = !box.hidden;
+          toggle.textContent = box.hidden ? "怎么授权" : "收起";
+        },
+      },
+      "怎么授权",
+    );
+    return [h("div", { class: "row" }, toggle), box];
+  };
+
   pages.mcp = (root, alive) => {
     const { listBar, newestFirst, matches } = window.HubUI;
     const list = h("div", { class: "grid compact" });
@@ -256,7 +374,13 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
           .map((s) => ({ ...s, sourceLabel: SOURCE_LABELS[s.source] || s.source || "" }))
           .filter((s) => matches(s, query, ["name", "command", "url", "sourceLabel"])),
       );
-      summary.textContent = query ? `找到 ${shown.length} 个，共 ${all.length} 个` : "";
+      const blocked = all.filter((s) => s.local && !s.local.available).length;
+      summary.textContent = [
+        query ? `找到 ${shown.length} 个，共 ${all.length} 个` : "",
+        blocked ? `${blocked} 个服务在这台电脑上用不了，已暂停发给其他助手` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
       list.replaceChildren(
         ...shown.map((server) =>
           h(
@@ -280,6 +404,17 @@ window.registerHubResources = ({ pages, h, call, toast, failed, applyToCodex }) 
             ),
             ...sourceTags(server),
             h("p", { class: "sub wrap" }, server.type === "stdio" ? server.command : server.url),
+            ...mcpStatusTags(server),
+            ...(server.local && !server.local.available
+              ? [
+                  h(
+                    "p",
+                    { class: "sub wrap", "data-keep": "" },
+                    `${server.local.reason}。已暂停发给其他助手，其余服务不受影响。`,
+                  ),
+                ]
+              : []),
+            ...mcpAuthRow(server),
             // External servers live in another assistant's config file; the Hub only
             // decides whether to share them, so editing and removing stay with that app.
             server.external

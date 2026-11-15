@@ -9,6 +9,9 @@ import {
   externalMcpLocations,
   readCodexMcp,
 } from "./discovery.js";
+import { checkLocalCommand } from "./local-availability.js";
+import { systemMcpCredentialStore, type McpCredentialStore } from "./credentials.js";
+import { readAgentMcpStatus } from "./agent-status.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -31,6 +34,7 @@ import {
 
 export interface Rly0McpManagerOptions {
   readonly environment?: NodeJS.ProcessEnv;
+  readonly credentials?: McpCredentialStore;
 }
 
 function assertSafeName(name: string): void {
@@ -52,9 +56,48 @@ async function readConfig(configPath: string): Promise<string | null> {
  */
 export class Rly0McpManager {
   readonly #environment: NodeJS.ProcessEnv;
+  readonly #credentials: McpCredentialStore;
 
   constructor(options: Rly0McpManagerOptions = {}) {
     this.#environment = options.environment ?? process.env;
+    this.#credentials = options.credentials ?? systemMcpCredentialStore;
+  }
+
+  /** What each Agent can actually use: local command check, stored token, reported state. */
+  async #withStatus(servers: Rly0McpServer[]): Promise<Rly0McpServer[]> {
+    const reported = await readAgentMcpStatus(this.#environment);
+    return Promise.all(
+      servers.map(async (server) => {
+        const agents = Object.entries(reported)
+          .flatMap(([harnessId, entries]) => {
+            const entry = entries[server.name];
+            return entry ? [{ harnessId, ...entry }] : [];
+          })
+          .slice(0, 16);
+        let extra: Partial<Rly0McpServer> = {};
+        if (server.type === "stdio" && server.command) {
+          const local = await checkLocalCommand(server.command, this.#environment);
+          extra = {
+            local: local.available
+              ? {
+                  available: true,
+                  ...(local.mappedFrom ? { command: local.command } : {}),
+                }
+              : { available: false, reason: local.reason },
+          };
+        } else if (server.type === "http") {
+          extra = {
+            credential:
+              process.platform !== "darwin"
+                ? "unsupported"
+                : (await this.#credentials.has(server.name))
+                  ? "configured"
+                  : "missing",
+          };
+        }
+        return { ...server, ...extra, ...(agents.length ? { agents } : {}) };
+      }),
+    );
   }
 
   configPath(): string {
@@ -91,7 +134,7 @@ export class Rly0McpManager {
         configExists: false,
         totalCount: external.length,
         enabledCount: external.filter((v) => v.enabled).length,
-        servers: await this.#withAddedAt(external),
+        servers: await this.#withStatus(await this.#withAddedAt(external)),
         ...warning,
       };
     }
@@ -117,7 +160,7 @@ export class Rly0McpManager {
         configExists: true,
         totalCount: servers.length,
         enabledCount: servers.filter((server) => server.enabled).length,
-        servers: await this.#withAddedAt(servers),
+        servers: await this.#withStatus(await this.#withAddedAt(servers)),
         ...warning,
       };
     } catch (error) {

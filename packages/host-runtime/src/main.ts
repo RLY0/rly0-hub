@@ -6,6 +6,7 @@ import { runRemoteHostCli } from "./remote-host-cli.js";
 import { runClaudeAquaHarnessBroker } from "./aqua-harness-broker.js";
 import { installRuntimeLog, runtimeLogPath } from "./runtime-log.js";
 import { RLY0_MEMORY_MCP_ARGUMENT, runRly0MemoryServer } from "./rly0-memory/launch.js";
+import { MCP_HEADERS_ARGUMENT, runMcpHeadersHelper } from "./rly0-mcp/credentials.js";
 
 const arguments_ = process.argv.slice(2);
 
@@ -32,4 +33,6 @@ process.exitCode =
           ? await runRemoteControlAppServerBridge()
           : arguments_[0] === RLY0_MEMORY_MCP_ARGUMENT
             ? await runRly0MemoryServer(process.env)
-            : await runLoggedHostRuntime();
+            : arguments_[0] === MCP_HEADERS_ARGUMENT
+              ? await runMcpHeadersHelper(arguments_.slice(1))
+              : await runLoggedHostRuntime();

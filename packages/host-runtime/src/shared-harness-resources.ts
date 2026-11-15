@@ -1,4 +1,13 @@
 import { sharedMcpEntries } from "./rly0-mcp/discovery.js";
+import { checkLocalCommand } from "./rly0-mcp/local-availability.js";
+import {
+  MCP_KEYCHAIN_SERVICE,
+  credentialHeaderFor,
+  mcpHeadersHelperCommand,
+  systemMcpCredentialStore,
+  type McpCredentialStore,
+} from "./rly0-mcp/credentials.js";
+import { readAgentMcpStatus, recordAgentMcpStatus } from "./rly0-mcp/agent-status.js";
 import { discoverSkills, readPausedSkills } from "./rly0-skills/discovery.js";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -214,6 +223,8 @@ export function sharedResourcesProvider(
   options: {
     /** A module of the running Host; without it the memory server is not attached. */
     memoryEntryUrl?: string;
+    /** Stored remote MCP tokens; tests replace the system keychain. */
+    credentials?: McpCredentialStore;
   } = {},
 ): SharedResourcesProvider {
   return async (cwd, request?: SharedResourceRequest) => {
@@ -237,6 +248,15 @@ export function sharedResourcesProvider(
     );
     const servers: Record<string, SharedMcpServer> = Object.create(null);
     const notices: string[] = [];
+    // Servers kept back on this computer, and remote ones the Agent may have to authorize.
+    const unavailable: { name: string; reason: string }[] = [];
+    const needsAuth: { name: string; account: string }[] = [];
+    const credentials = options.credentials ?? systemMcpCredentialStore;
+    const helperEntry = options.memoryEntryUrl;
+    const lastStatus =
+      wants.mcp && request?.harnessId
+        ? ((await readAgentMcpStatus(env))[request.harnessId] ?? {})
+        : {};
     if (nativeSyncFailed)
       notices.push(
         "原生技能/偏好同步失败；当前会话仍可读取源技能与范围内的记忆，请在打通设置中检查同步状态。",
@@ -279,11 +299,23 @@ export function sharedResourcesProvider(
                 Array.isArray(v.args) && v.args.every((a) => typeof a === "string")
                   ? (v.args as string[])
                   : [];
+              // A command another computer wrote (e.g. a Windows `.exe`) is mapped to a local
+              // equivalent or kept back with a reason; one bad entry never affects the others.
+              const local = await checkLocalCommand(v.command, env);
+              if (!local.available) {
+                unavailable.push({ name, reason: local.reason });
+                continue;
+              }
               const values = strings(v.env);
               if (Array.isArray(v.env_vars))
                 for (const key of v.env_vars)
                   if (typeof key === "string" && env[key] !== undefined) values[key] = env[key];
-              servers[`codex_${name}`] = { type: "stdio", command: v.command, args, env: values };
+              servers[`codex_${name}`] = {
+                type: "stdio",
+                command: local.command,
+                args,
+                env: values,
+              };
             } else if (typeof v.url === "string" && !v.command) {
               let url: URL;
               try {
@@ -297,18 +329,35 @@ export function sharedResourcesProvider(
                 continue;
               }
               const headers = { ...strings(v.headers), ...strings(v.http_headers) };
+              // A token the person stored in the keychain fills the missing header through
+              // Claude Code's headersHelper, so it never enters argv or configuration.
+              const header = credentialHeaderFor(v, env);
+              const helper =
+                header && helperEntry && request?.harnessId === "claude-code"
+                  ? (await credentials.has(name))
+                    ? mcpHeadersHelperCommand({ entryUrl: helperEntry, name, header })
+                    : null
+                  : null;
               if (typeof v.bearer_token_env_var === "string") {
                 const token = env[v.bearer_token_env_var];
-                if (!token) {
+                if (token) headers.Authorization = `Bearer ${token}`;
+                else if (!helper) {
                   notices.push(`${name}: missing configured authentication`);
+                  needsAuth.push({ name, account: name });
                   continue;
                 }
-                headers.Authorization = `Bearer ${token}`;
               }
               if (record(v.env_http_headers))
                 for (const [key, value] of Object.entries(v.env_http_headers))
                   if (typeof value === "string" && env[value]) headers[key] = env[value];
-              servers[`codex_${name}`] = { type: "http", url: url.href, headers };
+              servers[`codex_${name}`] = {
+                type: "http",
+                url: url.href,
+                headers,
+                ...(helper ? { headersHelper: helper } : {}),
+              };
+              if (header && !helper && lastStatus[name]?.status !== "connected")
+                needsAuth.push({ name, account: name });
             }
           }
         }
@@ -407,6 +456,12 @@ export function sharedResourcesProvider(
       skills: nativeSkills ? [] : skills,
       memory,
       ...(wants.mcp ? { mcpConfigured: Object.keys(servers) } : {}),
+      ...(unavailable.length
+        ? { mcpUnavailableHere: unavailable.map((v) => `codex_${v.name}: ${v.reason}`) }
+        : {}),
+      ...(needsAuth.length
+        ? { mcpMayNeedAuthorization: needsAuth.map((v) => `codex_${v.name}`) }
+        : {}),
       notices,
       truncated,
     };
@@ -431,8 +486,30 @@ export function sharedResourcesProvider(
     );
     // An MCP-only request needs no model context: the servers are native configuration.
     const contextWanted = (wants.skills && !nativeSkills) || wants.memory;
+    const delivered = new Map(
+      Object.keys(servers).map((key) => [
+        key,
+        key === RLY0_MEMORY_MCP_KEY ? "rly0-memory" : key.replace(/^codex_/u, ""),
+      ]),
+    );
+    const harnessId = request?.harnessId;
     return {
       mcpServers: servers,
+      ...(harnessId && wants.mcp
+        ? {
+            reportMcpStatus: (
+              reports: readonly { name: string; status: string; error?: string }[],
+            ) =>
+              void recordAgentMcpStatus(
+                env,
+                harnessId,
+                reports.flatMap((report) => {
+                  const name = delivered.get(report.name);
+                  return name ? [{ ...report, name }] : [];
+                }),
+              ),
+          }
+        : {}),
       ...(nativeSkills
         ? {
             skills: skills.map((skill) => ({
@@ -452,6 +529,12 @@ export function sharedResourcesProvider(
               JSON.stringify(payload),
               wants.mcp
                 ? "MCP entries are configuration requests, not proof of successful connection. Never claim a tool ran without its real result."
+                : "",
+              wants.mcp && unavailable.length
+                ? "mcpUnavailableHere: RLY/0 Hub did not attach these servers because their command cannot run on this computer; they are not connection failures to retry. Tell the person only if the task needs one: it has to be installed for this system and its command corrected in Codex settings."
+                : "",
+              wants.mcp && needsAuth.length
+                ? `mcpMayNeedAuthorization: these remote servers have no stored credential. If one reports needs-auth and the task needs it, tell the person once; do not ask for the token in chat. Options: authorize it via /mcp in an interactive session, or store a least-privilege API token in the macOS login keychain (service "${MCP_KEYCHAIN_SERVICE}", account = server name without "codex_"; RLY/0 Hub → MCP 服务 shows the steps), then start a new session.`
                 : "",
               "[End shared resources]",
             ]
