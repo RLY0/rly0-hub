@@ -148,7 +148,7 @@ describe("Sponsor dialog", () => {
 
     const link = descendants(modal as FakeElement).find(({ tagName }) => tagName === "a");
     expect(link).toMatchObject({
-      href: "https://rly0.com",
+      href: "https://rly0.com/?from=hub",
       target: "_blank",
       rel: "noopener noreferrer",
     });

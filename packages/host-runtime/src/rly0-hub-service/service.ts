@@ -157,12 +157,13 @@ import { liveQuotaFeedPath } from "../rly0-relay/live-quota-feed.js";
 const RLY0_HOSTS = /(^|\.)rly0\.com$/iu;
 /** Fixed pages the Hub may open in the browser; nothing the page sends becomes a URL. */
 export const RLY0_HUB_LINKS = {
-  site: "https://rly0.com",
-  recharge: "https://rly0.com/purchase?tab=recharge",
+  // from=hub: rly0.com's 流量分析 counts visits opened from the Hub (no identity, just the count).
+  site: "https://rly0.com/?from=hub",
+  recharge: "https://rly0.com/purchase?tab=recharge&from=hub",
   github: RLY0_GITHUB_REPOSITORY_URL,
   nodejs: "https://nodejs.org",
   releases: RLY0_GITHUB_RELEASES_LATEST_URL,
-  keys: "https://rly0.com/keys",
+  keys: "https://rly0.com/keys?from=hub",
   codexWebGpt: "https://github.com/miuuyy/codex-chatgpt-web/releases",
 } as const;
 

@@ -40,7 +40,7 @@ export interface ClaudeQuickStartClient {
 
 export const RLY0_RELAY_DEFAULT_NAME = "零号中转";
 export const RLY0_RELAY_DEFAULT_BASE_URL = "https://api.rly0.com";
-export const RLY0_RELAY_SIGNUP_URL = "https://rly0.com";
+export const RLY0_RELAY_SIGNUP_URL = "https://rly0.com/?from=hub";
 /** Set before a restart; the next launch opens a new chat with this agent, then clears it. */
 export const RLY0_PENDING_NEW_CHAT_STORAGE_KEY = "codexhost.rly0-pending-new-chat.v1";
 

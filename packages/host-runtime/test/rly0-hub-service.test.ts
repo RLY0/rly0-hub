@@ -305,7 +305,7 @@ describe("RLY/0 Hub service", () => {
     await service.handle("links.open", { target: "github" });
     await service.handle("links.open", { target: "nodejs" });
     expect(opened).toEqual([
-      "https://rly0.com/purchase?tab=recharge",
+      "https://rly0.com/purchase?tab=recharge&from=hub",
       "https://github.com/RLY0/rly0-hub",
       "https://nodejs.org",
     ]);

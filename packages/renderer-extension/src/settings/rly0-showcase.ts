@@ -1,7 +1,7 @@
 import rly0MarkUrl from "../assets/codexhost-app-icon.svg";
 import type { RelayMessages } from "./relay-messages.js";
 
-export const RLY0_RELAY_PROMO_URL = "https://rly0.com";
+export const RLY0_RELAY_PROMO_URL = "https://rly0.com/?from=hub";
 export interface Rly0ShowcaseOptions {
   /** Single-row card for pages where the relay is not the main subject. */
   readonly compact?: boolean;

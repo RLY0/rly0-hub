@@ -336,6 +336,8 @@ export interface RendererSponsorMessages {
 }
 
 export const RLY0_RELAY_URL = "https://rly0.com";
+/** The same site as a link: from=hub lets rly0.com count visits opened from the Hub. */
+export const RLY0_RELAY_LINK = "https://rly0.com/?from=hub";
 
 const sponsorEnglish: RendererSponsorMessages = Object.freeze({
   entry: "Buy me a coffee",

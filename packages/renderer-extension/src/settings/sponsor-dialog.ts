@@ -1,7 +1,7 @@
 import alipayQrUrl from "../assets/sponsor-alipay.jpg";
 import wechatQrUrl from "../assets/sponsor-wechat.jpg";
 import { createRendererSettingsIcon } from "./icons.js";
-import { RLY0_RELAY_URL, type RendererSponsorMessages } from "./localization.js";
+import { RLY0_RELAY_LINK, RLY0_RELAY_URL, type RendererSponsorMessages } from "./localization.js";
 
 /**
  * Voluntary sponsorship entry for the About page. The dialog is local-only: it
@@ -90,7 +90,7 @@ export function openSponsorDialog(
   relayPrefix.textContent = messages.relayPrefix;
   const relayLink = document.createElement("a");
   relayLink.className = "settings-sponsor-dialog__relay-link";
-  relayLink.href = RLY0_RELAY_URL;
+  relayLink.href = RLY0_RELAY_LINK;
   relayLink.target = "_blank";
   relayLink.rel = "noopener noreferrer";
   const relayName = document.createElement("span");
