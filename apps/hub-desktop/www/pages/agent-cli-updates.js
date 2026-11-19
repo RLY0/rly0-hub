@@ -176,7 +176,10 @@
           ? ["wait", `${pre}有新版 ${latest}，${why("INSTALL_FILE_BUSY")}`]
           : ["wait", `${cur} · 有新版 ${latest}，等它空闲后更新`];
       case "skipped-bad-version":
-        return ["off", `${cur} · 新版 ${latest} 之前出过问题，已跳过`];
+        // Someone put a skipped version back by hand: it stays, and the next newer one is tried.
+        return entry.currentVersion && (entry.badVersions || []).includes(entry.currentVersion)
+          ? ["off", `${cur} · 这一版之前出过问题，出了更新的版本会自动装`]
+          : ["off", `${cur} · 新版 ${latest} 之前出过问题，已跳过`];
       case "skipped-unsupported":
         // A busy install file is temporary, not "never auto-updated".
         if (entry.errorCode === "INSTALL_FILE_BUSY")
