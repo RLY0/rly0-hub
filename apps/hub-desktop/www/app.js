@@ -169,6 +169,14 @@
     HUB_BUSY: "Hub 正忙，请稍后重试",
     REQUEST_TOO_LARGE: "内容太大了，一次发不过去",
     CAPTURE_UNSUPPORTED: "这个系统上不能截取窗口画面",
+    SECURE_STORE_ACCESS_DENIED: "Mac 未允许访问本机加密密钥，请检查钥匙串访问权限后重试",
+    SECURE_STORE_ENCRYPT_FAILED: "本机加密保存失败，请检查 Mac 钥匙串访问权限",
+    SECURE_STORE_DECRYPT_FAILED: "本机加密数据读取失败，请检查 Mac 钥匙串访问权限",
+    SECURE_STORE_KEYCHAIN_UNAVAILABLE: "暂时打不开 Mac 钥匙串，请先解锁登录钥匙串后重试",
+    SECURE_STORE_KEY_MISSING: "找不到原来的本机加密密钥，已保留账号数据，请勿删除钥匙串中的旧密钥",
+    SECURE_STORE_KEY_MISMATCH: "本机加密密钥与已存数据不匹配，已停止保存以保护原有账号",
+    SECURE_STORE_BUSY: "本机正在加密保存其他账号，请稍后重试",
+    SECURE_STORE_PATH_REJECTED: "本机加密数据目录权限异常，已停止操作以保护原有账号",
   };
   const explain = (code) => ERRORS[code] || "操作没有成功";
   const failed = (error) => toast(explain(error && error.message));

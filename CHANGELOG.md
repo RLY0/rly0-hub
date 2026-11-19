@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.43
+
+### Fixes
+- macOS: importing an account from a file now opens the system file picker. Cancelling leaves the account unchanged.
+- Account saving and importing explain local encryption and Keychain failures instead of showing a generic error.
+
+### 修复
+- Mac：“从文件导入”现在会打开系统文件选择框，取消选择不会更改账号。
+- 保存或导入账号遇到本机加密、钥匙串问题时，会显示具体原因。
+
 ## 0.11.42
 
 ### Updates

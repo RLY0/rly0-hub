@@ -104,6 +104,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     var internalSequence = 0
     var internalReplies: [String: ([String: Any]?) -> Void] = [:]
     var alertTimer: Timer?
+    var filePicker: NSOpenPanel?
     let steps = [0.8, 0.9, 1.0, 1.1, 1.25, 1.4, 1.6]
     let readQueue = DispatchQueue(label: "com.rly0.hub.macos.stdout")
     var buffer = Data()
@@ -675,6 +676,27 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? { nil }
 
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        guard webView === webview, frame.isMainFrame, isHubPage(frame.request.url),
+              !exiting, filePicker == nil else {
+            completionHandler(nil)
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = !parameters.allowsDirectories
+        panel.canChooseDirectories = parameters.allowsDirectories
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        panel.canCreateDirectories = false
+        panel.prompt = "选择"
+        filePicker = panel
+        panel.beginSheetModal(for: window) { [weak self] response in
+            self?.filePicker = nil
+            completionHandler(response == .OK ? panel.urls : nil)
+        }
+    }
+
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
@@ -688,6 +710,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        filePicker?.cancel(nil)
         sender.orderOut(nil)
         // Like the Windows tray: a hidden window stops live quota refreshes until shown again.
         post(["event": "visibility", "visible": false])
@@ -701,6 +724,7 @@ final class HubDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate,
 
     func applicationWillTerminate(_ notification: Notification) {
         exiting = true
+        filePicker?.cancel(nil)
         alertTimer?.invalidate()
         output?.readabilityHandler = nil
         try? input?.close()
