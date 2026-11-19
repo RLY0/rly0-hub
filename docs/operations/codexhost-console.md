@@ -10,7 +10,7 @@
 
 ## Hub 助手 CLI 自动更新后台
 
-Hub 启动和每 24 小时检查一次助手 CLI，默认开启。管理接口是 `agents.cliUpdates.status`、`agents.cliUpdates.setEnabled`、`agents.cliUpdates.check`；手动检查启动后台任务后立即返回，状态接口用于轮询。界面接线由 Claude 负责，字段、枚举和错误码见 [CLI 自动更新契约](../../.pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md)。关闭后不检查或更新；已开始的安装仍完成验证及必要回退，未完成事务的恢复也继续。
+Hub 启动和每 24 小时检查一次助手 CLI（含 Claude Code，不含 Codex 与桌面应用），默认开启。只更新各工具官方安装器标准位置的安装：npm 安装走下文 npm 流程；原生安装用工具自己的更新命令（Claude Code `install <版本> --force`，Mac/Linux 安装期间不挡新对话、只挡重新安装与手动更新，切换后持锁核对）；只能升到最新版的工具出问题时不回退，记 `UPDATE_NOT_REVERSIBLE` 并跳过该版本。命令、白名单和状态码见契约 v5 节。管理接口是 `agents.cliUpdates.status`、`agents.cliUpdates.setEnabled`、`agents.cliUpdates.check`；手动检查启动后台任务后立即返回，状态接口用于轮询。界面接线由 Claude 负责，字段、枚举和错误码见 [CLI 自动更新契约](../../.pm/selfheal/AGENT-CLI-AUTOUPDATE-CONTRACT.md)。关闭后不检查或更新；已开始的安装仍完成验证及必要回退，未完成事务的恢复也继续。
 
 npm 安装复用 Harness discovery 对真实包路径和全局 prefix 的识别；查询使用同一 npm 的 `view --prefix <原位置> <包>@latest version --json`，与安装共用 registry、.npmrc 和代理环境。Hub 没有显式代理时不清空 npm 用户代理；“直连”仍可继承 ALL_PROXY/.npmrc 配置。安装和回退均指定原 prefix 与精确版本，不卸载、不提权、不迁往另一位置；安装前检查原 prefix、bin 和包目录写权限。Windows 保留 `npm.cmd` 调用包装。DeepSeek 等 recipe 明确锁版本的包报告 `VERSION_PINNED`，不自动越锁。Host 启动路径设置优先于 PATH，保存但未被 Host 加载的路径与无法统一解析的安装目录均保守报 `ORIGINAL_INSTALLER`。
 

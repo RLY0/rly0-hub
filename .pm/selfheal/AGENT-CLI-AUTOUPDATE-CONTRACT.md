@@ -1,6 +1,6 @@
-# HUB-AGENT-CLI-AUTOUPDATE 后台契约（v2 补充见末节）
+# HUB-AGENT-CLI-AUTOUPDATE 后台契约（最新补充见末节 v5）
 
-当前行为以末节 v2 为准；下方 v1 内容保留作接口历史，冲突处由 v2 覆盖。
+当前行为以末节 v5 为准，其次 v4…v2；下方 v1 内容保留作接口历史，冲突处由较新的一节覆盖。
 
 2026-11-10；交 Claude 接 AI 助手页。实现基于 `feat/agent-cli-autoupdate` / `9dfd747c`，状态为 implemented / self_verified，尚未 reviewed / accepted。本契约不改变“全自动、默认开启、连接失败回退并拉黑版本”的用户决定；不能可靠回退的安装方式明确报告能力缺口。
 
@@ -212,3 +212,63 @@ POSIX 安装命令通过 spawn(detached=true) 建立自有进程组，超时/取
 本轮 compiled dist + 假驱动覆盖 N1 四次分钟 tick 不再循环、N2 16 助手乘 6 轮持续外部占用零释放、N3 实际 ReadonlySnapshotSession 不阻塞而真实预热仍阻塞；另有关闭失败/超时恢复、跨 Host、限频、进程分支、INSTALL_FILE_BUSY、连接报告与协调锁回归。均为临时用户目录的 synthetic 数据，不是真实 CLI 或账号验收。
 
 修复后的独立复核/accepted、真实 Mac/Windows CLI 升级回退及 ready、文件占用/ACL、原生会话历史与按需恢复、跨 Host 进程归属和 UI 联调仍待独立环境确认。证据和精确命令见 `evidence/agent-cli-autoupdate-review3-20261110/RESULTS.md`。未运行真实全局 install/uninstall、未退出重启用户 Codex/Hub、未另起 hub-service、未推送发布。
+
+## v5：覆盖所有已安装助手，含 Claude Code（2026-11-19，feat/all-agent-autoupdate）
+
+用户 11-19 要求“自动更新所有的 agent 助手”。本节覆盖 v1 的“排除 Claude Code”和“只检测、`ROLLBACK_UNSUPPORTED`”两条。Codex 与桌面应用（ZCode、WorkBuddy）仍不在内。
+
+### ID、字段和错误码
+
+- `AgentCliUpdateId` 新增 `claude-code`（列表首位）。
+- entry 新增 `exactRollback: boolean`（默认 true）：false 表示该工具官方更新器只能升到最新版，坏版本无法自动退回。
+- entry 新增 `updateAvailable: boolean`（默认 false）：`newerInstallationVersion(currentVersion, latestVersion)`，解析不了为 false。界面直接用它判断“有新版”。
+- `installKind` 新增 `native`（工具自己的官方更新器）。
+- 新 ErrorCode：
+  - `DISABLED_BY_TOOL_SETTINGS`：工具自己的设置关闭了更新（Claude Code 的 `DISABLE_UPDATES` 或 `DISABLE_AUTOUPDATER`，来自用户/管理 settings 的 env 或进程环境）。配 `skipped-unsupported`。
+  - `VERSION_RANGE_BY_POLICY`：Claude Code settings（常见为企业管理员 managed-settings）的 `minimumVersion` / `requiredMaximumVersion` 不允许装最新版。配 `skipped-unsupported`。`VERSION_PINNED` 仍只表示 Hub recipe 的版本锁。
+  - `UPDATE_NOT_REVERSIBLE`：`exactRollback=false` 的工具装上的新版没通过检查（`causeCode` 为 `CONNECTION_NOT_READY` / `VERSION_MISMATCH` / `INSTALL_FAILED`）。配 `failed`；该版本进 `badVersions`，事务已清，不回退、不循环。只要仍停在这个坏版本且没有更新的版本，后续检查保持这个失败结果（不报 up-to-date）；出了更新的版本照常升级。
+- 待恢复日志（内部）新增 `verifyPending`：新版已装、连接检查尚欠。旧 Hub 读到含 `claude-code` 或新字段的状态文件会报 `STATE_INVALID`（已知，未处理）。
+
+### 哪些安装会更新、用什么命令
+
+只更新官方安装器的标准位置（白名单，按可执行文件所在目录；实际文件指向 nix store、Cellar、homebrew、node_modules 的除外），其余报 `ORIGINAL_INSTALLER`。npm 安装沿用 v1–v4 的 npm 流程。
+
+| 助手 | 标准位置 | 更新 | 回退 |
+|---|---|---|---|
+| Claude Code | `~/.local/bin/claude`（→ `~/.local/share/claude/versions/<v>`），Windows `~/.local/bin/claude.exe` | `claude install <v> --force` | 用保留的 `versions/<原版本>`（Windows 先找 `.exe`）执行 `install <原版本> --force`，没有则用原入口 |
+| OpenCode | 仅 curl 安装的 `~/.opencode/bin/opencode`（Mac/Linux） | `upgrade <v> --method curl` | 用更新前复制到数据目录 `agent-cli-backups/` 的旧程序执行；事务结束删除副本 |
+| Kimi | `~/.kimi-code/bin`，原生二进制且支持 `__update_download --manual` | `__update_download <v> --manual` 后 `--version` | 原入口执行（用副本执行可能装到副本所在位置，不安全） |
+| Pi / OMP / Grok / Antigravity / Cursor / Qoder / Qoder-CN | Pi `~/.local/bin`、`~/.pi/bin`；OMP `~/.local/bin`、`~/.omp/bin`；Grok `~/.grok/bin`、`~/.local/bin`；agy `~/.local/bin`（Win `%LOCALAPPDATA%/agy/bin`）；Cursor `~/.local/bin`（Win `%LOCALAPPDATA%/cursor-agent`）；Qoder(-CN) `~/.local/bin`、`~/.qoder(-cn)/bin`（Win LOCALAPPDATA 下 Programs/Qoder(CN)、Qoder(CN)、`~/.qoder(-cn)/bin`） | `update` | 无（`exactRollback=false`） |
+| Hermes | `~/.local/bin`，且 git 安装可原地更新、目录干净、支持 `--yes --no-gateway-restart`、有正式版本号 | `update --yes --no-gateway-restart` | 无 |
+
+- Grok 另需 `update --check --json` 的 `installer` 不是 `npm`（官方脚本为 `internal`）。
+- Cursor 的 `about` 没有 `latestStatus`（自身更新检查关闭）时不更新，与适配器一致。
+- Devin、Kiro 等仍为 `NO_OFFICIAL_UPDATER`。
+- 不能更新时仍报告 `latestVersion`（npm 用只读 `npm view`），界面能显示“有新版”。
+
+### Claude Code 的判断
+
+- 能否更新完全沿用 `packages/adapters/claude-code/src/installation.ts`：用户与管理 settings 合并、`autoUpdatesChannel`（latest/stable，未知渠道报 `CHECK_FAILED`）、最新版取自 `downloads.claude.ai/claude-code-releases/<渠道>`，再加上 `DISABLE_AUTOUPDATER` 视为用户禁止。settings 的 env 里非字符串值被忽略。
+- 可执行文件用与适配器相同的搜索规则（`claudeCodeDiscoverySpec`，已移入 harness-discovery 共用），Host 启动路径设置优先。
+- 读版本时带 `DISABLE_AUTOUPDATER=1`。Mac/Linux 可写检查查 `versions` 目录和启动入口目录。
+
+### 不挡对话的安装窗口（Mac/Linux 原生 Claude Code）
+
+新版另存为 `versions/<v>` 再切换，运行中的会话不受影响，所以：
+
+1. 持锁做更新前检查（只看运行中的回合，不释放空闲会话、不扫进程）并写好待恢复日志。
+2. 放开准入锁，改持 `<agent>.install` 标记锁，然后下载安装。这期间新对话和新回合照常进入；Hub“重新安装”和 Host 手动 install/update 由 `assertAgentCliInstallFree` 拒绝（`AGENT_CLI_UPDATE_BUSY`）。
+3. 读版本后重新拿准入锁核对；有回合在跑、Host 不在或超时就记 `skipped-not-ready / HOST_UNAVAILABLE`（或 `CHECK_TIMEOUT`），日志带 `verifyPending` 保留，按分钟重试，空闲后再检查：通过记 `updated`，不通过照常回退并拉黑。
+
+Windows 和其他工具仍全程持锁。
+
+### 只能升最新版的工具（exactRollback=false）
+
+- 安装非 0 退出但版本确实变了：按实际版本继续核对。升到比检查时更新的版本也接受。版本没变记 `INSTALL_FAILED`，不定罪。
+- 连接检查没跑成（Host 不在、超时）：保留日志（`verifyPending`），按分钟重试，不释放空闲会话，不接受也不定罪。
+- 待核对期间读不到版本：记 `skipped-not-ready / CHECK_TIMEOUT` 推迟。
+- 检查确实失败：记 `UPDATE_NOT_REVERSIBLE`（见上），不进回退/恢复循环。
+
+### 验收边界
+
+以上全部为隔离 synthetic 测试（假命令、临时 HOME）。各工具真实更新/回退命令、官方安装目录推断、Windows 文件名、`claude install <旧版本> --force` 能否切回启动入口、不持锁窗口在真实 Host 下的表现，均待真机验收。

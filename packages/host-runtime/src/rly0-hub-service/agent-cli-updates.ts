@@ -14,6 +14,7 @@ import { newerInstallationVersion } from "@codexhost/harness-discovery";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import {
   acquireAgentCliFence,
+  agentCliInstallFenceName,
   cleanAgentCliFences,
   type CliOwnerProbe,
 } from "../rly0-agents/cli-update-admission.js";
@@ -383,10 +384,12 @@ export class AgentCliUpdates {
       await finish("skipped-disabled", "DISABLED");
       return;
     }
+    const before = { result: entry.result, errorCode: entry.errorCode, causeCode: entry.causeCode };
     entry.phase = "checking";
     entry.errorCode = null;
     entry.causeCode = null;
     let release: (() => Promise<void>) | null = null;
+    let installMarker: (() => Promise<void>) | null = null;
     try {
       if (interrupted) {
         plan = interrupted.plan;
@@ -422,6 +425,12 @@ export class AgentCliUpdates {
         entry.causeCode = "INTERRUPTED";
         if (!exact || interrupted.verifyPending) {
           // The new version is installed; only its connection check decides what happens.
+          if (current === null) {
+            // Unreadable right now is not evidence against the new version: retry, never judge.
+            entry.causeCode = null;
+            await finish("skipped-not-ready", "CHECK_TIMEOUT");
+            return;
+          }
           let good: boolean;
           try {
             good = current === interrupted.target && (await driver.ready(agent));
@@ -495,6 +504,17 @@ export class AgentCliUpdates {
           !installation.latestVersion ||
           !newerInstallationVersion(installation.currentVersion, installation.latestVersion)
         ) {
+          if (entry.badVersions.includes(installation.currentVersion)) {
+            // Still on a version that failed its check: keep saying so until a newer release.
+            entry.causeCode = before.causeCode;
+            await finish(
+              "failed",
+              before.result === "failed" && before.errorCode
+                ? before.errorCode
+                : "UPDATE_NOT_REVERSIBLE",
+            );
+            return;
+          }
           await finish("up-to-date");
           return;
         }
@@ -547,6 +567,13 @@ export class AgentCliUpdates {
           return;
         }
         if (!fenced) {
+          // Sessions stay admitted, but reinstalls and manual updates of this agent still wait.
+          installMarker = await this.#fence(agentCliInstallFenceName(agent));
+          if (!installMarker) {
+            this.#pending.delete(agent);
+            await finish("skipped-busy", "BUSY");
+            return;
+          }
           await release();
           release = null;
         }
@@ -587,6 +614,8 @@ export class AgentCliUpdates {
             // meantime defers the check (below) instead of failing it.
             const unfenced = !release;
             if (unfenced) release = await this.#refence(agent);
+            await installMarker?.();
+            installMarker = null;
             if (!release) throw new Error("HOST_UNAVAILABLE");
             if (entry.currentVersion !== pending.target)
               failure =
@@ -600,15 +629,22 @@ export class AgentCliUpdates {
             failure = code(error, "CONNECTION_NOT_READY");
           }
         }
+        await installMarker?.();
+        installMarker = null;
         if (
           verifying &&
-          !fenced &&
+          (!fenced || !exact) &&
           (failure === "HOST_UNAVAILABLE" || failure === "BUSY" || failure === "CHECK_TIMEOUT")
         ) {
-          // A session started while it installed: verify (or roll back) once it is idle.
+          // The check could not run (a session started meanwhile, Host gone, timeout): keep the
+          // journal and verify once possible; a latest-only tool's new version is not accepted
+          // unchecked.
           pending.verifyPending = true;
           entry.causeCode = null;
-          await finish("skipped-not-ready", "HOST_UNAVAILABLE");
+          await finish(
+            "skipped-not-ready",
+            failure === "CHECK_TIMEOUT" ? failure : "HOST_UNAVAILABLE",
+          );
           return;
         }
         if (!failure) {
@@ -727,6 +763,7 @@ export class AgentCliUpdates {
         failure,
       );
     } finally {
+      await installMarker?.();
       await release?.();
     }
   }

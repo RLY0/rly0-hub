@@ -52,6 +52,8 @@ export const agentCliUpdateErrorSchema = z.enum([
    * automatically; the version is skipped (badVersions) and a newer release is tried normally.
    */
   "UPDATE_NOT_REVERSIBLE",
+  /** Claude Code settings (often an administrator's) bound the version: minimumVersion/requiredMaximumVersion. */
+  "VERSION_RANGE_BY_POLICY",
 ]);
 export type AgentCliUpdateError = z.infer<typeof agentCliUpdateErrorSchema>;
 export const agentCliUpdateResultSchema = z.enum([

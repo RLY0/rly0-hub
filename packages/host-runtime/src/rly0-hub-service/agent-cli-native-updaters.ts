@@ -100,7 +100,17 @@ export async function claudeUpdatePolicy(input: {
         autoUpdatesChannel: z.string().optional(),
         minimumVersion: z.string().optional(),
         requiredMaximumVersion: z.string().optional(),
-        env: z.record(z.string(), z.string()).optional(),
+        // Claude ignores non-string env values; so does this check, instead of failing it.
+        env: z
+          .record(z.string(), z.unknown())
+          .transform((env) =>
+            Object.fromEntries(
+              Object.entries(env).filter(
+                (entry): entry is [string, string] => typeof entry[1] === "string",
+              ),
+            ),
+          )
+          .optional(),
       })
       .safeParse(JSON.parse(text));
     if (!parsed.success) throw new Error("CHECK_FAILED");
@@ -136,7 +146,7 @@ export async function claudeUpdatePolicy(input: {
         installationVersion(settings.requiredMaximumVersion),
         latestVersion,
       ));
-  return { latestVersion, reason: pinned ? "VERSION_PINNED" : null };
+  return { latestVersion, reason: pinned ? "VERSION_RANGE_BY_POLICY" : null };
 }
 
 /**

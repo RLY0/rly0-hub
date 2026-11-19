@@ -449,10 +449,19 @@ describe("injected CLI update drivers", () => {
       canUpdate: false,
       reason: "ORIGINAL_INSTALLER",
     });
-    installer = "native";
+    // The official install script reports "internal".
+    for (const name of ["internal", "native"]) {
+      installer = name;
+      expect(await f.driver.inspect("grok")).toMatchObject({
+        canUpdate: true,
+        plan: { kind: "native", updater: "update" },
+      });
+    }
+    installer = "internal";
+    f.setExecutable(path.join(f.root, "elsewhere", "grok"));
     expect(await f.driver.inspect("grok")).toMatchObject({
-      canUpdate: true,
-      plan: { kind: "native", updater: "update" },
+      canUpdate: false,
+      reason: "ORIGINAL_INSTALLER",
     });
   });
   it("treats Cursor without an update status as not updatable, like its adapter", async () => {
@@ -661,9 +670,12 @@ describe("Claude Code native installation (synthetic HOME, injected commands)", 
       const pinned = await claude(bound);
       expect(await pinned.driver.inspect("claude-code")).toMatchObject({
         canUpdate: false,
-        reason: "VERSION_PINNED",
+        reason: "VERSION_RANGE_BY_POLICY",
       });
     }
+    // A non-string env value is ignored, not a reason to fail the whole check.
+    const odd = await claude({ env: { SOMETHING: 1, DISABLE_UPDATES: "0" } });
+    expect(await odd.driver.inspect("claude-code")).toMatchObject({ canUpdate: true });
     await expect(
       (await claude({ autoUpdatesChannel: "nightly" })).driver.inspect("claude-code"),
     ).rejects.toThrow("CHECK_FAILED");

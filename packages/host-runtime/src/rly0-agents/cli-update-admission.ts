@@ -37,6 +37,29 @@ export function assertAgentCliAvailable(
   throw agentCliBusyError();
 }
 
+/** The fence name held while an update installs without fencing the agent's sessions. */
+export const agentCliInstallFenceName = (agent: string) => `${agent}.install`;
+
+/**
+ * Reinstalls and manual updates of an agent must not run while the automatic updater is
+ * installing it, including installs that leave its sessions admitted (native Claude Code).
+ */
+export function assertAgentCliInstallFree(
+  environment: NodeJS.ProcessEnv,
+  agent: string,
+  probe?: CliOwnerProbe,
+): void {
+  assertAgentCliAvailable(environment, agent, probe);
+  if (!agentCliUpdateIdSchema.safeParse(agent).success) return;
+  try {
+    const fence = agentCliUpdateFence(environment, agentCliInstallFenceName(agent));
+    if (!liveCliOwners(fence, probe).length) return;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+  }
+  throw agentCliBusyError();
+}
+
 /** Exclusive cross-Hub fence, held through readback, inspection and any rollback. */
 export async function acquireAgentCliFence(
   environment: NodeJS.ProcessEnv,
@@ -87,7 +110,12 @@ export async function fenceOwnerAlive(
 }
 
 export function cleanAgentCliFences(environment: NodeJS.ProcessEnv, probe?: CliOwnerProbe): void {
-  for (const agent of [...agentCliUpdateIdSchema.options, "coordinator", "state"])
+  for (const agent of [
+    ...agentCliUpdateIdSchema.options,
+    ...agentCliUpdateIdSchema.options.map(agentCliInstallFenceName),
+    "coordinator",
+    "state",
+  ])
     liveCliOwners(agentCliUpdateFence(environment, agent), probe);
 }
 
@@ -142,10 +170,15 @@ export class AgentCliUpdateAdmission {
         const install = target.install;
         const installation = target.installation;
         if (property === "install" && install)
-          return () => this.run(agent, () => install.call(target));
+          return () => {
+            assertAgentCliInstallFree(this.#environment, agent);
+            return this.run(agent, () => install.call(target));
+          };
         if (property === "installation" && installation)
-          return (action: "check" | "update") =>
-            this.run(agent, () => installation.call(target, action));
+          return (action: "check" | "update") => {
+            if (action !== "check") assertAgentCliInstallFree(this.#environment, agent);
+            return this.run(agent, () => installation.call(target, action));
+          };
         if (property === "webUi" && target.webUi) {
           const webUi = target.webUi;
           return { ...webUi, open: () => this.run(agent, () => webUi.open()).catch(unavailable) };

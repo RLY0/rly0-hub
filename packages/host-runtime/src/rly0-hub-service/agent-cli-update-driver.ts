@@ -445,8 +445,9 @@ export function createAgentCliUpdateDriver(options: {
           })
           .parse(JSON.parse(await run(executable, ["update", "--check", "--json"], env)));
         latestVersion = installationVersion(data.latestVersion);
-        // Grok names its own installer; only its native script installation is Hub's to update.
-        if (data.installer === "native") native("update");
+        // Grok names its installer ("internal" for its official script); npm installs belong to
+        // npm. native() additionally requires the official location (~/.grok/bin, ~/.local/bin).
+        if (data.installer !== "npm") native("update");
         else reason = "ORIGINAL_INSTALLER";
       } else if (agent === "cursor-cli") {
         const data: unknown = JSON.parse(await run(executable, ["about", "--format", "json"], env));
