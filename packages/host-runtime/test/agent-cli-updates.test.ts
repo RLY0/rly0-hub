@@ -1050,33 +1050,111 @@ describe("all installed agents, including latest-only native updaters (synthetic
     });
     expect(f.driver.install).toHaveBeenCalledTimes(1);
   });
-  it("says ROLLBACK_FAILED and skips the version when a latest-only update breaks, then keeps it once it checks good", async () => {
+  it("skips a broken latest-only version without a rollback loop, then updates to a newer release", async () => {
     const f = await latestOnly();
     f.driver.ready.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     await f.manager.check("pi");
-    expect(f.driver.install.mock.calls.map((call) => [call[1], call[2] ?? false])).toEqual([
-      ["1.1.0", false],
-      ["1.0.0", true],
-    ]);
+    expect(f.driver.install.mock.calls.map((call) => call[1])).toEqual(["1.1.0"]);
     expect(await f.entry()).toMatchObject({
       result: "failed",
-      errorCode: "ROLLBACK_FAILED",
+      errorCode: "UPDATE_NOT_REVERSIBLE",
       causeCode: "CONNECTION_NOT_READY",
       currentVersion: "1.1.0",
-      previousVersion: "1.0.0",
       badVersions: ["1.1.0"],
-      recoveryPending: true,
+      recoveryPending: false,
       exactRollback: false,
     });
-    // Later the same version passes the connection check: keep it, never "roll back" again.
-    f.driver.ready.mockResolvedValue(true);
+    f.setLatest("1.2.0");
     await f.manager.check("pi");
     expect(await f.entry()).toMatchObject({
+      result: "updated",
+      currentVersion: "1.2.0",
+      badVersions: ["1.1.0"],
+    });
+  });
+  it("follows the real version when a latest-only updater exits nonzero after updating", async () => {
+    const f = await latestOnly();
+    f.driver.install.mockImplementation(async (_plan, version) => {
+      f.setCurrent(version);
+      throw new Error("synthetic nonzero exit");
+    });
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({ result: "updated", currentVersion: "1.1.0" });
+  });
+  it("never releases idle sessions when recovering an interrupted latest-only update", async () => {
+    const f = await latestOnly();
+    f.driver.ready.mockResolvedValueOnce(true);
+    f.driver.install.mockImplementationOnce(async () => {
+      f.setCurrent("1.1.0");
+      void f.manager.stop();
+      throw new Error("synthetic interruption");
+    });
+    await f.manager.check("pi");
+    const restarted = new AgentCliUpdates({
+      ownerProbe: syntheticOwner,
+      environment: f.env,
+      driver: f.driver,
+    });
+    managers.push(restarted);
+    f.driver.busy.mockClear();
+    await restarted.check("pi");
+    expect(f.driver.busy.mock.calls.every((call) => call[2] === false)).toBe(true);
+    expect((await restarted.status()).agents.find((a) => a.agent === "pi")).toMatchObject({
       result: "recovered",
       currentVersion: "1.1.0",
-      badVersions: [],
+    });
+  });
+  it("reports updateAvailable from the current and latest versions", async () => {
+    const f = await fixture();
+    f.driver.busy.mockResolvedValue(true);
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({ result: "skipped-busy", updateAvailable: true });
+    f.driver.busy.mockResolvedValue(false);
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({ result: "updated", updateAvailable: false });
+  });
+});
+
+describe("installs that keep the agent admitted (synthetic native Claude Code)", () => {
+  async function unfenced() {
+    const f = await fixture();
+    Object.assign(f.plan, { kind: "native", updater: "claude", npm: null, packageName: null });
+    const driver = Object.assign(f.driver, { fenceDuringInstall: () => false });
+    return { ...f, driver };
+  }
+  it("installs without the admission fence and fences only to verify", async () => {
+    const f = await unfenced();
+    f.driver.install.mockImplementation(async (_plan, version) => {
+      expect(() => assertAgentCliAvailable(f.env, "pi")).not.toThrow();
+      f.setCurrent(version);
+    });
+    f.driver.ready.mockImplementation(async () => {
+      expect(() => assertAgentCliAvailable(f.env, "pi")).toThrow("AGENT_CLI_UPDATE_BUSY");
+      return true;
+    });
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({ result: "updated", currentVersion: "1.1.0" });
+    expect(() => assertAgentCliAvailable(f.env, "pi")).not.toThrow();
+  });
+  it("waits for a session that started during the install, then verifies or rolls back", async () => {
+    const f = await unfenced();
+    // Busy only for the post-install check (calls: pre-update, post-install).
+    f.driver.busy.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({
+      result: "skipped-not-ready",
+      errorCode: "HOST_UNAVAILABLE",
+      currentVersion: "1.1.0",
+      recoveryPending: true,
+    });
+    f.driver.ready.mockResolvedValueOnce(false).mockResolvedValue(true);
+    await f.manager.check("pi");
+    expect(f.driver.install.mock.calls.map((call) => call[1])).toEqual(["1.1.0", "1.0.0"]);
+    expect(await f.entry()).toMatchObject({
+      result: "rolled-back",
+      currentVersion: "1.0.0",
+      badVersions: ["1.1.0"],
       recoveryPending: false,
     });
-    expect(f.driver.install).toHaveBeenCalledTimes(2);
   });
 });

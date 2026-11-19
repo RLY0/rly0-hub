@@ -2,6 +2,7 @@ import type { access } from "node:fs/promises";
 import { open, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
+  claudeCodeDiscoverySpec,
   installationVersion,
   newerInstallationVersion,
   npmInstallation,
@@ -28,19 +29,20 @@ import { assertCliWritable, cliProcessBusy } from "./agent-cli-update-system.js"
 import { RLY0_AGENT_RECIPES } from "../rly0-agents/agent-installer.js";
 import type { HubHostRequest } from "./host-console-routes.js";
 import { getUpdateJson, type UpdateHttpGet } from "./hub-update-net.js";
+import {
+  agentCliNativeUpdaterSchema,
+  claudeNativeLayout,
+  claudeRetainedVersion,
+  claudeUpdatePolicy,
+  existingAgentCliBackup,
+  nativeUpdateArguments,
+  nativeUpdateEnvironment,
+  officialInstallLocation,
+  removeAgentCliBackup,
+  saveAgentCliBackup,
+  type AgentCliNativeUpdater,
+} from "./agent-cli-native-updaters.js";
 
-/**
- * Official native updaters. claude/kimi/opencode install an exact version (update and rollback);
- * update/hermes can only move to the tool's newest release (no automatic rollback).
- */
-export const agentCliNativeUpdaterSchema = z.enum([
-  "claude",
-  "kimi",
-  "opencode",
-  "update",
-  "hermes",
-]);
-export type AgentCliNativeUpdater = z.infer<typeof agentCliNativeUpdaterSchema>;
 export const agentCliPlanSchema = z.strictObject({
   kind: z.enum(["npm", "script", "native"]),
   executable: z.string().min(1),
@@ -53,8 +55,9 @@ export const agentCliPlanSchema = z.strictObject({
 // Input type: callers and older journals may omit `updater` (defaults to null).
 export type AgentCliPlan = z.input<typeof agentCliPlanSchema>;
 /** Whether install(plan, version) can select an exact version, which rollback requires. */
+export { agentCliNativeUpdaterSchema };
 export function agentCliPlanExact(plan: AgentCliPlan): boolean {
-  return plan.kind !== "native" || ["claude", "kimi", "opencode"].includes(plan.updater ?? "");
+  return plan.kind !== "native" || plan.updater === "claude" || plan.updater === "kimi";
 }
 export interface AgentCliInstallation {
   currentVersion: string;
@@ -78,17 +81,20 @@ export interface AgentCliUpdateDriver {
     targetVersion?: string,
   ): Promise<boolean>;
   ready(agent: AgentCliUpdateId): Promise<boolean>;
+  /**
+   * false when installing never touches files that running sessions use (POSIX native Claude
+   * Code): the agent stays admitted while it downloads, and is fenced only to verify.
+   */
+  fenceDuringInstall?(plan: AgentCliPlan): boolean;
+  /** Drop what install() kept for a rollback once the transaction is over. */
+  settle?(plan: AgentCliPlan): Promise<void>;
   cancel?(): void;
 }
 
 const EXTRAS: Partial<
   Record<AgentCliUpdateId, { command?: string; packages?: string[]; env?: string }>
 > = {
-  "claude-code": {
-    command: "claude",
-    packages: ["@anthropic-ai/claude-code"],
-    env: "CODEXHOST_CLAUDE_COMMAND",
-  },
+  "claude-code": { packages: ["@anthropic-ai/claude-code"] },
   pi: { packages: ["@earendil-works/pi-coding-agent"], env: "PI_COMMAND" },
   omp: { packages: ["@oh-my-pi/pi-coding-agent"], env: "OMP_COMMAND" },
   "qwen-code": {
@@ -120,6 +126,8 @@ export function createAgentCliUpdateDriver(options: {
     idleHostPids?: readonly number[],
   ) => Promise<boolean>;
   now?: () => number;
+  /** Claude Code's managed-settings.json; the platform's system location by default. */
+  claudeManagedSettings?: string;
 }): AgentCliUpdateDriver {
   const { platform } = options;
   const controller = new AbortController();
@@ -156,6 +164,12 @@ export function createAgentCliUpdateDriver(options: {
       return configured;
     }
     if (options.discover) return options.discover(agent, env);
+    // The same search the Claude Code adapter launches with: update exactly that installation.
+    if (agent === "claude-code")
+      return (
+        resolveHarnessExecutable(claudeCodeDiscoverySpec, { environment: env, platform })
+          ?.executable ?? null
+      );
     const extra = EXTRAS[agent];
     const command = extra?.command ?? RLY0_AGENT_RECIPES[agent]?.detectionCommand;
     if (!command) return null;
@@ -186,13 +200,6 @@ export function createAgentCliUpdateDriver(options: {
     versionFromOutput(
       await run(plan.executable, ["--version"], { ...(await envFor()), DISABLE_AUTOUPDATER: "1" }),
     );
-  /** Native updaters choose their target from the selected installation; keep its directory first. */
-  const nativeEnv = (env: NodeJS.ProcessEnv, executable: string): NodeJS.ProcessEnv => {
-    const key = Object.keys(env).find((name) => name.toLowerCase() === "path") ?? "PATH";
-    const delimiter = platform === "win32" ? ";" : ":";
-    const directory = (platform === "win32" ? path.win32 : path.posix).dirname(executable);
-    return { ...env, [key]: `${directory}${delimiter}${env[key] ?? ""}` };
-  };
   /** Small plain-text release endpoints, on the Hub HTTP transport (proxy settings). */
   const text = async (url: string): Promise<string> => {
     const response = await (await options.get())(url, {});
@@ -223,22 +230,6 @@ export function createAgentCliUpdateDriver(options: {
     } catch {
       return null;
     }
-  };
-  /** Claude Code's own release channel (settings autoUpdatesChannel), as its updater reads it. */
-  const claudeSettings = async (env: NodeJS.ProcessEnv) => {
-    const home = env.HOME ?? env.USERPROFILE ?? "";
-    const config = env.CLAUDE_CONFIG_DIR
-      ? path.resolve(home, env.CLAUDE_CONFIG_DIR)
-      : path.join(home, ".claude");
-    const settings = await readFile(path.join(config, "settings.json"), "utf8")
-      .then((raw) => z.record(z.string(), z.unknown()).parse(JSON.parse(raw)))
-      .catch(() => ({}) as Record<string, unknown>);
-    const channel = settings.autoUpdatesChannel === "stable" ? "stable" : "latest";
-    const settingsEnv = z.record(z.string(), z.string()).safeParse(settings.env);
-    const disable = settingsEnv.success
-      ? (settingsEnv.data.DISABLE_UPDATES ?? env.DISABLE_UPDATES)
-      : env.DISABLE_UPDATES;
-    return { channel, disabled: !!disable && disable !== "0" };
   };
   /** On POSIX a native Claude Code update never replaces a file that a running process uses. */
   const versionedClaude = (plan: AgentCliPlan) =>
@@ -365,10 +356,11 @@ export function createAgentCliUpdateDriver(options: {
       let reason: AgentCliUpdateError = "NO_OFFICIAL_UPDATER";
       const home = env.HOME ?? env.USERPROFILE ?? "";
       const selected = await realpath(executable).catch(() => executable);
-      // Package-manager stores are immutable; their own manager must update them.
-      const managed = /[\\/]nix[\\/]store[\\/]|[\\/]Cellar[\\/]/i.test(selected);
+      const official = officialInstallLocation(agent, executable, selected, env, platform);
+      // Never run an installer script again, and only update the official installer's own
+      // location with that tool's official update command. Everything else: ORIGINAL_INSTALLER.
       const native = (updater: AgentCliNativeUpdater) => {
-        if (managed) {
+        if (!official) {
           reason = "ORIGINAL_INSTALLER";
           return;
         }
@@ -376,27 +368,37 @@ export function createAgentCliUpdateDriver(options: {
         plan.updater = updater;
         canUpdate = true;
       };
-      // Never run an installer script again: only each tool's own official update command.
       if (agent === "claude-code") {
-        const settings = await claudeSettings(env);
-        latestVersion =
-          cachedLatest ??
-          installationVersion(
-            await text(`https://downloads.claude.ai/claude-code-releases/${settings.channel}`),
-          );
-        const launcher = path.join(
-          home,
-          ".local",
-          "bin",
-          platform === "win32" ? "claude.exe" : "claude",
-        );
-        const versions = path.join(home, ".local", "share", "claude", "versions") + path.sep;
+        const policy = await claudeUpdatePolicy({
+          env,
+          platform,
+          cachedLatest,
+          latest: (channel) => text(`https://downloads.claude.ai/claude-code-releases/${channel}`),
+          ...(options.claudeManagedSettings
+            ? { managedSettingsFile: options.claudeManagedSettings }
+            : {}),
+        });
+        latestVersion = policy.latestVersion;
+        const layout = claudeNativeLayout(env, platform);
         const nativeInstall =
-          path.resolve(executable) === launcher &&
-          (selected.startsWith(versions) || (platform === "win32" && selected === launcher));
-        if (settings.disabled) reason = "VERSION_PINNED";
-        else if (nativeInstall) native("claude");
-        else reason = "ORIGINAL_INSTALLER";
+          path.resolve(executable) === layout.launcher &&
+          (selected.startsWith(layout.versions + path.sep) ||
+            (platform === "win32" && selected === layout.launcher));
+        if (policy.reason) reason = policy.reason;
+        else if (nativeInstall) {
+          plan.kind = "native";
+          plan.updater = "claude";
+          canUpdate = await assertCliWritable(plan, platform, options.writable, env).then(
+            () => true,
+            (error: unknown) => {
+              reason =
+                error instanceof Error && error.message === "COMMAND_FILE_IN_USE"
+                  ? "INSTALL_FILE_BUSY"
+                  : "PERMISSION_DENIED";
+              return false;
+            },
+          );
+        } else reason = "ORIGINAL_INSTALLER";
       } else if (agent === "opencode") {
         latestVersion =
           cachedLatest ??
@@ -406,15 +408,11 @@ export function createAgentCliUpdateDriver(options: {
               .parse(await json("https://api.github.com/repos/anomalyco/opencode/releases/latest"))
               .tag_name,
           );
+        // Only the curl installer's own location, with its exact-version upgrade.
         const standard = path.join(home, ".opencode", "bin", "opencode");
-        if (
-          platform !== "win32" &&
-          path.resolve(executable) === standard &&
-          selected === standard
-        ) {
-          // The installer location: the original exact-version curl upgrade.
-          canUpdate = true;
-        } else native("opencode"); // `opencode upgrade <v>` detects its own install method.
+        canUpdate =
+          platform !== "win32" && path.resolve(executable) === standard && selected === standard;
+        reason = "ORIGINAL_INSTALLER";
       } else if (agent === "pi") {
         latestVersion =
           cachedLatest ??
@@ -439,32 +437,35 @@ export function createAgentCliUpdateDriver(options: {
         );
         native("update");
       } else if (agent === "grok") {
-        const data: unknown = JSON.parse(
-          await run(executable, ["update", "--check", "--json"], env),
-        );
-        latestVersion = installationVersion(
-          z.object({ latestVersion: z.string(), updateAvailable: z.boolean() }).parse(data)
-            .latestVersion,
-        );
-        native("update");
+        const data = z
+          .object({
+            latestVersion: z.string(),
+            updateAvailable: z.boolean(),
+            installer: z.string().optional(),
+          })
+          .parse(JSON.parse(await run(executable, ["update", "--check", "--json"], env)));
+        latestVersion = installationVersion(data.latestVersion);
+        // Grok names its own installer; only its native script installation is Hub's to update.
+        if (data.installer === "native") native("update");
+        else reason = "ORIGINAL_INSTALLER";
       } else if (agent === "cursor-cli") {
         const data: unknown = JSON.parse(await run(executable, ["about", "--format", "json"], env));
         const about = z
           .object({ latestVersion: z.string(), latestStatus: z.string().optional() })
           .parse(data);
         latestVersion = installationVersion(about.latestVersion);
-        // Cursor reports its own update checks as disabled/unavailable otherwise.
-        if (
-          about.latestStatus === undefined ||
-          ["up_to_date", "update_available"].includes(about.latestStatus)
-        )
-          native("update");
+        // As the Cursor adapter: no status means its own update checks are disabled.
+        if (["up_to_date", "update_available"].includes(about.latestStatus ?? "")) native("update");
       } else if (agent === "omp" || agent === "qoder" || agent === "qoder-cn") {
         if (
           agent !== "qoder-cn" ||
           (await run(executable, ["update", "--help"], env)).includes("--check")
         ) {
-          const output = await run(executable, ["update", "--check"], nativeEnv(env, executable));
+          const output = await run(
+            executable,
+            ["update", "--check"],
+            nativeUpdateEnvironment(env, executable, platform),
+          );
           const available =
             agent === "omp"
               ? output.match(/New version available:\s*(\S+)/i)
@@ -553,7 +554,7 @@ export function createAgentCliUpdateDriver(options: {
       // Refuse before any effect: a latest-only updater cannot put an old version back.
       if (rollback && !agentCliPlanExact(plan)) throw new Error("ROLLBACK_UNSUPPORTED");
       const env = await envFor();
-      await assertCliWritable(plan, platform, options.writable);
+      await assertCliWritable(plan, platform, options.writable, env);
       if (
         !versionedClaude(plan) &&
         (await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(plan, env))
@@ -567,21 +568,27 @@ export function createAgentCliUpdateDriver(options: {
           300_000,
         );
       } else if (plan.kind === "script") {
-        await run(plan.executable, ["upgrade", selected, "--method", "curl"], env, 300_000);
+        // Run a rollback with the saved old binary, never with the version that just failed.
+        if (!rollback) await saveAgentCliBackup(env, plan.executable);
+        const command =
+          (rollback && (await existingAgentCliBackup(env, plan.executable))) || plan.executable;
+        await run(command, ["upgrade", selected, "--method", "curl"], env, 300_000);
       } else if (plan.kind === "native" && plan.updater) {
-        const nenv = nativeEnv(env, plan.executable);
-        const args: Record<AgentCliNativeUpdater, string[]> = {
-          // --force: switch back to an already-downloaded version on rollback as well.
-          claude: ["install", selected, "--force"],
-          kimi: ["__update_download", selected, "--manual"],
-          opencode: ["upgrade", selected],
-          update: ["update"],
-          hermes: ["update", "--yes", "--no-gateway-restart"],
-        };
-        await run(plan.executable, args[plan.updater], nenv, 300_000);
+        const nenv = nativeUpdateEnvironment(env, plan.executable, platform);
+        // Claude Code keeps earlier versions; the rollback runs the retained old binary.
+        const command =
+          (rollback &&
+            plan.updater === "claude" &&
+            (await claudeRetainedVersion(env, platform, selected))) ||
+          plan.executable;
+        await run(command, nativeUpdateArguments(plan.updater, selected), nenv, 300_000);
         // Kimi swaps the staged build in at its next native start.
         if (plan.updater === "kimi") await run(plan.executable, ["--version"], nenv);
       } else throw new Error("ORIGINAL_INSTALLER");
+    },
+    fenceDuringInstall: (plan) => !versionedClaude(plan),
+    async settle(plan) {
+      if (plan.kind === "script") await removeAgentCliBackup(await envFor(), plan.executable);
     },
     async busy(agent, plan, releaseIdle = false, targetVersion) {
       if (options.installing(agent)) return true;

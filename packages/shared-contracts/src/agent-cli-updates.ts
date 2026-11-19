@@ -45,6 +45,13 @@ export const agentCliUpdateErrorSchema = z.enum([
   "BASELINE_NOT_READY",
   "COMMAND_TREE_STOP_FAILED",
   "CHECK_TIMEOUT",
+  /** The tool's own settings turn its updates off (Claude Code DISABLE_UPDATES / DISABLE_AUTOUPDATER). */
+  "DISABLED_BY_TOOL_SETTINGS",
+  /**
+   * A latest-only updater installed a version that failed its check. It cannot be put back
+   * automatically; the version is skipped (badVersions) and a newer release is tried normally.
+   */
+  "UPDATE_NOT_REVERSIBLE",
 ]);
 export type AgentCliUpdateError = z.infer<typeof agentCliUpdateErrorSchema>;
 export const agentCliUpdateResultSchema = z.enum([
@@ -81,6 +88,8 @@ export const agentCliUpdateEntrySchema = z.strictObject({
    * version cannot be put back automatically (ROLLBACK_FAILED + badVersions instead).
    */
   exactRollback: z.boolean().default(true),
+  /** currentVersion is older than latestVersion (the tool's release ordering). */
+  updateAvailable: z.boolean().default(false),
 });
 export type AgentCliUpdateEntry = z.infer<typeof agentCliUpdateEntrySchema>;
 export const agentCliUpdateStatusSchema = z.strictObject({

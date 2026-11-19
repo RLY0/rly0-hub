@@ -35,3 +35,4 @@ export {
 } from "./installation.js";
 export { npmInstallation, type NpmInstallationOptions } from "./npm-installation.js";
 export { createHarnessInstaller, type HarnessInstallerSource } from "./installer.js";
+export { claudeCodeDiscoverySpec } from "./claude-code.js";

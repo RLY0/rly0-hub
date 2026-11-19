@@ -1,11 +1,10 @@
 import path from "node:path";
 
 import {
+  claudeCodeDiscoverySpec,
   resolveHarnessExecutable,
   targetPath,
-  VERSION_MANAGER_ROOTS,
   type HarnessDiscoveryDependencies,
-  type HarnessDiscoverySpec,
 } from "@codexhost/harness-discovery";
 
 export { withNodeRuntimeOnPath } from "@codexhost/harness-discovery";
@@ -14,43 +13,8 @@ export class ClaudeCodeExecutableError extends Error {
   readonly code = "CLAUDE_NOT_FOUND";
 }
 
-const CLAUDE_NPM_PACKAGE_BIN = "node_modules/@anthropic-ai/claude-code/bin";
-
-export const claudeCodeDiscoverySpec: HarnessDiscoverySpec = {
-  id: "claude-code",
-  command: "claude",
-  commandEnvironmentVariable: "CODEXHOST_CLAUDE_COMMAND",
-  installRoots: {
-    posix: [
-      "~/.npm-global/bin",
-      "~/.local/bin",
-      "~/.claude/local",
-      VERSION_MANAGER_ROOTS,
-      "/opt/homebrew/bin",
-      "/usr/local/bin",
-    ],
-    windows: [
-      `\${APPDATA}/npm/${CLAUDE_NPM_PACKAGE_BIN}`,
-      "${APPDATA}/npm",
-      "~/.local/bin",
-      VERSION_MANAGER_ROOTS,
-    ],
-  },
-  // Prefer Claude Code's native binary over the npm CMD shim beside it: the
-  // shim spawns an extra cmd.exe and loses signal handling.
-  runnableCandidate: (candidate, { platform, isExecutable }) => {
-    const pathFlavor = targetPath(platform);
-    if (platform !== "win32" || pathFlavor.basename(candidate).toLowerCase() !== "claude.cmd") {
-      return candidate;
-    }
-    const native = pathFlavor.join(
-      pathFlavor.dirname(candidate),
-      ...CLAUDE_NPM_PACKAGE_BIN.split("/"),
-      "claude.exe",
-    );
-    return isExecutable(native) ? native : undefined;
-  },
-};
+// Shared with the Hub CLI updater so both always select the same installation.
+export { claudeCodeDiscoverySpec };
 
 export function resolveClaudeCodeExecutable(
   input: {

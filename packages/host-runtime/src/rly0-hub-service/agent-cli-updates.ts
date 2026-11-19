@@ -20,6 +20,7 @@ import {
 import {
   agentCliPlanExact,
   agentCliPlanSchema,
+  type AgentCliPlan,
   type AgentCliUpdateDriver,
 } from "./agent-cli-update-driver.js";
 
@@ -30,6 +31,8 @@ const pendingSchema = z.strictObject({
   target: z.string(),
   baselineReady: z.boolean().default(false),
   quarantine: z.boolean().default(false),
+  /** Installed while the agent stayed admitted; its connection check is still owed. */
+  verifyPending: z.boolean().default(false),
 });
 type PendingUpdate = z.infer<typeof pendingSchema>;
 const stateSchema = z.strictObject({
@@ -54,7 +57,16 @@ const initial = (agent: AgentCliUpdateId): AgentCliUpdateEntry => ({
   installKind: "unknown",
   canUpdate: false,
   exactRollback: true,
+  updateAvailable: false,
 });
+const updateAvailable = (entry: AgentCliUpdateEntry): boolean => {
+  if (!entry.currentVersion || !entry.latestVersion) return false;
+  try {
+    return newerInstallationVersion(entry.currentVersion, entry.latestVersion);
+  } catch {
+    return false;
+  }
+};
 function code(error: unknown, fallback: AgentCliUpdateError): AgentCliUpdateError {
   const message = error instanceof Error ? error.message : "";
   if (message === "COMMAND_PERMISSION_DENIED") return "PERMISSION_DENIED";
@@ -153,6 +165,15 @@ export class AgentCliUpdates {
   #fence(agent: string) {
     return acquireAgentCliFence(this.#options.environment, agent, this.#options.ownerProbe);
   }
+  /** Take the agent fence back after an unfenced install; only another updater can hold it. */
+  async #refence(agent: string) {
+    for (let n = 0; n < 100 && !this.#stopped; n++) {
+      const release = await this.#fence(agent);
+      if (release) return release;
+      await delay(50);
+    }
+    return null;
+  }
   #save(agent?: AgentCliUpdateId, enabled?: boolean): Promise<void> {
     return this.#track(this.#saveNow(agent, enabled));
   }
@@ -219,7 +240,10 @@ export class AgentCliUpdates {
       enabled: this.#enabled,
       checking: !!this.#checking,
       intervalMs: AGENT_CLI_CHECK_INTERVAL_MS,
-      agents: [...this.#entries.values()],
+      agents: [...this.#entries.values()].map((entry) => ({
+        ...entry,
+        updateAvailable: updateAvailable(entry),
+      })),
     });
   }
   async setEnabled(enabled: boolean): Promise<AgentCliUpdateStatus> {
@@ -343,12 +367,16 @@ export class AgentCliUpdates {
     const entry = this.#entries.get(agent);
     if (!entry) throw new Error("STATE_INVALID");
     const driver = this.#options.driver;
+    let plan: AgentCliPlan | null = null;
     const finish = async (
       result: AgentCliUpdateEntry["result"],
       errorCode: AgentCliUpdateError | null = null,
     ) => {
       Object.assign(entry, { phase: "idle", result, errorCode });
+      entry.updateAvailable = updateAvailable(entry);
       await this.#save(agent);
+      // The transaction is over: whatever install() kept for a rollback can go.
+      if (plan && !this.#pending.has(agent)) await driver.settle?.(plan).catch(() => undefined);
     };
     const interrupted = this.#pending.get(agent);
     if (!interrupted && !this.#enabled) {
@@ -361,6 +389,8 @@ export class AgentCliUpdates {
     let release: (() => Promise<void>) | null = null;
     try {
       if (interrupted) {
+        plan = interrupted.plan;
+        const exact = agentCliPlanExact(interrupted.plan);
         entry.previousVersion = interrupted.previous;
         release = await this.#fence(agent);
         if (!release) {
@@ -384,22 +414,47 @@ export class AgentCliUpdates {
           );
           return;
         }
-        if (await driver.busy(agent, interrupted.plan, true, interrupted.target)) {
+        // A latest-only tool has no rollback to make room for: never close its idle sessions.
+        if (await driver.busy(agent, interrupted.plan, exact, interrupted.target)) {
           await finish("skipped-busy", "BUSY");
           return;
         }
         entry.causeCode = "INTERRUPTED";
-        // A latest-only updater cannot roll back: keep its new version once it checks good.
-        const latestOnly = !agentCliPlanExact(interrupted.plan);
-        if (
+        if (!exact || interrupted.verifyPending) {
+          // The new version is installed; only its connection check decides what happens.
+          let good: boolean;
+          try {
+            good = current === interrupted.target && (await driver.ready(agent));
+          } catch (error) {
+            entry.causeCode = null;
+            await finish("skipped-not-ready", code(error, "HOST_UNAVAILABLE"));
+            return;
+          }
+          if (good) {
+            this.#pending.delete(agent);
+            entry.badVersions = entry.badVersions.filter((v) => v !== interrupted.target);
+            entry.lastUpdatedAt = this.#now();
+            entry.causeCode = null;
+            await finish(interrupted.verifyPending ? "updated" : "recovered");
+            return;
+          }
+          entry.causeCode = "CONNECTION_NOT_READY";
+          if (!exact) {
+            this.#pending.delete(agent);
+            if (!entry.badVersions.includes(interrupted.target))
+              entry.badVersions.push(interrupted.target);
+            await finish("failed", "UPDATE_NOT_REVERSIBLE");
+            return;
+          }
+          // Exact: the rollback below restores the saved version and skips this one.
+          interrupted.quarantine = true;
+        } else if (
           current === interrupted.target &&
-          (latestOnly ||
-            (!interrupted.quarantine && !entry.badVersions.includes(interrupted.target))) &&
+          !interrupted.quarantine &&
+          !entry.badVersions.includes(interrupted.target) &&
           (await driver.ready(agent).catch(() => false))
         ) {
           this.#pending.delete(agent);
-          if (latestOnly)
-            entry.badVersions = entry.badVersions.filter((v) => v !== interrupted.target);
           entry.lastUpdatedAt = this.#now();
           await finish("recovered");
           return;
@@ -421,6 +476,7 @@ export class AgentCliUpdates {
           await finish("skipped-not-installed", "NOT_INSTALLED");
           return;
         }
+        plan = installation.plan;
         Object.assign(entry, {
           currentVersion: installation.currentVersion,
           latestVersion: installation.latestVersion,
@@ -476,7 +532,11 @@ export class AgentCliUpdates {
           target: installation.latestVersion,
           baselineReady: true,
           quarantine: false,
+          verifyPending: false,
         };
+        const exact = agentCliPlanExact(pending.plan);
+        // Installs that never touch running files keep the agent admitted until verification.
+        const fenced = driver.fenceDuringInstall?.(pending.plan) ?? true;
         entry.previousVersion = pending.previous;
         this.#pending.set(agent, pending);
         entry.phase = "updating";
@@ -486,32 +546,70 @@ export class AgentCliUpdates {
           await finish("skipped-disabled", "DISABLED");
           return;
         }
+        if (!fenced) {
+          await release();
+          release = null;
+        }
         let failure: AgentCliUpdateError | null = null;
+        let installError: unknown = null;
         try {
           await driver.install(pending.plan, pending.target);
-          entry.phase = "verifying";
-          entry.currentVersion = await driver.version(pending.plan);
-          if (
-            !agentCliPlanExact(pending.plan) &&
-            entry.currentVersion !== pending.target &&
-            newerInstallationVersion(pending.previous, entry.currentVersion)
-          ) {
-            // A latest-only updater may land on a release newer than the one checked.
-            pending.target = entry.currentVersion;
-            entry.latestVersion = entry.currentVersion;
-            await this.#save(agent);
-          }
-          if (entry.currentVersion !== pending.target)
-            failure =
-              !agentCliPlanExact(pending.plan) && entry.currentVersion === pending.previous
-                ? "INSTALL_FAILED"
-                : "VERSION_MISMATCH";
-          else if (!(await driver.ready(agent))) failure = "CONNECTION_NOT_READY";
         } catch (error) {
-          failure = code(
-            error,
-            entry.phase === "updating" ? "INSTALL_FAILED" : "CONNECTION_NOT_READY",
-          );
+          installError = error ?? new Error("INSTALL_FAILED");
+        }
+        if (installError !== null) {
+          const installFailure = code(installError, "INSTALL_FAILED");
+          // A latest-only updater may exit nonzero after all: its real version decides below.
+          if (
+            exact ||
+            this.#stopped ||
+            ["BUSY", "COMMAND_TREE_STOP_FAILED", "INTERRUPTED"].includes(installFailure)
+          )
+            failure = installFailure;
+        }
+        let verifying = false;
+        if (!failure) {
+          entry.phase = "verifying";
+          verifying = true;
+          try {
+            entry.currentVersion = await driver.version(pending.plan);
+            if (
+              !exact &&
+              entry.currentVersion !== pending.target &&
+              newerInstallationVersion(pending.previous, entry.currentVersion)
+            ) {
+              // A latest-only updater may land on a release newer than the one checked.
+              pending.target = entry.currentVersion;
+              entry.latestVersion = entry.currentVersion;
+              await this.#save(agent);
+            }
+            // An unfenced install takes the fence back to verify; a session that started in the
+            // meantime defers the check (below) instead of failing it.
+            const unfenced = !release;
+            if (unfenced) release = await this.#refence(agent);
+            if (!release) throw new Error("HOST_UNAVAILABLE");
+            if (entry.currentVersion !== pending.target)
+              failure =
+                !exact && entry.currentVersion === pending.previous
+                  ? "INSTALL_FAILED"
+                  : "VERSION_MISMATCH";
+            else if (unfenced && (await driver.busy(agent, pending.plan)))
+              throw new Error("HOST_UNAVAILABLE");
+            else if (!(await driver.ready(agent))) failure = "CONNECTION_NOT_READY";
+          } catch (error) {
+            failure = code(error, "CONNECTION_NOT_READY");
+          }
+        }
+        if (
+          verifying &&
+          !fenced &&
+          (failure === "HOST_UNAVAILABLE" || failure === "BUSY" || failure === "CHECK_TIMEOUT")
+        ) {
+          // A session started while it installed: verify (or roll back) once it is idle.
+          pending.verifyPending = true;
+          entry.causeCode = null;
+          await finish("skipped-not-ready", "HOST_UNAVAILABLE");
+          return;
         }
         if (!failure) {
           const previousUpdatedAt = entry.lastUpdatedAt;
@@ -540,6 +638,28 @@ export class AgentCliUpdates {
             entry.causeCode = null;
             await finish("skipped-busy", failure);
           } else await finish("failed", failure);
+          return;
+        }
+        if (!exact) {
+          // No rollback exists: never loop on one. Skip a version proven bad; a newer release
+          // is tried by the next normal check.
+          this.#pending.delete(agent);
+          if (
+            failure === "CONNECTION_NOT_READY" ||
+            failure === "VERSION_MISMATCH" ||
+            failure === "INSTALL_FAILED"
+          ) {
+            if (!entry.badVersions.includes(pending.target)) entry.badVersions.push(pending.target);
+            await finish("failed", "UPDATE_NOT_REVERSIBLE");
+          } else {
+            entry.causeCode = null;
+            await finish(
+              failure === "HOST_UNAVAILABLE" || failure === "CHECK_TIMEOUT"
+                ? "skipped-not-ready"
+                : "failed",
+              failure,
+            );
+          }
           return;
         }
         pending.quarantine = failure === "CONNECTION_NOT_READY" || failure === "VERSION_MISMATCH";

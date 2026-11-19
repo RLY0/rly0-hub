@@ -3,28 +3,33 @@ import { access, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { runInstallationCommand } from "@codexhost/harness-discovery";
 import type { AgentCliPlan } from "./agent-cli-update-driver.js";
+import { claudeNativeLayout } from "./agent-cli-native-updaters.js";
 
 /** Check the original directories, including an existing scoped package, without creating files. */
 export async function assertCliWritable(
   plan: AgentCliPlan,
   platform: NodeJS.Platform,
   check = access,
+  environment: NodeJS.ProcessEnv = {},
 ): Promise<void> {
   const p = platform === "win32" ? path.win32 : path.posix;
   const directories =
-    plan.kind === "npm" && plan.prefix && plan.packageName
-      ? [
-          plan.prefix,
-          ...(platform === "win32" ? [] : [p.join(plan.prefix, "bin")]),
-          p.join(plan.prefix, ...(platform === "win32" ? [] : ["lib"]), "node_modules"),
-          p.join(
+    // Native Claude Code writes versions/<v> and repoints the launcher in its directory.
+    plan.kind === "native" && plan.updater === "claude" && platform !== "win32"
+      ? [claudeNativeLayout(environment, platform).versions, p.dirname(plan.executable)]
+      : plan.kind === "npm" && plan.prefix && plan.packageName
+        ? [
             plan.prefix,
-            ...(platform === "win32" ? [] : ["lib"]),
-            "node_modules",
-            ...plan.packageName.split("/"),
-          ),
-        ]
-      : [p.dirname(plan.executable), plan.executable];
+            ...(platform === "win32" ? [] : [p.join(plan.prefix, "bin")]),
+            p.join(plan.prefix, ...(platform === "win32" ? [] : ["lib"]), "node_modules"),
+            p.join(
+              plan.prefix,
+              ...(platform === "win32" ? [] : ["lib"]),
+              "node_modules",
+              ...plan.packageName.split("/"),
+            ),
+          ]
+        : [p.dirname(plan.executable), plan.executable];
   try {
     for (const directory of directories) await check(directory, constants.W_OK);
   } catch (error) {
