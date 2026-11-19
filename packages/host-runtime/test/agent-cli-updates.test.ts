@@ -56,7 +56,8 @@ async function fixture() {
       }),
     ),
     version: vi.fn(async () => current),
-    install: vi.fn(async (_plan: AgentCliPlan, version: string) => {
+    install: vi.fn(async (_plan: AgentCliPlan, version: string, _rollback?: boolean) => {
+      void _rollback;
       current = version;
     }),
     busy: vi.fn<AgentCliUpdateDriver["busy"]>(async () => false),
@@ -1005,5 +1006,77 @@ describe("review 3 retries and contention (synthetic)", () => {
     } finally {
       await release?.();
     }
+  });
+});
+
+describe("all installed agents, including latest-only native updaters (synthetic)", () => {
+  /** A tool whose official updater can only move to its newest release. */
+  async function latestOnly() {
+    const f = await fixture();
+    Object.assign(f.plan, { kind: "native", updater: "update", npm: null, packageName: null });
+    f.driver.install.mockImplementation(async (_plan, version, rollback) => {
+      if (rollback) throw new Error("ROLLBACK_UNSUPPORTED");
+      f.setCurrent(version);
+    });
+    return f;
+  }
+  it("lists Claude Code with the other agent CLIs", async () => {
+    const f = await fixture();
+    expect((await f.manager.status()).agents.map((entry) => entry.agent)).toContain("claude-code");
+  });
+  it("accepts a latest-only update that lands on a release newer than the one checked", async () => {
+    const f = await latestOnly();
+    f.driver.install.mockImplementation(async () => f.setCurrent("1.2.0"));
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({
+      result: "updated",
+      currentVersion: "1.2.0",
+      latestVersion: "1.2.0",
+      installKind: "native",
+      exactRollback: false,
+      recoveryPending: false,
+    });
+  });
+  it("reports a latest-only update that changed nothing as a plain install failure", async () => {
+    const f = await latestOnly();
+    f.driver.install.mockImplementation(async () => undefined);
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({
+      result: "failed",
+      errorCode: "INSTALL_FAILED",
+      currentVersion: "1.0.0",
+      badVersions: [],
+      recoveryPending: false,
+    });
+    expect(f.driver.install).toHaveBeenCalledTimes(1);
+  });
+  it("says ROLLBACK_FAILED and skips the version when a latest-only update breaks, then keeps it once it checks good", async () => {
+    const f = await latestOnly();
+    f.driver.ready.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await f.manager.check("pi");
+    expect(f.driver.install.mock.calls.map((call) => [call[1], call[2] ?? false])).toEqual([
+      ["1.1.0", false],
+      ["1.0.0", true],
+    ]);
+    expect(await f.entry()).toMatchObject({
+      result: "failed",
+      errorCode: "ROLLBACK_FAILED",
+      causeCode: "CONNECTION_NOT_READY",
+      currentVersion: "1.1.0",
+      previousVersion: "1.0.0",
+      badVersions: ["1.1.0"],
+      recoveryPending: true,
+      exactRollback: false,
+    });
+    // Later the same version passes the connection check: keep it, never "roll back" again.
+    f.driver.ready.mockResolvedValue(true);
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({
+      result: "recovered",
+      currentVersion: "1.1.0",
+      badVersions: [],
+      recoveryPending: false,
+    });
+    expect(f.driver.install).toHaveBeenCalledTimes(2);
   });
 });

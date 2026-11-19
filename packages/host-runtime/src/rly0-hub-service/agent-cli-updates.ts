@@ -17,7 +17,11 @@ import {
   cleanAgentCliFences,
   type CliOwnerProbe,
 } from "../rly0-agents/cli-update-admission.js";
-import { agentCliPlanSchema, type AgentCliUpdateDriver } from "./agent-cli-update-driver.js";
+import {
+  agentCliPlanExact,
+  agentCliPlanSchema,
+  type AgentCliUpdateDriver,
+} from "./agent-cli-update-driver.js";
 
 export const AGENT_CLI_CHECK_INTERVAL_MS = 24 * 60 * 60_000;
 const pendingSchema = z.strictObject({
@@ -49,6 +53,7 @@ const initial = (agent: AgentCliUpdateId): AgentCliUpdateEntry => ({
   badVersions: [],
   installKind: "unknown",
   canUpdate: false,
+  exactRollback: true,
 });
 function code(error: unknown, fallback: AgentCliUpdateError): AgentCliUpdateError {
   const message = error instanceof Error ? error.message : "";
@@ -384,13 +389,17 @@ export class AgentCliUpdates {
           return;
         }
         entry.causeCode = "INTERRUPTED";
+        // A latest-only updater cannot roll back: keep its new version once it checks good.
+        const latestOnly = !agentCliPlanExact(interrupted.plan);
         if (
           current === interrupted.target &&
-          !interrupted.quarantine &&
-          !entry.badVersions.includes(interrupted.target) &&
+          (latestOnly ||
+            (!interrupted.quarantine && !entry.badVersions.includes(interrupted.target))) &&
           (await driver.ready(agent).catch(() => false))
         ) {
           this.#pending.delete(agent);
+          if (latestOnly)
+            entry.badVersions = entry.badVersions.filter((v) => v !== interrupted.target);
           entry.lastUpdatedAt = this.#now();
           await finish("recovered");
           return;
@@ -407,6 +416,7 @@ export class AgentCliUpdates {
             latestVersion: null,
             canUpdate: false,
             installKind: "unknown",
+            exactRollback: true,
           });
           await finish("skipped-not-installed", "NOT_INSTALLED");
           return;
@@ -416,6 +426,7 @@ export class AgentCliUpdates {
           latestVersion: installation.latestVersion,
           installKind: installation.plan.kind,
           canUpdate: installation.canUpdate,
+          exactRollback: agentCliPlanExact(installation.plan),
         });
         if (!installation.canUpdate) {
           await finish(
@@ -460,7 +471,7 @@ export class AgentCliUpdates {
           return;
         }
         const pending: PendingUpdate = {
-          plan: installation.plan,
+          plan: { ...installation.plan, updater: installation.plan.updater ?? null },
           previous: installation.currentVersion,
           target: installation.latestVersion,
           baselineReady: true,
@@ -480,7 +491,21 @@ export class AgentCliUpdates {
           await driver.install(pending.plan, pending.target);
           entry.phase = "verifying";
           entry.currentVersion = await driver.version(pending.plan);
-          if (entry.currentVersion !== pending.target) failure = "VERSION_MISMATCH";
+          if (
+            !agentCliPlanExact(pending.plan) &&
+            entry.currentVersion !== pending.target &&
+            newerInstallationVersion(pending.previous, entry.currentVersion)
+          ) {
+            // A latest-only updater may land on a release newer than the one checked.
+            pending.target = entry.currentVersion;
+            entry.latestVersion = entry.currentVersion;
+            await this.#save(agent);
+          }
+          if (entry.currentVersion !== pending.target)
+            failure =
+              !agentCliPlanExact(pending.plan) && entry.currentVersion === pending.previous
+                ? "INSTALL_FAILED"
+                : "VERSION_MISMATCH";
           else if (!(await driver.ready(agent))) failure = "CONNECTION_NOT_READY";
         } catch (error) {
           failure = code(
@@ -531,7 +556,7 @@ export class AgentCliUpdates {
         persistenceFailed = true;
       }
       try {
-        await driver.install(pending.plan, pending.previous);
+        await driver.install(pending.plan, pending.previous, true);
       } catch (error) {
         if (code(error, "INSTALL_FAILED") === "BUSY") {
           await finish("skipped-busy", "BUSY");

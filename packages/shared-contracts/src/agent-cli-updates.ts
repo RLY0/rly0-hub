@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const agentCliUpdateIdSchema = z.enum([
+  "claude-code",
   "grok",
   "opencode",
   "pi",
@@ -72,8 +73,14 @@ export const agentCliUpdateEntrySchema = z.strictObject({
   errorCode: agentCliUpdateErrorSchema.nullable(),
   causeCode: agentCliUpdateErrorSchema.nullable(),
   badVersions: z.array(z.string().max(128)),
-  installKind: z.enum(["npm", "script", "unknown"]),
+  /** npm, an exact-version script, a native updater, or not identified. */
+  installKind: z.enum(["npm", "script", "native", "unknown"]),
   canUpdate: z.boolean(),
+  /**
+   * false when the tool's official updater can only move to its newest release: a failed new
+   * version cannot be put back automatically (ROLLBACK_FAILED + badVersions instead).
+   */
+  exactRollback: z.boolean().default(true),
 });
 export type AgentCliUpdateEntry = z.infer<typeof agentCliUpdateEntrySchema>;
 export const agentCliUpdateStatusSchema = z.strictObject({

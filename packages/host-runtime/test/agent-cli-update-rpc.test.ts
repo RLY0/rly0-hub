@@ -69,7 +69,7 @@ describe("CLI update management RPC", () => {
     ["agents.cliUpdates.status", { command: "npm" }],
     ["agents.cliUpdates.setEnabled", { enabled: "true" }],
     ["agents.cliUpdates.setEnabled", { enabled: true, prefix: "/real/global" }],
-    ["agents.cliUpdates.check", { agent: "claude-code" }],
+    ["agents.cliUpdates.check", { agent: "claude" }],
     ["agents.cliUpdates.check", { agent: "codex" }],
     ["agents.cliUpdates.check", { agent: "zcode" }],
     ["agents.cliUpdates.check", { agent: "workbuddy" }],

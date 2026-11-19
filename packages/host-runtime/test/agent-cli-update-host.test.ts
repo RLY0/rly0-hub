@@ -274,7 +274,7 @@ describe("Host CLI update admission", () => {
       await startPiTurn(f, thread, 12);
       required(f.adapter.sessions[0]).succeedTurn();
       expect(
-        await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "claude-code" }),
+        await f.host.handleConsoleRequest(AGENT_CLI_BUSY_METHOD, { agent: "codex" }),
       ).toMatchObject({ error: { code: -32602 } });
     } finally {
       await stopFixture(f);

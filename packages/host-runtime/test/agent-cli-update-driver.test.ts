@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,6 +12,7 @@ import {
   HARNESS_LAUNCH_SETTINGS_GET_METHOD,
 } from "@codexhost/shared-contracts";
 import {
+  agentCliPlanExact,
   createAgentCliUpdateDriver,
   type AgentCliPlan,
 } from "../src/rly0-hub-service/agent-cli-update-driver.js";
@@ -165,10 +166,10 @@ describe("injected CLI update drivers", () => {
     expect(await f.driver.inspect("pi")).toMatchObject({
       canUpdate: false,
       reason: "INSTALL_FILE_BUSY",
+      // Read-only registry lookup still says whether a newer release exists.
+      latestVersion: "1.1.0",
     });
-    expect(f.run.mock.calls.some((call) => ["view", "install"].includes(call[1][0] ?? ""))).toBe(
-      false,
-    );
+    expect(f.run.mock.calls.some((call) => call[1][0] === "install")).toBe(false);
   });
   it("scans external occupancy before releasing idle Hosts, then scans again without exclusions", async () => {
     const f = await fixture();
@@ -359,19 +360,34 @@ describe("injected CLI update drivers", () => {
     expect(await f.driver.ready("pi")).toBe(true);
     expect(f.adapter.inspectionCalls).toBe(1);
   });
-  it("keeps Claude, Codex and desktop applications out of the RPC agent enumeration", () => {
-    for (const agent of ["codex", "claude-code", "zcode", "workbuddy", "../../npm"])
+  it("includes Claude Code but keeps Codex and desktop applications out of the RPC agent enumeration", () => {
+    expect(agentCliUpdateIdSchema.safeParse("claude-code").success).toBe(true);
+    for (const agent of ["codex", "zcode", "workbuddy", "../../npm"])
       expect(agentCliUpdateIdSchema.safeParse(agent).success).toBe(false);
   });
-  it("checks script-installed Pi but does not invoke an updater without version-pinned rollback", async () => {
+  it("updates script-installed Pi with its official latest-only updater and refuses a rollback", async () => {
     const f = await fixture();
     f.setExecutable(path.join(f.root, "native-pi"));
-    expect(await f.driver.inspect("pi")).toMatchObject({
-      canUpdate: false,
-      reason: "ROLLBACK_UNSUPPORTED",
+    const installation = required(await f.driver.inspect("pi"));
+    expect(installation).toMatchObject({
+      canUpdate: true,
+      reason: null,
       latestVersion: "1.1.0",
+      plan: { kind: "native", updater: "update" },
     });
-    expect(f.run.mock.calls.every((call) => call[1][0] === "--version")).toBe(true);
+    expect(agentCliPlanExact(installation.plan)).toBe(false);
+    await f.driver.install(installation.plan, "1.1.0");
+    expect(f.run).toHaveBeenLastCalledWith(
+      path.join(f.root, "native-pi"),
+      ["update"],
+      expect.objectContaining({ PATH: expect.stringMatching(new RegExp(`^${f.root}:`)) }),
+      300_000,
+    );
+    f.run.mockClear();
+    await expect(f.driver.install(installation.plan, "1.0.0", true)).rejects.toThrow(
+      "ROLLBACK_UNSUPPORTED",
+    );
+    expect(f.run).not.toHaveBeenCalled();
   });
   it("uses official version-pinned OpenCode upgrade in its original native location", async () => {
     const f = await fixture();
@@ -437,8 +453,9 @@ describe("review 1 driver regressions (synthetic)", () => {
     expect(await f.driver.inspect("pi")).toMatchObject({
       canUpdate: false,
       reason: "PERMISSION_DENIED",
+      latestVersion: "1.1.0",
     });
-    expect(f.run.mock.calls.some((c) => c[1][0] === "view" || c[1][0] === "install")).toBe(false);
+    expect(f.run.mock.calls.some((c) => c[1][0] === "install")).toBe(false);
     f.writable.mockResolvedValue(undefined);
     const installation = required(await f.driver.inspect("pi"));
     f.writable.mockRejectedValue(Object.assign(new Error("synthetic"), { code: "EPERM" }));
@@ -507,4 +524,92 @@ it("rechecks external occupancy immediately before an install, even after admiss
   f.occupied.mockResolvedValue(true);
   await expect(f.driver.install(installation.plan, "1.1.0")).rejects.toThrow("BUSY");
   expect(f.run.mock.calls.some((c) => c[1][0] === "install")).toBe(false);
+});
+
+describe("Claude Code native installation (synthetic HOME, injected commands)", () => {
+  async function claude(settings?: unknown) {
+    const f = await fixture();
+    const versions = path.join(f.root, ".local", "share", "claude", "versions");
+    await mkdir(versions, { recursive: true });
+    await writeFile(path.join(versions, "1.0.0"), "synthetic never executed");
+    const launcher = path.join(f.root, ".local", "bin", "claude");
+    await mkdir(path.dirname(launcher), { recursive: true });
+    await symlink(path.join(versions, "1.0.0"), launcher);
+    if (settings !== undefined) {
+      await mkdir(path.join(f.root, ".claude"), { recursive: true });
+      await writeFile(path.join(f.root, ".claude", "settings.json"), JSON.stringify(settings));
+    }
+    f.setExecutable(launcher);
+    vi.mocked(f.get).mockImplementation(async (url) => ({
+      status: 200,
+      headers: {},
+      body: (async function* () {
+        yield Buffer.from(url.endsWith("/stable") ? "1.0.5\n" : "1.1.0\n");
+      })(),
+      cancel: () => undefined,
+    }));
+    return { ...f, launcher };
+  }
+  it("checks its release channel and installs exact versions for update and rollback", async () => {
+    const f = await claude();
+    const installation = required(await f.driver.inspect("claude-code"));
+    expect(installation).toMatchObject({
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      canUpdate: true,
+      reason: null,
+      plan: { kind: "native", updater: "claude", executable: f.launcher },
+    });
+    expect(agentCliPlanExact(installation.plan)).toBe(true);
+    expect(vi.mocked(f.get).mock.calls[0]?.[0]).toBe(
+      "https://downloads.claude.ai/claude-code-releases/latest",
+    );
+    // Asking the version must never trigger Claude Code's own background updater.
+    const versionCall = f.run.mock.calls.find((call) => call[1][0] === "--version");
+    expect(versionCall?.[2]).toMatchObject({ DISABLE_AUTOUPDATER: "1" });
+    await f.driver.install(installation.plan, "1.1.0");
+    await f.driver.install(installation.plan, "1.0.0", true);
+    const installs = f.run.mock.calls.filter((call) => call[1][0] === "install");
+    expect(installs.map((call) => call[1])).toEqual([
+      ["install", "1.1.0", "--force"],
+      ["install", "1.0.0", "--force"],
+    ]);
+    // .local/bin first, so Claude's installer never warns about a missing PATH entry.
+    expect(installs[0]?.[2].PATH?.startsWith(path.dirname(f.launcher))).toBe(true);
+    // A new versions/<v> file never disturbs running sessions on POSIX: no process scan.
+    expect(f.occupied).not.toHaveBeenCalled();
+  });
+  it("waits for running turns but never closes idle Claude sessions before updating", async () => {
+    const f = await claude();
+    const installation = required(await f.driver.inspect("claude-code"));
+    f.host.mockClear();
+    expect(await f.driver.busy("claude-code", installation.plan, true, "1.1.0")).toBe(false);
+    expect(f.host.mock.calls.some(([method]) => method === AGENT_CLI_RELEASE_METHOD)).toBe(false);
+    expect(f.occupied).not.toHaveBeenCalled();
+    f.host.mockResolvedValue({ guarded: true, busy: true });
+    expect(await f.driver.busy("claude-code", installation.plan, true, "1.1.0")).toBe(true);
+  });
+  it("follows the stable channel and honours DISABLE_UPDATES from Claude settings", async () => {
+    const stable = await claude({ autoUpdatesChannel: "stable" });
+    expect(await stable.driver.inspect("claude-code")).toMatchObject({ latestVersion: "1.0.5" });
+    const pinned = await claude({ env: { DISABLE_UPDATES: "1" } });
+    expect(await pinned.driver.inspect("claude-code")).toMatchObject({
+      canUpdate: false,
+      reason: "VERSION_PINNED",
+      latestVersion: "1.1.0",
+    });
+  });
+  it("leaves a Claude Code outside the native launcher to its original installer", async () => {
+    const f = await claude();
+    const other = path.join(f.root, "elsewhere", "claude");
+    await mkdir(path.dirname(other), { recursive: true });
+    await writeFile(other, "synthetic never executed");
+    f.setExecutable(other);
+    expect(await f.driver.inspect("claude-code")).toMatchObject({
+      canUpdate: false,
+      reason: "ORIGINAL_INSTALLER",
+      latestVersion: "1.1.0",
+      currentVersion: "1.0.0",
+    });
+  });
 });

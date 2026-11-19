@@ -1,5 +1,5 @@
 import type { access } from "node:fs/promises";
-import { readFile, realpath, stat } from "node:fs/promises";
+import { open, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   installationVersion,
@@ -29,14 +29,33 @@ import { RLY0_AGENT_RECIPES } from "../rly0-agents/agent-installer.js";
 import type { HubHostRequest } from "./host-console-routes.js";
 import { getUpdateJson, type UpdateHttpGet } from "./hub-update-net.js";
 
+/**
+ * Official native updaters. claude/kimi/opencode install an exact version (update and rollback);
+ * update/hermes can only move to the tool's newest release (no automatic rollback).
+ */
+export const agentCliNativeUpdaterSchema = z.enum([
+  "claude",
+  "kimi",
+  "opencode",
+  "update",
+  "hermes",
+]);
+export type AgentCliNativeUpdater = z.infer<typeof agentCliNativeUpdaterSchema>;
 export const agentCliPlanSchema = z.strictObject({
-  kind: z.enum(["npm", "script"]),
+  kind: z.enum(["npm", "script", "native"]),
   executable: z.string().min(1),
   npm: z.string().nullable(),
   prefix: z.string().nullable(),
   packageName: z.string().nullable(),
+  // Absent in journals written before native updaters existed.
+  updater: agentCliNativeUpdaterSchema.nullable().default(null),
 });
-export type AgentCliPlan = z.infer<typeof agentCliPlanSchema>;
+// Input type: callers and older journals may omit `updater` (defaults to null).
+export type AgentCliPlan = z.input<typeof agentCliPlanSchema>;
+/** Whether install(plan, version) can select an exact version, which rollback requires. */
+export function agentCliPlanExact(plan: AgentCliPlan): boolean {
+  return plan.kind !== "native" || ["claude", "kimi", "opencode"].includes(plan.updater ?? "");
+}
 export interface AgentCliInstallation {
   currentVersion: string;
   latestVersion: string | null;
@@ -47,7 +66,11 @@ export interface AgentCliInstallation {
 export interface AgentCliUpdateDriver {
   inspect(agent: AgentCliUpdateId, cachedLatest?: string): Promise<AgentCliInstallation | null>;
   version(plan: AgentCliPlan): Promise<string>;
-  install(plan: AgentCliPlan, version: string): Promise<void>;
+  /**
+   * Install `version`. A plan that is not exact (agentCliPlanExact) moves to the tool's newest
+   * release instead and refuses a rollback with ROLLBACK_UNSUPPORTED, running nothing.
+   */
+  install(plan: AgentCliPlan, version: string, rollback?: boolean): Promise<void>;
   busy(
     agent: AgentCliUpdateId,
     plan?: AgentCliPlan,
@@ -61,6 +84,11 @@ export interface AgentCliUpdateDriver {
 const EXTRAS: Partial<
   Record<AgentCliUpdateId, { command?: string; packages?: string[]; env?: string }>
 > = {
+  "claude-code": {
+    command: "claude",
+    packages: ["@anthropic-ai/claude-code"],
+    env: "CODEXHOST_CLAUDE_COMMAND",
+  },
   pi: { packages: ["@earendil-works/pi-coding-agent"], env: "PI_COMMAND" },
   omp: { packages: ["@oh-my-pi/pi-coding-agent"], env: "OMP_COMMAND" },
   "qwen-code": {
@@ -155,7 +183,66 @@ export function createAgentCliUpdateDriver(options: {
     );
   };
   const version = async (plan: AgentCliPlan) =>
-    versionFromOutput(await run(plan.executable, ["--version"], await envFor()));
+    versionFromOutput(
+      await run(plan.executable, ["--version"], { ...(await envFor()), DISABLE_AUTOUPDATER: "1" }),
+    );
+  /** Native updaters choose their target from the selected installation; keep its directory first. */
+  const nativeEnv = (env: NodeJS.ProcessEnv, executable: string): NodeJS.ProcessEnv => {
+    const key = Object.keys(env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+    const delimiter = platform === "win32" ? ";" : ":";
+    const directory = (platform === "win32" ? path.win32 : path.posix).dirname(executable);
+    return { ...env, [key]: `${directory}${delimiter}${env[key] ?? ""}` };
+  };
+  /** Small plain-text release endpoints, on the Hub HTTP transport (proxy settings). */
+  const text = async (url: string): Promise<string> => {
+    const response = await (await options.get())(url, {});
+    try {
+      if (response.status !== 200) throw new Error("CHECK_FAILED");
+      let body = "";
+      for await (const chunk of response.body) {
+        body += Buffer.from(chunk).toString("utf8");
+        if (body.length > 1024) throw new Error("CHECK_FAILED");
+      }
+      return body;
+    } finally {
+      response.cancel();
+    }
+  };
+  const npmLatest = async (npm: string | null, prefix: string, packageName: string) => {
+    if (!npm) return null;
+    try {
+      return installationVersion(
+        JSON.parse(
+          await run(
+            npm,
+            ["view", "--prefix", prefix, `${packageName}@latest`, "version", "--json"],
+            await envFor(),
+          ),
+        ),
+      );
+    } catch {
+      return null;
+    }
+  };
+  /** Claude Code's own release channel (settings autoUpdatesChannel), as its updater reads it. */
+  const claudeSettings = async (env: NodeJS.ProcessEnv) => {
+    const home = env.HOME ?? env.USERPROFILE ?? "";
+    const config = env.CLAUDE_CONFIG_DIR
+      ? path.resolve(home, env.CLAUDE_CONFIG_DIR)
+      : path.join(home, ".claude");
+    const settings = await readFile(path.join(config, "settings.json"), "utf8")
+      .then((raw) => z.record(z.string(), z.unknown()).parse(JSON.parse(raw)))
+      .catch(() => ({}) as Record<string, unknown>);
+    const channel = settings.autoUpdatesChannel === "stable" ? "stable" : "latest";
+    const settingsEnv = z.record(z.string(), z.string()).safeParse(settings.env);
+    const disable = settingsEnv.success
+      ? (settingsEnv.data.DISABLE_UPDATES ?? env.DISABLE_UPDATES)
+      : env.DISABLE_UPDATES;
+    return { channel, disabled: !!disable && disable !== "0" };
+  };
+  /** On POSIX a native Claude Code update never replaces a file that a running process uses. */
+  const versionedClaude = (plan: AgentCliPlan) =>
+    plan.kind === "native" && plan.updater === "claude" && platform !== "win32";
   const hostCall = async (host: HubHostRequest, method: string, params: unknown) => {
     try {
       return await host(method, params, controller.signal);
@@ -203,6 +290,7 @@ export function createAgentCliUpdateDriver(options: {
         npm: null,
         prefix: npm?.prefix ?? null,
         packageName: npm?.packageName ?? null,
+        updater: null,
       };
       if (npm) {
         plan.npm = npm.npmExecutable;
@@ -211,7 +299,9 @@ export function createAgentCliUpdateDriver(options: {
         if (!npm.canUpdate || currentVersion !== npm.currentVersion)
           return {
             currentVersion,
-            latestVersion: null,
+            // Still say whether a newer release exists, even though Hub will not install it.
+            latestVersion:
+              cachedLatest ?? (await npmLatest(npm.npmExecutable, npm.prefix, npm.packageName)),
             plan,
             canUpdate: false,
             reason: "ORIGINAL_INSTALLER",
@@ -233,7 +323,8 @@ export function createAgentCliUpdateDriver(options: {
         } catch (error) {
           return {
             currentVersion,
-            latestVersion: null,
+            latestVersion:
+              cachedLatest ?? (await npmLatest(npm.npmExecutable, npm.prefix, npm.packageName)),
             plan,
             canUpdate: false,
             reason:
@@ -272,9 +363,41 @@ export function createAgentCliUpdateDriver(options: {
       let latestVersion: string | null = null;
       let canUpdate = false;
       let reason: AgentCliUpdateError = "NO_OFFICIAL_UPDATER";
-      // Reuse the console adapters' fixed, non-installing native checks. Never run an installer
-      // script again. Native updates lacking a version-pinned rollback remain detection-only.
-      if (agent === "opencode") {
+      const home = env.HOME ?? env.USERPROFILE ?? "";
+      const selected = await realpath(executable).catch(() => executable);
+      // Package-manager stores are immutable; their own manager must update them.
+      const managed = /[\\/]nix[\\/]store[\\/]|[\\/]Cellar[\\/]/i.test(selected);
+      const native = (updater: AgentCliNativeUpdater) => {
+        if (managed) {
+          reason = "ORIGINAL_INSTALLER";
+          return;
+        }
+        plan.kind = "native";
+        plan.updater = updater;
+        canUpdate = true;
+      };
+      // Never run an installer script again: only each tool's own official update command.
+      if (agent === "claude-code") {
+        const settings = await claudeSettings(env);
+        latestVersion =
+          cachedLatest ??
+          installationVersion(
+            await text(`https://downloads.claude.ai/claude-code-releases/${settings.channel}`),
+          );
+        const launcher = path.join(
+          home,
+          ".local",
+          "bin",
+          platform === "win32" ? "claude.exe" : "claude",
+        );
+        const versions = path.join(home, ".local", "share", "claude", "versions") + path.sep;
+        const nativeInstall =
+          path.resolve(executable) === launcher &&
+          (selected.startsWith(versions) || (platform === "win32" && selected === launcher));
+        if (settings.disabled) reason = "VERSION_PINNED";
+        else if (nativeInstall) native("claude");
+        else reason = "ORIGINAL_INSTALLER";
+      } else if (agent === "opencode") {
         latestVersion =
           cachedLatest ??
           installationVersion(
@@ -283,17 +406,15 @@ export function createAgentCliUpdateDriver(options: {
               .parse(await json("https://api.github.com/repos/anomalyco/opencode/releases/latest"))
               .tag_name,
           );
-        const standard = path.join(
-          env.HOME ?? env.USERPROFILE ?? "",
-          ".opencode",
-          "bin",
-          "opencode",
-        );
-        canUpdate =
+        const standard = path.join(home, ".opencode", "bin", "opencode");
+        if (
           platform !== "win32" &&
           path.resolve(executable) === standard &&
-          (await realpath(executable)) === standard;
-        reason = "ORIGINAL_INSTALLER";
+          selected === standard
+        ) {
+          // The installer location: the original exact-version curl upgrade.
+          canUpdate = true;
+        } else native("opencode"); // `opencode upgrade <v>` detects its own install method.
       } else if (agent === "pi") {
         latestVersion =
           cachedLatest ??
@@ -301,7 +422,7 @@ export function createAgentCliUpdateDriver(options: {
             z.object({ version: z.string() }).parse(await json("https://pi.dev/api/latest-version"))
               .version,
           );
-        reason = "ROLLBACK_UNSUPPORTED";
+        native("update");
       } else if (agent === "antigravity") {
         const system = platform === "win32" ? "windows" : platform;
         const arch = options.arch ?? process.arch;
@@ -316,7 +437,7 @@ export function createAgentCliUpdateDriver(options: {
               ),
             ).version,
         );
-        reason = "ROLLBACK_UNSUPPORTED";
+        native("update");
       } else if (agent === "grok") {
         const data: unknown = JSON.parse(
           await run(executable, ["update", "--check", "--json"], env),
@@ -325,19 +446,25 @@ export function createAgentCliUpdateDriver(options: {
           z.object({ latestVersion: z.string(), updateAvailable: z.boolean() }).parse(data)
             .latestVersion,
         );
-        reason = "ROLLBACK_UNSUPPORTED";
+        native("update");
       } else if (agent === "cursor-cli") {
         const data: unknown = JSON.parse(await run(executable, ["about", "--format", "json"], env));
-        latestVersion = installationVersion(
-          z.object({ latestVersion: z.string() }).parse(data).latestVersion,
-        );
-        reason = "ROLLBACK_UNSUPPORTED";
+        const about = z
+          .object({ latestVersion: z.string(), latestStatus: z.string().optional() })
+          .parse(data);
+        latestVersion = installationVersion(about.latestVersion);
+        // Cursor reports its own update checks as disabled/unavailable otherwise.
+        if (
+          about.latestStatus === undefined ||
+          ["up_to_date", "update_available"].includes(about.latestStatus)
+        )
+          native("update");
       } else if (agent === "omp" || agent === "qoder" || agent === "qoder-cn") {
         if (
           agent !== "qoder-cn" ||
           (await run(executable, ["update", "--help"], env)).includes("--check")
         ) {
-          const output = await run(executable, ["update", "--check"], env);
+          const output = await run(executable, ["update", "--check"], nativeEnv(env, executable));
           const available =
             agent === "omp"
               ? output.match(/New version available:\s*(\S+)/i)
@@ -350,7 +477,7 @@ export function createAgentCliUpdateDriver(options: {
           )
             latestVersion = currentVersion;
           else throw new Error("CHECK_FAILED");
-          reason = "ROLLBACK_UNSUPPORTED";
+          native("update");
         }
       } else if (agent === "hermes") {
         const help = await run(executable, ["update", "--help"], env);
@@ -362,41 +489,74 @@ export function createAgentCliUpdateDriver(options: {
             : /up.to.date/i.test(output)
               ? currentVersion
               : null;
-          reason = "ROLLBACK_UNSUPPORTED";
+          // Hermes's own safe non-interactive conditions: a git install updatable in place, a
+          // clean checkout, and Gateway restarts deferred. A tracking branch has no version.
+          const updatePlan = await run(executable, ["update", "--plan"], env);
+          const root = (await run(executable, ["--version"], env))
+            .match(/^Install directory:\s*(.+)$/m)?.[1]
+            ?.trim();
+          const clean = root
+            ? await run("git", ["-C", root, "status", "--porcelain"], env).then(
+                (status) => !status.trim(),
+                () => false,
+              )
+            : false;
+          if (
+            release &&
+            clean &&
+            /Install:\s*git\b/i.test(updatePlan) &&
+            !/NOT updatable in place/i.test(updatePlan) &&
+            help.includes("--yes") &&
+            help.includes("--no-gateway-restart")
+          )
+            native("hermes");
+          else reason = "ORIGINAL_INSTALLER";
         }
       } else if (agent === "kimi-code") {
         const region = await readFile(
-          path.join(
-            env.KIMI_CODE_HOME ?? path.join(env.HOME ?? env.USERPROFILE ?? "", ".kimi-code"),
-            "region",
-          ),
+          path.join(env.KIMI_CODE_HOME ?? path.join(home, ".kimi-code"), "region"),
           "utf8",
         ).catch(() => "");
-        // This endpoint returns plain text; keep its request on the Hub HTTP transport.
-        const response = await (
-          await options.get()
-        )(`https://code.kimi.${region.trim() === "global" ? "ai" : "com"}/kimi-code/latest`, {});
+        latestVersion =
+          cachedLatest ??
+          installationVersion(
+            await text(
+              `https://code.kimi.${region.trim() === "global" ? "ai" : "com"}/kimi-code/latest`,
+            ),
+          );
+        // Kimi's public upgrade is interactive; its staging worker takes an exact version when
+        // the native binary advertises --manual (the same check as the console adapter).
+        const file = await open(executable, "r");
+        let magic = "";
         try {
-          if (response.status !== 200) throw new Error("CHECK_FAILED");
-          let text = "";
-          for await (const chunk of response.body) {
-            text += Buffer.from(chunk).toString("utf8");
-            if (text.length > 1024) throw new Error("CHECK_FAILED");
-          }
-          latestVersion = installationVersion(text);
+          const header = Buffer.alloc(4);
+          await file.read(header, 0, 4, 0);
+          magic = header.toString("hex");
         } finally {
-          response.cancel();
+          await file.close();
         }
-        reason = "ROLLBACK_UNSUPPORTED";
+        const binary =
+          ["cffaedfe", "cefaedfe", "cafebabe", "7f454c46"].includes(magic) ||
+          magic.startsWith("4d5a");
+        if (
+          binary &&
+          /--manual/.test(
+            await run(executable, ["__update_download", "--help"], env).catch(() => ""),
+          )
+        )
+          native("kimi");
       }
       return { currentVersion, latestVersion, plan, canUpdate, reason: canUpdate ? null : reason };
     },
-    async install(plan, version) {
+    async install(plan, version, rollback = false) {
       const selected = installationVersion(version);
+      // Refuse before any effect: a latest-only updater cannot put an old version back.
+      if (rollback && !agentCliPlanExact(plan)) throw new Error("ROLLBACK_UNSUPPORTED");
       const env = await envFor();
       await assertCliWritable(plan, platform, options.writable);
       if (
-        await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(plan, env)
+        !versionedClaude(plan) &&
+        (await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(plan, env))
       )
         throw new Error("BUSY");
       if (plan.kind === "npm" && plan.npm && plan.prefix && plan.packageName) {
@@ -408,6 +568,19 @@ export function createAgentCliUpdateDriver(options: {
         );
       } else if (plan.kind === "script") {
         await run(plan.executable, ["upgrade", selected, "--method", "curl"], env, 300_000);
+      } else if (plan.kind === "native" && plan.updater) {
+        const nenv = nativeEnv(env, plan.executable);
+        const args: Record<AgentCliNativeUpdater, string[]> = {
+          // --force: switch back to an already-downloaded version on rollback as well.
+          claude: ["install", selected, "--force"],
+          kimi: ["__update_download", selected, "--manual"],
+          opencode: ["upgrade", selected],
+          update: ["update"],
+          hermes: ["update", "--yes", "--no-gateway-restart"],
+        };
+        await run(plan.executable, args[plan.updater], nenv, 300_000);
+        // Kimi swaps the staged build in at its next native start.
+        if (plan.updater === "kimi") await run(plan.executable, ["--version"], nenv);
       } else throw new Error("ORIGINAL_INSTALLER");
     },
     async busy(agent, plan, releaseIdle = false, targetVersion) {
@@ -419,6 +592,9 @@ export function createAgentCliUpdateDriver(options: {
         ),
       );
       if (states.some((state) => state.busy)) return true;
+      // A native Claude Code install adds a new versions/<v> file and repoints the launcher;
+      // running sessions keep their own file. Wait only for running turns, never close sessions.
+      if (plan && versionedClaude(plan)) return false;
       const occupied =
         options.occupied ??
         ((p, env, hostPids) => cliProcessBusy(p, env, platform, run, realpath, hostPids));
