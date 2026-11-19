@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.42
+
+### Updates
+- Every installed AI 助手 now updates itself through the Hub, Claude Code included. A tool is updated only while it is idle, checked right after the update, and put back to the previous version if it no longer works. While Claude Code downloads a new version you can still start chats. Tools installed through another package manager (such as Homebrew) are left to that manager.
+- Each installed agent card shows its version under 已安装: "已是最新" or "有新版 vX".
+- macOS: the Hub downloads and checks its own update package, then asks you to open it and drag RLY0 Hub over the old one.
+- MCP servers are shared with the other agents only when they can run on this computer; the rest are listed in 打通 → MCP with the reason. On macOS a server's token can be kept in the Keychain and is handed to Claude Code only when it connects; each server's real connection state is shown.
+
+### Fixes
+- macOS: 重启 Codex at the top of the Hub lights up only while Codex is actually open.
+
+### 更新
+- 所有装好的 AI 助手都由 Hub 自动更新，包括 Claude Code：只在它空闲时更新，更新完马上检查还能不能用，不能用就退回旧版。Claude Code 下载新版期间照样能开新对话。用 Homebrew 等其他软件管理工具装的助手不碰，留给原来的方式更新。
+- 每张已安装助手的卡片在“已安装”下面显示版本号：“已是最新”或“有新版 vX”。
+- Mac：Hub 会自己把新版安装包下载好并核对，再提示你打开它、把 RLY0 Hub 拖过去替换。
+- MCP 服务只在这台电脑能运行时才共享给其他助手，不能运行的在“打通 → MCP”里写明原因；Mac 上可以把 MCP 令牌放进钥匙串，只在 Claude Code 连接时交给它；每个 MCP 的真实连接状态直接显示。
+
+### 修复
+- Mac：Hub 顶上的“重启 Codex”只在 Codex 真的开着时才亮。
+
 ## 0.11.41
 
 ### Updates
