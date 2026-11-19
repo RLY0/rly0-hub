@@ -226,7 +226,7 @@ POSIX 安装命令通过 spawn(detached=true) 建立自有进程组，超时/取
 - 新 ErrorCode：
   - `DISABLED_BY_TOOL_SETTINGS`：工具自己的设置关闭了更新（Claude Code 的 `DISABLE_UPDATES` 或 `DISABLE_AUTOUPDATER`，来自用户/管理 settings 的 env 或进程环境）。配 `skipped-unsupported`。
   - `VERSION_RANGE_BY_POLICY`：Claude Code settings（常见为企业管理员 managed-settings）的 `minimumVersion` / `requiredMaximumVersion` 不允许装最新版。配 `skipped-unsupported`。`VERSION_PINNED` 仍只表示 Hub recipe 的版本锁。
-  - `UPDATE_NOT_REVERSIBLE`：`exactRollback=false` 的工具装上的新版没通过检查（`causeCode` 为 `CONNECTION_NOT_READY` / `VERSION_MISMATCH` / `INSTALL_FAILED`）。配 `failed`；该版本进 `badVersions`，事务已清，不回退、不循环。只要仍停在这个坏版本且没有更新的版本，后续检查保持这个失败结果（不报 up-to-date）；出了更新的版本照常升级。
+  - `UPDATE_NOT_REVERSIBLE`：`exactRollback=false` 的工具装上的新版没通过检查（`causeCode` 为 `CONNECTION_NOT_READY` / `VERSION_MISMATCH` / `INSTALL_FAILED`）。配 `failed`；该版本进 `badVersions`，事务已清，不回退、不循环。只要仍停在这个坏版本且没有更新的版本，后续检查保持这个失败结果（不报 up-to-date）；出了更新的版本照常升级。能精确回退的工具（`exactRollback=true`，如 npm）若当前版本在 `badVersions` 里（例如被别处重新装回），报 `skipped-bad-version / BAD_VERSION`，不报 `UPDATE_NOT_REVERSIBLE`。
 - 待恢复日志（内部）新增 `verifyPending`：新版已装、连接检查尚欠。旧 Hub 读到含 `claude-code` 或新字段的状态文件会报 `STATE_INVALID`（已知，未处理）。
 
 ### 哪些安装会更新、用什么命令
@@ -266,7 +266,8 @@ Windows 和其他工具仍全程持锁。
 
 - 安装非 0 退出但版本确实变了：按实际版本继续核对。升到比检查时更新的版本也接受。版本没变记 `INSTALL_FAILED`，不定罪。
 - 连接检查没跑成（Host 不在、超时）：保留日志（`verifyPending`），按分钟重试，不释放空闲会话，不接受也不定罪。
-- 待核对期间读不到版本：记 `skipped-not-ready / CHECK_TIMEOUT` 推迟。
+- 待核对期间读版本：只有超时才记 `skipped-not-ready / CHECK_TIMEOUT` 推迟，连续第 3 次仍超时、或 `--version` 命令报错退出，按连接检查失败处理（只能升最新版的记 `UPDATE_NOT_REVERSIBLE`，能精确回退的回退并拉黑）。日志内部计数字段 `unreadable`。
+- 待核对阶段的忙碌检查不带安装计划：只看 Host 是否有运行中的回合，不扫进程、不释放空闲会话（Host 自己的闲置进程不会让核对永远等待）。
 - 检查确实失败：记 `UPDATE_NOT_REVERSIBLE`（见上），不进回退/恢复循环。
 
 ### 验收边界

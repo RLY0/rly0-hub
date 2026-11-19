@@ -34,6 +34,8 @@ const pendingSchema = z.strictObject({
   quarantine: z.boolean().default(false),
   /** Installed while the agent stayed admitted; its connection check is still owed. */
   verifyPending: z.boolean().default(false),
+  /** Consecutive version-readback timeouts while verification is owed. */
+  unreadable: z.number().int().nonnegative().default(0),
 });
 type PendingUpdate = z.infer<typeof pendingSchema>;
 const stateSchema = z.strictObject({
@@ -401,7 +403,11 @@ export class AgentCliUpdates {
           return;
         }
         // A restored or externally replaced CLI is never blindly reinstalled from a stale journal.
-        const current = await driver.version(interrupted.plan).catch(() => null);
+        let versionError: unknown = null;
+        const current = await driver.version(interrupted.plan).catch((error: unknown) => {
+          versionError = error ?? new Error("CHECK_FAILED");
+          return null;
+        });
         entry.currentVersion = current;
         if (
           current === interrupted.previous ||
@@ -417,8 +423,17 @@ export class AgentCliUpdates {
           );
           return;
         }
-        // A latest-only tool has no rollback to make room for: never close its idle sessions.
-        if (await driver.busy(agent, interrupted.plan, exact, interrupted.target)) {
+        // Owed verification only waits for running turns: no process scan (the Host's own idle
+        // processes would hold it forever) and, without a rollback to make room for, no release.
+        const verifying = !exact || interrupted.verifyPending;
+        if (
+          await driver.busy(
+            agent,
+            verifying ? undefined : interrupted.plan,
+            !verifying,
+            interrupted.target,
+          )
+        ) {
           await finish("skipped-busy", "BUSY");
           return;
         }
@@ -426,14 +441,24 @@ export class AgentCliUpdates {
         if (!exact || interrupted.verifyPending) {
           // The new version is installed; only its connection check decides what happens.
           if (current === null) {
-            // Unreadable right now is not evidence against the new version: retry, never judge.
-            entry.causeCode = null;
-            await finish("skipped-not-ready", "CHECK_TIMEOUT");
-            return;
+            const failure = code(versionError, "CONNECTION_NOT_READY");
+            if (this.#stopped || failure === "INTERRUPTED") {
+              await finish("failed", "INTERRUPTED");
+              return;
+            }
+            // A timeout is retried (three tries in all); a command that fails to run at all, or
+            // keeps timing out, is a new version that does not work: judged like not ready.
+            if (failure === "CHECK_TIMEOUT" && interrupted.unreadable < 2) {
+              interrupted.unreadable++;
+              entry.causeCode = null;
+              await finish("skipped-not-ready", "CHECK_TIMEOUT");
+              return;
+            }
           }
           let good: boolean;
           try {
-            good = current === interrupted.target && (await driver.ready(agent));
+            good =
+              current !== null && current === interrupted.target && (await driver.ready(agent));
           } catch (error) {
             entry.causeCode = null;
             await finish("skipped-not-ready", code(error, "HOST_UNAVAILABLE"));
@@ -504,6 +529,14 @@ export class AgentCliUpdates {
           !installation.latestVersion ||
           !newerInstallationVersion(installation.currentVersion, installation.latestVersion)
         ) {
+          if (
+            entry.badVersions.includes(installation.currentVersion) &&
+            agentCliPlanExact(installation.plan)
+          ) {
+            // Installed elsewhere on a version Hub once rolled back: skipped, not irreversible.
+            await finish("skipped-bad-version", "BAD_VERSION");
+            return;
+          }
           if (entry.badVersions.includes(installation.currentVersion)) {
             // Still on a version that failed its check: keep saying so until a newer release.
             entry.causeCode = before.causeCode;
@@ -553,6 +586,7 @@ export class AgentCliUpdates {
           baselineReady: true,
           quarantine: false,
           verifyPending: false,
+          unreadable: 0,
         };
         const exact = agentCliPlanExact(pending.plan);
         // Installs that never touch running files keep the agent admitted until verification.

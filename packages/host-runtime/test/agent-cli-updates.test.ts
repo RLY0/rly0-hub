@@ -1227,3 +1227,78 @@ describe("review 2 of all-agent updates (synthetic)", () => {
     expect(() => assertAgentCliInstallFree(f.env, "pi")).not.toThrow();
   });
 });
+
+describe("review 3 of all-agent updates (synthetic)", () => {
+  async function deferred(kind: "latest-only" | "unfenced") {
+    const f = await fixture();
+    if (kind === "latest-only")
+      Object.assign(f.plan, { kind: "native", updater: "update", npm: null, packageName: null });
+    else {
+      Object.assign(f.plan, { kind: "native", updater: "claude", npm: null, packageName: null });
+      Object.assign(f.driver, { fenceDuringInstall: () => false });
+    }
+    f.driver.install.mockImplementation(async (_plan, version, rollback) => {
+      if (rollback && kind === "latest-only") throw new Error("ROLLBACK_UNSUPPORTED");
+      f.setCurrent(version);
+    });
+    // Leave the connection check owed: it cannot run right after the install.
+    f.driver.ready.mockResolvedValueOnce(true).mockRejectedValueOnce(new Error("HOST_UNAVAILABLE"));
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({ result: "skipped-not-ready", recoveryPending: true });
+    return f;
+  }
+  it("judges a new version whose --version fails to run as broken, not as a timeout", async () => {
+    const f = await deferred("latest-only");
+    f.driver.version.mockRejectedValueOnce(new Error("synthetic crash on start"));
+    await f.manager.check("pi", true);
+    expect(await f.entry()).toMatchObject({
+      result: "failed",
+      errorCode: "UPDATE_NOT_REVERSIBLE",
+      causeCode: "CONNECTION_NOT_READY",
+      badVersions: ["1.1.0"],
+      recoveryPending: false,
+    });
+  });
+  it("rolls back an exact-version update whose version keeps timing out (third try)", async () => {
+    const f = await deferred("unfenced");
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      f.driver.version.mockRejectedValueOnce(new Error("COMMAND_TIMEOUT"));
+      await f.manager.check("pi", true);
+      expect(await f.entry()).toMatchObject({
+        result: "skipped-not-ready",
+        errorCode: "CHECK_TIMEOUT",
+        badVersions: [],
+      });
+    }
+    f.driver.version.mockRejectedValueOnce(new Error("COMMAND_TIMEOUT"));
+    await f.manager.check("pi", true);
+    expect(f.driver.install.mock.calls.map((call) => call[1])).toEqual(["1.1.0", "1.0.0"]);
+    expect(await f.entry()).toMatchObject({
+      result: "rolled-back",
+      currentVersion: "1.0.0",
+      badVersions: ["1.1.0"],
+      recoveryPending: false,
+    });
+  });
+  it("checks only for running turns while verification is owed (no plan, no release)", async () => {
+    const f = await deferred("unfenced");
+    f.driver.busy.mockClear();
+    f.driver.ready.mockResolvedValue(true);
+    await f.manager.check("pi", true);
+    expect(f.driver.busy.mock.calls).toEqual([["pi", undefined, false, "1.1.0"]]);
+    expect(await f.entry()).toMatchObject({ result: "updated", recoveryPending: false });
+  });
+  it("reports a rolled-back version reinstalled elsewhere as skipped, not irreversible", async () => {
+    const f = await fixture();
+    f.driver.ready.mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockResolvedValue(true);
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({ result: "rolled-back", badVersions: ["1.1.0"] });
+    f.setCurrent("1.1.0");
+    await f.manager.check("pi");
+    expect(await f.entry()).toMatchObject({
+      result: "skipped-bad-version",
+      errorCode: "BAD_VERSION",
+      exactRollback: true,
+    });
+  });
+});
