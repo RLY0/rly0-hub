@@ -30,6 +30,7 @@
     INSTALL_FILE_BUSY: "安装文件可能被占用，请关掉在外面开着的这个工具后再试",
     PRE_UPDATE_VERSION_MISMATCH: "更新前版本已经变了，这次跳过",
     DISABLED_BY_TOOL_SETTINGS: "它自己的设置里关掉了更新",
+    VERSION_RANGE_BY_POLICY: "公司或管理员限定了它能用的版本",
     UPDATE_NOT_REVERSIBLE: "新版不能用，这个工具没法自动退回旧版",
   };
   // What went wrong with a new version that was rolled back, said after "新版 vX".
