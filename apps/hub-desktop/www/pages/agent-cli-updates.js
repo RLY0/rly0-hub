@@ -39,6 +39,27 @@
   };
   const v = (version) => (version ? `v${version}` : "");
   const why = (code) => ERRORS[code] || "原因未知";
+  // Dotted numeric compare; anything unparsable counts as "not newer".
+  const newer = (a, b) => {
+    const pa = String(a).split(/[.+-]/).map(Number);
+    const pb = String(b).split(/[.+-]/).map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
+      const x = pa[i] || 0;
+      const y = pb[i] || 0;
+      if (Number.isNaN(x) || Number.isNaN(y)) return false;
+      if (x !== y) return x > y;
+    }
+    return false;
+  };
+  /** "v1.2 · 已是最新" / "v1.2 · 有新版 v1.3" / "v1.2" when the latest is unknown. */
+  const where = (entry) => {
+    const cur = v(entry.currentVersion);
+    if (!cur) return "";
+    if (!entry.latestVersion) return cur;
+    return newer(entry.latestVersion, entry.currentVersion)
+      ? `${cur} · 有新版 ${v(entry.latestVersion)}`
+      : `${cur} · 已是最新`;
+  };
   const ago = (ms) => {
     if (!ms) return "";
     const minutes = Math.round((Date.now() - ms) / 60000);
@@ -71,6 +92,17 @@
       Boolean(entry.previousVersion) &&
       entry.currentVersion === entry.previousVersion;
     // These need a person, so they are said before "recovery pending" (which is always set for them).
+    // Updaters that only go to the newest version cannot put the old one back (contract: exactRollback).
+    if (
+      entry.result === "failed" &&
+      entry.errorCode === "ROLLBACK_FAILED" &&
+      entry.exactRollback === false
+    )
+      return [
+        "warn",
+        `${pre}新版跟 Hub 对接不上，这个工具没法自动退回旧版；之后检查正常会自动恢复，急用请用原来的安装方式重装`,
+        true,
+      ];
     if (entry.result === "failed" && entry.errorCode === "ROLLBACK_FAILED")
       return [
         "warn",
@@ -139,7 +171,10 @@
         if (WAITING.has(entry.errorCode)) return ["wait", `${pre}${why(entry.errorCode)}`];
         return ["warn", `${pre}自动更新没成功：${why(entry.errorCode)}`, true];
       case "skipped-not-ready":
-        return ["wait", `${pre}${why(entry.errorCode || "BASELINE_NOT_READY")}`];
+        return [
+          "wait",
+          `${where(entry) ? `${where(entry)} · ` : ""}${why(entry.errorCode || "BASELINE_NOT_READY")}`,
+        ];
       case "recovered":
         // Either the original came back, or a checked-good new version was kept.
         return entry.previousVersion && entry.currentVersion !== entry.previousVersion
@@ -159,19 +194,25 @@
           return ["wait", `${pre}${why("INSTALL_FILE_BUSY")}`];
         return entry.errorCode === "VERSION_PINNED"
           ? ["off", `${pre}${why("VERSION_PINNED")}`]
-          : ["off", `${pre}不自动更新：${why(entry.errorCode)}`];
+          : [
+              "off",
+              `${where(entry) ? `${where(entry)} · ` : ""}不自动更新：${why(entry.errorCode)}`,
+            ];
       case "skipped-not-installed":
         return null;
       default:
         break;
     }
+    const at = where(entry);
     if (!entry.canUpdate && entry.installKind !== "unknown")
       return [
         "off",
-        `${cur ? `${cur} · ` : ""}不自动更新：${why(entry.errorCode || "ORIGINAL_INSTALLER")}`,
+        `${at ? `${at} · ` : ""}不自动更新：${why(entry.errorCode || "ORIGINAL_INSTALLER")}`,
       ];
-    if (!enabled) return ["off", cur ? `${cur} · 自动更新已关闭` : "自动更新已关闭"];
-    return cur ? ["off", cur] : null;
+    if (!enabled) return ["off", at ? `${at} · 自动更新已关闭` : "自动更新已关闭"];
+    if (!at) return null;
+    // A known newer version that is not installed yet waits for the next idle check.
+    return at.includes("有新版") ? ["off", `${at}，空闲时自动更新`] : ["ok", at];
   }
 
   window.AgentCliUpdates = ({ h, call, failed, alive, onChange }) => {
@@ -263,7 +304,7 @@
               { class: "sub" },
               window.HubUI.info(
                 "更新后不能用会自动退回旧版",
-                "每次更新后马上检查这个工具还能不能和 Hub 对接，不能就自动退回旧版，并且不再装那个版本。Claude Code 会自己更新，Codex 在 设置 → 更新 里管，都不在这里。",
+                "每次更新后马上检查这个工具还能不能和 Hub 对接；不能用就退回旧版（少数工具的官方更新只能升到最新版，退不回时会在卡片上说明），并且不再装那个版本。所有已安装的助手（包括 Claude Code）都在这里自动更新；Codex 本身在 设置 → 更新 里管。",
               ),
             )
           : null,

@@ -569,7 +569,12 @@ window.registerHubAgents = ({
           ...[cliUpdates.line(agent.id)].filter(Boolean),
         );
         cliSlots.set(agent.id, cliSlot);
-        access.prepend(connectionLine(agent), cliSlot);
+        // Wide (official) cards: the version sits right under "本地已安装" on the left.
+        const head = element.querySelector(".agent-head");
+        if (element.classList.contains("wide") && head) {
+          head.append(cliSlot);
+          access.prepend(connectionLine(agent));
+        } else access.prepend(connectionLine(agent), cliSlot);
       } else renderLocked(agent, access, element);
       // New-Thread permission / Model / thinking defaults, right where the agent is (agent-defaults.js).
       if (agent.installed)

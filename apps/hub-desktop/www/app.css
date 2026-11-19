@@ -3303,6 +3303,14 @@ select.input,
   flex-basis: 100%;
   padding-left: 60px;
 }
+.agent-card.wide .agent-head .cli-slot {
+  order: 4;
+  flex-basis: 100%;
+  padding-left: 60px;
+}
+.agent-card.wide .agent-head .cli-line {
+  margin: 0;
+}
 .agent-card.wide .agent-body {
   min-width: 0;
 }
