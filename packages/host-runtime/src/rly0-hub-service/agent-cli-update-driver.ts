@@ -31,7 +31,7 @@ import type { HubHostRequest } from "./host-console-routes.js";
 import { getUpdateJson, type UpdateHttpGet } from "./hub-update-net.js";
 import {
   agentCliNativeUpdaterSchema,
-  claudeNativeLayout,
+  claudeNativeInstallation,
   claudeRetainedVersion,
   claudeUpdatePolicy,
   existingAgentCliBackup,
@@ -379,16 +379,12 @@ export function createAgentCliUpdateDriver(options: {
             : {}),
         });
         latestVersion = policy.latestVersion;
-        const layout = claudeNativeLayout(env, platform);
-        const nativeInstall =
-          path.resolve(executable) === layout.launcher &&
-          (selected.startsWith(layout.versions + path.sep) ||
-            (platform === "win32" && selected === layout.launcher));
+        const nativeInstall = claudeNativeInstallation(executable, selected, env, platform);
         if (policy.reason) reason = policy.reason;
         else if (nativeInstall) {
           plan.kind = "native";
           plan.updater = "claude";
-          canUpdate = await assertCliWritable(plan, platform, options.writable, env).then(
+          canUpdate = await assertCliWritable(plan, platform, options.writable).then(
             () => true,
             (error: unknown) => {
               reason =
@@ -555,7 +551,7 @@ export function createAgentCliUpdateDriver(options: {
       // Refuse before any effect: a latest-only updater cannot put an old version back.
       if (rollback && !agentCliPlanExact(plan)) throw new Error("ROLLBACK_UNSUPPORTED");
       const env = await envFor();
-      await assertCliWritable(plan, platform, options.writable, env);
+      await assertCliWritable(plan, platform, options.writable);
       if (
         !versionedClaude(plan) &&
         (await (options.occupied ?? ((p, env) => cliProcessBusy(p, env, platform, run)))(plan, env))
@@ -580,7 +576,7 @@ export function createAgentCliUpdateDriver(options: {
         const command =
           (rollback &&
             plan.updater === "claude" &&
-            (await claudeRetainedVersion(env, platform, selected))) ||
+            (await claudeRetainedVersion(plan.executable, platform, selected))) ||
           plan.executable;
         await run(command, nativeUpdateArguments(plan.updater, selected), nenv, 300_000);
         // Kimi swaps the staged build in at its next native start.

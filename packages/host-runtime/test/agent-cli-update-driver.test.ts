@@ -13,6 +13,11 @@ import {
   HARNESS_LAUNCH_SETTINGS_GET_METHOD,
 } from "@codexhost/shared-contracts";
 import {
+  claudeNativeInstallation,
+  claudeVersionsDirectory,
+  officialInstallLocation,
+} from "../src/rly0-hub-service/agent-cli-native-updaters.js";
+import {
   agentCliPlanExact,
   createAgentCliUpdateDriver,
   type AgentCliPlan,
@@ -20,6 +25,9 @@ import {
 import type { HubHostRequest } from "../src/rly0-hub-service/host-console-routes.js";
 import type { UpdateHttpGet } from "../src/rly0-hub-service/hub-update-net.js";
 
+/** Native-installer tests use the real platform: their paths are created on this machine. */
+const HOST: NodeJS.Platform = process.platform === "win32" ? "win32" : "darwin";
+const WINDOWS = HOST === "win32";
 function required<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("Missing synthetic fixture");
   return value;
@@ -371,7 +379,7 @@ describe("injected CLI update drivers", () => {
       expect(agentCliUpdateIdSchema.safeParse(agent).success).toBe(false);
   });
   it("updates Pi in its official installer location with its latest-only updater and refuses a rollback", async () => {
-    const f = await fixture();
+    const f = await fixture(HOST);
     const native = path.join(f.root, ".local", "bin", "pi");
     f.setExecutable(native);
     const installation = required(await f.driver.inspect("pi"));
@@ -383,14 +391,10 @@ describe("injected CLI update drivers", () => {
     });
     expect(agentCliPlanExact(installation.plan)).toBe(false);
     await f.driver.install(installation.plan, "1.1.0");
-    expect(f.run).toHaveBeenLastCalledWith(
-      native,
-      ["update"],
-      expect.objectContaining({
-        PATH: expect.stringMatching(new RegExp(`^${path.dirname(native)}:`)),
-      }),
-      300_000,
-    );
+    const call = f.run.mock.calls.at(-1);
+    expect(call?.slice(0, 2)).toEqual([native, ["update"]]);
+    expect(call?.[3]).toBe(300_000);
+    expect(call?.[2].PATH?.startsWith(`${path.dirname(native)}${WINDOWS ? ";" : ":"}`)).toBe(true);
     f.run.mockClear();
     await expect(f.driver.install(installation.plan, "1.0.0", true)).rejects.toThrow(
       "ROLLBACK_UNSUPPORTED",
@@ -422,7 +426,7 @@ describe("injected CLI update drivers", () => {
     await expect(readFile(required(rollback?.[0]))).rejects.toThrow();
   });
   it("leaves tools outside their official installer location to the original installer", async () => {
-    const f = await fixture();
+    const f = await fixture(HOST);
     f.setExecutable(path.join(f.root, "custom", "pi"));
     expect(await f.driver.inspect("pi")).toMatchObject({
       canUpdate: false,
@@ -437,7 +441,7 @@ describe("injected CLI update drivers", () => {
     });
   });
   it("updates Grok only when its own check names the native installer", async () => {
-    const f = await fixture();
+    const f = await fixture(HOST);
     f.setExecutable(path.join(f.root, ".grok", "bin", "grok"));
     let installer = "npm";
     f.run.mockImplementation(async (_command, args) =>
@@ -465,7 +469,7 @@ describe("injected CLI update drivers", () => {
     });
   });
   it("treats Cursor without an update status as not updatable, like its adapter", async () => {
-    const f = await fixture();
+    const f = await fixture(HOST);
     f.setExecutable(path.join(f.root, ".local", "bin", "cursor-agent"));
     f.run.mockImplementation(async (_command, args) =>
       args[0] === "about" ? JSON.stringify({ latestVersion: "1.1.0" }) : "1.0.0",
@@ -594,13 +598,15 @@ it("rechecks external occupancy immediately before an install, even after admiss
 
 describe("Claude Code native installation (synthetic HOME, injected commands)", () => {
   async function claude(settings?: unknown) {
-    const f = await fixture();
+    const f = await fixture(HOST);
     const versions = path.join(f.root, ".local", "share", "claude", "versions");
     await mkdir(versions, { recursive: true });
     await writeFile(path.join(versions, "1.0.0"), "synthetic never executed");
-    const launcher = path.join(f.root, ".local", "bin", "claude");
+    // POSIX: a symlink into versions/. Windows: claude.exe is a copy of a versions\ file.
+    const launcher = path.join(f.root, ".local", "bin", WINDOWS ? "claude.exe" : "claude");
     await mkdir(path.dirname(launcher), { recursive: true });
-    await symlink(path.join(versions, "1.0.0"), launcher);
+    if (WINDOWS) await writeFile(launcher, "synthetic never executed");
+    else await symlink(path.join(versions, "1.0.0"), launcher);
     if (settings !== undefined) {
       await mkdir(path.join(f.root, ".claude"), { recursive: true });
       await writeFile(path.join(f.root, ".claude", "settings.json"), JSON.stringify(settings));
@@ -643,18 +649,23 @@ describe("Claude Code native installation (synthetic HOME, injected commands)", 
     // .local/bin first, so Claude's installer never warns about a missing PATH entry.
     expect(installs[0]?.[2].PATH?.startsWith(path.dirname(f.launcher))).toBe(true);
     // A new versions/<v> file never disturbs running sessions on POSIX: no process scan.
-    expect(f.occupied).not.toHaveBeenCalled();
+    // Windows replaces claude.exe in place and keeps the occupancy check.
+    if (WINDOWS) expect(f.occupied).toHaveBeenCalled();
+    else expect(f.occupied).not.toHaveBeenCalled();
   });
-  it("waits for running turns but never closes idle Claude sessions before updating", async () => {
-    const f = await claude();
-    const installation = required(await f.driver.inspect("claude-code"));
-    f.host.mockClear();
-    expect(await f.driver.busy("claude-code", installation.plan, true, "1.1.0")).toBe(false);
-    expect(f.host.mock.calls.some(([method]) => method === AGENT_CLI_RELEASE_METHOD)).toBe(false);
-    expect(f.occupied).not.toHaveBeenCalled();
-    f.host.mockResolvedValue({ guarded: true, busy: true });
-    expect(await f.driver.busy("claude-code", installation.plan, true, "1.1.0")).toBe(true);
-  });
+  it.skipIf(WINDOWS)(
+    "waits for running turns but never closes idle Claude sessions before updating",
+    async () => {
+      const f = await claude();
+      const installation = required(await f.driver.inspect("claude-code"));
+      f.host.mockClear();
+      expect(await f.driver.busy("claude-code", installation.plan, true, "1.1.0")).toBe(false);
+      expect(f.host.mock.calls.some(([method]) => method === AGENT_CLI_RELEASE_METHOD)).toBe(false);
+      expect(f.occupied).not.toHaveBeenCalled();
+      f.host.mockResolvedValue({ guarded: true, busy: true });
+      expect(await f.driver.busy("claude-code", installation.plan, true, "1.1.0")).toBe(true);
+    },
+  );
   it("follows Claude's own update policy: channel, user choice, version bounds, managed settings", async () => {
     const stable = await claude({ autoUpdatesChannel: "stable" });
     expect(await stable.driver.inspect("claude-code")).toMatchObject({ latestVersion: "1.0.5" });
@@ -693,7 +704,9 @@ describe("Claude Code native installation (synthetic HOME, injected commands)", 
     const installation = required(await f.driver.inspect("claude-code"));
     const versions = path.join(f.root, ".local", "share", "claude", "versions");
     expect(f.writable.mock.calls.map((call) => call[0])).toEqual(
-      expect.arrayContaining([versions, path.dirname(f.launcher)]),
+      expect.arrayContaining(
+        WINDOWS ? [path.dirname(f.launcher), f.launcher] : [versions, path.dirname(f.launcher)],
+      ),
     );
     await f.driver.install(installation.plan, "1.0.0", true);
     expect(f.run.mock.calls.at(-1)?.slice(0, 2)).toEqual([
@@ -703,7 +716,15 @@ describe("Claude Code native installation (synthetic HOME, injected commands)", 
     // A version no longer retained falls back to the launcher.
     await f.driver.install(installation.plan, "0.9.0", true);
     expect(f.run.mock.calls.at(-1)?.[0]).toBe(f.launcher);
-    expect(f.driver.fenceDuringInstall?.(installation.plan)).toBe(false);
+    expect(f.driver.fenceDuringInstall?.(installation.plan)).toBe(WINDOWS);
+  });
+  it.runIf(WINDOWS)("keeps the full occupancy check and idle release on Windows", async () => {
+    const f = await claude();
+    const installation = required(await f.driver.inspect("claude-code"));
+    f.host.mockClear();
+    expect(await f.driver.busy("claude-code", installation.plan, true, "1.1.0")).toBe(false);
+    expect(f.occupied).toHaveBeenCalled();
+    expect(f.host.mock.calls.some(([method]) => method === AGENT_CLI_RELEASE_METHOD)).toBe(true);
   });
   it("leaves a Claude Code outside the native launcher to its original installer", async () => {
     const f = await claude();
@@ -717,5 +738,61 @@ describe("Claude Code native installation (synthetic HOME, injected commands)", 
       latestVersion: "1.1.0",
       currentVersion: "1.0.0",
     });
+  });
+});
+
+describe("Windows official locations (pure path rules, any host)", () => {
+  const exe = "C:\\Users\\Administrator\\.local\\bin\\claude.exe";
+  it("recognises %USERPROFILE%\\.local\\bin\\claude.exe whatever the case, separators or HOME", () => {
+    for (const env of [
+      { USERPROFILE: "C:\\Users\\Administrator" },
+      { USERPROFILE: "C:\\Users\\Administrator\\", HOME: "/c/Users/Administrator" },
+      { HOME: "C:\\Users\\Administrator" },
+      { USERPROFILE: "c:/users/administrator" },
+    ])
+      expect(claudeNativeInstallation(exe, exe, env, "win32")).toBe(true);
+    expect(
+      claudeNativeInstallation(
+        "c:\\users\\ADMINISTRATOR\\.local\\bin\\CLAUDE.EXE",
+        "C:\\Users\\Administrator\\.local\\share\\claude\\versions\\2.1.328",
+        { USERPROFILE: "C:\\Users\\Administrator" },
+        "win32",
+      ),
+    ).toBe(true);
+  });
+  it("rejects another user's home, npm installs and other names on Windows", () => {
+    expect(claudeNativeInstallation(exe, exe, { USERPROFILE: "C:\\Users\\Other" }, "win32")).toBe(
+      false,
+    );
+    const npm = "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\claude.cmd";
+    expect(
+      claudeNativeInstallation(npm, npm, { USERPROFILE: "C:\\Users\\Administrator" }, "win32"),
+    ).toBe(false);
+    const elsewhere = "C:\\Users\\Administrator\\.local\\bin\\claude.exe";
+    expect(
+      claudeNativeInstallation(
+        elsewhere,
+        "D:\\tools\\claude.exe",
+        { USERPROFILE: "C:\\Users\\Administrator" },
+        "win32",
+      ),
+    ).toBe(false);
+  });
+  it("finds the versions directory beside the Windows launcher", () => {
+    expect(claudeVersionsDirectory(exe, "win32")).toBe(
+      "C:\\Users\\Administrator\\.local\\share\\claude\\versions",
+    );
+  });
+  it("matches official Windows installer folders case-insensitively", () => {
+    const env = {
+      USERPROFILE: "C:\\Users\\Administrator",
+      LOCALAPPDATA: "C:\\Users\\Administrator\\AppData\\Local",
+    };
+    const cursor = "c:\\users\\administrator\\appdata\\local\\Cursor-Agent\\cursor-agent.cmd";
+    expect(officialInstallLocation("cursor-cli", cursor, cursor, env, "win32")).toBe(true);
+    const pi = "C:/Users/Administrator/.local/bin/pi.exe";
+    expect(officialInstallLocation("pi", pi, pi, env, "win32")).toBe(true);
+    const npm = "C:\\Users\\Administrator\\AppData\\Roaming\\npm\\pi.cmd";
+    expect(officialInstallLocation("pi", npm, npm, env, "win32")).toBe(false);
   });
 });

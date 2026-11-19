@@ -29,6 +29,22 @@ export function nativeUpdateArguments(updater: AgentCliNativeUpdater, version: s
 
 const flavor = (platform: NodeJS.Platform) => (platform === "win32" ? path.win32 : path.posix);
 const homeOf = (env: NodeJS.ProcessEnv) => env.HOME ?? env.USERPROFILE ?? "";
+/**
+ * Every home directory this user may be known by. On Windows USERPROFILE comes first (Claude
+ * Code and the official installers use it); HOME may be unset or a different spelling.
+ */
+const homesOf = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform): string[] => [
+  ...new Set(
+    (platform === "win32" ? [env.USERPROFILE, env.HOME] : [env.HOME, env.USERPROFILE]).filter(
+      (home): home is string => !!home,
+    ),
+  ),
+];
+/** Comparable form of a path: Windows paths ignore case, separators and trailing slashes. */
+const comparable = (file: string, platform: NodeJS.Platform) =>
+  platform === "win32"
+    ? path.win32.normalize(file).replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase()
+    : path.posix.normalize(file).replace(/\/+$/, "");
 
 /** Native updaters choose their target from the selected installation; keep its directory first. */
 export function nativeUpdateEnvironment(
@@ -41,23 +57,48 @@ export function nativeUpdateEnvironment(
   return { ...env, [key]: `${flavor(platform).dirname(executable)}${delimiter}${env[key] ?? ""}` };
 }
 
-/** Claude Code's native launcher and the versions directory it points into. */
-export function claudeNativeLayout(env: NodeJS.ProcessEnv, platform: NodeJS.Platform) {
+/** The versions directory beside a native Claude Code launcher (~/.local/bin/claude[.exe]). */
+export function claudeVersionsDirectory(launcher: string, platform: NodeJS.Platform): string {
   const p = flavor(platform);
-  const home = homeOf(env);
-  return {
-    launcher: p.join(home, ".local", "bin", platform === "win32" ? "claude.exe" : "claude"),
-    versions: p.join(home, ".local", "share", "claude", "versions"),
-  };
+  return p.join(p.dirname(p.dirname(launcher)), "share", "claude", "versions");
+}
+
+/**
+ * Whether `executable` is Claude Code's native launcher in this user's home: POSIX
+ * ~/.local/bin/claude pointing into versions/, Windows %USERPROFILE%\.local\bin\claude.exe
+ * (a copy of a versions\ file).
+ */
+export function claudeNativeInstallation(
+  executable: string,
+  selected: string,
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): boolean {
+  const p = flavor(platform);
+  const same = (a: string, b: string) => comparable(a, platform) === comparable(b, platform);
+  const bin = p.dirname(executable);
+  if (
+    !same(p.basename(executable), platform === "win32" ? "claude.exe" : "claude") ||
+    !same(p.basename(bin), "bin") ||
+    !same(p.basename(p.dirname(bin)), ".local")
+  )
+    return false;
+  const home = p.dirname(p.dirname(bin));
+  if (!homesOf(env, platform).some((candidate) => same(candidate, home))) return false;
+  const versions = comparable(claudeVersionsDirectory(executable, platform), platform);
+  return (
+    comparable(selected, platform).startsWith(`${versions}/`) ||
+    (platform === "win32" && same(selected, executable))
+  );
 }
 
 /** The retained binary of a previous Claude Code version, used to run its own rollback. */
 export async function claudeRetainedVersion(
-  env: NodeJS.ProcessEnv,
+  launcher: string,
   platform: NodeJS.Platform,
   version: string,
 ): Promise<string | null> {
-  const { versions } = claudeNativeLayout(env, platform);
+  const versions = claudeVersionsDirectory(launcher, platform);
   const p = flavor(platform);
   for (const name of platform === "win32" ? [`${version}.exe`, version] : [version]) {
     const file = p.join(versions, name);
@@ -161,11 +202,11 @@ export function officialInstallLocation(
   platform: NodeJS.Platform,
 ): boolean {
   const p = flavor(platform);
-  const home = homeOf(env);
-  const local = env.LOCALAPPDATA ?? p.join(home, "AppData", "Local");
-  const user = (...parts: string[]) => p.join(home, ...parts);
+  const homes = homesOf(env, platform);
+  const local = env.LOCALAPPDATA ?? p.join(homes[0] ?? "", "AppData", "Local");
+  const user = (...parts: string[]) => homes.map((home) => p.join(home, ...parts));
   const win = platform === "win32";
-  const roots: Partial<Record<AgentCliUpdateId, string[]>> = {
+  const roots: Partial<Record<AgentCliUpdateId, (string | string[])[]>> = {
     pi: [user(".local", "bin"), user(".pi", "bin")],
     omp: [user(".local", "bin"), user(".omp", "bin")],
     grok: [user(".grok", "bin"), user(".local", "bin")],
@@ -180,12 +221,10 @@ export function officialInstallLocation(
     "kimi-code": [user(".kimi-code", "bin")],
     hermes: [user(".local", "bin")],
   };
-  const normalize = (file: string) =>
-    win ? p.resolve(file).replaceAll("\\", "/").toLowerCase() : p.resolve(file);
-  const directory = normalize(p.dirname(executable));
+  const directory = comparable(p.dirname(executable), platform);
   // A launcher in an official directory may still point into a package-manager store.
   if (/[\\/](?:nix[\\/]store|Cellar|homebrew|node_modules)[\\/]/i.test(selected)) return false;
-  return (roots[agent] ?? []).some((root) => normalize(root) === directory);
+  return (roots[agent] ?? []).flat().some((root) => comparable(root, platform) === directory);
 }
 
 /**
