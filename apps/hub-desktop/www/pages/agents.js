@@ -348,8 +348,7 @@ window.registerHubAgents = ({
       failed,
       alive,
       onChange: () => {
-        for (const [id, slot] of cliSlots)
-          slot.replaceChildren(...[cliUpdates.line(id)].filter(Boolean));
+        for (const [id, place] of cliSlots) place(cliUpdates.line(id));
       },
     });
     root.append(
@@ -563,17 +562,22 @@ window.registerHubAgents = ({
         access.append(h("p", { class: "sub" }, "使用沙箱登录，重新加载助手后检测连接"));
       } else if (agent.installed) {
         renderAccess(agent, access);
-        const cliSlot = h(
-          "div",
-          { class: "cli-slot" },
-          ...[cliUpdates.line(agent.id)].filter(Boolean),
-        );
-        cliSlots.set(agent.id, cliSlot);
-        // Wide (official) cards: the version sits right under "本地已安装" on the left.
+        const cliSlot = h("div", { class: "cli-slot" });
+        // Wide (official) cards: the version sits right under "本地已安装" on the left; a long
+        // warning that must be read whole goes to the wide right column instead.
         const head = element.querySelector(".agent-head");
-        if (element.classList.contains("wide") && head) {
+        const wide = element.classList.contains("wide") && head;
+        const cliWide = h("div", { class: "cli-slot" });
+        const place = (line) => {
+          const warn = Boolean(line && line.querySelector("[data-keep]"));
+          cliSlot.replaceChildren(...(line && !(wide && warn) ? [line] : []));
+          cliWide.replaceChildren(...(line && wide && warn ? [line] : []));
+        };
+        place(cliUpdates.line(agent.id));
+        cliSlots.set(agent.id, place);
+        if (wide) {
           head.append(cliSlot);
-          access.prepend(connectionLine(agent));
+          access.prepend(connectionLine(agent), cliWide);
         } else access.prepend(connectionLine(agent), cliSlot);
       } else renderLocked(agent, access, element);
       // New-Thread permission / Model / thinking defaults, right where the agent is (agent-defaults.js).

@@ -29,6 +29,8 @@
     INSTALL_TIMEOUT: "这次安装超时，下次检查再试",
     INSTALL_FILE_BUSY: "安装文件可能被占用，请关掉在外面开着的这个工具后再试",
     PRE_UPDATE_VERSION_MISMATCH: "更新前版本已经变了，这次跳过",
+    DISABLED_BY_TOOL_SETTINGS: "它自己的设置里关掉了更新",
+    UPDATE_NOT_REVERSIBLE: "新版不能用，这个工具没法自动退回旧版",
   };
   // What went wrong with a new version that was rolled back, said after "新版 vX".
   const CAUSES = {
@@ -39,24 +41,13 @@
   };
   const v = (version) => (version ? `v${version}` : "");
   const why = (code) => ERRORS[code] || "原因未知";
-  // Dotted numeric compare; anything unparsable counts as "not newer".
-  const newer = (a, b) => {
-    const pa = String(a).split(/[.+-]/).map(Number);
-    const pb = String(b).split(/[.+-]/).map(Number);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
-      const x = pa[i] || 0;
-      const y = pb[i] || 0;
-      if (Number.isNaN(x) || Number.isNaN(y)) return false;
-      if (x !== y) return x > y;
-    }
-    return false;
-  };
   /** "v1.2 · 已是最新" / "v1.2 · 有新版 v1.3" / "v1.2" when the latest is unknown. */
   const where = (entry) => {
     const cur = v(entry.currentVersion);
     if (!cur) return "";
     if (!entry.latestVersion) return cur;
-    return newer(entry.latestVersion, entry.currentVersion)
+    // The backend decides "newer" (entry.updateAvailable), so both sides always agree.
+    return entry.updateAvailable
       ? `${cur} · 有新版 ${v(entry.latestVersion)}`
       : `${cur} · 已是最新`;
   };
@@ -92,15 +83,12 @@
       Boolean(entry.previousVersion) &&
       entry.currentVersion === entry.previousVersion;
     // These need a person, so they are said before "recovery pending" (which is always set for them).
-    // Updaters that only go to the newest version cannot put the old one back (contract: exactRollback).
-    if (
-      entry.result === "failed" &&
-      entry.errorCode === "ROLLBACK_FAILED" &&
-      entry.exactRollback === false
-    )
+    // Updaters that only go to the newest version cannot put the old one back; the bad version
+    // is skipped and the next newer release is tried as usual.
+    if (entry.result === "failed" && entry.errorCode === "UPDATE_NOT_REVERSIBLE")
       return [
         "warn",
-        `${pre}新版跟 Hub 对接不上，这个工具没法自动退回旧版；之后检查正常会自动恢复，急用请用原来的安装方式重装`,
+        `${pre}这一版${CAUSES[entry.causeCode] || "有问题"}，这个工具没法自动退回旧版；出了更新的版本会自动再装，急用请用原来的安装方式重装`,
         true,
       ];
     if (entry.result === "failed" && entry.errorCode === "ROLLBACK_FAILED")
