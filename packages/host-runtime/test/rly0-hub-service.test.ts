@@ -595,7 +595,7 @@ describe("Hub tray notices", () => {
     });
   });
 
-  it("switching a Hub feature on while 官方原样 is on leaves it", async () => {
+  it("Hub features stay off while 官方原样 is on; 重新开启 Hub is the way back", async () => {
     const root = await tempDir();
     const codexHome = await tempDir();
     const { core } = fakeCore([]);
@@ -608,9 +608,14 @@ describe("Hub tray notices", () => {
     });
     await service.handle("hub.restorePure", {});
     await service.handle("resources.sharingSet", { memory: false });
+    await expect(service.handle("resources.sharingSet", { mcp: true })).rejects.toThrow(
+      "HUB_PURE_MODE",
+    );
+    await expect(service.handle("relay.unifiedSet", { enabled: true })).rejects.toThrow(
+      "HUB_PURE_MODE",
+    );
+    expect(await service.handle("relay.unifiedStatus", {})).toEqual({ enabled: false });
     expect(await service.handle("hub.state", {})).toMatchObject({ pure: true });
-    await service.handle("relay.unifiedSet", { enabled: true });
-    expect(await service.handle("hub.state", {})).toMatchObject({ pure: false });
   });
 
   it("opens Codex the official way while 恢复官方原样 is on, and through the Launcher otherwise", async () => {

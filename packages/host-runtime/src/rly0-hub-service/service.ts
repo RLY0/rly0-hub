@@ -557,9 +557,12 @@ export class Rly0HubService {
     return { ok: true, proxyRunning };
   }
 
-  /** A Hub feature was switched on while 官方原样 was on: routing through the Hub comes back. */
-  async #leavePure(): Promise<void> {
-    if ((await this.#state.read()).pure === true) await this.#enableChannel();
+  /**
+   * Hub features stay off while 官方原样 is on; the way back is 重新开启 Hub, which also restarts
+   * Codex. Switching one on here would change Codex behind the person's back.
+   */
+  async #refuseInPure(): Promise<void> {
+    if ((await this.#state.read()).pure === true) throw codedHubError("HUB_PURE_MODE");
   }
 
   /** First run turns autostart on (the confirmed default); later runs respect the toggle. */
@@ -1184,7 +1187,7 @@ export class Rly0HubService {
       "hub.restorePure": route(empty, async () => {
         const steps: Record<string, boolean> = {};
         const current = await this.#state.read();
-        if (current.pure !== true) {
+        if (current.pure !== true && !current.beforePure) {
           // Remember what is about to be turned off; 重新开启 Hub puts it back.
           await this.#state.update({
             beforePure: {
@@ -1284,7 +1287,7 @@ export class Rly0HubService {
       "relay.noAccountEnable": route(
         z.object({ model: z.string().min(1).max(128), confirmed: z.literal(true) }).strict(),
         async (p) => {
-          await this.#leavePure();
+          await this.#refuseInPure();
           const result = await this.#codexConfig.apply(await this.#noAccountParams(p.model));
           return { ok: result.ok, noAccount: result.status.noAccount === true };
         },
@@ -1294,7 +1297,7 @@ export class Rly0HubService {
         enabled: await readUnifiedChannel(this.#options.environment),
       })),
       "relay.unifiedSet": route(z.object({ enabled: z.boolean() }).strict(), async (p) => {
-        if (p.enabled) await this.#leavePure();
+        if (p.enabled) await this.#refuseInPure();
         await writeUnifiedChannel(p.enabled, this.#options.environment);
         return { enabled: await readUnifiedChannel(this.#options.environment) };
       }),
@@ -1428,7 +1431,7 @@ export class Rly0HubService {
         async (p) => {
           const all = p.enabled;
           if (all === true || p.mcp === true || p.skills === true || p.memory === true)
-            await this.#leavePure();
+            await this.#refuseInPure();
           await setSharedResourceSettings(this.#options.environment, {
             ...(all === undefined ? {} : { mcp: all, skills: all, memory: all }),
             ...(p.mcp === undefined ? {} : { mcp: p.mcp }),

@@ -140,6 +140,7 @@
   }
 
   const ERRORS = {
+    HUB_PURE_MODE: "现在是官方原样，先到 设置 → 官方原样 点“重新开启 Hub”",
     RELAY_UNAUTHORIZED: "密钥无效或已过期",
     RELAY_NETWORK: "连不上中转站",
     RELAY_HTTP_ERROR: "中转站返回了错误",
@@ -1355,12 +1356,12 @@
     const module = h("section", { class: "m span-6 pure" }, h("div", { class: "sub" }, "读取中…"));
     root.append(h("div", { class: "grid compact" }, module));
 
-    // Restart whatever Codex is open (Hub-opened or official); nothing open is not a failure.
+    // Restart the Codex that is open (Hub-opened or official); nothing open is not a failure.
     async function reopenCodex() {
-      const restart = await call("codex.restart").catch(() => null);
-      if (restart && restart.ok) return "restarting";
       const status = await call("codex.status").catch(() => null);
-      return status && status.running ? "failed" : "notRunning";
+      if (!status || !status.running) return "notRunning";
+      const restart = await call("codex.restart").catch(() => null);
+      return restart && restart.ok ? "restarting" : "failed";
     }
     const announce = (pure) =>
       window.dispatchEvent(new CustomEvent("rly0-pure-changed", { detail: { pure } }));

@@ -161,10 +161,11 @@ export class Rly0CodexControl {
       (this.#options.fileExists ?? existsSync)(this.#startExecutable());
     // The Launcher's descriptor, or the Codex side's own heartbeat (the Launcher may have exited
     // while Codex keeps running).
-    // A Codex opened the official way (官方原样, or by hand) has neither, but is in the process table.
+    if ((await this.#descriptor()) !== null) return { running: true, canOpen };
+    // A Codex opened the official way (官方原样, or by hand) has neither descriptor nor heartbeat,
+    // but is in the process table.
     const desktop = await (this.#options.desktopRunning ?? (() => Promise.resolve(null)))();
     const running =
-      (await this.#descriptor()) !== null ||
       desktop === true ||
       ((await (this.#options.heartbeatAlive ?? (() => Promise.resolve(false)))()) &&
         desktop !== false);

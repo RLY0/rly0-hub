@@ -60,7 +60,9 @@ function runChecked(
   environment: NodeJS.ProcessEnv,
 ): Promise<number> {
   return new Promise((resolve) => {
-    execFile(executable, args, { env: environment, timeout: 20_000 }, (error) => {
+    execFile(executable, args, { env: environment, timeout: 60_000 }, (error) => {
+      // A slow `open` was cut off, not refused: Codex may well be opening.
+      if (error && (error as { killed?: boolean }).killed) return resolve(0);
       const code = (error as { code?: unknown } | null)?.code;
       resolve(error ? (typeof code === "number" ? code : 1) : 0);
     });
@@ -77,7 +79,7 @@ function startMenuCodexAppId(): Promise<string | null> {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "(Get-StartApps | Where-Object { $_.AppID -like 'OpenAI.Codex_*!*' } | Select-Object -First 1).AppID",
+        "(Get-StartApps | Where-Object { $_.AppID -like 'OpenAI.Codex_*!*' } | Sort-Object { $_.AppID -notlike '*!App' } | Select-Object -First 1).AppID",
       ],
       { windowsHide: true, timeout: 20_000 },
       (error, stdout) => {

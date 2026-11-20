@@ -226,7 +226,18 @@ export function codexDesktopRunning(): Promise<boolean | null> {
  * Windows: the Store app's own executable (not the CLI under `app\resources`), however it was
  * started — through the Launcher or the official way (官方原样).
  */
+let windowsRunningCache: { at: number; value: Promise<boolean | null> } | null = null;
+
+/** The window asks every few seconds; one process scan serves them for a few seconds. */
 function windowsCodexDesktopRunning(): Promise<boolean | null> {
+  const now = Date.now();
+  if (windowsRunningCache && now - windowsRunningCache.at < 4_000) return windowsRunningCache.value;
+  const value = scanWindowsCodexDesktop();
+  windowsRunningCache = { at: now, value };
+  return value;
+}
+
+function scanWindowsCodexDesktop(): Promise<boolean | null> {
   const script = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 $found = $false
@@ -234,7 +245,9 @@ foreach ($p in Get-CimInstance Win32_Process) {
   $exe = $p.ExecutablePath
   if (-not $exe) { continue }
   if ($exe.StartsWith('\\?\')) { $exe = $exe.Substring(4) }
-  if ($exe -like '*\WindowsApps\OpenAI.Codex_*' -and $exe -notlike '*\resources\*') { $found = $true; break }
+  if ($exe -like '*\resources\*') { continue }
+  if ($exe -like '*\WindowsApps\OpenAI.Codex_*') { $found = $true; break }
+  if ($env:RLY0_CODEX_PORTABLE -and $exe.StartsWith($env:RLY0_CODEX_PORTABLE, [StringComparison]::OrdinalIgnoreCase)) { $found = $true; break }
 }
 if ($found) { 'yes' } else { 'no' }
 `;
@@ -242,7 +255,16 @@ if ($found) { 'yes' } else { 'no' }
     execFile(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
-      { windowsHide: true, timeout: 20_000 },
+      {
+        windowsHide: true,
+        timeout: 20_000,
+        env: {
+          ...process.env,
+          RLY0_CODEX_PORTABLE: process.env.CODEXHOST_INSTALL_ROOT
+            ? `${path.join(process.env.CODEXHOST_INSTALL_ROOT, "app")}\\`
+            : "",
+        },
+      },
       (error, stdout) => {
         const answer = String(stdout).trim().split(/\s+/u).pop();
         resolve(error ? null : answer === "yes" ? true : answer === "no" ? false : null);
