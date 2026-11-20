@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectMacSharedHost } from "../src/rly0-hub-service/codex-processes.js";
+import { selectMacSharedHost, stopMacSharedHost } from "../src/rly0-hub-service/codex-processes.js";
 
 import {
   launchStockCodex,
@@ -104,27 +104,55 @@ describe("opening the official Codex (恢复官方原样)", () => {
   });
 });
 
-describe("the macOS shared Host (修复聊天记录 ends it to free Codex's database)", () => {
-  it("picks codexhost host serve and the shared-host runtime only", () => {
-    const hub = "/Apps/RLY0 Hub.app/Contents/Resources";
-    expect(
-      selectMacSharedHost(
-        [
-          {
-            pid: 10,
-            args: `${hub}/bin/codexhost host serve --node /x/node --host-runtime ${hub}/app/host-runtime.mjs`,
-          },
-          {
-            pid: 11,
-            args: `/x/node ${hub}/app/host-runtime.mjs --codexhost-shared-host --data /d`,
-          },
-          { pid: 12, args: `${hub}/bin/codexhost` },
-          { pid: 13, args: `/x/node ${hub}/app/host-runtime.mjs app-server` },
-          { pid: 14, args: `/Applications/ChatGPT.app/Contents/MacOS/ChatGPT` },
-          { pid: 15, args: `${hub}/bin/codexhost host serve --node /x/node` },
-        ],
-        new Set([15]),
-      ),
-    ).toEqual([10, 11]);
+describe("the macOS shared Host (修复聊天记录 stops it to free Codex's database)", () => {
+  const hub = "/Apps/RLY0 Hub.app/Contents/Resources";
+  const serve = (data: string) =>
+    `${hub}/bin/codexhost host serve --node /x/cua node/node --host-runtime ${hub}/app/host-runtime.mjs --data ${data} --codex-home /Users/a/.codex`;
+  const entries = [
+    { pid: 10, args: serve("/Users/a/.rly0-hub") },
+    {
+      pid: 11,
+      args: `/x/node ${hub}/app/host-runtime.mjs --codexhost-shared-host --data /Users/a/.rly0-hub`,
+    },
+    { pid: 12, args: serve("/tmp/isolated test/hub") },
+    { pid: 13, args: `/Applications/ChatGPT.app/Contents/MacOS/ChatGPT` },
+  ];
+
+  it("picks the supervisor of this data directory only, paths with spaces intact", () => {
+    expect(selectMacSharedHost(entries, "/Users/a/.rly0-hub")).toEqual([
+      {
+        pid: 10,
+        launcher: `${hub}/bin/codexhost`,
+        node: "/x/cua node/node",
+        runtime: `${hub}/app/host-runtime.mjs`,
+        data: "/Users/a/.rly0-hub",
+      },
+    ]);
+  });
+
+  it("stops it through its own launcher", async () => {
+    const runs: unknown[] = [];
+    const stopped = await stopMacSharedHost(
+      "/Users/a/.rly0-hub",
+      async () => entries,
+      async (file, args) => {
+        runs.push([file, ...args]);
+        return "";
+      },
+    );
+    expect(stopped).toBe(1);
+    expect(runs).toEqual([
+      [
+        `${hub}/bin/codexhost`,
+        "host",
+        "stop",
+        "--node",
+        "/x/cua node/node",
+        "--host-runtime",
+        `${hub}/app/host-runtime.mjs`,
+        "--data",
+        "/Users/a/.rly0-hub",
+      ],
+    ]);
   });
 });

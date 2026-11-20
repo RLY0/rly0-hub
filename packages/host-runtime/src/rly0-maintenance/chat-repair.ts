@@ -179,7 +179,11 @@ export class ChatRepair {
         fixedOnCodexStart: 0,
       };
     }
-    const closed = await this.#closeCodex();
+    // Only a provider change writes Codex's own database (the shared Host must let go of it).
+    const writesDatabase = before.groups.some(
+      (group) => group.kind === "codex-provider-not-current" && group.repairable,
+    );
+    const closed = await this.#closeCodex(writesDatabase);
     if (!closed) {
       return {
         ok: false,
@@ -257,7 +261,7 @@ export class ChatRepair {
         reason: "CHAT_REPAIR_UNDO_UNAVAILABLE",
       };
     }
-    const closed = await this.#closeCodex();
+    const closed = await this.#closeCodex(true);
     if (!closed) {
       return {
         ok: false,
@@ -293,7 +297,9 @@ export class ChatRepair {
    * Codex reads these records once when it starts and keeps them in memory, so they are only
    * written while it is closed. `null` when it would not close.
    */
-  async #closeCodex(): Promise<{ wasRunning: boolean; reopen: () => Promise<boolean> } | null> {
+  async #closeCodex(
+    writesDatabase: boolean,
+  ): Promise<{ wasRunning: boolean; reopen: () => Promise<boolean> } | null> {
     const { codex } = this.#options;
     const sleep = this.#options.sleep ?? sleepFor;
     const wasRunning = (await codex.status()).running;
@@ -309,7 +315,7 @@ export class ChatRepair {
       await sleep(1_000);
     }
     // Also when Codex was already closed: the shared Host's app-server still holds the database.
-    if (this.#options.stopSharedHost) {
+    if (writesDatabase && this.#options.stopSharedHost) {
       const stopped = await this.#options.stopSharedHost().catch(() => 0);
       if (stopped > 0) await sleep(1_000);
     }

@@ -177,36 +177,72 @@ async function endProcesses(
   await waitGone(left, dependencies, 2_000);
 }
 
+/** A running `codexhost host serve`: the launcher it runs from and its own options. */
+export interface MacSharedHost {
+  readonly pid: number;
+  readonly launcher: string;
+  readonly node: string;
+  readonly runtime: string;
+  readonly data: string;
+}
+
 /**
- * macOS: the shared codexhost Host (`codexhost host serve` and its `--codexhost-shared-host`
- * runtime). It outlives Codex and runs its own Codex app-server, which keeps Codex's state
- * database open; the Desktop controller starts it again (`host ensure`) on the next Codex start.
+ * macOS: the shared codexhost Host supervisors (`<launcher> host serve --node … --host-runtime …
+ * --data …`) serving the given data directory. Paths may contain spaces; options are split at
+ * the next ` --name `. Hosts of other data directories (other worktrees, isolated tests) are left.
  */
 export function selectMacSharedHost(
   entries: readonly MacProcessEntry[],
-  keep: ReadonlySet<number>,
-): number[] {
-  return entries
-    .filter(
-      ({ pid, args }) =>
-        Number.isSafeInteger(pid) &&
-        pid > 1 &&
-        !keep.has(pid) &&
-        (/(?:^|\s)--codexhost-shared-host(?:\s|$)/u.test(args) ||
-          /\/bin\/codexhost host serve(?:\s|$)/u.test(args)),
-    )
-    .map(({ pid }) => pid);
+  data: string,
+  keep: ReadonlySet<number> = new Set(),
+): MacSharedHost[] {
+  const found: MacSharedHost[] = [];
+  for (const { pid, args } of entries) {
+    if (!Number.isSafeInteger(pid) || pid <= 1 || keep.has(pid)) continue;
+    const head = /^(\/.+?\/codexhost) host serve( .*)?$/u.exec(args);
+    if (!head?.[1]) continue;
+    const options = new Map<string, string>();
+    for (const match of (head[2] ?? "").matchAll(/ --([a-z-]+) (.+?)(?= --[a-z-]+ |$)/gu)) {
+      if (match[1] && match[2]) options.set(match[1], match[2]);
+    }
+    const node = options.get("node");
+    const runtime = options.get("host-runtime");
+    const own = options.get("data");
+    if (!node || !runtime || own !== data) continue;
+    found.push({ pid, launcher: head[1], node, runtime, data: own });
+  }
+  return found;
 }
 
-/** Ends the shared Host (and with it its app-server); returns how many processes it had. */
+/**
+ * Stops the shared Host serving `data` through its own launcher (`host stop`: the Host's
+ * shutdown endpoint, then the supervisor cleans up the whole tree, its Codex app-server
+ * included). The Desktop controller starts it again (`host ensure`) on the next Codex start.
+ * Returns how many Hosts confirmed the stop.
+ */
 export async function stopMacSharedHost(
-  dependencies: MacProcessDependencies = defaultMacProcessDependencies(),
+  data: string,
+  list: () => Promise<MacProcessEntry[]> = () => defaultMacProcessDependencies().list(),
+  run: (file: string, args: readonly string[]) => Promise<string> = execText,
 ): Promise<number> {
-  const pids = selectMacSharedHost(await dependencies.list(), dependencies.keep);
-  if (pids.length === 0) return 0;
-  for (const pid of pids) dependencies.signal(pid, "SIGTERM");
-  await endProcesses(pids, dependencies, 5_000);
-  return pids.length;
+  let stopped = 0;
+  for (const host of selectMacSharedHost(await list(), data, new Set([process.pid]))) {
+    const ok = await run(host.launcher, [
+      "host",
+      "stop",
+      "--node",
+      host.node,
+      "--host-runtime",
+      host.runtime,
+      "--data",
+      host.data,
+    ]).then(
+      () => true,
+      () => false,
+    );
+    if (ok) stopped += 1;
+  }
+  return stopped;
 }
 
 /**
