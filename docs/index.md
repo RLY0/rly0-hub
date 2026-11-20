@@ -225,3 +225,4 @@
 | [`archive/harness-discovery-pre-2df7058/03-invalidated-conclusions.md`](archive/harness-discovery-pre-2df7058/03-invalidated-conclusions.md) | 已失效或需要限定条件的早期结论与当前事实。 |
 
 - [Codex 版本管理与兼容保底](features/codex-version-gate.md)：兼容清单、更新管理与核心模式及接口契约。
+- [Hub 官方原样（恢复纯净）](features/hub-official-mode.md)：让 Codex 按官方方式打开、不经 Hub 的开关与回到 Hub 的流程。
