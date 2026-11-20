@@ -1058,8 +1058,8 @@ test("no-account switch everywhere, auto-applied; reset card confirm", async ({ 
 });
 
 // 开启 Hub 转发: a required first-run dialog with a single 开启 button (no ×, Esc or outside
-// click) that names 设置 → 恢复纯净 as the way back. 统一渠道 is no longer a switch on any page.
-test("hub routing: required one-button dialog, no switch on pages, 恢复纯净 in settings", async ({
+// click) that names 设置 → 官方原样 as the way back. 统一渠道 is no longer a switch on any page.
+test("hub routing: required one-button dialog, no switch on pages, 官方原样 in settings", async ({
   page,
 }) => {
   const dir = path.join(runDir, "hub-routing");
@@ -1070,7 +1070,7 @@ test("hub routing: required one-button dialog, no switch on pages, 恢复纯净 
   await gate.waitFor();
   await expect(gate.locator(".dialog-x")).toHaveCount(0);
   await expect(gate.locator(".dialog-foot button")).toHaveCount(1);
-  await expect(gate).toContainText("设置 → 恢复纯净");
+  await expect(gate).toContainText("设置 → 官方原样");
   await page.screenshot({ path: path.join(dir, "gate.png") });
   await page.keyboard.press("Escape");
   await expect(gate).toBeVisible();
@@ -1082,18 +1082,49 @@ test("hub routing: required one-button dialog, no switch on pages, 恢复纯净 
   }
   await expect(page.locator("body")).not.toContainText("代理在线");
   await page.click('.rail button[data-page="settings"]');
-  await page.click('.settings-menu button:has-text("恢复纯净")');
+  await page.click('.settings-menu button:has-text("官方原样")');
   const pure = page.locator(".pure");
-  await expect(pure).toContainText("已保存的账号、中转站和 Key 会保留");
+  await expect(pure).toContainText("助手菜单、其他助手的对话和 Hub 加的按钮都不再显示");
+  await expect(pure).toContainText("账号、中转站、Key 和其他助手的对话会保留");
+  await page.screenshot({ path: path.join(dir, "pure-before.png"), fullPage: true });
   // The label changes once armed, so hold the button by place, not by name.
   const restore = pure.locator(".row .btn");
-  await expect(restore).toHaveText("恢复纯净状态");
+  await expect(restore).toHaveText("恢复官方原样");
   await restore.click();
   await expect(restore).toHaveClass(/armed/);
   await expect(restore).toHaveText("确认恢复");
   await restore.click();
-  await expect(pure).toContainText("已恢复纯净状态");
+  await expect(pure).toContainText("已恢复官方原样");
+  await expect(pure).toContainText("Codex 正在以官方方式重新打开");
+  await expect(pure).toContainText("现在是官方原样");
+  await expect(pure.locator(".row .btn")).toHaveText("重新开启 Hub");
+  const banner = page.locator("#hubAlert.calm");
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("Codex 现在不经过 Hub");
   await page.screenshot({ path: path.join(dir, "pure.png"), fullPage: true });
+  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+  if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+  await pure.locator(".row .btn").click();
+  await expect(pure).toContainText("已重新开启 Hub");
+  await expect(banner).toBeHidden();
+});
+
+// 官方原样 was chosen on purpose: the next start shows no required dialog, only a calm banner.
+test("hub routing: 官方原样 starts without the required dialog", async ({ page }) => {
+  const dir = path.join(runDir, "hub-routing");
+  mkdirSync(dir, { recursive: true });
+  await page.setViewportSize({ width: WIDTHS[0] ?? 1240, height: HEIGHT });
+  await page.goto("/index.html?pure");
+  const banner = page.locator("#hubAlert.calm");
+  await expect(banner).toBeVisible();
+  await expect(page.locator('.dialog[aria-label="开启 Hub 转发"]')).toHaveCount(0);
+  await page.screenshot({ path: path.join(dir, "pure-start.png") });
+  const update = page.locator('.dialog-backdrop.show .dialog[aria-label^="发现新版本"]');
+  await update.waitFor({ timeout: 5000 }).catch(() => undefined);
+  if (await update.isVisible().catch(() => false)) await update.locator(".dialog-x").click();
+  await banner.getByRole("button", { name: "重新开启 Hub" }).click();
+  await expect(page.locator(".pure")).toContainText("现在是官方原样");
 });
 
 // The former web console lives in the Hub: the shell's navigate event (Launcher / Codex entries)

@@ -87,7 +87,7 @@ const TOUR: Stop[] = [
       ["instructions", "自定义指令"],
       ["network", "网络代理"],
       ["backup", "备份"],
-      ["pure", "恢复纯净"],
+      ["pure", "官方原样"],
       ["remote", "远程连接"],
       ["usage", "用量统计"],
       ["updates", "更新"],

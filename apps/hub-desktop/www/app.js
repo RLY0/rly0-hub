@@ -279,7 +279,7 @@
     relays: "中转站",
     accounts: "账号",
     backup: "备份",
-    pure: "恢复纯净",
+    pure: "官方原样",
     support: "支持",
     settings: "设置",
     general: "通用",
@@ -794,7 +794,7 @@
     ["instructions", "自定义指令"],
     ["network", "网络代理"],
     ["backup", "备份"],
-    ["pure", "恢复纯净"],
+    ["pure", "官方原样"],
     ["remote", "远程连接"],
     ["usage", "用量统计"],
     ["updates", "更新"],
@@ -1348,71 +1348,139 @@
     });
   }
 
-  /* 恢复纯净: undo how the Hub routes Codex (统一渠道, local hub, 免登录用中转, Codex config).
-     Saved accounts, relays and keys stay. Afterwards the required dialog shows on next start. */
+  /* 官方原样 (恢复纯净): Codex goes back to how the official app is — not routed through the Hub,
+     opened without the Launcher, so nothing the Hub adds shows in it. Saved accounts, relays, keys
+     and other agents' chats stay; 重新开启 Hub brings everything back. */
   pages.pure = (root, alive) => {
-    const result = h("div", { class: "pure-result", hidden: true });
-    let confirmTap = () => true;
-    const go_ = h(
-      "button",
-      {
-        class: "btn",
-        type: "button",
-        onclick: async () => {
-          if (!confirmTap()) return;
-          go_.disabled = true;
-          const r = await call("hub.restorePure").catch(() => null);
-          if (!alive()) return;
-          go_.disabled = false;
-          result.hidden = false;
-          if (!r) {
-            result.replaceChildren(h("p", { class: "warn-text" }, "没有完成，请重试"));
-            return;
-          }
-          const restart = await call("codex.restart").catch(() => null);
-          if (!alive()) return;
-          result.replaceChildren(
-            h("b", null, r.ok ? "已恢复纯净状态" : "部分没有恢复"),
-            h(
-              "p",
-              { class: "sub" },
-              r.ok
-                ? restart && restart.ok
-                  ? "Codex 正在重启"
-                  : "请手动重启 Codex"
-                : "再点一次重试",
-            ),
-            null,
-          );
+    const module = h("section", { class: "m span-6 pure" }, h("div", { class: "sub" }, "读取中…"));
+    root.append(h("div", { class: "grid compact" }, module));
+
+    async function reopenCodex() {
+      const status = await call("codex.status").catch(() => null);
+      if (!status || !status.running) return "notRunning";
+      const restart = await call("codex.restart").catch(() => null);
+      return restart && restart.ok ? "restarting" : "failed";
+    }
+    function resultLine(reopen, pureNow) {
+      if (reopen === "restarting") {
+        return pureNow ? "Codex 正在以官方方式重新打开" : "Codex 正在经 Hub 重新打开";
+      }
+      if (reopen === "failed") return "请手动退出 Codex，再重新打开";
+      return pureNow ? "下次打开 Codex 就是官方原样" : "下次从 Hub 打开 Codex 即可";
+    }
+
+    function renderPureOn() {
+      const result = h("div", { class: "pure-result", "aria-live": "polite" });
+      const back = h(
+        "button",
+        {
+          class: "btn paper",
+          type: "button",
+          onclick: async () => {
+            back.disabled = true;
+            result.replaceChildren(h("p", { class: "sub" }, "正在开启…"));
+            const r = await call("hub.enableChannel").catch(() => null);
+            if (!alive()) return;
+            if (!r || !r.ok) {
+              back.disabled = false;
+              result.replaceChildren(h("p", { class: "warn-text" }, "没有开启成功，请重试"));
+              return;
+            }
+            const reopen = await reopenCodex();
+            if (!alive()) return;
+            window.dispatchEvent(new CustomEvent("rly0-pure-changed", { detail: { pure: false } }));
+            result.replaceChildren(h("b", null, "已重新开启 Hub"), h("p", { class: "sub" }, resultLine(reopen, false)));
+          },
         },
-      },
-      "恢复纯净状态",
-    );
-    confirmTap = window.HubUI.armable(go_, { armedText: "确认恢复" });
-    root.append(
-      h(
-        "div",
-        { class: "grid compact" },
+        "重新开启 Hub",
+      );
+      module.replaceChildren(
+        h("b", null, "现在是官方原样"),
         h(
-          "section",
-          { class: "m span-6 pure" },
-          h("b", null, "恢复到装 Hub 之前"),
-          null,
-          h(
-            "ul",
-            { class: "pure-steps" },
-            h("li", null, "关闭统一渠道，停止本机枢纽"),
-            h("li", null, "关闭免登录用中转"),
-            h("li", null, "Codex 配置还原为安装前的备份"),
-            h("li", null, "关闭 Codex 更新管理，Codex 恢复自己更新"),
-            h("li", null, "完成后自动重启 Codex"),
-          ),
-          h("p", { class: "sub" }, "已保存的账号、中转站和 Key 会保留。"),
-          h("div", { class: "row" }, go_),
-          result,
+          "ul",
+          { class: "pure-steps" },
+          h("li", null, "Codex 不经过 Hub，用官方方式打开"),
+          h("li", null, "看不到助手菜单、其他助手的对话和 Hub 加的按钮"),
+          h("li", null, "Codex 自己更新"),
         ),
-      ),
-    );
+        h("p", { class: "sub" }, "账号、中转站、Key 和其他助手的对话都还在，重新开启后回来。"),
+        h("div", { class: "row" }, back),
+        result,
+      );
+    }
+
+    function renderPureOff() {
+      const result = h("div", { class: "pure-result", hidden: true, "aria-live": "polite" });
+      let confirmTap = () => true;
+      const go_ = h(
+        "button",
+        {
+          class: "btn",
+          type: "button",
+          onclick: async () => {
+            if (!confirmTap()) return;
+            go_.disabled = true;
+            const r = await call("hub.restorePure").catch(() => null);
+            if (!alive()) return;
+            result.hidden = false;
+            if (!r) {
+              go_.disabled = false;
+              result.replaceChildren(h("p", { class: "warn-text" }, "没有完成，请重试"));
+              return;
+            }
+            const reopen = await reopenCodex();
+            if (!alive()) return;
+            window.dispatchEvent(new CustomEvent("rly0-pure-changed", { detail: { pure: true } }));
+            if (!r.ok) {
+              go_.disabled = false;
+              result.replaceChildren(
+                h("b", null, "部分没有恢复"),
+                h("p", { class: "sub" }, "再点一次重试"),
+              );
+              return;
+            }
+            renderPureOn();
+            module.append(
+              h(
+                "div",
+                { class: "pure-result" },
+                h("b", null, "已恢复官方原样"),
+                h("p", { class: "sub" }, resultLine(reopen, true)),
+              ),
+            );
+          },
+        },
+        "恢复官方原样",
+      );
+      confirmTap = window.HubUI.armable(go_, { armedText: "确认恢复" });
+      module.replaceChildren(
+        h("b", null, "让 Codex 回到官方原样"),
+        h(
+          "ul",
+          { class: "pure-steps" },
+          h("li", null, "关闭统一渠道，停止本机枢纽"),
+          h("li", null, "关闭免登录用中转"),
+          h("li", null, "Codex 配置还原为安装前的备份"),
+          h("li", null, "关闭 Codex 更新管理，Codex 恢复自己更新"),
+          h("li", null, "Codex 改用官方方式打开：助手菜单、其他助手的对话和 Hub 加的按钮都不再显示"),
+          h("li", null, "Codex 开着的话会自动重新打开"),
+        ),
+        h("p", { class: "sub" }, "账号、中转站、Key 和其他助手的对话会保留，随时可以重新开启 Hub。"),
+        h("p", { class: "sub" }, "经 Hub 线路聊过的旧对话，官方原样下可能接不上，新开对话不受影响。"),
+        h("div", { class: "row" }, go_),
+        result,
+      );
+    }
+
+    call("hub.state")
+      .then((state) => {
+        if (!alive()) return;
+        if (state && state.pure) renderPureOn();
+        else renderPureOff();
+      })
+      .catch(() => {
+        if (alive()) renderPureOff();
+      });
   };
 
   pages.backup = (root, alive) => {
@@ -2269,9 +2337,12 @@
       },
       "hub.state": {
         onboarded: !/[?&]wizard/.test(location.search),
-        channelConsented: !/[?&]gate/.test(location.search),
+        channelConsented: !/[?&](gate|pure)\b/.test(location.search),
+        pure: /[?&]pure\b/.test(location.search),
       },
       "hub.enableChannel": { ok: true, proxyRunning: true },
+      "codex.restart": { ok: true },
+      "codex.open": { ok: true },
       "hub.restorePure": {
         ok: true,
         steps: { unified: true, noAccount: true, proxy: true, config: true },
@@ -2407,7 +2478,7 @@
 
   if (!webview) onMessage({ event: "ready" });
   /* ---------- Required first-run step: route Codex through the Hub ---------- */
-  // One button only. The way back is 设置 → 恢复纯净, named right in the dialog.
+  // One button only. The way back is 设置 → 官方原样, named right in the dialog.
   function channelGate() {
     return new Promise((resolve) => {
       const ui = window.HubUI.dialog({ title: "开启 Hub 转发", locked: true });
@@ -2446,7 +2517,7 @@
             h("li", null, "同一对话里换模型、分发任务"),
           ),
           h("p", { class: "sub" }, "只在本机转发，不经过第三方服务器。"),
-          h("p", { class: "sub" }, "想恢复成装 Hub 之前的样子：设置 → 恢复纯净。"),
+          h("p", { class: "sub" }, "想让 Codex 回到官方原样：设置 → 官方原样。"),
           status,
         ),
       );
@@ -2458,7 +2529,30 @@
   /* ---------- Shown only when something is wrong: the local hub is not running ---------- */
   const alertEl = document.getElementById("hubAlert");
   let channelOn = false;
+  let pureOn = false;
+  function showPureBanner() {
+    alertEl.classList.add("calm");
+    alertEl.hidden = false;
+    alertEl.setAttribute("role", "status");
+    alertEl.replaceChildren(
+      h("b", null, "官方原样"),
+      h("span", null, "Codex 现在不经过 Hub"),
+      h("span", { class: "spacer" }),
+      h("button", { class: "btn sm paper", type: "button", onclick: () => go("pure") }, "重新开启 Hub"),
+    );
+  }
+  window.addEventListener("rly0-pure-changed", (event) => {
+    pureOn = Boolean(event.detail && event.detail.pure);
+    channelOn = !pureOn;
+    checkHubAlert();
+  });
   async function checkHubAlert() {
+    if (pureOn) {
+      showPureBanner();
+      return;
+    }
+    alertEl.classList.remove("calm");
+    alertEl.setAttribute("role", "alert");
     if (!channelOn) {
       alertEl.hidden = true;
       return;
@@ -2492,8 +2586,10 @@
   go("home");
   call("hub.state")
     .then(async (state) => {
-      if (!state.channelConsented) await channelGate();
-      channelOn = true;
+      // 官方原样 was chosen on purpose: no required dialog, just a calm banner with the way back.
+      pureOn = state.pure === true;
+      if (!pureOn && !state.channelConsented) await channelGate();
+      channelOn = !pureOn;
       checkHubAlert();
       if (state.onboarded) void window.showCodexUpdatesNotice({ h, call, go });
       if (!state.onboarded) go("wizard");

@@ -8,6 +8,7 @@ import {
 } from "@codexhost/shared-contracts";
 
 import { createLauncherProcessControl } from "../rly0-maintenance/launcher-process-control.js";
+import { launchStockCodex, stockLaunchSupported } from "./codex-stock-launch.js";
 
 /** Must match `crates/launcher/src/runtime_instance.rs`. */
 export const RLY0_RUNTIME_DESCRIPTOR_FILE = "desktop-runtime-v1.json";
@@ -62,6 +63,10 @@ export interface Rly0CodexControlOptions {
   readonly killProcesses?: () => Promise<number>;
   /** Pause between ending Codex and opening it again on a direct restart. */
   readonly restartDelayMs?: number;
+  /** 恢复官方原样 is on: open Codex the official way, never through the Launcher. */
+  readonly pure?: () => Promise<boolean>;
+  /** Opens the official Codex (`codex-stock-launch.ts`); returns false when it cannot. */
+  readonly startStock?: () => Promise<boolean>;
 }
 
 function processAlive(pid: number): boolean {
@@ -139,8 +144,17 @@ export class Rly0CodexControl {
     return (this.#options.platform ?? process.platform) === "win32";
   }
 
+  async #pure(): Promise<boolean> {
+    return (await this.#options.pure?.().catch(() => false)) === true;
+  }
+
   async status(): Promise<Rly0CodexStatus> {
     const platform = this.#options.platform ?? process.platform;
+    if (await this.#pure()) {
+      // No Launcher and no Hub heartbeat in the official Codex: only the process table tells.
+      const running = (await (this.#options.desktopRunning ?? (() => Promise.resolve(null)))()) === true;
+      return { running, canOpen: stockLaunchSupported(platform) };
+    }
     const canOpen =
       (this.#windows() || platform === "darwin") &&
       (this.#options.fileExists ?? existsSync)(this.#startExecutable());
@@ -154,6 +168,16 @@ export class Rly0CodexControl {
   }
 
   async open(): Promise<{ ok: boolean }> {
+    if (await this.#pure()) {
+      const start =
+        this.#options.startStock ??
+        (() =>
+          launchStockCodex({
+            environment: this.#options.environment,
+            ...(this.#options.platform ? { platform: this.#options.platform } : {}),
+          }));
+      return { ok: await start().catch(() => false) };
+    }
     if (!(await this.status()).canOpen) return { ok: false };
     // An undecidable version keeps Codex usable with only the passive core bridge.
     const mode: Rly0CodexLaunchMode =

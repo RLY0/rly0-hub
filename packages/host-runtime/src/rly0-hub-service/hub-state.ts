@@ -26,6 +26,12 @@ export interface Rly0HubState {
    * first-run dialog. Cleared by 恢复纯净状态, so the dialog shows again next time.
    */
   readonly channelConsented?: boolean;
+  /**
+   * 恢复官方原样 is on: Codex is opened the official way (no Launcher, no injected interface, no
+   * routing through the Hub) and the Hub changes nothing in Codex at start. Cleared by
+   * hub.enableChannel.
+   */
+  readonly pure?: boolean;
   /** A low-balance notice was shown and the balance has not recovered since. */
   readonly balanceLowNotified?: boolean;
   /** `resetsAt` of the Codex quota window a low-quota notice was shown for. */
@@ -61,6 +67,7 @@ function clean(value: unknown): Rly0HubState {
     ...(raw.autostartDefaulted === true ? { autostartDefaulted: true } : {}),
     ...(raw.onboarded === true ? { onboarded: true } : {}),
     ...(raw.channelConsented === true ? { channelConsented: true } : {}),
+    ...(raw.pure === true ? { pure: true } : {}),
     ...(raw.balanceLowNotified === true ? { balanceLowNotified: true } : {}),
     ...(typeof raw.quotaNotifiedFor === "number" && Number.isSafeInteger(raw.quotaNotifiedFor)
       ? { quotaNotifiedFor: raw.quotaNotifiedFor }

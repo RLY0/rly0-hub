@@ -508,11 +508,13 @@ describe("Hub tray notices", () => {
     expect(await service.handle("hub.state", {})).toEqual({
       onboarded: false,
       channelConsented: false,
+      pure: false,
     });
     await service.handle("hub.finishOnboarding", {});
     expect(await service.handle("hub.state", {})).toEqual({
       onboarded: true,
       channelConsented: false,
+      pure: false,
     });
   });
 
@@ -546,7 +548,54 @@ describe("Hub tray notices", () => {
     expect(await service.handle("codex.updates.status", {})).toMatchObject({ enabled: false });
     expect(stopped).toEqual(["proxy"]);
     expect(await service.handle("relay.unifiedStatus", {})).toEqual({ enabled: false });
-    expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: false });
+    expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: false, pure: true });
+
+    // Turning routing on again leaves 恢复官方原样.
+    await service.handle("hub.enableChannel", {});
+    expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: true, pure: false });
+  });
+
+  it("opens Codex the official way while 恢复官方原样 is on, and through the Launcher otherwise", async () => {
+    const root = await tempDir();
+    const codexHome = await tempDir();
+    const launched: string[] = [];
+    const { core } = fakeCore([]);
+    Object.assign(core, { proxyStop: async () => ({ stopped: true }) });
+    const { Rly0CodexControl } = await import("../src/rly0-hub-service/codex-control.js");
+    const { Rly0HubStateStore } = await import("../src/rly0-hub-service/hub-state.js");
+    const environment = { CODEXHOST_DATA_DIR: root, CODEX_HOME: codexHome };
+    const state = new Rly0HubStateStore(environment);
+    const codex = new Rly0CodexControl({
+      environment,
+      installRoot: root,
+      platform: "darwin",
+      fileExists: () => true,
+      desktopRunning: async () => false,
+      startDetached: (executable) => launched.push(`launcher:${executable}`),
+      startStock: async () => {
+        launched.push("official");
+        return true;
+      },
+      pure: async () => (await state.read()).pure === true,
+    });
+    const service = new Rly0HubService({
+      environment,
+      installRoot: root,
+      backendReloadTimeoutMs: 50,
+      core,
+      codex,
+    });
+    await service.handle("codex.open", {});
+    await service.handle("hub.restorePure", {});
+    expect(await service.handle("codex.status", {})).toMatchObject({ running: false, canOpen: true });
+    await service.handle("codex.open", {});
+    await service.handle("hub.enableChannel", {});
+    await service.handle("codex.open", {});
+    expect(launched).toEqual([
+      `launcher:${path.posix.join(root, "bin", "codexhost")}`,
+      "official",
+      `launcher:${path.posix.join(root, "bin", "codexhost")}`,
+    ]);
   });
 });
 

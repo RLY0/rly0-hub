@@ -18,6 +18,66 @@ import {
   writeJsonFile,
 } from "../src/rly0-maintenance/backend-reload-channel.js";
 
+describe("atomic Hub status writes", () => {
+  it("keeps simultaneous writes distinct even in the same millisecond", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-status-write-"));
+    const file = path.join(directory, "status.json");
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_795_153_728_487);
+    try {
+      const values = Array.from({ length: 16 }, (_, index) => ({
+        synthetic: true,
+        index,
+        payload: String(index).repeat(1024),
+      }));
+      const writes = await Promise.allSettled(values.map((value) => writeJsonFile(file, value)));
+      expect(writes.filter((write) => write.status === "rejected")).toEqual([]);
+      expect(values).toContainEqual(JSON.parse(await fs.readFile(file, "utf8")));
+      expect(await fs.readdir(directory)).toEqual(["status.json"]);
+    } finally {
+      clock.mockRestore();
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans up an unpublished write when the destination rejects replacement", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-status-write-"));
+    const file = path.join(directory, "status.json");
+    try {
+      await fs.mkdir(file);
+      await fs.writeFile(path.join(file, "previous.json"), "synthetic previous data");
+      await expect(writeJsonFile(file, { synthetic: true })).rejects.toThrow();
+      expect(await fs.readFile(path.join(file, "previous.json"), "utf8")).toBe(
+        "synthetic previous data",
+      );
+      expect(await fs.readdir(directory)).toEqual(["status.json"]);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves another writer's temporary file when exclusive creation fails", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-status-write-"));
+    const file = path.join(directory, "status.json");
+    let conflict: string | undefined;
+    const open = vi.spyOn(fs, "open").mockImplementationOnce(async (temporary) => {
+      conflict = temporary.toString();
+      await fs.writeFile(temporary, "synthetic competing writer");
+      throw Object.assign(new Error("synthetic name collision"), { code: "EEXIST" });
+    });
+    try {
+      await expect(writeJsonFile(file, { synthetic: true })).rejects.toMatchObject({
+        code: "EEXIST",
+      });
+      if (!conflict) throw new Error("synthetic conflict was not injected");
+      expect(await fs.readFile(conflict, "utf8")).toBe("synthetic competing writer");
+      await expect(fs.stat(file)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      open.mockRestore();
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("Hub → Codex backend reload channel", () => {
   it("reloads once per new request and reports the outcome to the Hub", async () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-reload-"));

@@ -62,7 +62,6 @@ function sameLocalProxyHost(left: string | undefined, right: string): boolean {
   }
 }
 
-
 export type Rly0RelayCodexConfigEnsureResult =
   | (Rly0RelayCodexConfigMutationResult & { readonly skipped?: false })
   | {
@@ -82,6 +81,8 @@ interface InjectionState {
   /** No-account mode was applied (provider written with `requires_openai_auth = false`). */
   readonly noAccount?: boolean;
 }
+
+const RLY0_DEFAULT_OPT_OUT_FILE = "relay-default-optout.json";
 
 export interface Rly0RelayCodexConfigManagerOptions {
   readonly environment?: NodeJS.ProcessEnv;
@@ -161,6 +162,22 @@ export class Rly0RelayCodexConfigManager {
     return path.join(resolveRly0DataDir(this.#environment), RLY0_RELAY_INJECTION_STATE_FILE_NAME);
   }
 
+  /** Present once the user restored the official setup; startup then stops re-applying the default. */
+  optOutPath(): string {
+    return path.join(resolveRly0DataDir(this.#environment), RLY0_DEFAULT_OPT_OUT_FILE);
+  }
+
+  /** The user chose the RLY/0 default again (explicit apply or re-enabling the channel). */
+  async allowDefault(): Promise<void> {
+    await fs.rm(this.optOutPath(), { force: true });
+  }
+
+  async #writeOptOut(): Promise<void> {
+    const optOutPath = this.optOutPath();
+    await fs.mkdir(path.dirname(optOutPath), { recursive: true });
+    await fs.writeFile(optOutPath, `${JSON.stringify({ version: 1, at: this.#now() })}\n`, "utf8");
+  }
+
   async #readState(): Promise<InjectionState | null> {
     return parseState(await readOptional(this.statePath()));
   }
@@ -208,7 +225,6 @@ export class Rly0RelayCodexConfigManager {
     };
   }
 
-
   /**
    * Idempotently ensure Codex uses the RLY/0 Hub local provider by default:
    * top-level `model_provider = "rly0"` and `model = "rly0/..."` (before any [section]),
@@ -224,6 +240,10 @@ export class Rly0RelayCodexConfigManager {
     if (!isRly0PrefixedModel(input.model)) {
       throw codedError("CODEX_CONFIG_VERIFY_FAILED");
     }
+    // The user restored the official setup: leave config.toml alone until they opt back in.
+    if ((await readOptional(this.optOutPath())) !== null) {
+      return { ok: true, skipped: true, status: await this.status() };
+    }
     // Validate baseUrl the same way apply does (without requiring setDefault yet).
     rly0RelayCodexConfigApplyParamsSchema.parse({
       baseUrl: input.baseUrl,
@@ -235,8 +255,7 @@ export class Rly0RelayCodexConfigManager {
     const modelOk = isRly0PrefixedModel(status.model);
     const providerOk = status.modelProvider === RLY0_CODEX_PROVIDER_ID;
     const sectionOk =
-      status.providerPresent === true &&
-      sameLocalProxyHost(status.providerBaseUrl, input.baseUrl);
+      status.providerPresent === true && sameLocalProxyHost(status.providerBaseUrl, input.baseUrl);
     if (modelOk && providerOk && sectionOk) {
       return { ok: true, skipped: true, status };
     }
@@ -305,6 +324,7 @@ export class Rly0RelayCodexConfigManager {
       ...(params.noAccount ? { noAccount: true } : {}),
     });
     if (next !== content) await backupAndWriteAtomic(configPath, next);
+    if (params.setDefault) await this.allowDefault();
     return { ok: true, status: await this.status() };
   }
 
@@ -338,8 +358,16 @@ export class Rly0RelayCodexConfigManager {
     if (content !== null) {
       const parsed = content.trim() === "" ? {} : parseConfig(content);
       let next = removeTable(content, PROVIDER_PATH);
+      // A previous provider that is another tool's local proxy (AiMaMi's router and the like) is
+      // not put back: restoring means Codex's official default, and that proxy may not be running.
+      const previousIsLocalProxy = isLocalProxyProvider(
+        parsed,
+        state?.previous.modelProvider ?? null,
+      );
       if (parsed.model_provider === RLY0_CODEX_PROVIDER_ID) {
-        const previousProvider = state?.previous.modelProvider ?? null;
+        const previousProvider = previousIsLocalProxy
+          ? null
+          : (state?.previous.modelProvider ?? null);
         next =
           previousProvider === null
             ? removeTopLevelKey(next, "model_provider")
@@ -351,7 +379,7 @@ export class Rly0RelayCodexConfigManager {
         parsed.model === state.writtenModel
       ) {
         next =
-          state.previous.model === null
+          state.previous.model === null || previousIsLocalProxy
             ? removeTopLevelKey(next, "model")
             : setTopLevelKey(next, "model", tomlString(state.previous.model));
       }
@@ -366,7 +394,44 @@ export class Rly0RelayCodexConfigManager {
       if (next !== content) await backupAndWriteAtomic(configPath, next);
     }
     await fs.rm(this.statePath(), { force: true });
+    await this.#writeOptOut();
     return { ok: true, status: await this.status() };
+  }
+
+  /**
+   * For after config.toml was put back from an older backup: if its default provider is another
+   * tool's local proxy (AiMaMi's router), drop that default so Codex uses its official one. The
+   * provider table itself belongs to the other tool and is left alone.
+   */
+  async leaveLocalProxyDefault(): Promise<{ readonly changed: boolean }> {
+    const configPath = this.configPath();
+    const content = await readOptional(configPath);
+    if (content === null || content.trim() === "") return { changed: false };
+    const parsed = parseConfig(content);
+    if (!isLocalProxyProvider(parsed, stringOrNull(parsed.model_provider))) {
+      return { changed: false };
+    }
+    const next = removeTopLevelKey(content, "model_provider");
+    if (parseConfig(next).model_provider !== undefined) {
+      throw codedError("CODEX_CONFIG_VERIFY_FAILED");
+    }
+    await backupAndWriteAtomic(configPath, next);
+    return { changed: true };
+  }
+}
+
+const LOOPBACK_HOST = /^(127\.\d+\.\d+\.\d+|localhost|\[?::1\]?)$/iu;
+
+/** Whether `providerId` is a user-defined provider whose `base_url` points at this machine. */
+function isLocalProxyProvider(parsed: Record<string, unknown>, providerId: string | null): boolean {
+  if (providerId === null || providerId === RLY0_CODEX_PROVIDER_ID) return false;
+  const providers = isRecord(parsed.model_providers) ? parsed.model_providers : {};
+  const provider = providers[providerId];
+  if (!isRecord(provider) || typeof provider.base_url !== "string") return false;
+  try {
+    return LOOPBACK_HOST.test(new URL(provider.base_url).hostname);
+  } catch {
+    return false;
   }
 }
 

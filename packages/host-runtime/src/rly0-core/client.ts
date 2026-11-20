@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Locates the closed-source `rly0-core` binary. Discovery order: an explicit `RLY0_CORE_PATH`
- * environment override, then a binary next to the running Node/Electron executable, then a
- * binary sitting next to this package's own root (the layout used by local dev and packaging).
+ * environment override, then a binary next to the running Node/Electron executable, then the
+ * bundled runtime directory, then a binary sitting next to this package's own root.
  * Returns `null` when none of the candidates exist so callers can degrade gracefully instead of
  * crashing.
  */
@@ -19,6 +19,8 @@ export function resolveRly0CoreBinaryPath(
   if (envPath) candidates.push(envPath);
   const execDir = path.dirname(process.execPath);
   for (const name of names) candidates.push(path.join(execDir, name));
+  const bundledRuntime = path.resolve(fileURLToPath(import.meta.url), "..", "..", "runtime");
+  for (const name of names) candidates.push(path.join(bundledRuntime, name));
   // packages/host-runtime/{src,dist}/rly0-core/client.{ts,js} -> packages/host-runtime
   const packageRoot = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
   for (const name of names) candidates.push(path.join(packageRoot, name));

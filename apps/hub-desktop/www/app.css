@@ -5363,8 +5363,13 @@ select.input,
 .hub-alert > span:not(.pulse):not(.spacer) {
   color: var(--muted-dark);
 }
+/* 官方原样: chosen on purpose, so a calm note instead of the red problem banner. */
+.hub-alert.calm {
+  background: var(--ink-750);
+  box-shadow: inset 3px 0 0 var(--muted-dark);
+}
 
-/* ---------- 设置 → 恢复纯净 ---------- */
+/* ---------- 设置 → 官方原样 (恢复纯净) ---------- */
 .pure {
   display: grid;
   gap: 10px;

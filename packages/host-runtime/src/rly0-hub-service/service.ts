@@ -358,6 +358,7 @@ export class Rly0HubService {
             }
           : {}),
         heartbeatAlive: () => codexHeartbeatAlive(resolveRly0DataDir(environment)),
+        pure: async () => (await this.#state.read()).pure === true,
         ...(options.codexDesktopRunning ? { desktopRunning: options.codexDesktopRunning } : {}),
         ...(options.killCodexProcesses ? { killProcesses: options.killCodexProcesses } : {}),
         ...(options.platform ? { platform: options.platform } : {}),
@@ -539,9 +540,12 @@ export class Rly0HubService {
       await this.#state.update({ autostartDefaulted: true });
     }
     await this.#backup.ensure().catch(() => false);
-    await this.#ensureProxyForRelays().catch(() => undefined);
-    // Make Codex default to the RLY/0 local provider (config.toml), idempotent + backed up.
-    await this.#ensureCodexDefaultProvider().catch(() => undefined);
+    // 恢复官方原样: the Hub changes nothing in Codex until routing is turned on again.
+    if (state.pure !== true) {
+      await this.#ensureProxyForRelays().catch(() => undefined);
+      // Make Codex default to the RLY/0 local provider (config.toml), idempotent + backed up.
+      await this.#ensureCodexDefaultProvider().catch(() => undefined);
+    }
     // Local metadata only: no model request and no change to the running client.
     await this.#compatibility.check().catch(() => undefined);
     // Shared memory: import Codex memories once; Codex's rly0_memory entry follows the switch.
@@ -1129,12 +1133,14 @@ export class Rly0HubService {
         return {
           onboarded: state.onboarded === true,
           channelConsented: state.channelConsented === true,
+          pure: state.pure === true,
         };
       }),
       // Required first-run step: every Codex conversation goes through the Hub (统一渠道 on and
       // the local proxy running). The only way back is 恢复纯净状态 below.
       "hub.enableChannel": route(empty, async () => {
         await writeUnifiedChannel(true, this.#options.environment);
+        await this.#codexConfig.allowDefault();
         let proxyRunning = false;
         try {
           await this.#router.ensureProxy();
@@ -1143,7 +1149,7 @@ export class Rly0HubService {
         } catch {
           proxyRunning = false;
         }
-        await this.#state.update({ channelConsented: true });
+        await this.#state.update({ channelConsented: true, pure: false });
         return { ok: true, proxyRunning };
       }),
       // 恢复纯净状态: undo everything the Hub changed in how Codex connects. Saved accounts,
@@ -1173,6 +1179,11 @@ export class Rly0HubService {
                 () => false,
               )
             : true;
+        // The backup is from before the Hub, possibly with another tool's proxy as the default.
+        steps.officialDefault = await this.#codexConfig.leaveLocalProxyDefault().then(
+          () => true,
+          () => false,
+        );
         // Run after restoring config.toml so an old backup cannot reintroduce the managed MCP.
         steps.sharedResources = await this.#bridge.restorePure().then(
           () => true,
@@ -1184,7 +1195,9 @@ export class Rly0HubService {
           (status) => status.error === null && !status.enabled,
           () => false,
         );
-        await this.#state.update({ channelConsented: false });
+        // From here on Codex opens the official way (no Launcher, nothing injected); restarting it is
+        // the caller's step.
+        await this.#state.update({ channelConsented: false, pure: true });
         return { ok: Object.values(steps).every(Boolean), steps };
       }),
       "hub.finishOnboarding": route(empty, async () => {

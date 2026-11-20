@@ -450,6 +450,75 @@ describe("Rly0RelayCodexConfigManager", () => {
     expect(after).toContain("# keep me");
   });
 
+  it("restores to the official default when the previous provider was a local proxy", async () => {
+    const configPath = await writeConfig(
+      [
+        'model = "gpt-6.1-sol"',
+        'model_provider = "aimai1"',
+        "",
+        "[model_providers.aimai1]",
+        'base_url = "http://127.0.0.1:25817/codex/router/v1"',
+        "",
+      ].join("\n"),
+    );
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    await manager.apply({ baseUrl: BASE_URL, setDefault: true, model: "relay-5" });
+    await manager.restore();
+    const after = parseToml(await fs.readFile(configPath, "utf8")) as Record<string, unknown>;
+    expect(after.model_provider).toBeUndefined();
+    expect(after.model).toBeUndefined();
+  });
+
+  it("does not re-apply the default after the user restored, until they apply again", async () => {
+    const configPath = await writeConfig('model = "gpt-5"\n');
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    await manager.apply({ baseUrl: BASE_URL, setDefault: true, model: "rly0/abc/relay-5" });
+    await manager.restore();
+    const restored = await fs.readFile(configPath, "utf8");
+
+    // Startup runs ensureDefault; it must leave the restored official setup alone.
+    const ensured = await manager.ensureDefault({ baseUrl: BASE_URL, model: "rly0/abc/relay-5" });
+    expect(ensured).toMatchObject({ ok: true, skipped: true });
+    expect(await fs.readFile(configPath, "utf8")).toBe(restored);
+
+    // An explicit apply opts back in, and later startups keep the default again.
+    await manager.apply({ baseUrl: BASE_URL, setDefault: true, model: "rly0/abc/relay-5" });
+    await manager.restore();
+    await manager.allowDefault();
+    await manager.ensureDefault({ baseUrl: BASE_URL, model: "rly0/abc/relay-5" });
+    expect(parseToml(await fs.readFile(configPath, "utf8"))).toMatchObject({
+      model_provider: "rly0",
+    });
+  });
+
+  it("drops a local-proxy default left by an old backup, but keeps a remote provider", async () => {
+    const proxy = [
+      'model = "gpt-6.1-sol"',
+      'model_provider = "aimai1"',
+      "",
+      "[model_providers.aimai1]",
+      'name = "AiMaMi"',
+      'base_url = "http://127.0.0.1:25817/codex/router/v1"',
+      "",
+    ].join("\n");
+    const configPath = await writeConfig(proxy);
+    const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
+    await expect(manager.leaveLocalProxyDefault()).resolves.toEqual({ changed: true });
+    const after = parseToml(await fs.readFile(configPath, "utf8")) as Record<string, unknown>;
+    expect(after.model_provider).toBeUndefined();
+    expect(after.model).toBe("gpt-6.1-sol");
+    expect(after.model_providers).toHaveProperty("aimai1");
+    await expect(manager.leaveLocalProxyDefault()).resolves.toEqual({ changed: false });
+
+    const remote = proxy.replace(
+      "http://127.0.0.1:25817/codex/router/v1",
+      "https://gw.example.com/v1",
+    );
+    await fs.writeFile(configPath, remote, "utf8");
+    await expect(manager.leaveLocalProxyDefault()).resolves.toEqual({ changed: false });
+    expect(await fs.readFile(configPath, "utf8")).toBe(remote);
+  });
+
   it("restores by removing keys that did not exist before", async () => {
     await writeConfig('approval_policy = "never"\n');
     const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
@@ -583,14 +652,21 @@ describe("Rly0RelayCodexConfigManager", () => {
     ).length;
 
     const skipped = await manager.ensureDefault({ baseUrl: BASE_URL, model: "rly0/other/ignored" });
-    expect(skipped).toMatchObject({ ok: true, skipped: true, status: { model, modelProvider: "rly0" } });
+    expect(skipped).toMatchObject({
+      ok: true,
+      skipped: true,
+      status: { model, modelProvider: "rly0" },
+    });
     expect(await fs.readFile(configPath, "utf8")).toBe(afterFirst);
     expect(
       (await fs.readdir(path.dirname(configPath))).filter((name) => name.includes(".rly0-bak-")),
     ).toHaveLength(backupsAfterFirst);
 
     const nextUrl = "http://127.0.0.1:25918/v1";
-    const refreshed = await manager.ensureDefault({ baseUrl: nextUrl, model: "rly0/other/ignored" });
+    const refreshed = await manager.ensureDefault({
+      baseUrl: nextUrl,
+      model: "rly0/other/ignored",
+    });
     expect(refreshed).toMatchObject({
       ok: true,
       status: { providerBaseUrl: nextUrl, model, modelProvider: "rly0" },
@@ -602,13 +678,7 @@ describe("Rly0RelayCodexConfigManager", () => {
 
   it("ensureDefault keeps an existing rly0/ model and only upgrades provider defaults when missing", async () => {
     const existing = "rly0/keep-me/claude-sonnet";
-    await writeConfig(
-      [
-        `model = "${existing}"`,
-        'approval_policy = "never"',
-        "",
-      ].join("\n"),
-    );
+    await writeConfig([`model = "${existing}"`, 'approval_policy = "never"', ""].join("\n"));
     const manager = new Rly0RelayCodexConfigManager({ environment: fakeEnvironment() });
     const result = await manager.ensureDefault({
       baseUrl: BASE_URL,
@@ -632,7 +702,6 @@ describe("Rly0RelayCodexConfigManager", () => {
     expect(parsed.model).toBe(model);
   });
 
-
   it("ensureDefault treats /u/v1 and /v1 as the same local proxy for idempotency", async () => {
     const model = "rly0/relay-a/gpt-relay-1";
     const unified = "http://127.0.0.1:25817/u/v1";
@@ -653,7 +722,11 @@ describe("Rly0RelayCodexConfigManager", () => {
     const configPath = path.join(tempDir, "codex", "config.toml");
     const before = await fs.readFile(configPath, "utf8");
     const skipped = await manager.ensureDefault({ baseUrl: BASE_URL, model: "rly0/other/x" });
-    expect(skipped).toMatchObject({ ok: true, skipped: true, status: { model, modelProvider: "rly0" } });
+    expect(skipped).toMatchObject({
+      ok: true,
+      skipped: true,
+      status: { model, modelProvider: "rly0" },
+    });
     expect(await fs.readFile(configPath, "utf8")).toBe(before);
   });
 
@@ -669,4 +742,3 @@ describe("Rly0RelayCodexConfigManager", () => {
     expect(pickDefaultRly0CodexModel([])).toBeUndefined();
   });
 });
-

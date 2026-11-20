@@ -120,9 +120,18 @@ async function readJson(file: string): Promise<Record<string, unknown> | null> {
 
 export async function writeJsonFile(file: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.tmp-${process.pid}-${Date.now()}`;
-  await fs.writeFile(temporary, `${JSON.stringify(value)}\n`, "utf8");
-  await fs.rename(temporary, file);
+  const temporary = `${file}.tmp-${process.pid}-${randomBytes(12).toString("hex")}`;
+  const handle = await fs.open(temporary, "wx");
+  try {
+    try {
+      await handle.writeFile(`${JSON.stringify(value)}\n`, "utf8");
+    } finally {
+      await handle.close();
+    }
+    await fs.rename(temporary, file);
+  } finally {
+    await fs.rm(temporary, { force: true }).catch(() => undefined);
+  }
 }
 
 async function request(
