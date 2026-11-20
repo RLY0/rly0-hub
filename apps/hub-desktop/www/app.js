@@ -1373,6 +1373,48 @@
       return pureNow ? "下次打开 Codex 就是官方原样" : "下次从 Hub 打开 Codex 即可";
     }
 
+    const STEP_NAMES = {
+      sharedSwitches: "共享资源开关",
+      unified: "统一渠道",
+      noAccount: "免登录用中转",
+      proxy: "本机枢纽",
+      config: "Codex 配置还原",
+      sharedResources: "共享资源清理",
+      codexUpdates: "Codex 更新管理",
+    };
+    // 官方原样 is on even when a step failed; name what is left and offer to run it again.
+    function showUnfinished(steps) {
+      const left = Object.entries(steps || {})
+        .filter(([, ok]) => !ok)
+        .map(([key]) => STEP_NAMES[key] || key);
+      const retry = h(
+        "button",
+        {
+          class: "btn sm",
+          type: "button",
+          onclick: async () => {
+            retry.disabled = true;
+            const again = await call("hub.restorePure").catch(() => null);
+            if (!alive()) return;
+            renderPureOn();
+            if (!again) showUnfinished(steps);
+            else if (!again.ok) showUnfinished(again.steps);
+            else module.append(h("div", { class: "pure-result" }, h("b", null, "已全部恢复")));
+          },
+        },
+        "再试一次",
+      );
+      module.append(
+        h(
+          "div",
+          { class: "pure-result" },
+          h("b", { class: "warn-text" }, "有几步没有完成"),
+          h("p", { class: "sub" }, left.length ? left.join("、") : "请再试一次"),
+          h("div", { class: "row" }, retry),
+        ),
+      );
+    }
+
     function renderPureOn() {
       const result = h("div", { class: "pure-result", "aria-live": "polite" });
       const back = h(
@@ -1443,15 +1485,11 @@
             announce(true);
             const reopen = await reopenCodex();
             if (!alive()) return;
+            renderPureOn();
             if (!r.ok) {
-              go_.disabled = false;
-              result.replaceChildren(
-                h("b", null, "部分没有恢复"),
-                h("p", { class: "sub" }, "再点一次重试"),
-              );
+              showUnfinished(r.steps);
               return;
             }
-            renderPureOn();
             module.append(
               h(
                 "div",

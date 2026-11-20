@@ -1187,8 +1187,9 @@ export class Rly0HubService {
       "hub.restorePure": route(empty, async () => {
         const steps: Record<string, boolean> = {};
         const current = await this.#state.read();
-        if (current.pure !== true && !current.beforePure) {
-          // Remember what is about to be turned off; 重新开启 Hub puts it back.
+        if (current.pure !== true) {
+          // Remember what is about to be turned off; 重新开启 Hub puts it back. Once 官方原样 is
+          // on (also after a partly failed run), a retry keeps this record.
           await this.#state.update({
             beforePure: {
               sharing: await sharedResourceSettings(this.#options.environment),
@@ -1196,13 +1197,18 @@ export class Rly0HubService {
             },
           });
         }
-        await setSharedResourceSettings(this.#options.environment, {
+        steps.sharedSwitches = await setSharedResourceSettings(this.#options.environment, {
           mcp: false,
           skills: false,
           memory: false,
-        });
-        await writeUnifiedChannel(false, this.#options.environment);
-        steps.unified = true;
+        }).then(
+          () => true,
+          () => false,
+        );
+        steps.unified = await writeUnifiedChannel(false, this.#options.environment).then(
+          () => true,
+          () => false,
+        );
         steps.noAccount = await this.#codexConfig.restore().then(
           (r) => r.ok,
           () => false,

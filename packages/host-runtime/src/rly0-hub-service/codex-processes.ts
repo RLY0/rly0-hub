@@ -14,6 +14,18 @@ import path from "node:path";
  * Never the Hub itself: `rly0-hub.exe`, its own service process (and its parent), the updater and
  * rly0-core are left alone. Returns how many processes were ended.
  */
+/**
+ * A portable Codex's app folder with a trailing backslash, or "". CODEXHOST_INSTALL_ROOT may name
+ * the package folder or its `app` folder (crates/platform/src/lib.rs).
+ */
+function portableCodexPrefix(environment: NodeJS.ProcessEnv): string {
+  const root = environment.CODEXHOST_INSTALL_ROOT;
+  if (!root) return "";
+  const app =
+    path.win32.basename(root).toLowerCase() === "app" ? root : path.win32.join(root, "app");
+  return `${app.replace(/[\\/]+$/u, "")}\\`;
+}
+
 export function killCodexProcesses(options: {
   environment: NodeJS.ProcessEnv;
   installRoot: string;
@@ -21,6 +33,8 @@ export function killCodexProcesses(options: {
   if (process.platform === "darwin")
     return quitMacCodex(defaultMacProcessDependencies(), options.installRoot);
   if (process.platform !== "win32") return Promise.resolve(0);
+  // What just ended must not be answered from the running-state cache.
+  windowsRunningCache = null;
   const { environment, installRoot } = options;
   const script = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
@@ -51,9 +65,7 @@ Write-Output $n
   const local = environment.LOCALAPPDATA
     ? `${path.join(environment.LOCALAPPDATA, "OpenAI", "Codex")}\\`
     : "";
-  const portable = environment.CODEXHOST_INSTALL_ROOT
-    ? `${path.join(environment.CODEXHOST_INSTALL_ROOT, "app")}\\`
-    : "";
+  const portable = portableCodexPrefix(environment);
   return new Promise((resolve) => {
     execFile(
       "powershell.exe",
@@ -71,6 +83,7 @@ Write-Output $n
         },
       },
       (_error, stdout) => {
+        windowsRunningCache = null;
         const count = Number.parseInt(String(stdout).trim().split(/\s+/u).pop() ?? "", 10);
         resolve(Number.isSafeInteger(count) && count > 0 ? count : 0);
       },
@@ -260,9 +273,7 @@ if ($found) { 'yes' } else { 'no' }
         timeout: 20_000,
         env: {
           ...process.env,
-          RLY0_CODEX_PORTABLE: process.env.CODEXHOST_INSTALL_ROOT
-            ? `${path.join(process.env.CODEXHOST_INSTALL_ROOT, "app")}\\`
-            : "",
+          RLY0_CODEX_PORTABLE: portableCodexPrefix(process.env),
         },
       },
       (error, stdout) => {
