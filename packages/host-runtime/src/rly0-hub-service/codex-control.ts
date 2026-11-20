@@ -152,7 +152,8 @@ export class Rly0CodexControl {
     const platform = this.#options.platform ?? process.platform;
     if (await this.#pure()) {
       // No Launcher and no Hub heartbeat in the official Codex: only the process table tells.
-      const running = (await (this.#options.desktopRunning ?? (() => Promise.resolve(null)))()) === true;
+      const running =
+        (await (this.#options.desktopRunning ?? (() => Promise.resolve(null)))()) === true;
       return { running, canOpen: stockLaunchSupported(platform) };
     }
     const canOpen =
@@ -160,10 +161,13 @@ export class Rly0CodexControl {
       (this.#options.fileExists ?? existsSync)(this.#startExecutable());
     // The Launcher's descriptor, or the Codex side's own heartbeat (the Launcher may have exited
     // while Codex keeps running).
+    // A Codex opened the official way (官方原样, or by hand) has neither, but is in the process table.
+    const desktop = await (this.#options.desktopRunning ?? (() => Promise.resolve(null)))();
     const running =
       (await this.#descriptor()) !== null ||
+      desktop === true ||
       ((await (this.#options.heartbeatAlive ?? (() => Promise.resolve(false)))()) &&
-        (await (this.#options.desktopRunning ?? (() => Promise.resolve(null)))()) !== false);
+        desktop !== false);
     return { running, canOpen };
   }
 

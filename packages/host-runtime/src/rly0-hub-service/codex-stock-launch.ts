@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -8,8 +8,9 @@ import path from "node:path";
  * backend. Used while 恢复官方原样 is on.
  *
  * - macOS: LaunchServices by bundle id (`open -b com.openai.codex`), which also covers ChatGPT.app.
- * - Windows: the Store app through its AppUserModelID, `shell:AppsFolder\OpenAI.Codex_<id>!App`;
- *   the package family comes from the execution alias folder Windows keeps for it.
+ * - Windows: the Store app through its AppUserModelID, `shell:AppsFolder\<AUMID>`. The AUMID is
+ *   read from the Start menu's app list (`Get-StartApps`); when that cannot answer, the package
+ *   family from the execution alias folder plus the usual `!App`.
  */
 export const CODEX_MAC_BUNDLE_ID = "com.openai.codex";
 const STORE_ALIAS_DIRECTORY = /^OpenAI\.Codex_[A-Za-z0-9]+$/u;
@@ -19,6 +20,14 @@ export interface CodexStockLaunchOptions {
   readonly platform?: NodeJS.Platform;
   readonly readDirectory?: (directory: string) => Promise<string[]>;
   readonly run?: (executable: string, args: string[], environment: NodeJS.ProcessEnv) => void;
+  /** macOS: runs `open` and resolves with its exit code (it fails when Codex is not installed). */
+  readonly runChecked?: (
+    executable: string,
+    args: string[],
+    environment: NodeJS.ProcessEnv,
+  ) => Promise<number>;
+  /** Windows: the Codex AUMID from the Start menu's app list, or null. */
+  readonly startAppsId?: () => Promise<string | null>;
 }
 
 /** Nothing of the Hub or the Launcher may reach the official Codex. */
@@ -43,6 +52,40 @@ function runDetached(executable: string, args: string[], environment: NodeJS.Pro
   });
   child.on("error", () => undefined);
   child.unref();
+}
+
+function runChecked(
+  executable: string,
+  args: string[],
+  environment: NodeJS.ProcessEnv,
+): Promise<number> {
+  return new Promise((resolve) => {
+    execFile(executable, args, { env: environment, timeout: 20_000 }, (error) => {
+      const code = (error as { code?: unknown } | null)?.code;
+      resolve(error ? (typeof code === "number" ? code : 1) : 0);
+    });
+  });
+}
+
+const CODEX_AUMID = /^OpenAI\.Codex_[A-Za-z0-9]+![A-Za-z0-9._-]+$/u;
+
+function startMenuCodexAppId(): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "(Get-StartApps | Where-Object { $_.AppID -like 'OpenAI.Codex_*!*' } | Select-Object -First 1).AppID",
+      ],
+      { windowsHide: true, timeout: 20_000 },
+      (error, stdout) => {
+        const id = String(stdout).trim();
+        resolve(!error && CODEX_AUMID.test(id) ? id : null);
+      },
+    );
+  });
 }
 
 export async function windowsCodexAppId(
@@ -70,13 +113,19 @@ export async function launchStockCodex(options: CodexStockLaunchOptions): Promis
   const run = options.run ?? runDetached;
   const environment = officialEnvironment(options.environment);
   if (platform === "darwin") {
-    run("/usr/bin/open", ["-b", CODEX_MAC_BUNDLE_ID], environment);
-    return true;
+    const code = await (options.runChecked ?? runChecked)(
+      "/usr/bin/open",
+      ["-b", CODEX_MAC_BUNDLE_ID],
+      environment,
+    );
+    return code === 0;
   }
   if (platform === "win32") {
-    const appId = await windowsCodexAppId(options.environment, options.readDirectory);
+    const listed = await (options.startAppsId ?? startMenuCodexAppId)().catch(() => null);
+    const appId = listed ?? (await windowsCodexAppId(options.environment, options.readDirectory));
     if (!appId) return false;
-    const windowsRoot = options.environment.SystemRoot ?? options.environment.windir ?? "C:\\Windows";
+    const windowsRoot =
+      options.environment.SystemRoot ?? options.environment.windir ?? "C:\\Windows";
     run(path.win32.join(windowsRoot, "explorer.exe"), [`shell:AppsFolder\\${appId}`], environment);
     return true;
   }

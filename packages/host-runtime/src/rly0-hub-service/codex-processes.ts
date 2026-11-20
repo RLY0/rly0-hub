@@ -217,8 +217,38 @@ export async function macCodexDesktopRunning(
 
 /** Whether Codex Desktop is running, where this can be told from the process table; else null. */
 export function codexDesktopRunning(): Promise<boolean | null> {
+  if (process.platform === "win32") return windowsCodexDesktopRunning();
   if (process.platform !== "darwin") return Promise.resolve(null);
   return macCodexDesktopRunning(defaultMacProcessDependencies()).catch(() => null);
+}
+
+/**
+ * Windows: the Store app's own executable (not the CLI under `app\resources`), however it was
+ * started — through the Launcher or the official way (官方原样).
+ */
+function windowsCodexDesktopRunning(): Promise<boolean | null> {
+  const script = String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+$found = $false
+foreach ($p in Get-CimInstance Win32_Process) {
+  $exe = $p.ExecutablePath
+  if (-not $exe) { continue }
+  if ($exe.StartsWith('\\?\')) { $exe = $exe.Substring(4) }
+  if ($exe -like '*\WindowsApps\OpenAI.Codex_*' -and $exe -notlike '*\resources\*') { $found = $true; break }
+}
+if ($found) { 'yes' } else { 'no' }
+`;
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { windowsHide: true, timeout: 20_000 },
+      (error, stdout) => {
+        const answer = String(stdout).trim().split(/\s+/u).pop();
+        resolve(error ? null : answer === "yes" ? true : answer === "no" ? false : null);
+      },
+    );
+  });
 }
 
 /** Bundle path → whether it is Codex; a bundle's identifier does not change while it runs. */

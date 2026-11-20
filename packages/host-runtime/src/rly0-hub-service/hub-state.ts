@@ -14,6 +14,23 @@ import { cleanAutoSwitchSettings, type Rly0AutoSwitchSettings } from "./auto-swi
 
 export const RLY0_HUB_STATE_FILE = "hub-desktop.json";
 
+export interface Rly0BeforePure {
+  readonly sharing: { readonly mcp: boolean; readonly skills: boolean; readonly memory: boolean };
+  readonly codexUpdates: boolean;
+}
+
+function cleanBeforePure(value: unknown): Rly0BeforePure | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const raw = value as Record<string, unknown>;
+  const sharing = raw.sharing as Record<string, unknown> | null | undefined;
+  if (typeof sharing !== "object" || sharing === null) return undefined;
+  const { mcp, skills, memory } = sharing;
+  if (typeof mcp !== "boolean" || typeof skills !== "boolean" || typeof memory !== "boolean")
+    return undefined;
+  if (typeof raw.codexUpdates !== "boolean") return undefined;
+  return { sharing: { mcp, skills, memory }, codexUpdates: raw.codexUpdates };
+}
+
 /** Small per-user state of the Hub window, kept in RLY/0 Hub's own data directory. */
 export interface Rly0HubState {
   /** Autostart was turned on once on first run; later the person's choice wins. */
@@ -32,6 +49,8 @@ export interface Rly0HubState {
    * hub.enableChannel.
    */
   readonly pure?: boolean;
+  /** What 恢复官方原样 turned off, so 重新开启 Hub can bring it back. */
+  readonly beforePure?: Rly0BeforePure;
   /** A low-balance notice was shown and the balance has not recovered since. */
   readonly balanceLowNotified?: boolean;
   /** `resetsAt` of the Codex quota window a low-quota notice was shown for. */
@@ -55,6 +74,7 @@ export interface Rly0HubState {
 function clean(value: unknown): Rly0HubState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const raw = value as Record<string, unknown>;
+  const beforePure = cleanBeforePure(raw.beforePure);
   return {
     ...(raw.codexUpdates === undefined
       ? {}
@@ -68,6 +88,7 @@ function clean(value: unknown): Rly0HubState {
     ...(raw.onboarded === true ? { onboarded: true } : {}),
     ...(raw.channelConsented === true ? { channelConsented: true } : {}),
     ...(raw.pure === true ? { pure: true } : {}),
+    ...(beforePure ? { beforePure } : {}),
     ...(raw.balanceLowNotified === true ? { balanceLowNotified: true } : {}),
     ...(typeof raw.quotaNotifiedFor === "number" && Number.isSafeInteger(raw.quotaNotifiedFor)
       ? { quotaNotifiedFor: raw.quotaNotifiedFor }

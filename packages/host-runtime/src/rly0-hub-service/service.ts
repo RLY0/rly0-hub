@@ -529,6 +529,39 @@ export class Rly0HubService {
     return handler(params ?? {});
   }
 
+  /**
+   * Routing through the Hub on (the required first-run step, or 重新开启 Hub after 官方原样).
+   * Coming back from 官方原样 also puts back what it turned off and makes rly0 the default again,
+   * so the Codex restarted right after is the Hub one.
+   */
+  async #enableChannel(): Promise<{ ok: true; proxyRunning: boolean }> {
+    const state = await this.#state.read();
+    await writeUnifiedChannel(true, this.#options.environment);
+    await this.#codexConfig.allowDefault();
+    if (state.pure === true && state.beforePure) {
+      const { sharing, codexUpdates } = state.beforePure;
+      await setSharedResourceSettings(this.#options.environment, sharing).catch(() => undefined);
+      await this.#bridge.afterSharingChange().catch(() => undefined);
+      if (codexUpdates) await this.#codexUpdates.setEnabled(true).catch(() => undefined);
+    }
+    let proxyRunning = false;
+    try {
+      await this.#router.ensureProxy();
+      const status = await this.#core.proxyStatus();
+      proxyRunning = status.available && status.running === true;
+    } catch {
+      proxyRunning = false;
+    }
+    if (state.pure === true) await this.#ensureCodexDefaultProvider().catch(() => undefined);
+    await this.#state.update({ channelConsented: true, pure: false, beforePure: undefined });
+    return { ok: true, proxyRunning };
+  }
+
+  /** A Hub feature was switched on while 官方原样 was on: routing through the Hub comes back. */
+  async #leavePure(): Promise<void> {
+    if ((await this.#state.read()).pure === true) await this.#enableChannel();
+  }
+
   /** First run turns autostart on (the confirmed default); later runs respect the toggle. */
   async start(): Promise<void> {
     void this.#codexUpdates.start();
@@ -705,7 +738,9 @@ export class Rly0HubService {
       this.#hubUpdater().start({ reopenCodex: false });
       return { ...this.#updateProgress(), needsCodexClose: false };
     }
-    const codex = await this.#codex.status();
+    // 官方原样: Codex runs the official way and holds none of the Hub's files; leave it alone.
+    const pure = (await this.#state.read()).pure === true;
+    const codex = pure ? { running: false } : await this.#codex.status();
     if (codex.running) {
       if (!closeCodex) return { ...this.#hubUpdater().progress(), needsCodexClose: true };
       await this.#codex.forceQuit().catch(() => ({ ok: false }));
@@ -834,6 +869,11 @@ export class Rly0HubService {
     const result = await this.#core.switchAccount({ id });
     if (!result.available || !result.switched) return { switched: false, restarted: false };
     const codex = await this.#codex.status();
+    if ((await this.#state.read()).pure === true) {
+      // 官方原样: no Hub side inside Codex to reload; a running Codex picks the login up on restart.
+      if (!codex.running) return { switched: true, restarted: false };
+      return { switched: true, restarted: (await this.#codex.restart()).ok };
+    }
     // Ask the Codex side even when Codex does not look open: it answers if it is there.
     const reload = await requestBackendReload(resolveRly0DataDir(this.#options.environment), {
       timeoutMs: codex.running ? (this.#options.backendReloadTimeoutMs ?? 15_000) : 5_000,
@@ -1138,24 +1178,21 @@ export class Rly0HubService {
       }),
       // Required first-run step: every Codex conversation goes through the Hub (统一渠道 on and
       // the local proxy running). The only way back is 恢复纯净状态 below.
-      "hub.enableChannel": route(empty, async () => {
-        await writeUnifiedChannel(true, this.#options.environment);
-        await this.#codexConfig.allowDefault();
-        let proxyRunning = false;
-        try {
-          await this.#router.ensureProxy();
-          const status = await core.proxyStatus();
-          proxyRunning = status.available && status.running === true;
-        } catch {
-          proxyRunning = false;
-        }
-        await this.#state.update({ channelConsented: true, pure: false });
-        return { ok: true, proxyRunning };
-      }),
+      "hub.enableChannel": route(empty, () => this.#enableChannel()),
       // 恢复纯净状态: undo everything the Hub changed in how Codex connects. Saved accounts,
       // relays and keys are kept. Each step reports on its own; Codex is restarted by the caller.
       "hub.restorePure": route(empty, async () => {
         const steps: Record<string, boolean> = {};
+        const current = await this.#state.read();
+        if (current.pure !== true) {
+          // Remember what is about to be turned off; 重新开启 Hub puts it back.
+          await this.#state.update({
+            beforePure: {
+              sharing: await sharedResourceSettings(this.#options.environment),
+              codexUpdates: this.#codexUpdates.status().enabled,
+            },
+          });
+        }
         await setSharedResourceSettings(this.#options.environment, {
           mcp: false,
           skills: false,
@@ -1247,6 +1284,7 @@ export class Rly0HubService {
       "relay.noAccountEnable": route(
         z.object({ model: z.string().min(1).max(128), confirmed: z.literal(true) }).strict(),
         async (p) => {
+          await this.#leavePure();
           const result = await this.#codexConfig.apply(await this.#noAccountParams(p.model));
           return { ok: result.ok, noAccount: result.status.noAccount === true };
         },
@@ -1256,6 +1294,7 @@ export class Rly0HubService {
         enabled: await readUnifiedChannel(this.#options.environment),
       })),
       "relay.unifiedSet": route(z.object({ enabled: z.boolean() }).strict(), async (p) => {
+        if (p.enabled) await this.#leavePure();
         await writeUnifiedChannel(p.enabled, this.#options.environment);
         return { enabled: await readUnifiedChannel(this.#options.environment) };
       }),
@@ -1388,6 +1427,8 @@ export class Rly0HubService {
           .strict(),
         async (p) => {
           const all = p.enabled;
+          if (all === true || p.mcp === true || p.skills === true || p.memory === true)
+            await this.#leavePure();
           await setSharedResourceSettings(this.#options.environment, {
             ...(all === undefined ? {} : { mcp: all, skills: all, memory: all }),
             ...(p.mcp === undefined ? {} : { mcp: p.mcp }),

@@ -548,11 +548,69 @@ describe("Hub tray notices", () => {
     expect(await service.handle("codex.updates.status", {})).toMatchObject({ enabled: false });
     expect(stopped).toEqual(["proxy"]);
     expect(await service.handle("relay.unifiedStatus", {})).toEqual({ enabled: false });
-    expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: false, pure: true });
+    expect(await service.handle("hub.state", {})).toMatchObject({
+      channelConsented: false,
+      pure: true,
+    });
 
     // Turning routing on again leaves 恢复官方原样.
     await service.handle("hub.enableChannel", {});
-    expect(await service.handle("hub.state", {})).toMatchObject({ channelConsented: true, pure: false });
+    expect(await service.handle("hub.state", {})).toMatchObject({
+      channelConsented: true,
+      pure: false,
+    });
+  });
+
+  it("重新开启 Hub puts back what 恢复官方原样 turned off", async () => {
+    const root = await tempDir();
+    const codexHome = await tempDir();
+    const { core } = fakeCore([]);
+    Object.assign(core, { proxyStop: async () => ({ stopped: true }) });
+    const environment = { CODEXHOST_DATA_DIR: root, CODEX_HOME: codexHome };
+    const service = new Rly0HubService({
+      environment,
+      installRoot: root,
+      backendReloadTimeoutMs: 50,
+      core,
+    });
+    await service.handle("resources.sharingSet", { mcp: true, skills: false, memory: true });
+    await service.handle("hub.restorePure", {});
+    const { sharedResourceSettings } = await import("../src/shared-harness-resources.js");
+    expect(await sharedResourceSettings(environment)).toEqual({
+      mcp: false,
+      skills: false,
+      memory: false,
+    });
+    // A second 恢复 must not overwrite what was remembered with the already-off settings.
+    await service.handle("hub.restorePure", {});
+    await service.handle("hub.enableChannel", {});
+    expect(await sharedResourceSettings(environment)).toEqual({
+      mcp: true,
+      skills: false,
+      memory: true,
+    });
+    expect(await service.handle("hub.state", {})).toMatchObject({
+      pure: false,
+      channelConsented: true,
+    });
+  });
+
+  it("switching a Hub feature on while 官方原样 is on leaves it", async () => {
+    const root = await tempDir();
+    const codexHome = await tempDir();
+    const { core } = fakeCore([]);
+    Object.assign(core, { proxyStop: async () => ({ stopped: true }) });
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root, CODEX_HOME: codexHome },
+      installRoot: root,
+      backendReloadTimeoutMs: 50,
+      core,
+    });
+    await service.handle("hub.restorePure", {});
+    await service.handle("resources.sharingSet", { memory: false });
+    expect(await service.handle("hub.state", {})).toMatchObject({ pure: true });
+    await service.handle("relay.unifiedSet", { enabled: true });
+    expect(await service.handle("hub.state", {})).toMatchObject({ pure: false });
   });
 
   it("opens Codex the official way while 恢复官方原样 is on, and through the Launcher otherwise", async () => {
@@ -587,7 +645,10 @@ describe("Hub tray notices", () => {
     });
     await service.handle("codex.open", {});
     await service.handle("hub.restorePure", {});
-    expect(await service.handle("codex.status", {})).toMatchObject({ running: false, canOpen: true });
+    expect(await service.handle("codex.status", {})).toMatchObject({
+      running: false,
+      canOpen: true,
+    });
     await service.handle("codex.open", {});
     await service.handle("hub.enableChannel", {});
     await service.handle("codex.open", {});

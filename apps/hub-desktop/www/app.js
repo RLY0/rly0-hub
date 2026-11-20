@@ -1355,12 +1355,15 @@
     const module = h("section", { class: "m span-6 pure" }, h("div", { class: "sub" }, "读取中…"));
     root.append(h("div", { class: "grid compact" }, module));
 
+    // Restart whatever Codex is open (Hub-opened or official); nothing open is not a failure.
     async function reopenCodex() {
-      const status = await call("codex.status").catch(() => null);
-      if (!status || !status.running) return "notRunning";
       const restart = await call("codex.restart").catch(() => null);
-      return restart && restart.ok ? "restarting" : "failed";
+      if (restart && restart.ok) return "restarting";
+      const status = await call("codex.status").catch(() => null);
+      return status && status.running ? "failed" : "notRunning";
     }
+    const announce = (pure) =>
+      window.dispatchEvent(new CustomEvent("rly0-pure-changed", { detail: { pure } }));
     function resultLine(reopen, pureNow) {
       if (reopen === "restarting") {
         return pureNow ? "Codex 正在以官方方式重新打开" : "Codex 正在经 Hub 重新打开";
@@ -1386,10 +1389,18 @@
               result.replaceChildren(h("p", { class: "warn-text" }, "没有开启成功，请重试"));
               return;
             }
+            announce(false);
             const reopen = await reopenCodex();
             if (!alive()) return;
-            window.dispatchEvent(new CustomEvent("rly0-pure-changed", { detail: { pure: false } }));
-            result.replaceChildren(h("b", null, "已重新开启 Hub"), h("p", { class: "sub" }, resultLine(reopen, false)));
+            renderPureOff();
+            module.append(
+              h(
+                "div",
+                { class: "pure-result" },
+                h("b", null, "已重新开启 Hub"),
+                h("p", { class: "sub" }, resultLine(reopen, false)),
+              ),
+            );
           },
         },
         "重新开启 Hub",
@@ -1428,9 +1439,9 @@
               result.replaceChildren(h("p", { class: "warn-text" }, "没有完成，请重试"));
               return;
             }
+            announce(true);
             const reopen = await reopenCodex();
             if (!alive()) return;
-            window.dispatchEvent(new CustomEvent("rly0-pure-changed", { detail: { pure: true } }));
             if (!r.ok) {
               go_.disabled = false;
               result.replaceChildren(
@@ -1462,11 +1473,23 @@
           h("li", null, "关闭免登录用中转"),
           h("li", null, "Codex 配置还原为安装前的备份"),
           h("li", null, "关闭 Codex 更新管理，Codex 恢复自己更新"),
-          h("li", null, "Codex 改用官方方式打开：助手菜单、其他助手的对话和 Hub 加的按钮都不再显示"),
+          h(
+            "li",
+            null,
+            "Codex 改用官方方式打开：助手菜单、其他助手的对话和 Hub 加的按钮都不再显示",
+          ),
           h("li", null, "Codex 开着的话会自动重新打开"),
         ),
-        h("p", { class: "sub" }, "账号、中转站、Key 和其他助手的对话会保留，随时可以重新开启 Hub。"),
-        h("p", { class: "sub" }, "经 Hub 线路聊过的旧对话，官方原样下可能接不上，新开对话不受影响。"),
+        h(
+          "p",
+          { class: "sub" },
+          "账号、中转站、Key 和其他助手的对话会保留，随时可以重新开启 Hub。",
+        ),
+        h(
+          "p",
+          { class: "sub" },
+          "经 Hub 线路聊过的旧对话，官方原样下可能接不上，新开对话不受影响。",
+        ),
         h("div", { class: "row" }, go_),
         result,
       );
@@ -2538,7 +2561,11 @@
       h("b", null, "官方原样"),
       h("span", null, "Codex 现在不经过 Hub"),
       h("span", { class: "spacer" }),
-      h("button", { class: "btn sm paper", type: "button", onclick: () => go("pure") }, "重新开启 Hub"),
+      h(
+        "button",
+        { class: "btn sm paper", type: "button", onclick: () => go("pure") },
+        "重新开启 Hub",
+      ),
     );
   }
   window.addEventListener("rly0-pure-changed", (event) => {
@@ -2558,6 +2585,11 @@
       return;
     }
     const proxy = await call("proxy.status").catch(() => null);
+    // 官方原样 may have been chosen while this was waiting: its banner wins.
+    if (pureOn) {
+      showPureBanner();
+      return;
+    }
     const down = Boolean(proxy && proxy.available && !proxy.running);
     alertEl.hidden = !down;
     if (!down) return;

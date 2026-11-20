@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { launchStockCodex, officialEnvironment } from "../src/rly0-hub-service/codex-stock-launch.js";
+import {
+  launchStockCodex,
+  officialEnvironment,
+} from "../src/rly0-hub-service/codex-stock-launch.js";
 
 describe("opening the official Codex (恢复官方原样)", () => {
   const hubEnvironment = {
@@ -22,7 +25,10 @@ describe("opening the official Codex (恢复官方原样)", () => {
     const ok = await launchStockCodex({
       environment: hubEnvironment,
       platform: "darwin",
-      run: (executable, args, environment) => runs.push({ executable, args, environment }),
+      runChecked: async (executable, args, environment) => {
+        runs.push({ executable, args, environment });
+        return 0;
+      },
     });
     expect(ok).toBe(true);
     expect(runs).toEqual([
@@ -34,14 +40,43 @@ describe("opening the official Codex (恢复官方原样)", () => {
     ]);
   });
 
+  it("macOS without Codex installed: open fails, so does the launch", async () => {
+    const ok = await launchStockCodex({
+      environment: hubEnvironment,
+      platform: "darwin",
+      runChecked: async () => 1,
+    });
+    expect(ok).toBe(false);
+  });
+
+  it("Windows: the AUMID the Start menu lists wins", async () => {
+    const runs: Array<{ executable: string; args: string[] }> = [];
+    const ok = await launchStockCodex({
+      environment: { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local", SystemRoot: "C:\\Windows" },
+      platform: "win32",
+      startAppsId: async () => "OpenAI.Codex_2p2nqsd0c76g0!Codex",
+      readDirectory: async () => {
+        throw new Error("must not be needed");
+      },
+      run: (executable, args) => runs.push({ executable, args }),
+    });
+    expect(ok).toBe(true);
+    expect(runs[0]?.args).toEqual(["shell:AppsFolder\\OpenAI.Codex_2p2nqsd0c76g0!Codex"]);
+  });
+
   it("Windows: the Store app through its AppUserModelID", async () => {
     const runs: Array<{ executable: string; args: string[] }> = [];
     const ok = await launchStockCodex({
       environment: { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local", SystemRoot: "C:\\Windows" },
       platform: "win32",
+      startAppsId: async () => null,
       readDirectory: async (directory) => {
         expect(directory).toBe("C:\\Users\\a\\AppData\\Local\\Microsoft\\WindowsApps");
-        return ["python.exe", "OpenAI.Codex_2p2nqsd0c76g0", "Microsoft.WindowsTerminal_8wekyb3d8bbwe"];
+        return [
+          "python.exe",
+          "OpenAI.Codex_2p2nqsd0c76g0",
+          "Microsoft.WindowsTerminal_8wekyb3d8bbwe",
+        ];
       },
       run: (executable, args) => runs.push({ executable, args }),
     });
@@ -58,6 +93,7 @@ describe("opening the official Codex (恢复官方原样)", () => {
     const ok = await launchStockCodex({
       environment: { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" },
       platform: "win32",
+      startAppsId: async () => null,
       readDirectory: async () => ["python.exe"],
       run: () => {
         throw new Error("must not run");
