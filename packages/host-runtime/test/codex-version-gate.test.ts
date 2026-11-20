@@ -183,6 +183,9 @@ describe("compatibility manifest (synthetic)", () => {
     expect(codexVersionVerified("26.1111.21308", "0.0.0", null, compareSemanticVersions)).toBe(
       true,
     );
+    expect(codexVersionVerified("26.1117.31558", "0.0.0", null, compareSemanticVersions)).toBe(
+      true,
+    );
     expect(codexVersionVerified("26.1200.9", "0.11.39", parsed, compareSemanticVersions)).toBe(
       false,
     );

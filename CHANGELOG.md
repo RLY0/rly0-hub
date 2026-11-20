@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.44
+
+### Updates
+- Codex Desktop 26.1117 is supported. Codex 26.1117 starts its background service through a new helper process; the Hub now recognises it, so routing and the agent picker start normally instead of timing out. Choosing Claude Code or another agent in a new chat, and resuming paused messages after a steer, work with the new Codex as well. Once this Hub is installed, the Hub can update Codex to 26.1117 while no task is running.
+- Sidebar agent icons sit in Codex's own icon slot again, and the settings page no longer shows a stray vertical line on Codex 26.1117.
+
+### 更新
+- 支持 Codex 桌面版 26.1117。新版 Codex 改用一个新的辅助进程启动后台服务，Hub 现在能认出它，线路切换和助手选择会正常启动，不会卡住超时。在新对话里选 Claude Code 等助手、引导后自动续发排队消息，在新版 Codex 上也能正常用。装好这一版 Hub 后，Hub 会在没有任务在跑时帮你把 Codex 更新到 26.1117。
+- 在 Codex 26.1117 上，侧栏的助手图标回到原来的位置，设置页不再出现多余的竖线。
+
 ## 0.11.43
 
 ### Fixes
