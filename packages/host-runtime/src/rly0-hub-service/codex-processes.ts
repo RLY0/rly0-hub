@@ -1,3 +1,5 @@
+import os from "node:os";
+import { RLY0_HOME_DATA_DIRECTORY_NAME } from "@codexhost/shared-contracts";
 import { execFile } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
@@ -175,6 +177,19 @@ async function endProcesses(
   left = await waitGone(left, dependencies, 5_000);
   for (const pid of left) dependencies.signal(pid, "SIGKILL");
   await waitGone(left, dependencies, 2_000);
+}
+
+/**
+ * The shared Host's data directory, as `sharedHostDataDirectory` (local-shared-host.ts) resolves
+ * it; repeated here so the Hub service bundle does not pull in the Desktop control client.
+ */
+export function sharedHostDataDir(
+  environment: NodeJS.ProcessEnv,
+  home = environment.HOME ?? environment.USERPROFILE ?? os.homedir(),
+): string {
+  const configured = environment.CODEXHOST_SHARED_DATA_DIR;
+  if (configured?.trim() && path.isAbsolute(configured)) return path.resolve(configured);
+  return path.resolve(home, RLY0_HOME_DATA_DIRECTORY_NAME);
 }
 
 /** A running `codexhost host serve`: the launcher it runs from and its own options. */

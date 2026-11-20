@@ -1,5 +1,4 @@
-import { stopMacSharedHost } from "./codex-processes.js";
-import { sharedHostDataDirectory } from "../local-shared-host.js";
+import { sharedHostDataDir, stopMacSharedHost } from "./codex-processes.js";
 import type { CodexUpdateManager } from "./codex-update-manager.js";
 import { syncNativeResourcesIfChanged } from "../rly0-bridge/native-resources.js";
 import { revealFolder } from "./desktop-open.js";
@@ -90,7 +89,7 @@ export function createHubManagementRoutes(options: {
     environment,
     codex,
     ...(process.platform === "darwin"
-      ? { stopSharedHost: () => stopMacSharedHost(sharedHostDataDirectory(environment)) }
+      ? { stopSharedHost: () => stopMacSharedHost(sharedHostDataDir(environment)) }
       : {}),
   });
   const chatRecovery = new ChatReadableRecovery(environment);
