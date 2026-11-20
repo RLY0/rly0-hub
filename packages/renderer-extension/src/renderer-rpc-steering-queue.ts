@@ -3,6 +3,16 @@ const INTERRUPTED = "Interrupted before the steer was accepted.";
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+/** Desktop 26.1117 removed `getTurnById`; its `getDynamicToolTurnContext`
+ * reads the same Turn by id and still reports its `status`. */
+async function readTurn(manager: Call, threadId: string, turnId: string): Promise<unknown> {
+  try {
+    return await manager("getTurnById", threadId, turnId);
+  } catch {
+    return manager("getDynamicToolTurnContext", threadId, turnId);
+  }
+}
+
 /** Native RPC exposes resume-all, not a selective queue mutation. Refuse a
  * replacement when it would also resume a different previously paused input. */
 export async function prepareRpcSteeringQueue(
@@ -60,7 +70,7 @@ export async function prepareRpcSteeringQueue(
     const stillRunning =
       record(state) && state.inProgress === true && state.activeTurnId === turnId;
     // An explicit stop or failure after acceptance must keep the queue paused.
-    const turn = stillRunning ? null : await manager("getTurnById", threadId, turnId);
+    const turn = stillRunning ? null : await readTurn(manager, threadId, turnId);
     if (stillRunning || (record(turn) && turn.status === "completed"))
       await coordinator("resumeInterruptedQueuedMessages", threadId);
   };

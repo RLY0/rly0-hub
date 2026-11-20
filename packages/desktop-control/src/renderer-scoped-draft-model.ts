@@ -63,30 +63,30 @@ export function findScopedDraftModelBinding(
   // The Model hook pairs its current settings mode with this exact
   // draft setter. A stored draft's mode can belong to an earlier Account.
   for (const row of rows) {
-    // Desktop 26.1106 inserts a cache slot at index 8; the null at index 7 stays put.
-    const modelOffset = row.length === 25 ? 1 : 0;
+    const layout = modelHookLayout(row);
     if (
-      (row.length !== 24 && row.length !== 25) ||
-      row[7] !== null ||
-      row[10 + modelOffset] !== true ||
-      !updates.has(row[13 + modelOffset] as UpdateDraft)
+      !layout ||
+      row[layout.conversation] !== null ||
+      row[layout.newThreadDraft] !== true ||
+      !updates.has(row[layout.update] as UpdateDraft)
     )
       continue;
-    const context = row[12 + modelOffset] as Draft | null;
-    const result = row[23 + modelOffset] as Draft | null;
+    const context = row[layout.context] as Draft | null;
+    const result = row[layout.result] as Draft | null;
+    const setter = row[layout.setter];
     if (
       context &&
-      context === row[21 + modelOffset] &&
+      layout.contextCheck(row, context) &&
       typeof context.usesAccountPreferences === "boolean" &&
       result?.usesAccountPreferences === context.usesAccountPreferences &&
-      typeof row[14 + modelOffset] === "function" &&
-      row[14 + modelOffset] === row[20 + modelOffset] &&
-      result.setModelAndReasoningEffort === row[14 + modelOffset]
+      typeof setter === "function" &&
+      setter === row[layout.setterCopy] &&
+      result.setModelAndReasoningEffort === setter
     ) {
       // Each native hook can create its own setter for the same draft atom.
       // Bind through its reviewed draft identity and Model context, not through
       // function identity shared by every hook in the Composer.
-      update ??= row[13 + modelOffset] as UpdateDraft;
+      update ??= row[layout.update] as UpdateDraft;
       modes.add(context.usesAccountPreferences);
       // Background creation receives a new client Thread id. The reviewed
       // collaboration-mode memo retains the originating draft's Model hook.
@@ -120,6 +120,54 @@ export function findScopedDraftModelBinding(
         ...(creationModes.size ? { creationModes: [...creationModes] } : {}),
       }
     : null;
+}
+
+interface ModelHookLayout {
+  conversation: number;
+  newThreadDraft: number;
+  update: number;
+  context: number;
+  result: number;
+  setter: number;
+  setterCopy: number;
+  contextCheck(row: unknown[], context: Draft): boolean;
+}
+
+/** Reviewed memo layouts of the native Model hook, keyed by cache size. */
+function modelHookLayout(row: unknown[]): ModelHookLayout | null {
+  if (row.length === 24 || row.length === 25) {
+    // Desktop 26.1106 inserts a cache slot at index 8; the null at index 7 stays put.
+    const o = row.length === 25 ? 1 : 0;
+    return {
+      conversation: 7,
+      newThreadDraft: 10 + o,
+      update: 13 + o,
+      context: 12 + o,
+      result: 23 + o,
+      setter: 14 + o,
+      setterCopy: 20 + o,
+      contextCheck: (cells, context) => context === cells[21 + o],
+    };
+  }
+  if (row.length === 37) {
+    // Desktop 26.1117 memoizes the result object, the draft-aware setter and
+    // the forwarded next-turn setter; the Model context sits at index 34 and
+    // its account mode and inner setter are cached separately at 25 and 26.
+    return {
+      conversation: 16,
+      newThreadDraft: 21,
+      update: 24,
+      context: 34,
+      result: 36,
+      setter: 27,
+      setterCopy: 33,
+      contextCheck: (cells, context) =>
+        cells[25] === context.usesAccountPreferences &&
+        typeof context.setModelAndReasoningEffort === "function" &&
+        cells[26] === context.setModelAndReasoningEffort,
+    };
+  }
+  return null;
 }
 
 export function createScopedDraftModelWriter() {
