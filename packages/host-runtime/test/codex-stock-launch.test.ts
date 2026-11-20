@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { selectMacSharedHost } from "../src/rly0-hub-service/codex-processes.js";
 
 import {
   launchStockCodex,
@@ -100,5 +101,30 @@ describe("opening the official Codex (恢复官方原样)", () => {
       },
     });
     expect(ok).toBe(false);
+  });
+});
+
+describe("the macOS shared Host (修复聊天记录 ends it to free Codex's database)", () => {
+  it("picks codexhost host serve and the shared-host runtime only", () => {
+    const hub = "/Apps/RLY0 Hub.app/Contents/Resources";
+    expect(
+      selectMacSharedHost(
+        [
+          {
+            pid: 10,
+            args: `${hub}/bin/codexhost host serve --node /x/node --host-runtime ${hub}/app/host-runtime.mjs`,
+          },
+          {
+            pid: 11,
+            args: `/x/node ${hub}/app/host-runtime.mjs --codexhost-shared-host --data /d`,
+          },
+          { pid: 12, args: `${hub}/bin/codexhost` },
+          { pid: 13, args: `/x/node ${hub}/app/host-runtime.mjs app-server` },
+          { pid: 14, args: `/Applications/ChatGPT.app/Contents/MacOS/ChatGPT` },
+          { pid: 15, args: `${hub}/bin/codexhost host serve --node /x/node` },
+        ],
+        new Set([15]),
+      ),
+    ).toEqual([10, 11]);
   });
 });

@@ -1110,6 +1110,18 @@ test("hub routing: required one-button dialog, no switch on pages, 官方原样 
   await expect(banner).toBeHidden();
 });
 
+// 维护 carries a dot while 修复聊天记录 has chats it can fix; none when every chat opens.
+test("maintenance dot: shown for fixable chats only", async ({ page }) => {
+  await page.setViewportSize({ width: WIDTHS[0] ?? 1240, height: HEIGHT });
+  await page.goto("/index.html");
+  const rail = page.locator('.rail button[data-page="maintenance"]');
+  await expect(rail).toHaveClass(/has-fix/, { timeout: 15_000 });
+  await expect(rail).toHaveAttribute("title", /条聊天可以修复/);
+  await page.goto("/index.html?chats=clean");
+  await page.waitForTimeout(10_000);
+  await expect(rail).not.toHaveClass(/has-fix/);
+});
+
 // 官方原样 was chosen on purpose: the next start shows no required dialog, only a calm banner.
 test("hub routing: 官方原样 starts without the required dialog", async ({ page }) => {
   const dir = path.join(runDir, "hub-routing");

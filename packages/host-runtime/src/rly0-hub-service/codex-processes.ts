@@ -178,6 +178,38 @@ async function endProcesses(
 }
 
 /**
+ * macOS: the shared codexhost Host (`codexhost host serve` and its `--codexhost-shared-host`
+ * runtime). It outlives Codex and runs its own Codex app-server, which keeps Codex's state
+ * database open; the Desktop controller starts it again (`host ensure`) on the next Codex start.
+ */
+export function selectMacSharedHost(
+  entries: readonly MacProcessEntry[],
+  keep: ReadonlySet<number>,
+): number[] {
+  return entries
+    .filter(
+      ({ pid, args }) =>
+        Number.isSafeInteger(pid) &&
+        pid > 1 &&
+        !keep.has(pid) &&
+        (/(?:^|\s)--codexhost-shared-host(?:\s|$)/u.test(args) ||
+          /\/bin\/codexhost host serve(?:\s|$)/u.test(args)),
+    )
+    .map(({ pid }) => pid);
+}
+
+/** Ends the shared Host (and with it its app-server); returns how many processes it had. */
+export async function stopMacSharedHost(
+  dependencies: MacProcessDependencies = defaultMacProcessDependencies(),
+): Promise<number> {
+  const pids = selectMacSharedHost(await dependencies.list(), dependencies.keep);
+  if (pids.length === 0) return 0;
+  for (const pid of pids) dependencies.signal(pid, "SIGTERM");
+  await endProcesses(pids, dependencies, 5_000);
+  return pids.length;
+}
+
+/**
  * Quits Codex Desktop on macOS the way ⌘Q does, waits for it and its codexhost helpers to exit,
  * and only then ends whatever is still running. Returns how many of the matched processes ended.
  */

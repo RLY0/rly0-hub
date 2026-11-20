@@ -712,6 +712,7 @@ window.registerHubSystem = ({
         }
         return;
       }
+      window.dispatchEvent(new CustomEvent("rly0-chat-scan", { detail: scan }));
       const groups = (scan.groups || []).filter((g) => g.kind !== "legacy-deleted");
       const checked = scan.checked
         ? scan.checked.agent + (scan.checked.codex || 0)

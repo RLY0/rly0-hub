@@ -1,3 +1,4 @@
+import { stopMacSharedHost } from "./codex-processes.js";
 import type { CodexUpdateManager } from "./codex-update-manager.js";
 import { syncNativeResourcesIfChanged } from "../rly0-bridge/native-resources.js";
 import { revealFolder } from "./desktop-open.js";
@@ -84,7 +85,11 @@ export function createHubManagementRoutes(options: {
   const dashboard = new Rly0DashboardManager({ environment, threads });
   const instructions = new Rly0InstructionsManager({ environment });
   const content = z.string().max(64 * 1024);
-  const chatRepair = new ChatRepair({ environment, codex });
+  const chatRepair = new ChatRepair({
+    environment,
+    codex,
+    ...(process.platform === "darwin" ? { stopSharedHost: () => stopMacSharedHost() } : {}),
+  });
   const chatRecovery = new ChatReadableRecovery(environment);
   const maintenance = new Rly0MaintenanceManager({
     environment,

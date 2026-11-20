@@ -411,6 +411,27 @@
         button.classList.toggle("has-update", available && button.textContent === "更新"),
       );
   }
+  /* 维护: a dot while some chats can be fixed by 修复聊天记录 (checked now and then, and whenever
+     the maintenance page scans). Problems the repair cannot fix do not light it. */
+  function markChatRepair(scan) {
+    const fixable = scan
+      ? (scan.groups || [])
+          .filter((g) => g.repairable && g.kind !== "legacy-deleted")
+          .reduce((sum, g) => sum + g.count, 0)
+      : 0;
+    const rail = document.querySelector('.rail button[data-page="maintenance"]');
+    if (!rail) return;
+    rail.classList.toggle("has-fix", fixable > 0);
+    rail.title = fixable > 0 ? `有 ${fixable} 条聊天可以修复` : "";
+  }
+  window.addEventListener("rly0-chat-scan", (event) => markChatRepair(event.detail));
+  async function checkChatRepair() {
+    const scan = await call("maintenance.chatRepairScan").catch(() => null);
+    if (scan) markChatRepair(scan);
+  }
+  setTimeout(checkChatRepair, 8_000);
+  setInterval(checkChatRepair, 10 * 60_000);
+
   function showUpdatePrompt(force) {
     if (!updateInfo || !updateInfo.updateAvailable) return;
     if (!force && (updatePromptShown || skippedVersion() === updateInfo.latestVersion)) return;

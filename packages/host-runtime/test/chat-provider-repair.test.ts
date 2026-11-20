@@ -173,6 +173,29 @@ describe("Codex chat provider repair (synthetic database)", () => {
     expect(providers(database)).toEqual({ [SESSION(14)]: "openai" });
   });
 
+  it("ends the shared Host first: its app-server is what keeps the database open (macOS)", async () => {
+    const { home, database } = makeCodex([{ id: SESSION(17), provider: "openai" }]);
+    let hostRunning = true;
+    const repair = new ChatRepair({
+      environment: {},
+      home,
+      codex: {
+        status: async () => ({ running: false }),
+        forceQuit: async () => ({ ok: true }),
+        open: async () => ({ ok: true }),
+      },
+      sleep: async () => undefined,
+      now: () => new Date("2026-11-08T03:04:05.123Z"),
+      stopSharedHost: async () => {
+        hostRunning = false;
+        return 2;
+      },
+      providerRepair: { inUse: async () => hostRunning, waitMs: 0 },
+    });
+    expect(await repair.repair()).toMatchObject({ ok: true, providers: 1 });
+    expect(providers(database)).not.toEqual({ [SESSION(17)]: "openai" });
+  });
+
   it("counts a check that cannot tell who has the database open as in use", async () => {
     const { database, paths } = makeCodex([{ id: SESSION(15), provider: "openai" }]);
     const unknown = {

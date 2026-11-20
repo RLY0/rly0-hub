@@ -98,6 +98,11 @@ export interface ChatRepairOptions {
   readonly now?: () => Date;
   /** Provider repair hooks (tests): who still has Codex's database open, and how long to wait. */
   readonly providerRepair?: ChatProviderRepairOptions;
+  /**
+   * macOS: ends the shared codexhost Host, whose own Codex app-server keeps Codex's database open
+   * after Codex quits (the next Codex start brings it back). Without it the database stays busy.
+   */
+  readonly stopSharedHost?: () => Promise<number>;
 }
 
 const sleepFor = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -302,6 +307,11 @@ export class ChatRepair {
       }
       // Let the thread store's last writes land before merging next to them.
       await sleep(1_000);
+    }
+    // Also when Codex was already closed: the shared Host's app-server still holds the database.
+    if (this.#options.stopSharedHost) {
+      const stopped = await this.#options.stopSharedHost().catch(() => 0);
+      if (stopped > 0) await sleep(1_000);
     }
     return {
       wasRunning,

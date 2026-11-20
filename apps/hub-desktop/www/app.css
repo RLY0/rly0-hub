@@ -3759,12 +3759,15 @@ select.input,
   }
 }
 
-/* Update available: a glowing dot on 设置 and on the 更新 tab; the update prompt. */
+/* Update available: a glowing dot on 设置 and on the 更新 tab; the update prompt.
+   The same dot, without the pulse, marks 维护 while some chats can be repaired. */
 .rail button.has-update,
+.rail button.has-fix,
 .settings-menu button.has-update {
   position: relative;
 }
 .rail button.has-update::after,
+.rail button.has-fix::after,
 .settings-menu button.has-update::after {
   content: "";
   position: absolute;
