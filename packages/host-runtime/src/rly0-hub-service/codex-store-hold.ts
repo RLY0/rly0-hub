@@ -43,7 +43,14 @@ export interface StoreUpdateDriver {
  * `user-on`: the person turned them back on during a hold; kept for that offered build.
  */
 export type StoreHoldMode = "holding" | "following" | "canary" | "user-off" | "user-on";
-type StoreHoldJournal = { originalValue: StoreUpdateSetting } | { userEnabledFor: string };
+/**
+ * `applied` is written only after the switch was turned off and read back as off: a journal
+ * without it (write failed, crash between journal and switch, damaged file) never counts as the
+ * person turning updates back on.
+ */
+type StoreHoldJournal =
+  | { originalValue: StoreUpdateSetting; applied: boolean; offeredAtApply: string | null }
+  | { userEnabledFor: string };
 export interface StoreHoldState {
   mode: StoreHoldMode;
   /** The Store switch as last read; null when it could not be read. */
@@ -98,7 +105,14 @@ export class CodexStoreHold {
         "originalValue" in value &&
         STORE_SETTING_VALUES.includes(value.originalValue as StoreUpdateSetting)
       )
-        return { originalValue: value.originalValue as StoreUpdateSetting };
+        return {
+          originalValue: value.originalValue as StoreUpdateSetting,
+          applied: "applied" in value && value.applied === true,
+          offeredAtApply:
+            "offeredAtApply" in value && typeof value.offeredAtApply === "string"
+              ? value.offeredAtApply
+              : null,
+        };
       if (
         typeof value === "object" &&
         value !== null &&
@@ -109,8 +123,9 @@ export class CodexStoreHold {
     } catch {
       /* fall through */
     }
-    // A damaged journal still proves the Hub turned updates off: restore the Store default.
-    return { originalValue: "Enabled" };
+    // A damaged journal still proves the Hub turned updates off: restore the Store default. It is
+    // never proof that the person turned them back on (not applied).
+    return { originalValue: "Enabled", applied: false, offeredAtApply: null };
   }
   async #writeJournal(value: Record<string, unknown>): Promise<void> {
     await fs.mkdir(this.#directory, { recursive: true, mode: 0o700 });
@@ -135,23 +150,26 @@ export class CodexStoreHold {
       await fs.rm(this.journalFile, { force: true });
       journal = null;
     }
-    if (journal && setting === "Enabled") {
-      // Turned back on by hand during our hold: respect it, never write the switch again for it.
+    if (journal && journal.applied && setting === "Enabled") {
+      // Turned back on by hand after our hold took effect: respect it for this offered build.
       await this.#writeJournal({
-        userEnabledFor: offered,
+        userEnabledFor: offered ?? journal.offeredAtApply ?? "",
         at: new Date((this.options.now ?? Date.now)()).toISOString(),
       });
       return { mode: "user-on", setting };
     }
     // Already off (by the person or by policy) and not by us: nothing to hold, nothing to undo.
     if (!journal && setting !== "Enabled") return { mode: "user-off", setting };
-    if (!journal)
-      await this.#writeJournal({
-        originalValue: setting,
-        appliedAt: new Date((this.options.now ?? Date.now)()).toISOString(),
-        offeredAtApply: offered,
-      });
-    if (setting === "Enabled") await this.options.driver.writeSetting("Disabled");
+    const at = new Date((this.options.now ?? Date.now)()).toISOString();
+    // Journal first (not applied yet), so a crash after the switch write is still undone.
+    const record = {
+      originalValue: journal ? journal.originalValue : setting,
+      appliedAt: at,
+      offeredAtApply: offered,
+    };
+    if (!journal || !journal.applied) await this.#writeJournal({ ...record, applied: false });
+    if (setting === "Enabled") await this.options.driver.writeSetting("Disabled"); // reads back
+    if (!journal || !journal.applied) await this.#writeJournal({ ...record, applied: true });
     return { mode: "holding", setting: setting === "DisabledByPolicy" ? setting : "Disabled" };
   }
   /** Undo only the Hub's own change; idempotent, so a crash between steps repeats it safely. */
@@ -171,6 +189,12 @@ export class CodexStoreHold {
     }
     await fs.rm(this.journalFile, { force: true });
     return { mode, setting: now };
+  }
+  /** What a journal on disk says without asking the Store (feed offline after a Hub restart). */
+  async recorded(): Promise<"holding" | "user-on" | null> {
+    const journal = await this.#journal();
+    if (!journal) return null;
+    return "userEnabledFor" in journal ? "user-on" : "holding";
   }
   /** True while the Hub's own hold is in place (not the person's recorded choice). */
   async holding(): Promise<boolean> {

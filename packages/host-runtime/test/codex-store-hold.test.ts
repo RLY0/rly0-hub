@@ -124,6 +124,7 @@ describe("Windows Store hold (synthetic Store)", () => {
     expect(JSON.parse(await fs.readFile(f.hold.journalFile, "utf8"))).toMatchObject({
       originalValue: "Enabled",
       offeredAtApply: "26.1117.5012.0",
+      applied: true,
     });
     // Repeated checks keep one journal and do not rewrite an already-off switch.
     await f.manager.check();
@@ -221,6 +222,66 @@ describe("Windows Store hold (synthetic Store)", () => {
     await f.manager.check();
     expect(f.setting()).toBe("Enabled");
     await expect(fs.access(f.hold.journalFile)).rejects.toThrow();
+  });
+
+  it("never mistakes a hold that did not take effect for the person turning updates on", async () => {
+    // The switch write fails: the journal stays unapplied, and the next check still holds.
+    const failed = await fixture();
+    failed.failWrites(true);
+    expect(await failed.manager.check()).toMatchObject({
+      phase: "failed",
+      error: "CODEX_STORE_FAILED",
+    });
+    expect(JSON.parse(await fs.readFile(failed.hold.journalFile, "utf8"))).toMatchObject({
+      applied: false,
+    });
+    expect(failed.setting()).toBe("Enabled");
+    failed.failWrites(false);
+    expect(await failed.manager.check()).toMatchObject({
+      store: { mode: "holding", setting: "Disabled" },
+    });
+    expect(failed.setting()).toBe("Disabled");
+    expect(await failed.manager.check()).toMatchObject({ store: { mode: "holding" } });
+
+    // A crash between journal and switch (journal written, switch still on): held on restart.
+    const crash = await fixture();
+    await fs.mkdir(crash.environment.CODEXHOST_DATA_DIR, { recursive: true });
+    await fs.writeFile(
+      crash.hold.journalFile,
+      JSON.stringify({
+        originalValue: "Enabled",
+        offeredAtApply: "26.1117.5012.0",
+        applied: false,
+      }),
+    );
+    expect(await crash.manager.check()).toMatchObject({ store: { mode: "holding" } });
+    expect(crash.setting()).toBe("Disabled");
+    expect(JSON.parse(await fs.readFile(crash.hold.journalFile, "utf8"))).toMatchObject({
+      originalValue: "Enabled",
+      applied: true,
+    });
+
+    // A damaged journal with the switch on is not the person's choice either.
+    const damaged = await fixture();
+    await fs.mkdir(damaged.environment.CODEXHOST_DATA_DIR, { recursive: true });
+    await fs.writeFile(damaged.hold.journalFile, "{broken");
+    expect(await damaged.manager.check()).toMatchObject({ store: { mode: "holding" } });
+    expect(damaged.setting()).toBe("Disabled");
+    // ...and its hold is undone as the Hub's own once the build is verified.
+    damaged.offer("26.1117.3838.0");
+    await damaged.manager.check();
+    expect(damaged.setting()).toBe("Enabled");
+  });
+
+  it("reports the person's recorded choice after a Hub restart with the Store feed offline", async () => {
+    const f = await fixture();
+    await f.manager.check();
+    f.setSetting("Enabled");
+    expect(await f.manager.check()).toMatchObject({ store: { mode: "user-on" } });
+    await f.manager.stop();
+    f.offer(new Error("offline"));
+    expect(await f.make().check()).toMatchObject({ store: { mode: "user-on" } });
+    expect(f.driver.writeSetting).toHaveBeenCalledTimes(1);
   });
 
   it("drops the person's recorded choice on release without touching the switch", async () => {

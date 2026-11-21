@@ -583,7 +583,14 @@ export function installChatGptWorkBridge(
 
   /** Next frame; observer-driven rescans are throttled, an explicit refresh is not. */
   const schedule = (throttled = false): void => {
-    if (scheduled || disposed) return;
+    if (disposed) return;
+    if (!throttled && timer !== undefined) {
+      // An explicit refresh does not wait out a throttled rescan: run it on the next frame.
+      ownerWindow.clearTimeout(timer);
+      timer = undefined;
+      scheduled = false;
+    }
+    if (scheduled) return;
     scheduled = true;
     const wait = throttled ? lastScan + SCAN_INTERVAL_MS - now() : 0;
     if (wait > 0)

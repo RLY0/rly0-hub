@@ -12,8 +12,16 @@
 #>
 $ErrorActionPreference = 'Stop'
 try {
-  $journal = Join-Path $env:USERPROFILE '.rly0-hub\codex-store-hold.json'
-  if (-not (Test-Path -LiteralPath $journal)) { exit 0 }
+  # The Hub only changes the Store switch when its data folder is the default one
+  # (codexStoreControlAllowed), so the journal lives there; CODEXHOST_DATA_DIR is checked too.
+  $journal = $null
+  foreach ($dir in @($env:CODEXHOST_DATA_DIR, (Join-Path $env:USERPROFILE '.rly0-hub'))) {
+    if ($dir -and (Test-Path -LiteralPath (Join-Path $dir 'codex-store-hold.json'))) {
+      $journal = Join-Path $dir 'codex-store-hold.json'
+      break
+    }
+  }
+  if (-not $journal) { exit 0 }
   $restore = $true
   try {
     $value = Get-Content -Raw -LiteralPath $journal | ConvertFrom-Json

@@ -404,11 +404,9 @@ export class CodexUpdateManager {
       if (await hold.isCanary()) this.#store = await hold.release("canary");
       else if (offered === null)
         this.#store = {
-          mode: (await hold.holding())
-            ? "holding"
-            : this.#store?.mode === "user-off" || this.#store?.mode === "user-on"
-              ? this.#store.mode
-              : "following",
+          mode:
+            (await hold.recorded()) ??
+            (this.#store?.mode === "user-off" ? "user-off" : "following"),
           setting: this.#store?.setting ?? null,
         };
       else if (!verified) this.#store = await hold.hold(offered);

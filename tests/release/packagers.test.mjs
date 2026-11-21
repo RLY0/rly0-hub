@@ -131,6 +131,7 @@ describe("platform packagers", () => {
     expect(installer.slice(0, installer.indexOf("[UninstallRun]"))).toContain("#ifndef SandboxTest");
     // Same journal, same switch and same "only our own change" rule as codex-store-hold.ts.
     expect(restorer).toContain("codex-store-hold.json");
+    expect(restorer).toContain("$env:CODEXHOST_DATA_DIR");
     expect(restorer).toContain("userEnabledFor");
     expect(restorer).toContain("-ne 'Enabled'");
     expect(restorer).toContain("AutoUpdateSetting -eq 'Disabled'");

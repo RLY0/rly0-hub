@@ -247,10 +247,17 @@ describe("ChatGPT Work bridge control", () => {
     expect(count()).toBe(1); // ~100 ms of streaming: still within the interval
     vi.advanceTimersByTime(100);
     expect(count()).toBe(2); // one rescan for the whole burst
-    // An explicit refresh is not throttled.
+    // An explicit refresh is not throttled, even with a throttled rescan pending.
     bridge.refresh();
     vi.advanceTimersByTime(16);
     expect(count()).toBe(3);
+    document.body.append(document.createElement("div"));
+    await Promise.resolve();
+    bridge.refresh();
+    vi.advanceTimersByTime(16);
+    expect(count()).toBe(4);
+    vi.advanceTimersByTime(300);
+    expect(count()).toBe(4); // the pending throttled rescan was folded into the refresh
     bridge.dispose();
     scans.mockRestore();
   });
