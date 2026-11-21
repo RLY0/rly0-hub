@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.45
+
+0.11.44 was not published; this version includes everything in it (Codex Desktop 26.1117 support).
+0.11.44 没有发布出去，这一版包含它的全部内容（支持 Codex 桌面版 26.1117）。
+
+### Updates
+- 官方原样 (formerly 恢复纯净) now puts Codex back to how the official app is: Codex opens the official way, without the agent picker, other agents' chats or the Hub's buttons, and updates itself. 重新开启 Hub brings everything back, including the shared-resource and Codex-update switches that were on before. Accounts, relays, keys and agent chats are kept.
+- 修复聊天记录 works on macOS: it used to give up because a Hub background service kept Codex's chat database open after Codex closed. That service is now stopped properly during the repair and comes back with Codex.
+- The 维护 entry in the sidebar shows a dot while some chats can be repaired.
+
+### 更新
+- “官方原样”（原“恢复纯净”）现在让 Codex 真正回到官方原装的样子：Codex 用官方方式打开，没有助手菜单、其他助手的对话和 Hub 加的按钮，由 Codex 自己更新。点“重新开启 Hub”全部恢复，原来开着的共享资源和 Codex 更新管理也会打开。账号、中转站、Key 和助手对话都保留。
+- Mac 上“修复聊天记录”能修了：以前 Codex 关掉后 Hub 的一个后台服务还占着 Codex 的聊天记录库，修复会放弃。现在修复时会正规地停掉它，打开 Codex 时自动恢复。
+- 有可以修复的聊天时，侧边栏“维护”会显示一个小红点。
+
 ## 0.11.44
 
 ### Updates
