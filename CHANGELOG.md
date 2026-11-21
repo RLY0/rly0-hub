@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.50
+
+### Updates
+- Codex updates are now cleared by exact version, not by version family: a new build of an already supported Codex opens without the Hub's interface additions until it has been checked. Verified builds: macOS 26.1106.51428 and 26.1117.31558, Windows 26.1117.3838 and 26.1117.4957. The online list `codex-compat.json` carries the same exact versions (`verifiedVersions`).
+- Windows: while the Microsoft Store offers a Codex build the Hub has not verified, the Hub pauses the Store's automatic app updates and turns them back on once the build is verified, when you switch update management off, or when pure mode is restored. Settings → 更新 shows this in plain words.
+- Codex 26.1117.4957: new chats in ChatGPT mode → Work use ChatGPT's own composer, which the Hub cannot take over. That composer now shows an Agent picker; choosing an Agent switches Codex to its Codex mode and opens a new chat there with the Agent selected.
+
+### 更新
+- Codex 版本改为按具体版本放行，不再按大版本整族放行：已支持的 Codex 出了新构建，在核对前先不挂 Hub 的界面增强。已核对的版本：Mac 26.1106.51428、26.1117.31558，Windows 26.1117.3838、26.1117.4957。在线清单 `codex-compat.json` 也改为同样的具体版本（`verifiedVersions`）。
+- Windows：微软商店出现 Hub 还没核对过的 Codex 版本时，Hub 会先暂停商店的应用自动更新；版本核对通过、你关掉更新管理或恢复纯净模式时，再把它打开。设置 → 更新 页用白话显示这个状态。
+- Codex 26.1117.4957：ChatGPT 模式“工作”里的新聊天换成了 ChatGPT 自己的输入框，Hub 接管不了。现在这个输入框上会出现“选助手”入口，选好后自动切到 Codex 模式并新开对话，带上选中的助手。
+
 ## 0.11.49
 
 0.11.48 was not released; this version contains all of it.

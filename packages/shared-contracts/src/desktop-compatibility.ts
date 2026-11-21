@@ -62,7 +62,11 @@ export const RLY0_VERIFIED_DESKTOP_VERSIONS: readonly {
   readonly platform: CodexDesktopPlatform;
 }[] = [
   { version: "26.1106.51428", platform: "macos" },
+  // Adapted against this exact build's source in 0.11.44 (37-slot Agent binding, turn context).
+  { version: "26.1117.31558", platform: "macos" },
   { version: "26.1117.3838", platform: "windows" },
+  // Codex mode passed the Windows UI check; ChatGPT Work new chats get the Agent picker bridge.
+  { version: "26.1117.4957", platform: "windows" },
 ];
 
 export function desktopVersionFamily(version: string): string | null {

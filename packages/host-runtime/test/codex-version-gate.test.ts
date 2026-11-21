@@ -194,10 +194,14 @@ describe("compatibility manifest (synthetic)", () => {
     expect(verified("26.1117.3838.0", "0.0.0", "win32", null as never)).toBe(true);
     expect(verified("26.1117.3838", "0.0.0", "darwin", null as never)).toBe(false);
     expect(verified("26.1106.51428", "0.0.0", "linux", null as never)).toBe(false);
-    // A newer build of a verified family is not verified (26.1117.4957 on 2026-11-21).
-    expect(verified("26.1117.4957.0", "0.0.0", "win32", null as never)).toBe(false);
+    expect(verified("26.1117.4957.0", "0.0.0", "win32", null as never)).toBe(true);
+    expect(verified("26.1117.31558", "0.0.0", "darwin", null as never)).toBe(true);
+    expect(verified("26.1117.4957", "0.0.0", "darwin", null as never)).toBe(false);
+    expect(verified("26.1117.31558", "0.0.0", "win32", null as never)).toBe(false);
+    // A newer build of a verified family is not verified (26.1117.4957 changed the composer).
+    expect(verified("26.1117.5012.0", "0.0.0", "win32", null as never)).toBe(false);
     expect(verified("26.1111.21308", "0.0.0", "darwin", null as never)).toBe(false);
-    expect(verified("26.1117.31558", "0.0.0", "darwin", null as never)).toBe(false);
+    expect(verified("26.1117.31559", "0.0.0", "darwin", null as never)).toBe(false);
     // Remote exact versions, minHub-qualified; families in the same document verify nothing.
     expect(verified("26.1200.9", "0.11.39")).toBe(false);
     expect(verified("26.1200.9", "0.11.40")).toBe(true);
@@ -214,12 +218,12 @@ describe("compatibility manifest (synthetic)", () => {
       verified: [{ family: "26.1117", minHub: "0.11.40" }],
       disabled: [],
     });
-    for (const version of ["26.1117.4957.0", "26.1117.31558", "26.1117.1"])
+    for (const version of ["26.1117.5012.0", "26.1117.31559", "26.1117.1"])
       expect(codexVersionVerified(version, "9.0.0", legacy, compareSemanticVersions, "win32")).toBe(
         false,
       );
     expect(
-      codexRendererPolicy("26.1117.4957.0", "9.0.0", legacy, compareSemanticVersions, "win32").mode,
+      codexRendererPolicy("26.1117.5012.0", "9.0.0", legacy, compareSemanticVersions, "win32").mode,
     ).toBe("core");
     // The exact built-in build of the same family stays full.
     expect(

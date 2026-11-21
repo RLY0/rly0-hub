@@ -48,7 +48,7 @@ async function fixture(options: { setting?: StoreUpdateSetting; offered?: string
     RLY0_CODEX_UPDATE_CONTROL: "0",
   };
   let setting: StoreUpdateSetting = options.setting ?? "Enabled";
-  let offered: string | Error = options.offered ?? "26.1117.4957.0";
+  let offered: string | Error = options.offered ?? "26.1117.5012.0";
   let failWrite = false;
   const driver: StoreUpdateDriver = {
     readSetting: vi.fn(async () => setting),
@@ -113,7 +113,7 @@ describe("Windows Store hold (synthetic Store)", () => {
     expect(status).toMatchObject({
       supported: true,
       phase: "waiting-compatibility",
-      latestVersion: "26.1117.4957.0",
+      latestVersion: "26.1117.5012.0",
       currentVersion: "26.1117.3838.0",
       store: { mode: "holding", setting: "Disabled" },
       error: null,
@@ -123,7 +123,7 @@ describe("Windows Store hold (synthetic Store)", () => {
     expect(f.setting()).toBe("Disabled");
     expect(JSON.parse(await fs.readFile(f.hold.journalFile, "utf8"))).toMatchObject({
       originalValue: "Enabled",
-      offeredAtApply: "26.1117.4957.0",
+      offeredAtApply: "26.1117.5012.0",
     });
     // Repeated checks keep one journal and do not rewrite an already-off switch.
     await f.manager.check();
@@ -241,7 +241,7 @@ describe("Windows Store hold (synthetic Store)", () => {
 
   it("an unverified installed build degrades the interface (core) on Windows", async () => {
     const f = await fixture();
-    expect(f.catalog.policy("26.1117.4957.0").mode).toBe("core");
+    expect(f.catalog.policy("26.1117.5012.0").mode).toBe("core");
     expect(f.catalog.policy("26.1117.3838.0").mode).toBe("full");
   });
 
@@ -278,10 +278,10 @@ describe("Windows Store driver pieces (no PowerShell is run)", () => {
       script.includes("]::Disabled") ? "SETTING=Enabled" : "SETTING=Enabled",
     );
     const driver = createWindowsStoreUpdateDriver({
-      get: async () => json({ schemaVersion: 1, buildVersion: "26.1117.4957.0" }),
+      get: async () => json({ schemaVersion: 1, buildVersion: "26.1117.5012.0" }),
       run,
     });
-    expect(await driver.offeredVersion()).toBe("26.1117.4957.0");
+    expect(await driver.offeredVersion()).toBe("26.1117.5012.0");
     expect(await driver.readSetting()).toBe("Enabled");
     await expect(driver.writeSetting("Disabled")).rejects.toThrow("CODEX_STORE_WRITE_FAILED");
     const bad = createWindowsStoreUpdateDriver({
