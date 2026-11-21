@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough, Writable } from "node:stream";
@@ -237,7 +237,8 @@ describe("adding a GPT account from the Hub", () => {
     expect(inputs[0]?.stockCodexPath).toBe("C:\\codex\\codex.exe");
     expect(inputs[0]?.arguments).toEqual(["app-server"]);
     const home = inputs[0]?.env.CODEX_HOME ?? "";
-    expect(path.dirname(home)).toBe(tempRoot);
+    // The login resolves its temp root (macOS tmpdir is under the /var -> /private/var link).
+    expect(path.dirname(home)).toBe(await realpath(tempRoot));
     expect(inputs[0]?.env.OPENAI_API_KEY).toBeUndefined();
     expect(inputs[0]?.env.CODEXHOST_DATA_DIR).toBeUndefined();
     expect(inputs[0]?.env.HTTPS_PROXY).toBe("http://127.0.0.1:7890");

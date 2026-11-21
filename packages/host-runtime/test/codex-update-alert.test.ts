@@ -20,7 +20,9 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true });
 });
 // Synthetic build numbers; production appcast element/attribute shapes and macOS 27 errors.
-const item = (version = "26.1106.51428", build = "30001") =>
+// Feed family 26.1150 is not a real date, so the built-in verified table never covers it and only
+// `allow()` releases it; a real family would bypass the compatibility hold under test.
+const item = (version = "26.1150.51428", build = "30001") =>
   `<item><sparkle:version>${build}</sparkle:version><sparkle:shortVersionString>${version}</sparkle:shortVersionString><enclosure url="https://example.test/Codex.zip" length="1" type="application/octet-stream"/></item>`;
 const http =
   (body: string): UpdateHttpGet =>
@@ -179,7 +181,7 @@ async function fixture(original: string | null = null) {
       now += ms;
     },
     allow: () => {
-      verified.push({ family: "26.1106", minHub: "0.11.40" });
+      verified.push({ family: "26.1150", minHub: "0.11.40" });
     },
     feed: (value: string) => {
       xml = value;
@@ -327,7 +329,7 @@ it.each(["30001", "45000"])(
     f.allow();
     expect(await f.manager.check()).toMatchObject({
       phase: "user-skipped",
-      userSkippedVersion: "26.1106.51428",
+      userSkippedVersion: "26.1150.51428",
       error: null,
     });
     f.advance();
@@ -346,7 +348,7 @@ it.each(["30001", "45000"])(
 it("updates the held build across feed changes without forgetting the first original", async () => {
   const f = await fixture("25000");
   await f.manager.check();
-  f.feed(`<rss>${item("26.1106.60000", "30002")}</rss>`);
+  f.feed(`<rss>${item("26.1150.60000", "30002")}</rss>`);
   await f.manager.check();
   expect(f.prefs.get("SUSkippedVersion")).toBe("30002");
   expect(JSON.parse(await fs.readFile(journal(f), "utf8"))).toEqual({
@@ -361,7 +363,7 @@ it("updates the held build across feed changes without forgetting the first orig
 it("uses the greatest newer build across candidates, including an already verified candidate", async () => {
   const f = await fixture();
   f.allow();
-  f.feed(`<rss>${item("26.1200.1", "31000")}${item("26.1106.1", "40000")}</rss>`);
+  f.feed(`<rss>${item("26.1200.1", "31000")}${item("26.1150.1", "40000")}</rss>`);
   expect(await f.manager.check()).toMatchObject({
     phase: "waiting-compatibility",
     latestVersion: "26.1200.1",
@@ -387,7 +389,7 @@ it("refreshes suppression during update backoff without enabling downloads or qu
     error: "CODEX_DOWNLOAD_TIMEOUT",
   });
   expect(f.prefs.get("SUSkippedVersion")).toBe("30001");
-  f.feed(`<rss>${item("26.1106.60000", "30002")}</rss>`);
+  f.feed(`<rss>${item("26.1150.60000", "30002")}</rss>`);
   await f.manager.check();
   expect(f.prefs.get("SUSkippedVersion")).toBe("30002");
   expect(f.startWatchdog).not.toHaveBeenCalled();
@@ -413,7 +415,7 @@ it("refreshes suppression while waiting for a busy user and returns to compatibi
 it("parses enclosure build attributes rather than substituting the display version", async () => {
   const f = await fixture();
   f.feed(
-    '<rss><item><enclosure sparkle:version="30009" sparkle:shortVersionString="26.1106.2" url="https://example.test/Codex.zip"/></item></rss>',
+    '<rss><item><enclosure sparkle:version="30009" sparkle:shortVersionString="26.1150.2" url="https://example.test/Codex.zip"/></item></rss>',
   );
   await f.manager.check();
   expect(f.prefs.get("SUSkippedVersion")).toBe("30009");
@@ -423,7 +425,7 @@ it.each(["", "bad-build"])(
   "fails closed when a blocked feed has unusable build %s",
   async (build) => {
     const f = await fixture("25000");
-    f.feed(`<rss>${item("26.1106.1", build)}</rss>`);
+    f.feed(`<rss>${item("26.1150.1", build)}</rss>`);
     expect(await f.manager.check()).toMatchObject({
       phase: "failed",
       error: "CODEX_APPCAST_FAILED",
@@ -548,7 +550,7 @@ it.each(["feed", "defaults"])(
     if (failure === "feed")
       vi.spyOn(f.driver, "latestVersion").mockRejectedValueOnce(new Error("synthetic offline"));
     else {
-      f.feed(`<rss>${item("26.1106.51428", "30002")}</rss>`);
+      f.feed(`<rss>${item("26.1150.51428", "30002")}</rss>`);
       f.denyWrite("SUSkippedVersion");
     }
     expect(await f.manager.check()).toMatchObject({ phase: "waiting-idle", error: null });
@@ -754,14 +756,14 @@ it("keeps an unconfirmed successful write when both its reply and readback were 
 it("uses the actual lower signed target when the user's original skip is hidden by the Hub's larger hold", async () => {
   const f = await fixture("25000");
   f.allow();
-  f.feed(`<rss>${item("26.1106.51428", "26605")}${item("26.1106.1", "24000")}</rss>`);
+  f.feed(`<rss>${item("26.1150.51428", "26605")}${item("26.1150.1", "24000")}</rss>`);
   vi.spyOn(f.driver, "downloadReady").mockImplementation(
-    async (version) => version === "26.1106.1",
+    async (version) => version === "26.1150.1",
   );
   expect(await f.manager.check()).toMatchObject({
     phase: "user-skipped",
-    userSkippedVersion: "26.1106.1",
-    latestVersion: "26.1106.51428",
+    userSkippedVersion: "26.1150.1",
+    latestVersion: "26.1150.51428",
     error: null,
   });
   expect(f.prefs.get("SUSkippedVersion")).toBe("26605");
@@ -772,7 +774,7 @@ it("uses the actual lower signed target when the user's original skip is hidden 
 it("does not confuse a lower user skip with a higher build of the same display version", async () => {
   const f = await fixture("26605");
   f.allow();
-  f.feed(`<rss>${item("26.1106.51428", "26605")}${item("26.1106.51428", "26606")}</rss>`);
+  f.feed(`<rss>${item("26.1150.51428", "26605")}${item("26.1150.51428", "26606")}</rss>`);
   expect((await f.manager.check()).phase).toBe("waiting-idle");
   expect(f.prefs.get("SUSkippedVersion")).toBe("26606");
   f.advance();
@@ -903,7 +905,7 @@ it.each([429, 503, "write-failure"] as const)(
     await f.manager.check();
     if (typeof failure === "number") f.feedStatus(failure);
     else {
-      f.feed(`<rss>${item("26.1106.51428", "30002")}</rss>`);
+      f.feed(`<rss>${item("26.1150.51428", "30002")}</rss>`);
       f.denyWrite("SUSkippedVersion");
     }
     f.feedGet.mockClear();
@@ -1035,7 +1037,7 @@ it("uses only OS-installable builds when deciding whether the user skipped a dis
   const f = await fixture("30001");
   f.allow();
   f.feed(
-    `<rss>${item()}${item("26.1106.51428", "40000").replace("<enclosure", "<sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion><enclosure")}</rss>`,
+    `<rss>${item()}${item("26.1150.51428", "40000").replace("<enclosure", "<sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion><enclosure")}</rss>`,
   );
   expect(await f.manager.check()).toMatchObject({ phase: "user-skipped", error: null });
   expect(f.prefs.get("SUSkippedVersion")).toBe("40000");
@@ -1046,12 +1048,12 @@ it("checks the newest installable display version when the feed's latest needs a
   const f = await fixture("30001");
   f.allow();
   f.feed(
-    `<rss>${item()}${item("26.1106.60000", "40000").replace("<enclosure", "<sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion><enclosure")}</rss>`,
+    `<rss>${item()}${item("26.1150.60000", "40000").replace("<enclosure", "<sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion><enclosure")}</rss>`,
   );
   expect(await f.manager.check()).toMatchObject({
     phase: "user-skipped",
-    userSkippedVersion: "26.1106.51428",
-    latestVersion: "26.1106.60000",
+    userSkippedVersion: "26.1150.51428",
+    latestVersion: "26.1150.60000",
     error: null,
   });
   expect(f.startWatchdog).not.toHaveBeenCalled();

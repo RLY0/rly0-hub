@@ -147,7 +147,8 @@ codex-group-line
     const f = await fixture();
     const shared = await f.provider(f.project, { harnessId: "pi", skills: true, skillFiles: true });
     expect(shared.skills).toEqual([
-      { name: "review", directory: path.join(f.codex, "skills", "review") },
+      // Skills are delivered from their canonical directory (tmpdir is a link on macOS).
+      { name: "review", directory: await fs.realpath(path.join(f.codex, "skills", "review")) },
     ]);
     expect(shared.context).toBe("");
   });

@@ -42,7 +42,8 @@ async function readControls(
   env: NodeJS.ProcessEnv,
 ): Promise<Record<string, "enabled" | "disabled" | "removed">> {
   const text = await fs.readFile(controlFile(env), "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "{}";
+    // ENOTDIR (POSIX) is how a non-directory data path reports what Windows reports as ENOENT.
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return "{}";
     throw error;
   });
   const data: unknown = JSON.parse(text);

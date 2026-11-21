@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -59,10 +61,11 @@ describe("Linux glibc release baseline", () => {
   it("strips only debug information from every packaged native executable", () => {
     const stripped = [];
     stripLinuxDebugInfo({ packageRoot: "/package", strip: (binary) => stripped.push(binary) });
+    // stripLinuxDebugInfo joins host-native paths (path.join), so expect them in host form.
     expect(stripped).toEqual([
-      "/package/bin/codexhost",
-      "/package/libexec/codexhost-shim",
-      "/package/libexec/codexhost-updater",
+      path.join("/package", "bin", "codexhost"),
+      path.join("/package", "libexec", "codexhost-shim"),
+      path.join("/package", "libexec", "codexhost-updater"),
     ]);
   });
 

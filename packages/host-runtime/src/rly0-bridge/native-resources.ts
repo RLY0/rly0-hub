@@ -1,5 +1,4 @@
 import { externalMcpLocations, syncExternalMcp } from "../rly0-mcp/discovery.js";
-import { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { discoverSkills, skillRoots, within } from "../rly0-skills/discovery.js";
@@ -28,6 +27,9 @@ async function serialized<T>(env: NodeJS.ProcessEnv, work: () => Promise<T>): Pr
       const owner = JSON.stringify({ pid: process.pid, at: Date.now(), nonce: randomUUID() });
       // SQLite's OS lock releases on process death. It also serializes stale-file reclamation,
       // so two recovering processes cannot unlink a newly acquired owner's wx file.
+      // Imported on use: a static node:sqlite import makes every main.js entry (remote-control
+      // bridge, delegation CLI, MCP helpers) print Node 22's SQLite ExperimentalWarning on stderr.
+      const { DatabaseSync } = await import("node:sqlite");
       const gate = new DatabaseSync(`${lock}.sqlite`);
       let transaction = false;
       let handle: fs.FileHandle | undefined;

@@ -8,6 +8,13 @@ import { PiRpcClient } from "./rpc-client.mjs";
 
 const fakePi = path.resolve(import.meta.dirname, "fixtures/fake-pi.mjs");
 const temporaryDirectories = [];
+const FAKE_PI_NODE = "CODEXHOST_GATE_C_FAKE_PI_NODE";
+const FAKE_PI_SCRIPT = "CODEXHOST_GATE_C_FAKE_PI_SCRIPT";
+const fakePiEnv = () => ({
+  ...process.env,
+  [FAKE_PI_NODE]: process.execPath,
+  [FAKE_PI_SCRIPT]: fakePi,
+});
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -23,8 +30,14 @@ function temporaryDirectory(prefix) {
 
 function createPiScript(directory, baseName = "pi") {
   if (process.platform === "win32") {
+    // cmd.exe decodes batch text in the OEM code page, so a UTF-8 checkout path such as
+    // E:\codex\codex助手插件 would be garbled; environment variables keep the paths Unicode.
     const script = path.join(directory, `${baseName}.cmd`);
-    fs.writeFileSync(script, `@echo off\r\n"${process.execPath}" "${fakePi}" %*\r\n`, "utf8");
+    fs.writeFileSync(
+      script,
+      `@echo off\r\n"%${FAKE_PI_NODE}%" "%${FAKE_PI_SCRIPT}%" %*\r\n`,
+      "utf8",
+    );
     return script;
   }
   const script = path.join(directory, baseName);
@@ -57,7 +70,7 @@ describe("Gate C process launch forms", () => {
   it("launches PI_COMMAND as a single script path containing spaces", async () => {
     const directory = temporaryDirectory("codexhost gate-c space ");
     const script = createPiScript(directory, "fake pi");
-    await expect(expectEcho({ env: { ...process.env, PI_COMMAND: script } })).resolves.toBe(
+    await expect(expectEcho({ env: { ...fakePiEnv(), PI_COMMAND: script } })).resolves.toBe(
       "environment",
     );
   });
@@ -65,7 +78,7 @@ describe("Gate C process launch forms", () => {
   it("discovers the default pi command through PATH", async () => {
     const directory = temporaryDirectory("codexhost-gate-c-path-");
     createPiScript(directory);
-    const env = { ...process.env, PI_COMMAND: undefined };
+    const env = { ...fakePiEnv(), PI_COMMAND: undefined };
     const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") ?? "PATH";
     env[pathKey] = `${directory}${path.delimiter}${env[pathKey] ?? ""}`;
     delete env.PI_COMMAND;

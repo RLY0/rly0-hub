@@ -193,7 +193,12 @@ export class AgentCliUpdateAdmission {
         }
         if (property === "refreshCredits" && target.refreshCredits) {
           const inspect = target.refreshCredits;
-          return () => this.run(agent, () => inspect.call(target));
+          // Forward the caller's options: Host passes `{ explicit }` to choose a real read.
+          return (...args: unknown[]) =>
+            this.run(
+              agent,
+              () => Reflect.apply(inspect, target, args) as ReturnType<typeof inspect>,
+            );
         }
         const value: unknown = Reflect.get(target, property, target);
         return typeof value === "function" ? value.bind(target) : value;

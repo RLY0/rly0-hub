@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join, win32 } from "node:path";
 
 import type { JsonObject } from "@codexhost/protocol-core";
 import { restoreHarnessCommandMentions } from "@codexhost/shared-contracts";
@@ -201,7 +201,7 @@ export async function externalTurnInput(params: JsonObject): Promise<ExternalTur
     const references = missing
       .map(
         ({ path, image }) =>
-          `\n## ${basename(path)}: ${path}\n${image ? "Image attachment: true\n" : ""}`,
+          `\n## ${win32.basename(path)}: ${path}\n${image ? "Image attachment: true\n" : ""}`,
       )
       .join("");
     return {

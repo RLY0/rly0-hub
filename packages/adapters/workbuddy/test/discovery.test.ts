@@ -111,6 +111,8 @@ describe("WorkBuddy app discovery", () => {
     const invocation = workBuddyInvocation({ HOME: "/Users/test" }, false, {
       platform: "darwin",
       isExecutable: (candidate) => [executable, cli].includes(candidate),
+      // Keep the lite-only CLI probe on the simulated bundle, not this machine's real install.
+      isFile: (candidate) => [executable, cli].includes(candidate),
     });
     expect(invocation.command).toBe(executable);
     expect(invocation.arguments).toEqual(["--eval", expect.any(String), cli, "--acp"]);

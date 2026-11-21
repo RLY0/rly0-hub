@@ -75,7 +75,16 @@ async function mount(client: RendererUpdateClient) {
   };
 }
 
-beforeEach(() => vi.useFakeTimers());
+// The one-click update button is intentionally absent on Windows renderers (manual installer
+// instead, see pages.ts isWindowsRenderer), and jsdom derives its user agent from the host OS.
+// These tests cover the in-page update flow, so pin a macOS renderer identity.
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.spyOn(window.navigator, "platform", "get").mockReturnValue("MacIntel");
+  vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)",
+  );
+});
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   document.body.replaceChildren();

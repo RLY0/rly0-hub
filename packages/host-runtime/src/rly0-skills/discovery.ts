@@ -59,7 +59,8 @@ const pausedFile = (env: NodeJS.ProcessEnv) =>
   path.join(resolveRly0DataDir(env), "bridge", "paused-skills.json");
 export async function readPausedSkills(env: NodeJS.ProcessEnv): Promise<PausedSkill[]> {
   const text = await fs.readFile(pausedFile(env), "utf8").catch((error: NodeJS.ErrnoException) => {
-    if (error.code === "ENOENT") return "[]";
+    // ENOTDIR (POSIX) is how a non-directory data path reports what Windows reports as ENOENT.
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return "[]";
     throw error;
   });
   const data: unknown = JSON.parse(text);
@@ -133,6 +134,13 @@ export async function discoverSkills(
       }
       return [];
     });
+    // Links above the skills root (macOS /var -> /private/var, a relocated home or CODEX_HOME)
+    // do not make every skill a link; only the root itself or the entry being a link does.
+    const rootParent = path.dirname(location.root);
+    const unlinkedRoot = path.join(
+      await fs.realpath(rootParent).catch(() => path.resolve(rootParent)),
+      path.basename(location.root),
+    );
     for (const name of entries.sort().slice(0, 256)) {
       if (name.startsWith(".") || !/^[A-Za-z0-9._-]{1,64}$/u.test(name)) continue;
       const sourcePath = path.join(location.root, name);
@@ -170,7 +178,7 @@ export async function discoverSkills(
           realPath,
           isLink:
             (await fs.lstat(sourcePath)).isSymbolicLink() ||
-            path.relative(sourcePath, realPath) !== "",
+            path.relative(path.join(unlinkedRoot, name), realPath) !== "",
           conflicts: [],
         });
       } catch {

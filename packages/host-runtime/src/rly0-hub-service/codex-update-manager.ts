@@ -162,6 +162,7 @@ export class CodexUpdateManager {
   #feed: string | null = null;
   #leaseTimer: ReturnType<typeof setInterval> | undefined;
   #renewing: Promise<void> | undefined;
+  #leaseWrite: Promise<void> = Promise.resolve();
   #stopped = false;
   #queue: Promise<unknown> = Promise.resolve();
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -226,13 +227,19 @@ export class CodexUpdateManager {
     return path.join(resolveRly0DataDir(this.options.environment), "codex-update-attempt.json");
   }
   async #lease() {
-    await this.#writeRecord(this.#leaseFile(), {
-      id: this.#leaseId,
-      pid: process.pid,
-      at: this.#now(),
-      target: this.#target ?? this.#latest,
-      checkPreferences: this.#settings.originalCheckPreferences,
-    });
+    // The renewal timer and the tick both refresh this file. One writer at a time: Windows rejects
+    // (EPERM) a rename onto a file that another rename is replacing.
+    const write = this.#leaseWrite.then(() =>
+      this.#writeRecord(this.#leaseFile(), {
+        id: this.#leaseId,
+        pid: process.pid,
+        at: this.#now(),
+        target: this.#target ?? this.#latest,
+        checkPreferences: this.#settings.originalCheckPreferences,
+      }),
+    );
+    this.#leaseWrite = write.catch(() => undefined);
+    await write;
   }
   async #arm() {
     const driver = this.options.driver;
