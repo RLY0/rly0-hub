@@ -1,4 +1,4 @@
-import { runInNewContext } from "node:vm";
+import { createContext, Script, type Context } from "node:vm";
 import {
   decodeHarnessPluginRoute,
   encodeHarnessPluginRoute,
@@ -109,9 +109,15 @@ function setup(
     }
   }
   const target: Record<string, unknown> = {};
+  // One Renderer realm per fixture, like the real page: the installer re-evaluates the same
+  // expression every 25ms while it waits for a Host manager (up to 60s of fake time), and a fresh
+  // vm context plus a recompile on every poll made those waits take seconds of real CPU — enough
+  // to cross the default test timeout when the full suite loads the machine.
+  let realm: Context | undefined;
+  const scripts = new Map<string, Script>();
   const renderer = {
     async evaluate<T>(expression: string): Promise<T> {
-      return await runInNewContext(expression, {
+      realm ??= createContext({
         document: {
           querySelectorAll: queryEditors,
           getElementById: (id: string) => (id === "root" ? container : null),
@@ -122,9 +128,14 @@ function setup(
         TextEncoder,
         TextDecoder,
         Uint8Array,
-        setTimeout,
-        clearTimeout,
       });
+      // Read the timer functions per call so tests that switch to fake timers after setup() still
+      // drive the Renderer's waits.
+      realm.setTimeout = setTimeout;
+      realm.clearTimeout = clearTimeout;
+      let script = scripts.get(expression);
+      if (!script) scripts.set(expression, (script = new Script(expression)));
+      return (await script.runInContext(realm)) as T;
     },
   };
   const post = (message: unknown) =>

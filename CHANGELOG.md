@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.51
+
+0.11.50 was not released; this version contains all of it.
+
+### Fixes
+- Release checks: a Renderer routing test re-created its sandbox and recompiled the injected script on every 25 ms poll while waiting through 60 s of fake time, so it spent about 3 s of real CPU and timed out on Mac when the full suite loaded the machine. The test now keeps one sandbox per fixture, as a real page does; the same assertions finish in under a second.
+
+### 修复
+- 0.11.50 未发布，本版包含其全部内容。
+- 发布检查：一条界面路由测试在等待 60 秒假时间时，每 25 毫秒都重新建沙盒、重新编译注入脚本，真实耗时约 3 秒，Mac 全量测试时机器一忙就超时。现在每个测试只用一个沙盒（和真实页面一样），断言不变，不到一秒跑完。
+
 ## 0.11.50
 
 ### Updates
