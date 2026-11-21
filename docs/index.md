@@ -211,6 +211,7 @@
 | [`archive/codex-desktop-incidents/26.814-compatibility-debt.md`](archive/codex-desktop-incidents/26.814-compatibility-debt.md) | Desktop 26.814 导致 Renderer Request Bridge 和 Agent/Model 路由异常的事故记录。 |
 | [`archive/codex-desktop-incidents/26.908-request-manager-wrapper.md`](archive/codex-desktop-incidents/26.908-request-manager-wrapper.md) | Desktop 26.908 Request Manager Fiber 包装导致连接检查失败的事故记录。 |
 | [`archive/codex-desktop-incidents/26.930-dots-cloud-composer-submission.md`](archive/codex-desktop-incidents/26.930-dots-cloud-composer-submission.md) | Desktop 26.930 上 Dots（Orbit 云房间）composer 被 codexhost 0.12.1 误挂载后拦截消息提交的事故记录。 |
+| [`archive/codex-desktop-incidents/26.1117.4957-chatgpt-work-composer.md`](archive/codex-desktop-incidents/26.1117.4957-chatgpt-work-composer.md) | Desktop 26.1117.4957 ChatGPT 模式“工作”新聊天改用云端编排的 ChatGPT Work 输入框，Hub 以“切到 Codex 模式新开对话”降级的记录。 |
 
 ### Harness 接入与发现
 

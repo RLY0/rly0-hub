@@ -85,7 +85,7 @@ export function consumePendingNewChat(document: Document, now = Date.now()): Ren
 }
 
 /** Codex's own "New chat" button, preferring the compact icon button. */
-function findNewChatButton(document: Document): HTMLElement | null {
+export function findNewChatButton(document: Document): HTMLElement | null {
   const candidates = Array.from(document.querySelectorAll<HTMLElement>("button,a,[role=button]"));
   return (
     candidates.find((element) => NEW_CHAT_LABEL.test(element.getAttribute("aria-label") ?? "")) ??

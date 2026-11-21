@@ -860,7 +860,11 @@ export function installRendererBindingProbe(
     }
     return null;
   };
-  const sidebarThreadState = installRendererFeature("sidebar-icons", installRendererSidebarThreadState, () => ({ refresh() {}, dispose() {} }));
+  const sidebarThreadState = installRendererFeature(
+    "sidebar-icons",
+    installRendererSidebarThreadState,
+    () => ({ refresh() {}, dispose() {} }),
+  );
   const sidebarAgentIcons = installRendererFeature(
     "sidebar-icons",
     () =>
@@ -3738,6 +3742,31 @@ export function installRendererBindingProbe(
       (mounted) => isMountedComposer(mounted.composer) && mounted.control.root.isConnected,
     );
 
+  // ChatGPT Work composers (Codex 26.1117.4957+) are ChatGPT-orchestrated and cannot be owned;
+  // the bridge offers the Agent picker there by moving the person to a Codex-mode new chat.
+  const chatGptWorkBridge = installRendererFeature(
+    "composer",
+    () =>
+      installChatGptWorkBridge(document, {
+        readTargets: () => {
+          const availability = hostHarnessAvailabilityState("local").availability;
+          return enabledAgents
+            .filter((agent) => agent === "codex" || availability[agent] === "ready")
+            .filter((agent) => !RLY0_HIDDEN_RENDERER_AGENTS.has(agent))
+            .map((agent) => {
+              const plugin = pluginForHost("local", agent);
+              return {
+                agent,
+                label: rendererAgentLabel(agent, plugin),
+                ...(plugin ? { plugin } : {}),
+              };
+            });
+        },
+        readZh: () => settingsLifecycle.locale === "zh-CN",
+      }),
+    () => ({ refresh() {}, dispose() {} }),
+  );
+
   const questions = installRendererFeature(
     "questions",
     () =>
@@ -3892,6 +3921,7 @@ export function installRendererBindingProbe(
       disposeReasoningSoftWrap();
       delegationMention?.dispose();
       sidebarAgentIcons.dispose();
+      chatGptWorkBridge.dispose();
       sidebarThreadState.dispose();
       nativeScheduleControls.dispose();
       settingsLifecycle.dispose();
@@ -3929,3 +3959,4 @@ export function installRendererBindingProbe(
   return api;
 }
 import { installRendererNativeScheduleControls } from "./renderer-native-schedule-controls.js";
+import { installChatGptWorkBridge } from "./renderer-chatgpt-work-bridge.js";
