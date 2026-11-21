@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.48
+
+### Fixes
+- Skills: when your home folder or Codex folder sits behind a link (an external disk, or macOS's own /var), Codex's own skills are no longer treated as links, so turning a skill off moves it to the backup again instead of only hiding it.
+- Claude Code: the manual quota refresh reads live credits again.
+- Attachments sent to other agents are titled with the file name on every computer.
+- Windows: Codex update management keeps checking every two seconds after an update is let through, instead of stopping on a file-replace error.
+- Windows: helper processes started by the Hub no longer print an SQLite warning.
+- Release checks: the long-standing failing tests on Mac and Windows were fixed or brought up to date, and the Windows build now applies the repository's dependency patches.
+
+### 修复
+- 技能：主目录或 Codex 目录在链接后面（外接盘，或 Mac 系统自带的 /var）时，Codex 自己的技能不再被当成链接；停用技能会重新真正移进备份，而不是只隐藏。
+- Claude Code：手动刷新额度重新能读到实时额度。
+- 发给其他助手的附件在任何电脑上都以文件名作标题。
+- Windows：放行 Codex 更新后，更新管理继续每两秒检查一次，不再因替换文件出错而停下。
+- Windows：Hub 启动的辅助进程不再打出 SQLite 警告。
+- 发布检查：Mac 和 Windows 上长期失败的测试已修好或按现状更新，Windows 打包也会打上仓库自带的依赖补丁。
+
 ## 0.11.47
 
 ### Updates
