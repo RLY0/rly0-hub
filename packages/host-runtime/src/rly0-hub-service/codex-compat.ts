@@ -31,6 +31,8 @@ export class CodexCompatibilityCatalog {
       installRoot: string;
       get?: () => Promise<UpdateHttpGet>;
       hubVersion?: string;
+      /** Node platform name; exact versions differ between the macOS and Windows builds. */
+      platform?: NodeJS.Platform;
     },
   ) {
     this.file = path.join(resolveRly0DataDir(options.environment), "codex-compat.json");
@@ -155,10 +157,25 @@ export class CodexCompatibilityCatalog {
     return this.#holdUpdates === true;
   }
   verified(version: string | null): boolean {
-    return codexVersionVerified(version, this.#hub, this.#manifest, compareSemanticVersions);
+    return codexVersionVerified(
+      version,
+      this.#hub,
+      this.#manifest,
+      compareSemanticVersions,
+      this.#platform(),
+    );
   }
   policy(version: string | null) {
-    return codexRendererPolicy(version, this.#hub, this.#manifest, compareSemanticVersions);
+    return codexRendererPolicy(
+      version,
+      this.#hub,
+      this.#manifest,
+      compareSemanticVersions,
+      this.#platform(),
+    );
+  }
+  #platform(): NodeJS.Platform {
+    return this.options.platform ?? process.platform;
   }
   status() {
     return {

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import {
-  isVerifiedDesktopVersionFamily,
+  isVerifiedDesktopVersion,
   type CodexRendererPolicy,
   type DesktopCompatibility,
 } from "@codexhost/shared-contracts";
@@ -64,6 +64,8 @@ interface Options {
     publishPolicy?(version: string | null): Promise<void>;
   };
   environment: NodeJS.ProcessEnv;
+  /** Without a catalog: the built-in exact list of this platform decides (default: this OS). */
+  platform?: NodeJS.Platform;
   installRoot?: string;
   /** Tests supply synthetic metadata; production only invokes the installed launcher's inspect. */
   inspect?: () => Promise<unknown>;
@@ -219,7 +221,10 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     }
     return {
       schemaVersion: 1,
-      mode: version && isVerifiedDesktopVersionFamily(version) ? "full" : "core",
+      mode:
+        version && isVerifiedDesktopVersion(version, this.#options.platform ?? process.platform)
+          ? "full"
+          : "core",
       disabled: [],
     };
   }

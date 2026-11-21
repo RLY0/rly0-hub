@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { desktopVersionFamily, isVerifiedDesktopVersionFamily } from "./desktop-compatibility.js";
+import {
+  codexDesktopPlatform,
+  desktopVersionFamily,
+  isVerifiedDesktopVersion,
+  sameDesktopVersion,
+} from "./desktop-compatibility.js";
 
 export const CODEX_RENDERER_FEATURES = [
   "usage",
@@ -16,6 +21,9 @@ export const CODEX_RENDERER_FEATURES = [
 ] as const;
 export type CodexRendererFeature = (typeof CODEX_RENDERER_FEATURES)[number];
 const family = z.string().regex(/^\d+\.\d+$/u);
+const exactVersion = z.string().regex(/^\d+\.\d+\.\d+(?:\.\d+)?$/u);
+/** Free-form so a future platform name never invalidates the whole document; unknown never matches. */
+const platformName = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/u);
 export const SEMVER_PATTERN =
   /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const hubVersion = z.string().regex(SEMVER_PATTERN);
@@ -34,12 +42,25 @@ function safeCompare(
 export const codexCompatManifestSchema = z.object({
   schemaVersion: z.literal(1),
   updatedAt: z.iso.datetime({ offset: true }),
+  /**
+   * Legacy family entries. Still parsed so older documents and older Hubs keep working, but no
+   * longer trusted: a family-only document verifies nothing here (safe side, core mode).
+   */
   verified: z.array(z.object({ family, minHub: hubVersion })).max(1000),
+  /** Exact Desktop builds the Hub is verified on; `platform` absent means every platform. */
+  verifiedVersions: z
+    .array(
+      z.object({ version: exactVersion, platform: platformName.optional(), minHub: hubVersion }),
+    )
+    .max(1000)
+    .optional(),
   disabled: z
     .array(
       z.object({
         feature: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u),
         codexFamilies: z.array(family).max(1000).optional(),
+        /** Exact builds; with codexFamilies both must match when both are given. */
+        codexVersions: z.array(exactVersion).max(1000).optional(),
         hubBelow: hubVersion.optional(),
         reason: z.string().min(1).max(500),
       }),
@@ -69,18 +90,25 @@ export function compareCodexVersions(a: string, b: string): number {
   }
   return 0;
 }
+/**
+ * Exact-version gate: the built-in list of this platform, or a remote `verifiedVersions` entry for
+ * this exact build and platform whose minHub this Hub meets. Families never verify a build.
+ */
 export function codexVersionVerified(
   version: string | null,
   hub: string,
   manifest: CodexCompatManifest | null,
   compareHub: (a: string, b: string) => number,
+  platform: string,
 ): boolean {
   if (!version) return false;
+  const name = codexDesktopPlatform(platform);
   return (
-    isVerifiedDesktopVersionFamily(version) ||
-    !!manifest?.verified.some(
+    isVerifiedDesktopVersion(version, platform) ||
+    !!manifest?.verifiedVersions?.some(
       (entry) =>
-        entry.family === desktopVersionFamily(version) &&
+        (entry.platform === undefined || entry.platform === name) &&
+        sameDesktopVersion(entry.version, version) &&
         (safeCompare(compareHub, hub, entry.minHub) ?? -1) >= 0,
     )
   );
@@ -90,6 +118,7 @@ export function codexRendererPolicy(
   hub: string,
   manifest: CodexCompatManifest | null,
   compareHub: (a: string, b: string) => number,
+  platform: string,
 ): CodexRendererPolicy {
   const disabled = CODEX_RENDERER_FEATURES.filter((feature) =>
     manifest?.disabled.some(
@@ -98,10 +127,13 @@ export function codexRendererPolicy(
         (!entry.codexFamilies ||
           (version !== null &&
             entry.codexFamilies.includes(desktopVersionFamily(version) ?? ""))) &&
+        (!entry.codexVersions ||
+          (version !== null &&
+            entry.codexVersions.some((listed) => sameDesktopVersion(listed, version)))) &&
         (!entry.hubBelow || (safeCompare(compareHub, hub, entry.hubBelow) ?? -1) < 0),
     ),
   );
-  const full = codexVersionVerified(version, hub, manifest, compareHub);
+  const full = codexVersionVerified(version, hub, manifest, compareHub, platform);
   // The composer and its routing policy are one dependency group. Removing either removes the group.
   const core = !full || disabled.includes("composer") || disabled.includes("draft-prewarm");
   return {

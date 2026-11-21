@@ -829,11 +829,14 @@ export {
 } from "./remote-connections.js";
 export {
   desktopCompatibilitySchema,
+  codexDesktopPlatform,
   desktopVersionFamily,
-  isVerifiedDesktopVersionFamily,
-  RLY0_VERIFIED_DESKTOP_VERSION_FAMILIES,
+  isVerifiedDesktopVersion,
+  normalizeDesktopVersion,
+  RLY0_VERIFIED_DESKTOP_VERSIONS,
+  sameDesktopVersion,
 } from "./desktop-compatibility.js";
-export type { DesktopCompatibility } from "./desktop-compatibility.js";
+export type { CodexDesktopPlatform, DesktopCompatibility } from "./desktop-compatibility.js";
 export {
   RLY0_CODEX_PREFERENCES_GET_METHOD,
   RLY0_CODEX_PREFERENCES_FILE,

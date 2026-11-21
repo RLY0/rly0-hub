@@ -50,6 +50,14 @@ const manifest = {
   schemaVersion: 1,
   updatedAt: "2026-11-09T00:00:00Z",
   verified: [{ family: "26.1200", minHub: "0.11.40" }],
+  verifiedVersions: [
+    "26.1103.1",
+    "26.1103.2",
+    "26.1200.1",
+    "26.1200.3",
+    "26.1200.9",
+    "26.1200.0.9",
+  ].map((version) => ({ version, minHub: "0.11.40" })),
   disabled: [],
 };
 const response =
@@ -177,25 +185,80 @@ describe("compatibility manifest (synthetic)", () => {
       false,
     );
   });
-  it("unions the built-in table and minHub-qualified remote families", () => {
+  it("verifies exact builds only: built-in per platform plus minHub-qualified remote versions", () => {
     const parsed = codexCompatManifestSchema.parse(manifest);
-    expect(codexVersionVerified("26.1103.9", "0.0.0", parsed, compareSemanticVersions)).toBe(true);
-    expect(codexVersionVerified("26.1111.21308", "0.0.0", null, compareSemanticVersions)).toBe(
-      true,
-    );
-    expect(codexVersionVerified("26.1117.31558", "0.0.0", null, compareSemanticVersions)).toBe(
-      true,
-    );
-    expect(codexVersionVerified("26.1200.9", "0.11.39", parsed, compareSemanticVersions)).toBe(
-      false,
-    );
-    expect(codexVersionVerified("26.1200.9", "0.11.40", parsed, compareSemanticVersions)).toBe(
-      true,
-    );
-    expect(codexVersionVerified("26.1200.9", "0.11.40-rc.1", parsed, compareSemanticVersions)).toBe(
-      false,
-    );
-    expect(codexVersionVerified(null, "9.0.0", parsed, compareSemanticVersions)).toBe(false);
+    const verified = (version: string | null, hub: string, platform = "darwin", m = parsed) =>
+      codexVersionVerified(version, hub, m, compareSemanticVersions, platform);
+    // Built-in exact list, per platform; the Windows package suffix ".0" is the same build.
+    expect(verified("26.1106.51428", "0.0.0", "darwin", null as never)).toBe(true);
+    expect(verified("26.1117.3838.0", "0.0.0", "win32", null as never)).toBe(true);
+    expect(verified("26.1117.3838", "0.0.0", "darwin", null as never)).toBe(false);
+    expect(verified("26.1106.51428", "0.0.0", "linux", null as never)).toBe(false);
+    // A newer build of a verified family is not verified (26.1117.4957 on 2026-11-21).
+    expect(verified("26.1117.4957.0", "0.0.0", "win32", null as never)).toBe(false);
+    expect(verified("26.1111.21308", "0.0.0", "darwin", null as never)).toBe(false);
+    expect(verified("26.1117.31558", "0.0.0", "darwin", null as never)).toBe(false);
+    // Remote exact versions, minHub-qualified; families in the same document verify nothing.
+    expect(verified("26.1200.9", "0.11.39")).toBe(false);
+    expect(verified("26.1200.9", "0.11.40")).toBe(true);
+    expect(verified("26.1200.9.0", "0.11.40", "win32")).toBe(true);
+    expect(verified("26.1200.9", "0.11.40-rc.1")).toBe(false);
+    expect(verified("26.1200.4", "0.11.40")).toBe(false);
+    expect(verified("26.1200.90", "0.11.40")).toBe(false);
+    expect(verified(null, "9.0.0")).toBe(false);
+  });
+  it("treats a legacy family-only document as verifying nothing (safe side)", () => {
+    const legacy = codexCompatManifestSchema.parse({
+      schemaVersion: 1,
+      updatedAt: "2026-11-14T14:58:00+08:00",
+      verified: [{ family: "26.1117", minHub: "0.11.40" }],
+      disabled: [],
+    });
+    for (const version of ["26.1117.4957.0", "26.1117.31558", "26.1117.1"])
+      expect(codexVersionVerified(version, "9.0.0", legacy, compareSemanticVersions, "win32")).toBe(
+        false,
+      );
+    expect(
+      codexRendererPolicy("26.1117.4957.0", "9.0.0", legacy, compareSemanticVersions, "win32").mode,
+    ).toBe("core");
+    // The exact built-in build of the same family stays full.
+    expect(
+      codexRendererPolicy("26.1117.3838.0", "9.0.0", legacy, compareSemanticVersions, "win32").mode,
+    ).toBe("full");
+  });
+  it("scopes remote exact versions by platform and rejects malformed ones", () => {
+    const scoped = codexCompatManifestSchema.parse({
+      ...manifest,
+      verifiedVersions: [
+        { version: "26.1300.1", platform: "windows", minHub: "0.11.40" },
+        { version: "26.1300.2", platform: "macos", minHub: "0.11.40" },
+        { version: "26.1300.3", platform: "future-os", minHub: "0.11.40" },
+      ],
+    });
+    const ok = (version: string, platform: string) =>
+      codexVersionVerified(version, "0.11.40", scoped, compareSemanticVersions, platform);
+    expect([ok("26.1300.1", "win32"), ok("26.1300.1", "darwin")]).toEqual([true, false]);
+    expect([ok("26.1300.2", "win32"), ok("26.1300.2", "darwin")]).toEqual([false, true]);
+    expect([ok("26.1300.3", "win32"), ok("26.1300.3", "darwin")]).toEqual([false, false]);
+    for (const version of ["26.1300", "26.1300.1.2.3", "v26.1300.1", "26.1300.x"])
+      expect(
+        codexCompatManifestSchema.safeParse({
+          ...manifest,
+          verifiedVersions: [{ version, minHub: "0.11.40" }],
+        }).success,
+      ).toBe(false);
+  });
+  it("remote disable can target exact builds", () => {
+    const parsed = codexCompatManifestSchema.parse({
+      ...manifest,
+      disabled: [{ feature: "composer", codexVersions: ["26.1200.1"], reason: "synthetic" }],
+    });
+    expect(
+      codexRendererPolicy("26.1200.1.0", "0.11.40", parsed, compareSemanticVersions, "darwin").mode,
+    ).toBe("core");
+    expect(
+      codexRendererPolicy("26.1200.3", "0.11.40", parsed, compareSemanticVersions, "darwin").mode,
+    ).toBe("full");
   });
   it("scopes remote disable by family and Hub version, including built-in verified families", () => {
     const parsed = codexCompatManifestSchema.parse({
@@ -211,20 +274,23 @@ describe("compatibility manifest (synthetic)", () => {
       ],
     });
     expect(
-      codexRendererPolicy("26.1103.1", "0.11.40", parsed, compareSemanticVersions),
+      codexRendererPolicy("26.1103.1", "0.11.40", parsed, compareSemanticVersions, "darwin"),
     ).toMatchObject({ mode: "full", disabled: ["settings"] });
     expect(
-      codexRendererPolicy("26.1103.1", "0.12.0", parsed, compareSemanticVersions).disabled,
+      codexRendererPolicy("26.1103.1", "0.12.0", parsed, compareSemanticVersions, "darwin")
+        .disabled,
     ).toEqual([]);
-    expect(codexRendererPolicy(null, "0.12.0", parsed, compareSemanticVersions).mode).toBe("core");
+    expect(
+      codexRendererPolicy(null, "0.12.0", parsed, compareSemanticVersions, "darwin").mode,
+    ).toBe("core");
     parsed.disabled.push({ feature: "draft-prewarm", reason: "routing unsafe" });
-    expect(codexRendererPolicy("26.1103.1", "0.12.0", parsed, compareSemanticVersions).mode).toBe(
-      "core",
-    );
+    expect(
+      codexRendererPolicy("26.1103.1", "0.12.0", parsed, compareSemanticVersions, "darwin").mode,
+    ).toBe("core");
     parsed.disabled.push({ feature: "usage", reason: "core unsafe" });
-    expect(codexRendererPolicy("26.1103.1", "0.12.0", parsed, compareSemanticVersions).mode).toBe(
-      "safe",
-    );
+    expect(
+      codexRendererPolicy("26.1103.1", "0.12.0", parsed, compareSemanticVersions, "darwin").mode,
+    ).toBe("safe");
   });
   it("retains last valid cache during offline/invalid responses across a fresh process", async () => {
     const f = await fixture();
@@ -577,9 +643,15 @@ it.each(["0.11.40-.", "1.0.0-a..b", "1.0.0+."])(
 it("comparison exceptions cannot escape status or check and never widen compatibility", async () => {
   const f = await fixture();
   expect(
-    codexVersionVerified("26.1200.1", "bad", codexCompatManifestSchema.parse(manifest), () => {
-      throw new Error("bad");
-    }),
+    codexVersionVerified(
+      "26.1200.1",
+      "bad",
+      codexCompatManifestSchema.parse(manifest),
+      () => {
+        throw new Error("bad");
+      },
+      "darwin",
+    ),
   ).toBe(false);
   vi.spyOn(f.catalog, "refresh").mockRejectedValueOnce(new Error("unexpected failure"));
   expect((await f.manager.check()).error).toBe("CODEX_UPDATE_CHECK_FAILED");

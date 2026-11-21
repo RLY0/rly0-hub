@@ -45,19 +45,56 @@ export const desktopCompatibilitySchema = z
 
 export type DesktopCompatibility = z.infer<typeof desktopCompatibilitySchema>;
 
+/** Platform names used by the exact Desktop version lists (Node `process.platform` mapped). */
+export type CodexDesktopPlatform = "macos" | "windows";
+export function codexDesktopPlatform(platform: string): CodexDesktopPlatform | null {
+  return platform === "darwin" ? "macos" : platform === "win32" ? "windows" : null;
+}
+
 /**
- * Desktop version families (`major.minor`, e.g. `26.1103` for `26.1103.5130.0`) this Hub build
- * has been verified against. A fresh install with no proven version yet opens these in full
- * mode; any other version opens in safe mode until the interface integration is proven.
+ * Exact Codex Desktop versions this Hub build has been verified against, per platform. Only these
+ * open in full mode without a remote list; anything else, including a newer build of a verified
+ * family (26.1117.4957 after 26.1117.3838 on 2026-11-21), opens in core mode until it is verified.
+ * Families are no longer trusted: one family can change the composer between builds.
  */
-export const RLY0_VERIFIED_DESKTOP_VERSION_FAMILIES: readonly string[] = ["26.1029", "26.1103", "26.1106", "26.1111", "26.1117"];
+export const RLY0_VERIFIED_DESKTOP_VERSIONS: readonly {
+  readonly version: string;
+  readonly platform: CodexDesktopPlatform;
+}[] = [
+  { version: "26.1106.51428", platform: "macos" },
+  { version: "26.1117.3838", platform: "windows" },
+];
 
 export function desktopVersionFamily(version: string): string | null {
   const match = /^(\d+)\.(\d+)(?:[.+-]|$)/u.exec(version);
   return match ? `${match[1]}.${match[2]}` : null;
 }
 
-export function isVerifiedDesktopVersionFamily(version: string): boolean {
-  const family = desktopVersionFamily(version);
-  return family !== null && RLY0_VERIFIED_DESKTOP_VERSION_FAMILIES.includes(family);
+/**
+ * Numeric core of a Desktop version with trailing `.0` components dropped, so the Windows package
+ * version `26.1117.3838.0` and the listed `26.1117.3838` are the same build. Null when not numeric.
+ */
+export function normalizeDesktopVersion(version: string): string | null {
+  const match = /^(\d+(?:\.\d+)+)(?:[+-]|$)/u.exec(version.trim());
+  if (!match?.[1]) return null;
+  const parts = match[1].split(".").map((part) => String(Number(part)));
+  while (parts.length > 3 && parts[parts.length - 1] === "0") parts.pop();
+  return parts.join(".");
+}
+
+/** Same build: exact numeric match after normalization; never a family or prefix match. */
+export function sameDesktopVersion(a: string, b: string): boolean {
+  const left = normalizeDesktopVersion(a);
+  return left !== null && left === normalizeDesktopVersion(b);
+}
+
+/** True only for an exact built-in version of this platform (unknown platform: never). */
+export function isVerifiedDesktopVersion(version: string, platform: string): boolean {
+  const name = codexDesktopPlatform(platform);
+  return (
+    name !== null &&
+    RLY0_VERIFIED_DESKTOP_VERSIONS.some(
+      (entry) => entry.platform === name && sameDesktopVersion(entry.version, version),
+    )
+  );
 }

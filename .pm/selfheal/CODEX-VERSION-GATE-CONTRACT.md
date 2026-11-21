@@ -15,6 +15,8 @@
 }
 ```
 
+**精确版本放行（2026-11-21 起，替代按族放行）**：顶层可选 `verifiedVersions: [{ "version": "26.1117.3838", "platform"?: "macos"|"windows"|<其他小写名>, "minHub": "0.11.44" }]`。`version` 为 3–4 段数字，比较时去掉第 4 段的 `.0`（Windows 包版本 `26.1117.3838.0` 与 `26.1117.3838` 相同），不做族或前缀匹配；`platform` 缺省表示全部平台，未知平台名不匹配也不使整份文件失效。已验证集合 = 本平台内置精确表（`RLY0_VERIFIED_DESKTOP_VERSIONS`）∪ 满足 minHub 的远程 `verifiedVersions`。`verified`（族）仍按原类型解析以兼容旧文件与旧 Hub，但**不再认证任何版本**：只有族的旧清单等于“未验证”，同族新 build（如 26.1117.4957）进入 core。`disabled[]` 新增可选 `codexVersions`（精确 build），与 codexFamilies 同时给出时两者都要满足。发布时写 `verified: []`，旧 Hub 只按其内置族表判断。
+
 上例为 synthetic，不是当前版本适配声明。family 是 Desktop major.minor；minHub/hubBelow 为 semver，含 prerelease 正确排序。已验证集合 = 内置表 ∪ 满足 minHub 的远程表。未知字段、未来 feature id 忽略；已知字段类型错误拒绝整份文件。远程缺失/损坏保留上次有效缓存，再退内置表；没有时间到期后自动放行的逻辑。最多 256 KiB，数组最多 1000 项。updatedAt 是信息字段，不是签名。
 
 feature：usage、composer、sidebar-icons、settings、schedules、delegation、questions、reasoning-wrap、draft-prewarm、native-rpc、rpc-steering。没有 codexFamilies 表示全部版本，没有 hubBelow 表示全部 Hub。匹配禁用只做收缩，不允许远程指定脚本/命令/URL。composer/draft-prewarm 任一关闭，依赖它的组合降到 core；此时 usage 也关闭则 safe。
@@ -377,3 +379,14 @@ RPC 方法与错误码不变，所有 `codex.updates.*` 返回值的 `phase` 新
 “恢复纯净状态”已有路径调用 `codexUpdates.setEnabled(false)`，随关闭管理恢复 Hub 自己的跳过值。卸载前先关闭 Codex 更新管理并确认成功，或执行“恢复纯净状态”并确认 `steps.codexUpdates:true`，之后再卸载。恢复失败时保留数据目录和恢复记录，先处理该错误。直接删 App 或先删数据目录无法保证回调，可能留下被跳过的 build；本轮通过功能文档告知，不新增卸载后台或安装脚本。若后续原生卸载器要接恢复提示/钩子，由 Claude 负责。
 
 本轮证据：[RESULTS.md](evidence/codex-update-alert-review2-20261112/RESULTS.md)。仍需独立复核，以及获准独立真机确认：运行中外部偏好刷新、定时无弹窗、已弹窗口、整数跳过值、critical/ignore 阈值、真实大版本跳过、空闲后台下载/安装、关闭管理和 watchdog。隔离驱动与 60 秒计数不代表这些原生路径已经验收。
+
+## Windows 商店拦截与试验机豁免（2026-11-21）
+
+用户已批准。status 新增可选字段 `store: { mode: "holding"|"following"|"canary", setting: "Enabled"|"Disabled"|"EnabledByPolicy"|"DisabledByPolicy"|null }`，新增错误码 `CODEX_STORE_FAILED`；其余 RPC、phase 不变。
+
+- 仅正式 Windows Hub（win32、默认数据目录、非 VITEST/NODE_ENV=test、未设 `RLY0_CODEX_UPDATE_CONTROL=0`）挂载 `CodexStoreHold`；此时 `supported=true`，不再带 `unsupportedReason`。
+- 每次 check：读商店当前提供的 build（`windows-store-update.json` 的 `buildVersion`）。不是精确已验证版本 → 先写日志 `codex-store-hold.json`（原值），再把商店“应用更新”（`AppInstallManager.AutoUpdateSetting`）改为 Disabled，phase=waiting-compatibility；是已验证版本 → 撤销 Hub 自己的改动，phase=up-to-date（商店按自己的节奏安装，不进入 Mac 的 downloading 循环）。
+- 只撤销自己的改动：有日志且开关仍为 Disabled 才改回原值；期间用户自己打开过则只删日志。原本就关（含 DisabledByPolicy）不写日志、不改；EnabledByPolicy 报 CODEX_STORE_FAILED。日志损坏按原值 Enabled 恢复。崩溃后由下一次 check（启动即查）按当前判断恢复或继续保持。商店清单读不到时保持现状并报 CODEX_APPCAST_FAILED。
+- 关闭“由 Hub 管理 Codex 更新”和“恢复纯净状态”都会先恢复商店开关再保存关闭；关闭状态下每次 check 也会清理残留日志。
+- 试验机：数据目录有 `codex-update-canary.json` 时 `store.mode=canary`，永不拦截，并撤销之前的拦截；界面显示“这台是试验机，Codex 跟着微软商店随时更新”。增强降级照常按精确版本判断。
+- 卸载 Hub 前若仍在拦截，需先关闭管理或“恢复纯净状态”；直接删除不会自动恢复商店开关。

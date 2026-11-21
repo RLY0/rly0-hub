@@ -20,8 +20,8 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await fs.rm(root, { recursive: true, force: true });
 });
 // Synthetic build numbers; production appcast element/attribute shapes and macOS 27 errors.
-// Feed family 26.1150 is not a real date, so the built-in verified table never covers it and only
-// `allow()` releases it; a real family would bypass the compatibility hold under test.
+// Feed family 26.1150 is not a real date, so the built-in exact list never covers it and only
+// `allow()` releases its synthetic builds (exact versions; families verify nothing).
 const item = (version = "26.1150.51428", build = "30001") =>
   `<item><sparkle:version>${build}</sparkle:version><sparkle:shortVersionString>${version}</sparkle:shortVersionString><enclosure url="https://example.test/Codex.zip" length="1" type="application/octet-stream"/></item>`;
 const http =
@@ -122,7 +122,7 @@ async function fixture(original: string | null = null) {
     ...(await http(xml)(...args)),
     status: feedStatus,
   }));
-  const verified: { family: string; minHub: string }[] = [];
+  const verifiedVersions: { version: string; minHub: string }[] = [];
   const state = new Rly0HubStateStore(environment);
   const catalog = new CodexCompatibilityCatalog({
     environment,
@@ -133,7 +133,8 @@ async function fixture(original: string | null = null) {
         JSON.stringify({
           schemaVersion: 1,
           updatedAt: "2026-11-11T00:00:00Z",
-          verified,
+          verified: [],
+          verifiedVersions,
           disabled: [],
         }),
       ),
@@ -181,7 +182,8 @@ async function fixture(original: string | null = null) {
       now += ms;
     },
     allow: () => {
-      verified.push({ family: "26.1150", minHub: "0.11.40" });
+      for (const version of ["26.1150.51428", "26.1150.60000", "26.1150.1", "26.1150.2"])
+        verifiedVersions.push({ version, minHub: "0.11.40" });
     },
     feed: (value: string) => {
       xml = value;

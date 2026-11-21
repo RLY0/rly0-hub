@@ -6,6 +6,10 @@ import { desktopCompatibilitySchema } from "@codexhost/shared-contracts";
 import { Rly0DesktopCompatibility } from "../../src/rly0-maintenance/desktop-compatibility.js";
 
 const directories: string[] = [];
+// Built-in exact macOS versions (the fixture pins platform "darwin"): only exact builds are full.
+const LISTED = "26.1106.51428";
+const LISTED_TOO = "26.1106.51428.0";
+const SAME_FAMILY_NEWER = "26.1106.51429";
 afterEach(async () => {
   await Promise.all(
     directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
@@ -20,7 +24,7 @@ async function fixture() {
   const environment = { CODEXHOST_DATA_DIR: directory };
   const native = {
     schemaVersion: 1,
-    desktop: { version: "26.1103.5130.0", processIds: [101] },
+    desktop: { version: LISTED, processIds: [101] },
     runtime: { running: true, launcherPid: 102 },
   };
   const controller = {
@@ -41,7 +45,14 @@ async function fixture() {
   const inspect = vi.fn(async () => native);
   const isAlive = vi.fn(() => true);
   let now = 200000;
-  const options = { environment, inspect, isAlive, now: () => now, cacheMs: 0 };
+  const options = {
+    environment,
+    platform: "darwin" as const,
+    inspect,
+    isAlive,
+    now: () => now,
+    cacheMs: 0,
+  };
   async function save() {
     await writeFile(path.join(diagnostics, "launcher-startup-v1.json"), JSON.stringify(startup));
     await writeFile(
@@ -89,7 +100,7 @@ it("records a baseline only when the current managed session has connected its i
 it("classifies the observed new-version manager failure and exports no raw error or secrets", async () => {
   const f = await fixture();
   await f.monitor.check();
-  f.native.desktop.version = "26.1029.1";
+  f.native.desktop.version = LISTED_TOO;
   f.startupRecord.desktop.version = f.native.desktop.version;
   f.controller.renderer.state = "unavailable";
   f.controller.renderer.error =
@@ -99,7 +110,7 @@ it("classifies the observed new-version manager failure and exports no raw error
   expect(result).toMatchObject({
     state: "incompatible",
     issue: "REQUEST_MANAGER_UNAVAILABLE",
-    previousCompatibleVersion: "26.1103.5130.0",
+    previousCompatibleVersion: LISTED,
     versionChanged: true,
   });
   const notice = await f.monitor.takeNotice();
@@ -120,7 +131,7 @@ it("classifies the observed new-version manager failure and exports no raw error
   f.controller.renderer.error = null;
   await f.save();
   expect((await f.monitor.check()).state).toBe("ready");
-  expect((await f.monitor.check()).previousCompatibleVersion).toBe("26.1029.1");
+  expect((await f.monitor.check()).previousCompatibleVersion).toBe(LISTED_TOO);
   expect((await f.monitor.check()).rendererError).toBeUndefined();
 });
 
@@ -238,9 +249,12 @@ it("maps a safe-mode Controller to safe-mode with one plain notice per version",
 it.each([
   ["the previously connected but unverified version", "26.1021.3705.0", "26.1021.3705.0", "core"],
   ["a changed, unlisted version", "26.1021.3705.0", "26.1200.1", "core"],
-  ["a first install on a listed family", null, "26.1103.5130.0", "full"],
+  ["a first install on a listed version", null, LISTED, "full"],
   ["a first install on an unlisted version", null, "26.1200.1", "core"],
-  ["a changed version in a listed family", "26.1021.3705.0", "26.1029.1.0", "full"],
+  ["a changed version listed exactly", "26.1021.3705.0", `${LISTED}.0`, "full"],
+  // 26.1117.4957 after 26.1117.3838 (2026-11-21): one family, a different composer.
+  ["a newer build of a listed family", LISTED, SAME_FAMILY_NEWER, "core"],
+  ["the listed version on another platform", null, "26.1117.3838.0", "core"],
 ] as const)("opens %s in the decided mode", async (_label, proven, installed, mode) => {
   const f = await fixture();
   // A state file from before full-mode choices existed (no `fullModeFor`).

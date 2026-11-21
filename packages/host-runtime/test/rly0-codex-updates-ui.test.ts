@@ -302,4 +302,49 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
     await tick();
     expect(env.calls.filter((c) => c.method === "codex.updates.acknowledgeNotice")).toHaveLength(1);
   });
+  describe("Windows: Microsoft Store hold", () => {
+    const win: Status = {
+      ...base,
+      currentVersion: "26.1117.3838.0",
+      store: { mode: "following", setting: null },
+    };
+    it("says the Store is paused while it offers an unadapted build; the switch works", async () => {
+      const page = await card({
+        ...win,
+        phase: "waiting-compatibility",
+        latestVersion: "26.1117.4957.0",
+        store: { mode: "holding", setting: "Disabled" },
+      });
+      expect(page.root.textContent).toContain(
+        "商店出了新版 v26.1117.4957.0，Hub 正在适配，已先暂停商店自动更新",
+      );
+      expect(page.root.textContent).toContain("本机 v26.1117.3838.0 · 最新 v26.1117.4957.0");
+      expect(page.switchEl()?.props.disabled).toBe(false);
+      expect(page.switchEl()?.props["aria-checked"]).toBe("true");
+    });
+    it("says a newer adapted build comes from the Store, and hides 最新 for the same build", async () => {
+      const newer = await card({ ...win, latestVersion: "26.1117.5000.0" });
+      expect(newer.root.textContent).toContain("新版 v26.1117.5000.0 已适配，微软商店会自动更新");
+      const same = await card({ ...win, latestVersion: "26.1117.3838" });
+      expect(same.root.textContent).toContain("已是适配好的最新版");
+      expect(same.root.textContent).not.toContain("· 最新");
+    });
+    it("names the canary test PC and shows a Store failure reason", async () => {
+      const canary = await card({
+        ...win,
+        phase: "waiting-compatibility",
+        latestVersion: "26.1117.4957.0",
+        store: { mode: "canary", setting: null },
+      });
+      expect(canary.root.textContent).toContain("这台是试验机，Codex 跟着微软商店随时更新");
+      const failed = await card({ ...win, phase: "failed", error: "CODEX_STORE_FAILED" });
+      expect(failed.root.textContent).toContain("没能改微软商店的“应用更新”开关");
+    });
+    it("does not show the Mac restart notice on Windows", async () => {
+      const env = load({ ...win, noticePending: true });
+      const show = env.window.showCodexUpdatesNotice as (api: unknown) => Promise<void>;
+      await show({ h: env.h, call: env.call, go: () => undefined });
+      expect(env.dialogs).toHaveLength(0);
+    });
+  });
 });

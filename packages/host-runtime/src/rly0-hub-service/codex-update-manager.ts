@@ -7,6 +7,7 @@ import type { CodexCompatibilityCatalog } from "./codex-compat.js";
 import type { Rly0HubStateStore } from "./hub-state.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import type { CodexUpdateUnsupportedReason } from "./codex-update-control.js";
+import type { CodexStoreHold, StoreHoldState } from "./codex-store-hold.js";
 import {
   REOPEN_GIVE_UP_MS,
   REOPEN_POLL_MS,
@@ -75,6 +76,7 @@ const UPDATE_ERRORS = [
   "CODEX_REOPEN_FAILED",
   "CODEX_HEALTH_FAILED",
   "CODEX_STATE_FAILED",
+  "CODEX_STORE_FAILED",
 ] as const;
 export type CodexUpdateError = (typeof UPDATE_ERRORS)[number] | null;
 export interface CodexUpdateStatus {
@@ -100,6 +102,11 @@ export interface CodexUpdateStatus {
   skipOwnershipUnconfirmed?: true;
   error: CodexUpdateError;
   checkedAt: string | null;
+  /**
+   * Windows only (present once checked): the Microsoft Store "app updates" switch the Hub turns off
+   * while the Store offers an unverified Codex build; `canary` marks a test PC that always follows.
+   */
+  store?: StoreHoldState;
   compatibility: ReturnType<CodexCompatibilityCatalog["status"]>;
   renderer: ReturnType<CodexCompatibilityCatalog["policy"]>;
 }
@@ -128,6 +135,7 @@ export class CodexUpdateManager {
   #latest: string | null = null;
   #target: string | null = null;
   #userSkippedVersion: string | null = null;
+  #store: StoreHoldState | null = null;
   #skipOwnershipUnconfirmed = false;
   #candidates: string[] = [];
   #error: CodexUpdateError = null;
@@ -173,6 +181,8 @@ export class CodexUpdateManager {
       catalog: CodexCompatibilityCatalog;
       driver: CodexUpdateDriver | null;
       unsupportedReason?: CodexUpdateUnsupportedReason | null;
+      /** Windows: holds the Microsoft Store's own updates while it offers an unverified build. */
+      storeHold?: CodexStoreHold | null;
       currentVersion?: () => Promise<string | null>;
       busy: () => Promise<boolean | null>;
       idle?: CodexIdleDriver;
@@ -337,8 +347,8 @@ export class CodexUpdateManager {
     return {
       enabled: this.#settings.enabled,
       defaulted: this.#settings.defaulted,
-      supported: this.options.driver !== null,
-      ...(this.options.driver === null && this.options.unsupportedReason
+      supported: this.#supported(),
+      ...(!this.#supported() && this.options.unsupportedReason
         ? { unsupportedReason: this.options.unsupportedReason }
         : {}),
       ...(this.#reopening ? { reopening: true as const } : {}),
@@ -357,9 +367,60 @@ export class CodexUpdateManager {
         : {}),
       error: this.#error,
       checkedAt: this.#checkedAt,
+      ...(this.#store && this.options.storeHold ? { store: this.#store } : {}),
       compatibility: this.options.catalog.status(),
       renderer: this.options.catalog.policy(this.#current),
     };
+  }
+  #supported(): boolean {
+    return this.options.driver !== null || !!this.options.storeHold;
+  }
+  /** Undo the Hub's own Store hold (management off, pure mode); throws so the caller reports it. */
+  async #releaseStore(): Promise<void> {
+    if (!this.options.storeHold) return;
+    try {
+      this.#store = await this.options.storeHold.release();
+    } catch {
+      throw new Error("CODEX_STORE_FAILED");
+    }
+  }
+  /**
+   * Windows: the Store installs whatever it offers. Turn its updates off while the offered build is
+   * not an exact verified version; turn them back on once it is. A canary PC always follows.
+   */
+  async #checkStore(hold: CodexStoreHold): Promise<void> {
+    this.#checkedAt = new Date(this.#now()).toISOString();
+    this.#error = null;
+    let offered: string | null = null;
+    try {
+      offered = await hold.offeredVersion();
+      this.#latest = offered;
+    } catch {
+      /* Unknown offer: keep whatever the switch is now (a held switch stays held). */
+    }
+    const verified = offered !== null && this.options.catalog.verified(offered);
+    try {
+      if (await hold.isCanary()) this.#store = await hold.release("canary");
+      else if (offered === null)
+        this.#store = {
+          mode: (await hold.holding()) ? "holding" : "following",
+          setting: this.#store?.setting ?? null,
+        };
+      else if (!verified) this.#store = await hold.hold(offered);
+      else this.#store = await hold.release();
+    } catch {
+      this.#phase = "failed";
+      this.#error = "CODEX_STORE_FAILED";
+      return;
+    }
+    if (offered === null) {
+      this.#phase = "failed";
+      this.#error = "CODEX_APPCAST_FAILED";
+      return;
+    }
+    // No "downloading" here: the Store installs at its own pace and that phase drives the Mac
+    // release loop. The page tells a newer verified offer apart by its versions.
+    this.#phase = verified ? "up-to-date" : "waiting-compatibility";
   }
   async #initialize(): Promise<void> {
     if (this.#initialized) return;
@@ -488,6 +549,7 @@ export class CodexUpdateManager {
             saved?.originalAutoUpdate === undefined &&
             !(await this.options.driver?.hasVersionAlertHold?.())
           ) {
+            await this.#releaseStore();
             this.#settings = { defaulted: true, enabled: false, noticeAcknowledged: true };
             await this.options.state.update({ codexUpdates: this.#settings });
             await this.options.catalog.load();
@@ -530,6 +592,7 @@ export class CodexUpdateManager {
           await fs.rm(this.#leaseFile(), { force: true });
           await this.#restoreCheckPreferences();
           await this.#restoreVersionAlerts();
+          await this.#releaseStore();
           if (driver && this.#settings.originalAutoUpdate !== undefined)
             await driver.writeAutoUpdate(this.#settings.originalAutoUpdate);
           await this.#recoverClosed();
@@ -541,8 +604,11 @@ export class CodexUpdateManager {
         this.#idleSince = null;
         this.#revalidateAfter = 0;
         this.#skipReadFailures = 0;
-      } catch {
-        this.#fail("CODEX_PREFERENCES_FAILED");
+      } catch (error) {
+        if (error instanceof Error && error.message === "CODEX_STORE_FAILED") {
+          this.#phase = "failed";
+          this.#error = "CODEX_STORE_FAILED";
+        } else this.#fail("CODEX_PREFERENCES_FAILED");
       }
       try {
         await this.#publishHold();
@@ -580,11 +646,18 @@ export class CodexUpdateManager {
         }
         if (!this.#settings.enabled) {
           this.#phase = "disabled";
+          // Also undoes a hold left by a crash just before management was switched off.
+          if (this.options.storeHold && (await this.options.storeHold.holding().catch(() => true)))
+            await this.#releaseStore().catch(() => {
+              this.#phase = "failed";
+              this.#error = "CODEX_STORE_FAILED";
+            });
           return this.status();
         }
         const driver = this.options.driver;
         if (!driver) {
-          this.#phase = "unsupported";
+          if (this.options.storeHold) await this.#checkStore(this.options.storeHold);
+          else this.#phase = "unsupported";
           return this.status();
         }
         if (ACTIVE.has(this.#phase)) {

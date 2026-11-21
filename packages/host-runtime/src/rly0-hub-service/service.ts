@@ -13,6 +13,11 @@ import {
 import { codexNativeUpdateControlBlocker } from "./codex-update-control.js";
 import { CodexCompatibilityCatalog } from "./codex-compat.js";
 import { CodexUpdateManager } from "./codex-update-manager.js";
+import {
+  CodexStoreHold,
+  codexStoreControlAllowed,
+  createWindowsStoreUpdateDriver,
+} from "./codex-store-hold.js";
 import { codexIdleFromBusyAndInput, macInputIdleMs } from "./codex-input-idle.js";
 import { createMacCodexUpdateDriver } from "./codex-sparkle.js";
 import { writeJsonFile } from "../rly0-maintenance/backend-reload-channel.js";
@@ -316,6 +321,7 @@ export class Rly0HubService {
     this.#codexCatalog = new CodexCompatibilityCatalog({
       environment,
       installRoot: options.installRoot,
+      platform: options.platform ?? process.platform,
       get: async () => createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
     });
     this.#compatibility =
@@ -463,6 +469,15 @@ export class Rly0HubService {
       // No task running AND keyboard/mouse untouched for five minutes (user decision 2026-11-09).
       idle: codexIdleFromBusyAndInput(() => codexHeartbeatBusy(dataDirectory), macInputIdleMs()),
       unsupportedReason,
+      storeHold: codexStoreControlAllowed(environment, options.platform ?? process.platform)
+        ? new CodexStoreHold({
+            environment,
+            driver: createWindowsStoreUpdateDriver({
+              get: async () =>
+                createUpdateHttpGet({ proxy: await this.#updateProxy(), timeoutMs: 15_000 }),
+            }),
+          })
+        : null,
       driver: !unsupportedReason
         ? createMacCodexUpdateDriver({
             environment,

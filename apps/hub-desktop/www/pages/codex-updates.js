@@ -19,9 +19,13 @@
     CODEX_HEALTH_FAILED:
       "Codex 已更新，但更新后的检查没通过。如果用起来有问题，可以在 维护 → 系统诊断 里看看。",
     CODEX_STATE_FAILED: "Hub 没能保存更新记录，稍后会再试。",
+    CODEX_STORE_FAILED: "没能改微软商店的“应用更新”开关，稍后会自动再试。",
   };
 
   const v = (version) => (version ? `v${version}` : "未知");
+  // Windows reports 26.1117.3838.0 for the build listed as 26.1117.3838.
+  const bare = (version) => String(version || "").replace(/^(\d+\.\d+\.\d+)\.0$/u, "$1");
+  const sameVersion = (a, b) => Boolean(a && b) && bare(a) === bare(b);
   const isMac = () => Boolean(window.HubUI && window.HubUI.isMac);
   /**
    * Why the Hub does not manage Codex updates here (supported=false): [status line, switch note].
@@ -39,9 +43,26 @@
     return ["这台电脑上 Hub 拦不住 Codex 更新", "Windows 版 Codex 由微软商店负责更新"];
   }
 
+  /** Windows: the Microsoft Store updates Codex; the Hub only turns the Store's switch off and on. */
+  function describeStore(s) {
+    const latest = v(s.latestVersion);
+    if (s.store.mode === "canary") return ["off", "这台是试验机，Codex 跟着微软商店随时更新"];
+    if (s.phase === "waiting-compatibility")
+      return ["hold", `商店出了新版 ${latest}，Hub 正在适配，已先暂停商店自动更新`];
+    if (
+      s.phase === "up-to-date" &&
+      s.latestVersion &&
+      !sameVersion(s.latestVersion, s.currentVersion)
+    )
+      return ["ok", `新版 ${latest} 已适配，微软商店会自动更新`];
+    return null;
+  }
+
   /** One line in plain words for each phase, plus the tone of the status dot. */
   function describe(s) {
     const latest = v(s.latestVersion);
+    const store = s.store && s.phase !== "failed" ? describeStore(s) : null;
+    if (store) return store;
     switch (s.phase) {
       case "checking":
         return ["wait", "正在检查…"];
@@ -195,7 +216,15 @@
             "div",
             { class: "who" },
             h("b", null, "由 Hub 管理 Codex 更新"),
-            h("span", null, mac ? "新版 Codex 先等 Hub 适配好，再自动更新" : unsupported(s)[1]),
+            h(
+              "span",
+              null,
+              s.store
+                ? "商店出了没适配的新版，先暂停商店自动更新"
+                : mac
+                  ? "新版 Codex 先等 Hub 适配好，再自动更新"
+                  : unsupported(s)[1],
+            ),
           ),
           sw,
         ),
@@ -208,7 +237,7 @@
         h(
           "p",
           { class: "sub" },
-          `本机 ${v(s.currentVersion)}${s.latestVersion && s.phase !== "up-to-date" ? ` · 最新 ${v(s.latestVersion)}` : ""}`,
+          `本机 ${v(s.currentVersion)}${s.latestVersion && (s.store ? !sameVersion(s.latestVersion, s.currentVersion) : s.phase !== "up-to-date") ? ` · 最新 ${v(s.latestVersion)}` : ""}`,
         ),
         ...notes.map(([text, keep]) =>
           h("p", { class: "sub cu-note", "data-keep": keep || null }, text),
@@ -239,7 +268,8 @@
    */
   window.showCodexUpdatesNotice = async ({ h, call, go }) => {
     const s = await call("codex.updates.status").catch(() => null);
-    if (!s || !s.noticePending || !s.enabled || s.supported === false) return;
+    // The notice describes the Mac flow (Codex restarts by itself); Windows only pauses the Store.
+    if (!s || !s.noticePending || !s.enabled || s.supported === false || s.store) return;
     // However the dialog closes (a button, Esc, ×), the notice counts as read.
     const ui = window.HubUI.dialog({
       title: "Hub 会帮你管 Codex 更新",
