@@ -104,7 +104,8 @@ export interface CodexUpdateStatus {
   checkedAt: string | null;
   /**
    * Windows only (present once checked): the Microsoft Store "app updates" switch the Hub turns off
-   * while the Store offers an unverified Codex build; `canary` marks a test PC that always follows.
+   * while the Store offers an unverified Codex build; `canary` marks a test PC that always follows;
+   * `user-off` / `user-on` are the person's own value, which the Hub leaves alone.
    */
   store?: StoreHoldState;
   compatibility: ReturnType<CodexCompatibilityCatalog["status"]>;
@@ -403,7 +404,11 @@ export class CodexUpdateManager {
       if (await hold.isCanary()) this.#store = await hold.release("canary");
       else if (offered === null)
         this.#store = {
-          mode: (await hold.holding()) ? "holding" : "following",
+          mode: (await hold.holding())
+            ? "holding"
+            : this.#store?.mode === "user-off" || this.#store?.mode === "user-on"
+              ? this.#store.mode
+              : "following",
           setting: this.#store?.setting ?? null,
         };
       else if (!verified) this.#store = await hold.hold(offered);
@@ -647,7 +652,10 @@ export class CodexUpdateManager {
         if (!this.#settings.enabled) {
           this.#phase = "disabled";
           // Also undoes a hold left by a crash just before management was switched off.
-          if (this.options.storeHold && (await this.options.storeHold.holding().catch(() => true)))
+          if (
+            this.options.storeHold &&
+            (await this.options.storeHold.hasJournal().catch(() => true))
+          )
             await this.#releaseStore().catch(() => {
               this.#phase = "failed";
               this.#error = "CODEX_STORE_FAILED";

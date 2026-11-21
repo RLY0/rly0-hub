@@ -305,6 +305,9 @@ function popoverOpen(menu: HTMLElement): boolean {
   }
 }
 
+/** Body-wide mutations arrive every frame while Codex streams; rescan at most this often. */
+const SCAN_INTERVAL_MS = 150;
+
 export function installChatGptWorkBridge(
   ownerDocument: Document,
   options: ChatGptWorkBridgeOptions,
@@ -314,6 +317,9 @@ export function installChatGptWorkBridge(
   let disposed = false;
   let scheduled = false;
   let sequence = 0;
+  let lastScan = Number.NEGATIVE_INFINITY;
+  let timer: number | undefined;
+  const now = (): number => ownerWindow.performance?.now() ?? Date.now();
 
   const closeMenu = (bridge: MountedBridge): void => {
     if (!popoverOpen(bridge.menu)) return;
@@ -536,25 +542,56 @@ export function installChatGptWorkBridge(
     mounted.delete(bridge.form);
   };
 
+  // One composer whose props or DOM do not look as expected must not stop the others, later
+  // scans or Codex itself: each step is isolated and a failed mount leaves nothing behind.
   const scan = (): void => {
     scheduled = false;
+    timer = undefined;
+    lastScan = now();
     if (disposed) return;
-    for (const bridge of mounted.values()) {
-      const composer = bridge.form.isConnected ? chatGptWorkComposer(bridge.form) : null;
-      if (!composer || !bridge.root.isConnected) unmount(bridge);
-      else bridge.projectId = composer.projectId;
+    for (const bridge of [...mounted.values()]) {
+      try {
+        const composer = bridge.form.isConnected ? chatGptWorkComposer(bridge.form) : null;
+        if (!composer || !bridge.root.isConnected) unmount(bridge);
+        else bridge.projectId = composer.projectId;
+      } catch {
+        try {
+          unmount(bridge);
+        } catch {
+          mounted.delete(bridge.form);
+        }
+      }
     }
-    for (const form of ownerDocument.querySelectorAll(WORK_COMPOSER_SELECTOR)) {
+    let forms: Element[] = [];
+    try {
+      forms = [...ownerDocument.querySelectorAll(WORK_COMPOSER_SELECTOR)];
+    } catch {
+      return;
+    }
+    for (const form of forms) {
       if (mounted.has(form)) continue;
-      const composer = chatGptWorkComposer(form);
-      if (composer) mount(form, composer);
+      try {
+        const composer = chatGptWorkComposer(form);
+        if (composer) mount(form, composer);
+      } catch {
+        const half = mounted.get(form);
+        if (half) half.root.remove();
+        mounted.delete(form);
+      }
     }
   };
 
-  const schedule = (): void => {
+  /** Next frame; observer-driven rescans are throttled, an explicit refresh is not. */
+  const schedule = (throttled = false): void => {
     if (scheduled || disposed) return;
     scheduled = true;
-    ownerWindow.requestAnimationFrame(scan);
+    const wait = throttled ? lastScan + SCAN_INTERVAL_MS - now() : 0;
+    if (wait > 0)
+      timer = ownerWindow.setTimeout(() => {
+        timer = undefined;
+        if (!disposed) ownerWindow.requestAnimationFrame(scan);
+      }, wait);
+    else ownerWindow.requestAnimationFrame(scan);
   };
 
   const observer = new ownerWindow.MutationObserver((records) => {
@@ -567,19 +604,34 @@ export function installChatGptWorkBridge(
       )
     )
       return;
-    schedule();
+    schedule(true);
   });
-  if (ownerDocument.body) observer.observe(ownerDocument.body, { childList: true, subtree: true });
-  scan();
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
+    observer.disconnect();
+    if (timer !== undefined) ownerWindow.clearTimeout(timer);
+    for (const bridge of [...mounted.values()]) {
+      try {
+        unmount(bridge);
+      } catch {
+        mounted.delete(bridge.form);
+      }
+    }
+  };
+  try {
+    if (ownerDocument.body)
+      observer.observe(ownerDocument.body, { childList: true, subtree: true });
+    scan();
+  } catch (error) {
+    // Never leave an observer running behind a failed install.
+    dispose();
+    throw error;
+  }
 
   return {
-    refresh: schedule,
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      observer.disconnect();
-      for (const bridge of [...mounted.values()]) unmount(bridge);
-    },
+    refresh: () => schedule(),
+    dispose,
   };
 }
 

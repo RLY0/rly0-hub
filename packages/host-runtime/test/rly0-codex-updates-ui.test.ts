@@ -316,9 +316,10 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
         store: { mode: "holding", setting: "Disabled" },
       });
       expect(page.root.textContent).toContain(
-        "商店出了新版 v26.1117.4957.0，Hub 正在适配，已先暂停商店自动更新",
+        "商店出了新版 v26.1117.4957.0，Hub 正在适配，已先暂停微软商店所有应用的自动更新",
       );
       expect(page.root.textContent).toContain("本机 v26.1117.3838.0 · 最新 v26.1117.4957.0");
+      expect(page.root.textContent).toContain("先暂停微软商店所有应用的自动更新，适配好再打开");
       expect(page.switchEl()?.props.disabled).toBe(false);
       expect(page.switchEl()?.props["aria-checked"]).toBe("true");
     });
@@ -328,6 +329,24 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
       const same = await card({ ...win, latestVersion: "26.1117.3838" });
       expect(same.root.textContent).toContain("已是适配好的最新版");
       expect(same.root.textContent).not.toContain("· 最新");
+    });
+    it("does not claim a pause the person made, or one the person undid", async () => {
+      const off = await card({
+        ...win,
+        phase: "waiting-compatibility",
+        latestVersion: "26.1117.4957.0",
+        store: { mode: "user-off", setting: "Disabled" },
+      });
+      expect(off.root.textContent).toContain("商店自动更新本来就是关着的，Hub 没动它");
+      expect(off.root.textContent).not.toContain("已先暂停");
+      const on = await card({
+        ...win,
+        phase: "waiting-compatibility",
+        latestVersion: "26.1117.4957.0",
+        store: { mode: "user-on", setting: "Enabled" },
+      });
+      expect(on.root.textContent).toContain("你打开了商店自动更新，Hub 不再暂停");
+      expect(on.root.textContent).not.toContain("已先暂停");
     });
     it("names the canary test PC and shows a Store failure reason", async () => {
       const canary = await card({

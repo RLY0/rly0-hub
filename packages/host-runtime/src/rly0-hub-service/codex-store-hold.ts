@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { sameDesktopVersion } from "@codexhost/shared-contracts";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,9 +14,13 @@ import { getUpdateJson, type UpdateHttpGet } from "./hub-update-net.js";
  * the AutoDownload policy is ignored on Windows 11 Home, trial 2026-11-13) and turns it back on
  * once the offered build is verified or management is switched off.
  *
- * The original value is journaled before the first change, so a crash at any point is undone by
- * the next check. Only the Hub's own change is undone: when someone turned the switch back on in
- * the meantime, the journal is dropped and their value kept.
+ * The switch is Windows-wide: while held, no Store app updates on its own (the settings page says
+ * so). The original value is journaled before the first change, so a crash at any point is undone
+ * by the next check (and by the uninstaller, scripts/release/windows/restore-store-updates.ps1).
+ * Only the Hub's own change is undone. When the person turns the switch back on during a hold,
+ * their choice wins for that offered build: the journal records it and the Hub does not turn the
+ * switch off again until the Store offers another unverified build. A switch that was already off
+ * before the Hub acted is reported as `user-off` and never touched.
  *
  * A canary marker in the Hub data directory (the project's own test PC) exempts the machine: it
  * always follows the Store, so new Codex builds show up there first.
@@ -33,7 +38,12 @@ export interface StoreUpdateDriver {
   /** Codex build the Store currently offers (`26.1117.4957.0`); throws when unreachable. */
   offeredVersion(): Promise<string>;
 }
-export type StoreHoldMode = "holding" | "following" | "canary";
+/**
+ * `holding`: the Hub turned Store updates off. `user-off`: they were off already (person or policy).
+ * `user-on`: the person turned them back on during a hold; kept for that offered build.
+ */
+export type StoreHoldMode = "holding" | "following" | "canary" | "user-off" | "user-on";
+type StoreHoldJournal = { originalValue: StoreUpdateSetting } | { userEnabledFor: string };
 export interface StoreHoldState {
   mode: StoreHoldMode;
   /** The Store switch as last read; null when it could not be read. */
@@ -72,7 +82,7 @@ export class CodexStoreHold {
   offeredVersion(): Promise<string> {
     return this.options.driver.offeredVersion();
   }
-  async #journal(): Promise<{ originalValue: StoreUpdateSetting } | null> {
+  async #journal(): Promise<StoreHoldJournal | null> {
     let text: string;
     try {
       text = await fs.readFile(this.journalFile, "utf8");
@@ -89,6 +99,13 @@ export class CodexStoreHold {
         STORE_SETTING_VALUES.includes(value.originalValue as StoreUpdateSetting)
       )
         return { originalValue: value.originalValue as StoreUpdateSetting };
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        "userEnabledFor" in value &&
+        typeof value.userEnabledFor === "string"
+      )
+        return { userEnabledFor: value.userEnabledFor };
     } catch {
       /* fall through */
     }
@@ -108,11 +125,26 @@ export class CodexStoreHold {
   /** Store updates off while an unverified build is offered. Journal first, then the switch. */
   async hold(offered: string | null): Promise<StoreHoldState> {
     const setting = await this.options.driver.readSetting();
-    const journal = await this.#journal();
+    let journal = await this.#journal();
     // Turned on by policy: a per-user write cannot override it.
     if (setting === "EnabledByPolicy") throw new Error("CODEX_STORE_POLICY");
+    if (journal && "userEnabledFor" in journal) {
+      // The person's choice covers the build it was made for; another unverified build is held.
+      if (offered === null || sameDesktopVersion(journal.userEnabledFor, offered))
+        return { mode: setting === "Enabled" ? "user-on" : "user-off", setting };
+      await fs.rm(this.journalFile, { force: true });
+      journal = null;
+    }
+    if (journal && setting === "Enabled") {
+      // Turned back on by hand during our hold: respect it, never write the switch again for it.
+      await this.#writeJournal({
+        userEnabledFor: offered,
+        at: new Date((this.options.now ?? Date.now)()).toISOString(),
+      });
+      return { mode: "user-on", setting };
+    }
     // Already off (by the person or by policy) and not by us: nothing to hold, nothing to undo.
-    if (!journal && setting !== "Enabled") return { mode: "holding", setting };
+    if (!journal && setting !== "Enabled") return { mode: "user-off", setting };
     if (!journal)
       await this.#writeJournal({
         originalValue: setting,
@@ -120,12 +152,17 @@ export class CodexStoreHold {
         offeredAtApply: offered,
       });
     if (setting === "Enabled") await this.options.driver.writeSetting("Disabled");
-    return { mode: "holding", setting: "Disabled" };
+    return { mode: "holding", setting: setting === "DisabledByPolicy" ? setting : "Disabled" };
   }
   /** Undo only the Hub's own change; idempotent, so a crash between steps repeats it safely. */
-  async release(mode: Exclude<StoreHoldMode, "holding"> = "following"): Promise<StoreHoldState> {
+  async release(mode: "following" | "canary" = "following"): Promise<StoreHoldState> {
     const journal = await this.#journal();
     if (!journal) return { mode, setting: null }; // Nothing of ours to undo; no Store call.
+    if ("userEnabledFor" in journal) {
+      // The person's own choice: nothing of ours to undo.
+      await fs.rm(this.journalFile, { force: true });
+      return { mode, setting: null };
+    }
     const setting = await this.options.driver.readSetting();
     let now: StoreUpdateSetting = setting;
     if (setting === "Disabled" && journal.originalValue === "Enabled") {
@@ -135,7 +172,13 @@ export class CodexStoreHold {
     await fs.rm(this.journalFile, { force: true });
     return { mode, setting: now };
   }
+  /** True while the Hub's own hold is in place (not the person's recorded choice). */
   async holding(): Promise<boolean> {
+    const journal = await this.#journal();
+    return journal !== null && "originalValue" in journal;
+  }
+  /** Any journal file at all, the person's recorded choice included (cleaned up on release). */
+  async hasJournal(): Promise<boolean> {
     return (await this.#journal()) !== null;
   }
 }

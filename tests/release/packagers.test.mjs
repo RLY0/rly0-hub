@@ -113,6 +113,30 @@ describe("platform packagers", () => {
     expect(releaseClient).toContain("sha256:");
   });
 
+  it("turns paused Microsoft Store updates back on when the Hub is uninstalled", async () => {
+    const installer = await readFile(path.join(root, "scripts/release/windows/Installer.iss"), "utf8");
+    const restorer = await readFile(
+      path.join(root, "scripts/release/windows/restore-store-updates.ps1"),
+      "utf8",
+    );
+    expect(installer).toContain(
+      'Source: "restore-store-updates.ps1"; DestDir: "{app}\\uninstall"; Flags: ignoreversion',
+    );
+    const uninstall = installer.slice(installer.indexOf("[UninstallRun]"));
+    const stopHub = uninstall.indexOf('RunOnceId: "StopHub"');
+    const restore = uninstall.indexOf('{app}\\uninstall\\restore-store-updates.ps1');
+    // The Hub exits first so it cannot hold the switch again while it is restored.
+    expect(stopHub).toBeGreaterThan(-1);
+    expect(restore).toBeGreaterThan(stopHub);
+    expect(installer.slice(0, installer.indexOf("[UninstallRun]"))).toContain("#ifndef SandboxTest");
+    // Same journal, same switch and same "only our own change" rule as codex-store-hold.ts.
+    expect(restorer).toContain("codex-store-hold.json");
+    expect(restorer).toContain("userEnabledFor");
+    expect(restorer).toContain("-ne 'Enabled'");
+    expect(restorer).toContain("AutoUpdateSetting -eq 'Disabled'");
+    expect(restorer).toMatch(/exit 0\s*$/u);
+  });
+
   it("keeps Hub shutdown after Install and requires consent before closing Codex", async () => {
     const installer = await readFile(path.join(root, "scripts/release/windows/Installer.iss"), "utf8");
     const helper = 'Source: "stop-install-processes.ps1"; Flags: dontcopy';

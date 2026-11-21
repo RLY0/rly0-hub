@@ -182,7 +182,9 @@ describe("Windows Store hold (synthetic Store)", () => {
 
   it("keeps the person's own value: off before the Hub, or turned back on during a hold", async () => {
     const off = await fixture({ setting: "Disabled" });
-    expect(await off.manager.check()).toMatchObject({ store: { mode: "holding" } });
+    expect(await off.manager.check()).toMatchObject({
+      store: { mode: "user-off", setting: "Disabled" },
+    });
     expect(off.driver.writeSetting).not.toHaveBeenCalled();
     await expect(fs.access(off.hold.journalFile)).rejects.toThrow();
     off.offer("26.1117.3838.0");
@@ -191,10 +193,46 @@ describe("Windows Store hold (synthetic Store)", () => {
 
     const f = await fixture();
     await f.manager.check();
+    expect(f.setting()).toBe("Disabled");
     f.setSetting("Enabled"); // The person turned Store updates back on by hand.
-    await f.hold.release();
+    // Later checks for the same offered build respect it: no write, reported as theirs.
+    expect(await f.manager.check()).toMatchObject({
+      phase: "waiting-compatibility",
+      store: { mode: "user-on", setting: "Enabled" },
+    });
+    expect(await f.manager.check()).toMatchObject({ store: { mode: "user-on" } });
     expect(f.setting()).toBe("Enabled");
     expect(f.driver.writeSetting).toHaveBeenCalledTimes(1);
+    expect(await f.hold.holding()).toBe(false);
+    // The same build reported with the Windows ".0" suffix is the same choice.
+    f.offer("26.1117.5012");
+    expect(await f.manager.check()).toMatchObject({ store: { mode: "user-on" } });
+    expect(f.driver.writeSetting).toHaveBeenCalledTimes(1);
+    // Feed offline keeps reporting the person's choice, not a hold.
+    f.offer(new Error("offline"));
+    expect(await f.manager.check()).toMatchObject({ store: { mode: "user-on" } });
+    // A different unverified build is a new hold.
+    f.offer("26.1117.6000.0");
+    expect(await f.manager.check()).toMatchObject({ store: { mode: "holding" } });
+    expect(f.setting()).toBe("Disabled");
+    expect(f.driver.writeSetting).toHaveBeenCalledTimes(2);
+    // Verified: the Hub's own hold is undone as usual.
+    f.offer("26.1117.3838.0");
+    await f.manager.check();
+    expect(f.setting()).toBe("Enabled");
+    await expect(fs.access(f.hold.journalFile)).rejects.toThrow();
+  });
+
+  it("drops the person's recorded choice on release without touching the switch", async () => {
+    const f = await fixture();
+    await f.manager.check();
+    f.setSetting("Enabled");
+    await f.manager.check();
+    f.setSetting("Disabled"); // Whatever the switch is now, it is theirs.
+    expect(await f.manager.setEnabled(false)).toMatchObject({ phase: "disabled" });
+    expect(f.setting()).toBe("Disabled");
+    expect(f.driver.writeSetting).toHaveBeenCalledTimes(1);
+    await expect(fs.access(f.hold.journalFile)).rejects.toThrow();
   });
 
   it("reports a policy-enforced or failing switch instead of pretending to hold", async () => {

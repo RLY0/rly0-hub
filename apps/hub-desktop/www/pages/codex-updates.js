@@ -47,8 +47,18 @@
   function describeStore(s) {
     const latest = v(s.latestVersion);
     if (s.store.mode === "canary") return ["off", "这台是试验机，Codex 跟着微软商店随时更新"];
+    if (s.phase === "waiting-compatibility" && s.store.mode === "user-off")
+      return [
+        "off",
+        `商店出了新版 ${latest}，Hub 正在适配；商店自动更新本来就是关着的，Hub 没动它`,
+      ];
+    if (s.phase === "waiting-compatibility" && s.store.mode === "user-on")
+      return [
+        "hold",
+        `商店出了新版 ${latest}，Hub 还在适配；你打开了商店自动更新，Hub 不再暂停，装上后部分增强会先停用`,
+      ];
     if (s.phase === "waiting-compatibility")
-      return ["hold", `商店出了新版 ${latest}，Hub 正在适配，已先暂停商店自动更新`];
+      return ["hold", `商店出了新版 ${latest}，Hub 正在适配，已先暂停微软商店所有应用的自动更新`];
     if (
       s.phase === "up-to-date" &&
       s.latestVersion &&
@@ -220,7 +230,7 @@
               "span",
               null,
               s.store
-                ? "商店出了没适配的新版，先暂停商店自动更新"
+                ? "商店出了没适配的 Codex 新版时，先暂停微软商店所有应用的自动更新，适配好再打开"
                 : mac
                   ? "新版 Codex 先等 Hub 适配好，再自动更新"
                   : unsupported(s)[1],

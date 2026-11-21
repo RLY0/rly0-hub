@@ -43,6 +43,7 @@ Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 
 [Files]
 Source: "stop-install-processes.ps1"; Flags: dontcopy
+Source: "restore-store-updates.ps1"; DestDir: "{app}\uninstall"; Flags: ignoreversion
 Source: "{#PayloadRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 #ifndef SandboxTest
@@ -64,6 +65,8 @@ Filename: "{app}\bin\codexhost-start.exe"; Flags: nowait skipifdoesntexist; Chec
 [UninstallRun]
 ; Close the tray app before its files are removed.
 Filename: "{app}\bin\rly0-hub.exe"; Parameters: "--exit"; Flags: runhidden skipifdoesntexist; RunOnceId: "StopHub"
+; Store app updates the Hub paused for an unverified Codex build are turned back on.
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\uninstall\restore-store-updates.ps1"""; Flags: runhidden skipifdoesntexist; RunOnceId: "RestoreStoreUpdates"
 
 [Registry]
 ; The Hub's own autostart value goes with the app, so nothing starts a missing program.

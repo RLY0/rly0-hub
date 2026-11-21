@@ -185,6 +185,76 @@ describe("ChatGPT Work bridge control", () => {
     bridge.dispose();
   });
 
+  it("isolates a composer whose props throw: the others still mount and nothing escapes", () => {
+    const broken = document.createElement("form");
+    broken.setAttribute("data-thread-find-composer", "true");
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("synthetic props failure");
+        },
+      },
+    );
+    attachFiber(broken, [hostile as Record<string, unknown>]);
+    const good = workForm({});
+    document.body.append(broken, good);
+    const bridge = installChatGptWorkBridge(document, {
+      readTargets: () => [{ agent: "codex", label: "Codex" }],
+      readZh: () => true,
+    });
+    expect(broken.querySelector(`[${CHATGPT_WORK_BRIDGE_ATTRIBUTE}]`)).toBeNull();
+    expect(good.querySelector(`[${CHATGPT_WORK_BRIDGE_ATTRIBUTE}]`)).not.toBeNull();
+    bridge.dispose();
+    expect(good.querySelector(`[${CHATGPT_WORK_BRIDGE_ATTRIBUTE}]`)).toBeNull();
+  });
+
+  it("disconnects its observer when the install itself fails", () => {
+    const observe = vi
+      .spyOn(window.MutationObserver.prototype, "observe")
+      .mockImplementation(() => {
+        throw new Error("synthetic observe failure");
+      });
+    const disconnect = vi.spyOn(window.MutationObserver.prototype, "disconnect");
+    try {
+      expect(() =>
+        installChatGptWorkBridge(document, { readTargets: () => [], readZh: () => false }),
+      ).toThrow("synthetic observe failure");
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      observe.mockRestore();
+      disconnect.mockRestore();
+    }
+  });
+
+  it("throttles rescans while the page keeps changing", async () => {
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "performance"],
+    });
+    const scans = vi.spyOn(document, "querySelectorAll");
+    const bridge = installChatGptWorkBridge(document, {
+      readTargets: () => [],
+      readZh: () => false,
+    });
+    const count = () =>
+      scans.mock.calls.filter(([selector]) => String(selector).includes("form")).length;
+    expect(count()).toBe(1); // the initial scan
+    for (let frame = 0; frame < 6; frame += 1) {
+      document.body.append(document.createElement("div"));
+      await Promise.resolve(); // MutationObserver delivery
+      vi.advanceTimersByTime(16);
+    }
+    expect(count()).toBe(1); // ~100 ms of streaming: still within the interval
+    vi.advanceTimersByTime(100);
+    expect(count()).toBe(2); // one rescan for the whole burst
+    // An explicit refresh is not throttled.
+    bridge.refresh();
+    vi.advanceTimersByTime(16);
+    expect(count()).toBe(3);
+    bridge.dispose();
+    scans.mockRestore();
+  });
+
   it("leaves ordinary composers alone", () => {
     const form = workForm({ isWork: false });
     document.body.append(form);
