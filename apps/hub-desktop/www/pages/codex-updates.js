@@ -208,6 +208,10 @@
               true,
             ]
           : null,
+        // A failed check does not undo a pause: say so, the main line only shows the failure.
+        s.phase === "failed" && s.store && s.store.mode === "holding"
+          ? ["微软商店的应用自动更新仍暂停中，检查恢复正常后 Hub 会自动处理。", true]
+          : null,
         compatNote(s.compatibility) ? [compatNote(s.compatibility), false] : null,
         s.renderer && s.renderer.mode !== "full"
           ? [

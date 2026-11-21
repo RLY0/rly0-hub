@@ -122,13 +122,15 @@ describe("platform packagers", () => {
     expect(installer).toContain(
       'Source: "restore-store-updates.ps1"; DestDir: "{app}\\uninstall"; Flags: ignoreversion',
     );
-    const uninstall = installer.slice(installer.indexOf("[UninstallRun]"));
-    const stopHub = uninstall.indexOf('RunOnceId: "StopHub"');
-    const restore = uninstall.indexOf('{app}\\uninstall\\restore-store-updates.ps1');
-    // The Hub exits first so it cannot hold the switch again while it is restored.
-    expect(stopHub).toBeGreaterThan(-1);
-    expect(restore).toBeGreaterThan(stopHub);
-    expect(installer.slice(0, installer.indexOf("[UninstallRun]"))).toContain("#ifndef SandboxTest");
+    const restoreLine = installer
+      .split("\n")
+      .find((line) => line.includes("restore-store-updates.ps1") && line.startsWith("Filename:"));
+    // Full path: with skipifdoesntexist a bare "powershell.exe" is not looked up on PATH.
+    expect(restoreLine).toContain('Filename: "{sys}\\WindowsPowerShell\\v1.0\\powershell.exe"');
+    // After the tray app and the codexhost services have stopped, so no check pauses it again.
+    const restore = installer.indexOf(restoreLine);
+    expect(restore).toBeGreaterThan(installer.indexOf('RunOnceId: "StopHub"'));
+    expect(restore).toBeGreaterThan(installer.indexOf('RunOnceId: "StopCodexhostServices"'));
     // Same journal, same switch and same "only our own change" rule as codex-store-hold.ts.
     expect(restorer).toContain("codex-store-hold.json");
     expect(restorer).toContain("$env:CODEXHOST_DATA_DIR");

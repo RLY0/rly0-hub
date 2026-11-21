@@ -358,6 +358,14 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
       expect(canary.root.textContent).toContain("这台是试验机，Codex 跟着微软商店随时更新");
       const failed = await card({ ...win, phase: "failed", error: "CODEX_STORE_FAILED" });
       expect(failed.root.textContent).toContain("没能改微软商店的“应用更新”开关");
+      expect(failed.root.textContent).not.toContain("仍暂停中");
+      const offline = await card({
+        ...win,
+        phase: "failed",
+        error: "CODEX_APPCAST_FAILED",
+        store: { mode: "holding", setting: "Disabled" },
+      });
+      expect(offline.root.textContent).toContain("微软商店的应用自动更新仍暂停中");
     });
     it("does not show the Mac restart notice on Windows", async () => {
       const env = load({ ...win, noticePending: true });

@@ -552,7 +552,12 @@ export class CodexUpdateManager {
             saved?.originalAutoUpdate === undefined &&
             !(await this.options.driver?.hasVersionAlertHold?.())
           ) {
-            await this.#releaseStore();
+            // A Store that cannot be reached does not block opting out either: the journal stays
+            // and every later check (management off) retries the restore.
+            let storeFailed = false;
+            await this.#releaseStore().catch(() => {
+              storeFailed = true;
+            });
             this.#settings = { defaulted: true, enabled: false, noticeAcknowledged: true };
             await this.options.state.update({ codexUpdates: this.#settings });
             await this.options.catalog.load();
@@ -563,6 +568,10 @@ export class CodexUpdateManager {
               this.#phase = "failed";
               this.#error = "CODEX_STATE_FAILED";
             });
+            if (storeFailed) {
+              this.#phase = "failed";
+              this.#error = "CODEX_STORE_FAILED";
+            }
             return this.status();
           }
         }

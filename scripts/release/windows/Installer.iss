@@ -65,8 +65,6 @@ Filename: "{app}\bin\codexhost-start.exe"; Flags: nowait skipifdoesntexist; Chec
 [UninstallRun]
 ; Close the tray app before its files are removed.
 Filename: "{app}\bin\rly0-hub.exe"; Parameters: "--exit"; Flags: runhidden skipifdoesntexist; RunOnceId: "StopHub"
-; Store app updates the Hub paused for an unverified Codex build are turned back on.
-Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\uninstall\restore-store-updates.ps1"""; Flags: runhidden skipifdoesntexist; RunOnceId: "RestoreStoreUpdates"
 
 [Registry]
 ; The Hub's own autostart value goes with the app, so nothing starts a missing program.
@@ -80,6 +78,12 @@ Name: "{app}"
 [UninstallRun]
 Filename: "{app}\bin\codexhost.exe"; Parameters: "stop"; Flags: runhidden; RunOnceId: "StopCodexhostServices"
 Filename: "{app}\bin\codexhost.exe"; Parameters: "autostart off"; Flags: runhidden; RunOnceId: "DisableCodexhostAutostart"
+#ifndef SandboxTest
+; Store app updates the Hub paused for an unverified Codex build are turned back on, after the Hub
+; and its services have stopped (so no check can pause them again). Full path: with
+; skipifdoesntexist a bare name is not looked up on PATH.
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{app}\uninstall\restore-store-updates.ps1"""; Flags: runhidden skipifdoesntexist; RunOnceId: "RestoreStoreUpdates"
+#endif
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

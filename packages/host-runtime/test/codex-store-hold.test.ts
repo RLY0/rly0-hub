@@ -284,6 +284,25 @@ describe("Windows Store hold (synthetic Store)", () => {
     expect(f.driver.writeSetting).toHaveBeenCalledTimes(1);
   });
 
+  it("lets the person opt out even when the Store switch cannot be restored yet", async () => {
+    const f = await fixture();
+    await f.manager.check();
+    await f.manager.stop();
+    f.failWrites(true);
+    const fresh = f.make(); // not initialized yet: the opt-out fast path
+    expect(await fresh.setEnabled(false)).toMatchObject({
+      enabled: false,
+      phase: "failed",
+      error: "CODEX_STORE_FAILED",
+    });
+    expect(f.setting()).toBe("Disabled");
+    // Management stays off and the next check retries the restore.
+    f.failWrites(false);
+    expect(await fresh.check()).toMatchObject({ enabled: false, phase: "disabled" });
+    expect(f.setting()).toBe("Enabled");
+    await expect(fs.access(f.hold.journalFile)).rejects.toThrow();
+  });
+
   it("drops the person's recorded choice on release without touching the switch", async () => {
     const f = await fixture();
     await f.manager.check();
