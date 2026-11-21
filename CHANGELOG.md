@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.47
+
+### Updates
+- Links from the Hub to rly0.com (home page, recharge, keys, sign-up and the relay card) now carry `from=hub`, so rly0.com's traffic report can count visits that came from the Hub. Only the source is added; nothing about you is sent.
+
+### 更新
+- Hub 里打开 rly0.com 的链接（首页、充值、Key、注册和中转站卡片）带上了 `from=hub` 标记，零号中转网站的流量统计能算出从 Hub 来的访问。只标明来源，不带任何个人信息。
+
 ## 0.11.46
 
 0.11.44 and 0.11.45 were not published; this version includes everything in them (Codex Desktop 26.1117 support, 官方原样, chat repair on macOS, maintenance dot).
