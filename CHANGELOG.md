@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.49
+
+0.11.48 was not released; this version contains all of it.
+
+### Fixes
+- Release checks: a chat-health test compared a 1.5 MB database byte by byte through the slow deep-equality matcher and timed out on Mac; it now uses an exact byte comparison, just as strict and done in a millisecond.
+
+### 修复
+- 0.11.48 未发布，本版包含其全部内容。
+- 发布检查：聊天体检的一条测试用很慢的深比较逐字节对比 1.5MB 的数据库，在 Mac 上超时；改用同样严格的字节比较，一毫秒完成。
+
 ## 0.11.48
 
 ### Fixes

@@ -266,7 +266,7 @@ describe("chat health scan", () => {
     replace.close();
     const before = readFileSync(database);
     expect((await readCodexThreads(codex))?.[0]?.title).toHaveLength(200);
-    expect(readFileSync(database)).toEqual(before);
+    expect(readFileSync(database).equals(before)).toBe(true);
   });
 
   it("uses sqlite_home before CODEX_SQLITE_HOME and leaves the default database unchanged", async () => {
