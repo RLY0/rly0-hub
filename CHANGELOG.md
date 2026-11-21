@@ -1,9 +1,17 @@
 # Changelog
 
-## 0.11.45
+## 0.11.46
 
-0.11.44 was not published; this version includes everything in it (Codex Desktop 26.1117 support).
-0.11.44 没有发布出去，这一版包含它的全部内容（支持 Codex 桌面版 26.1117）。
+0.11.44 and 0.11.45 were not published; this version includes everything in them (Codex Desktop 26.1117 support, 官方原样, chat repair on macOS, maintenance dot).
+0.11.44、0.11.45 没有发布出去，这一版包含它们的全部内容（支持 Codex 桌面版 26.1117、官方原样、Mac 修复聊天记录、维护红点）。
+
+### Fixes
+- Windows: the Hub's small status files no longer fail to save when several parts of the Hub write them at the same moment.
+
+### 修复
+- Windows：Hub 的几个小状态文件在同一时刻被多处写入时，不会再保存失败。
+
+## 0.11.45 (not published)
 
 ### Updates
 - 官方原样 (formerly 恢复纯净) now puts Codex back to how the official app is: Codex opens the official way, without the agent picker, other agents' chats or the Hub's buttons, and updates itself. 重新开启 Hub brings everything back, including the shared-resource and Codex-update switches that were on before. Accounts, relays, keys and agent chats are kept.

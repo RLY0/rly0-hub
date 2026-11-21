@@ -118,6 +118,23 @@ async function readJson(file: string): Promise<Record<string, unknown> | null> {
   }
 }
 
+/**
+ * Windows refuses a rename onto a file another writer is replacing at that moment (EPERM / EBUSY /
+ * EACCES); the same rename succeeds a moment later. Same approach as rly0-memory/store.ts.
+ */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 40 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10 + Math.floor(Math.random() * 20)));
+    }
+  }
+}
+
 export async function writeJsonFile(file: string, value: unknown): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temporary = `${file}.tmp-${process.pid}-${randomBytes(12).toString("hex")}`;
@@ -128,7 +145,7 @@ export async function writeJsonFile(file: string, value: unknown): Promise<void>
     } finally {
       await handle.close();
     }
-    await fs.rename(temporary, file);
+    await renameWithRetry(temporary, file);
   } finally {
     await fs.rm(temporary, { force: true }).catch(() => undefined);
   }
