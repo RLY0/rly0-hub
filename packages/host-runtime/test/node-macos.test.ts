@@ -34,7 +34,10 @@ afterEach(async () => {
 });
 
 /** Serves `responses` by URL for curl and fakes tar by creating `<dir>/bin/node`. */
-function fakeRunner(responses: Record<string, Buffer | string>, calls: string[] = []): CommandRunner {
+function fakeRunner(
+  responses: Record<string, Buffer | string>,
+  calls: string[] = [],
+): CommandRunner {
   return {
     async run(command, args) {
       calls.push(`${path.basename(command)} ${args.at(-1)}`);
@@ -72,9 +75,9 @@ describe("Node.js for a Mac without it", () => {
       file: FILE,
       directory: DIRECTORY,
     });
-    expect(pickNodeLtsTarball([{ version: "v24.0.0", lts: "x", files: ["win-x64-msi"] }], "x64")).toBe(
-      null,
-    );
+    expect(
+      pickNodeLtsTarball([{ version: "v24.0.0", lts: "x", files: ["win-x64-msi"] }], "x64"),
+    ).toBe(null);
     expect(macNodeArch("x64")).toBe("x64");
     expect(macNodeArch("arm64")).toBe("arm64");
   });
@@ -94,7 +97,9 @@ describe("Node.js for a Mac without it", () => {
       log: () => undefined,
       sources: [source],
     });
-    const runtime = hubNodeRuntimeDirectory(environment);
+    // Darwin-flavoured path joined onto this machine's temp directory; normalize so the file
+    // checks below also hold when the suite runs on Windows (the install itself is Mac-only).
+    const runtime = path.normalize(hubNodeRuntimeDirectory(environment));
     expect(runtime).toBe(path.join(root, "data", "runtime"));
     expect(outcome).toEqual({ ok: true, bin: path.join(runtime, "node", "bin") });
     expect(await fs.readlink(path.join(runtime, "node"))).toBe(DIRECTORY);
@@ -141,8 +146,11 @@ describe("Node.js for a Mac without it", () => {
   });
 
   it("is where installers and harness discovery look for node, npm and npm-installed CLIs", () => {
-    const environment = { HOME: root, PATH: "/usr/bin:/bin", CODEXHOST_DATA_DIR: path.join(root, "data") };
-    const bin = path.join(root, "data", "runtime", "node", "bin");
+    // Pure path computation for a Mac: use a Mac-style home rather than this machine's temp
+    // directory, whose drive letter ("C:") would split on PATH's ":" when run on Windows.
+    const home = "/Users/rly0-test";
+    const environment = { HOME: home, PATH: "/usr/bin:/bin", CODEXHOST_DATA_DIR: `${home}/data` };
+    const bin = `${home}/data/runtime/node/bin`;
     const searched = withAgentInstallPaths(environment, "darwin").PATH?.split(":") ?? [];
     expect(searched.at(-1)).toBe(bin);
     expect(searched[0]).toBe("/usr/bin");
@@ -150,7 +158,7 @@ describe("Node.js for a Mac without it", () => {
       versionManagerBinaryDirectories({
         platform: "darwin",
         environment,
-        home: root,
+        home,
         subdirectories: () => [],
       }),
     ).toContain(bin);

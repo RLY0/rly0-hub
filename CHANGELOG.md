@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.54
+
+0.11.53 was not released; this version contains all of it.
+
+### Fixes
+- Tests: the Mac Node.js installer test now passes when the test suite runs on Windows (it compared a Mac-style path with a Windows one and split a drive letter on PATH's ":"). No change for users.
+
+### 修复
+- 0.11.53 未发布，本版包含其全部内容。
+- 测试：Mac 自动安装 Node.js 的测试在 Windows 上跑全量时也能通过（之前把 Mac 格式路径和 Windows 路径直接比较，并把盘符里的冒号当成 PATH 分隔符）。对用户没有影响。
+
 ## 0.11.53
 
 0.11.52 was not released; this version contains all of it.
