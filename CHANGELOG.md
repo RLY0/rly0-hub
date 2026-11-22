@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.11.53
+
+0.11.52 was not released; this version contains all of it.
+
+### Fixes
+- Mac: after updating to 0.11.51, saving an Anthropic key or token failed with "本机加密保存失败，请检查 Mac 钥匙串访问权限", and refreshing a saved Claude token failed too. Every update has a new ad-hoc signature, and macOS silently denied the new build access to the public half of the Hub's Keychain key, which Apple's encryption and decryption both read. Saving and reading now use only the private key, whose access macOS asks for again. After installing this version, choose "始终允许" when macOS asks once; keys saved earlier keep working and do not need to be saved again.
+- Mac: two Hub processes writing the same credential file at the same moment could occasionally fail.
+- Codex 26.1117: when the signed-in ChatGPT account ran out of Codex usage, Codex merged its two usage blocks into one "submit disabled" reason list, so the Hub could no longer find them: a Composer on an external Agent, or on an RLY/0 relay model, stayed blocked even though neither uses the official usage. The Hub now removes only those two usage reasons for that Composer (from upstream CodexHost v0.24.0, with the Hub's relay-model rule kept). Official Codex models keep the real limit, other submit blockers are untouched, and the usage banner stays visible on relay models as information.
+- Codex 26.1117: with MCP servers configured, Codex passes extra MCP launch-folder arguments to the Hub's background helper, which rejected them, so the Hub could time out while starting (from upstream CodexHost v0.24.0).
+- 账号 → Google: a month-old Antigravity quota is no longer shown as the last reading once all its windows have reset; past reset times read "已于 … 重置", and 更新于 shows the date when it is not today.
+- AI 助手: when agy is installed but not signed in, the hint now says to sign in to Google under 账号 → Google (or pick a relay) instead of the generic message.
+- 账号 → Claude: the page refresh button is no longer disabled as "无法查询额度" while a saved token's first read is running.
+
+### Updates
+- Mac: installing an agent that needs Node.js (OpenCode, Grok, Copilot and others) no longer stops at "缺少 Node.js". The Hub downloads the official Node.js LTS from nodejs.org (npmmirror as fallback), checks it against the published checksums and keeps it in its own folder, with no computer password and nothing else on the Mac changed. A Node.js you installed yourself is still used first.
+
+### 修复
+- 0.11.52 未发布，本版包含其全部内容。
+- Mac：升级到 0.11.51 后，保存 Anthropic Key 或令牌会提示「本机加密保存失败，请检查 Mac 钥匙串访问权限」，已保存的 Claude 令牌也刷新失败。原因是每次更新签名都会变，macOS 会悄悄拒绝新版本读取钥匙串里那把密钥的公钥部分，而苹果的加密和解密都要读它。现在保存和读取只用私钥，macOS 会重新询问一次权限。装好本版后，macOS 弹窗时点「始终允许」即可；之前保存的 Key 照常能用，不用重新保存。
+- Mac：两个 Hub 进程同时写同一个凭据文件时，偶尔会写入失败。
+- Codex 26.1117：ChatGPT 账号的 Codex 额度用完后，Codex 把两道额度限制合并成了一串“不能发送”的原因，Hub 找不到它们，于是选了外部助手或 RLY/0 中转模型的输入框也一直发不出去，虽然它们根本不用官方额度。现在 Hub 只为这个输入框去掉这两条额度原因（取自上游 CodexHost v0.24.0，保留 Hub 的中转模型规则）。官方 Codex 模型照常受额度限制，其他发送限制不动，中转模型下额度提示条照常显示，仅供参考。
+- Codex 26.1117：配置了 MCP 服务时，Codex 会给 Hub 的后台助手多传几个“MCP 启动目录”参数，原来会被拒绝，导致 Hub 启动超时（取自上游 CodexHost v0.24.0）。
+- 账号 → Google：Antigravity 的额度窗口都已重置后，不再把一个月前查到的额度当作「上次查询」显示；已经过去的重置时间写成「已于 … 重置」，「更新于」不是今天时会带上日期。
+- AI 助手：agy 已装好但没登录时，提示改为「到 账号 → Google 登录 Google 账号，或改选中转」，不再是笼统的提示。
+- 账号 → Claude：已保存令牌第一次读取还没完成时，页面顶部的刷新按钮不再变灰显示「无法查询额度」。
+
+### 更新
+- Mac：安装需要 Node.js 的助手（OpenCode、Grok、Copilot 等）时，不再停在「缺少 Node.js」。Hub 会从 nodejs.org（备用 npmmirror）下载官方 Node.js LTS，核对官方校验值后放在 Hub 自己的文件夹里，不需要电脑密码，也不改动 Mac 上的其他东西。你自己装过 Node.js 的话仍优先用你的。
+
 ## 0.11.51
 
 0.11.50 was not released; this version contains all of it.
