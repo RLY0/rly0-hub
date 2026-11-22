@@ -1,6 +1,8 @@
 import { existsSync, lstatSync } from "node:fs";
 import path from "node:path";
 
+import { hubNodeBinDirectory } from "@codexhost/harness-discovery";
+
 import { withClaudeCodeInstallPaths } from "./claude-code-auth.js";
 
 /** Common installer destinations, re-evaluated after every prerequisite install. */
@@ -9,7 +11,12 @@ export function withAgentInstallPaths(
   platform: NodeJS.Platform,
 ): NodeJS.ProcessEnv {
   const next = withClaudeCodeInstallPaths(environment, platform);
-  if (platform !== "win32") return next;
+  if (platform !== "win32") {
+    // Last, so a Node.js the person installed keeps winning; the Hub's own is only the fallback.
+    const home = environment.HOME ?? "";
+    if (home) next.PATH = [next.PATH, hubNodeBinDirectory(environment, home, platform)].join(":");
+    return next;
+  }
   const extra = [
     path.win32.join(environment.ProgramFiles ?? "C:\\Program Files", "nodejs"),
     path.win32.join(environment.ProgramFiles ?? "C:\\Program Files", "Git", "cmd"),

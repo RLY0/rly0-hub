@@ -87,5 +87,23 @@ export function versionManagerBinaryDirectories(context: VersionManagerContext):
     }
   }
 
+  // The Node.js RLY/0 Hub installs for a Mac without one, and the CLIs npm put beside it.
+  directories.push(hubNodeBinDirectory(environment, home, platform));
+
   return directories;
+}
+
+/**
+ * Where RLY/0 Hub keeps the Node.js it installs itself on macOS (`<data dir>/runtime/node`, a
+ * link to the extracted official release), so `npm install -g` needs no administrator rights.
+ */
+export function hubNodeBinDirectory(
+  environment: NodeJS.ProcessEnv,
+  home: string,
+  platform: NodeJS.Platform,
+): string {
+  const pathFlavor = targetPath(platform);
+  const dataDirectory =
+    environmentValue(environment, "CODEXHOST_DATA_DIR") ?? pathFlavor.join(home, ".rly0-hub");
+  return pathFlavor.join(dataDirectory, "runtime", "node", "bin");
 }

@@ -15,6 +15,7 @@ import {
   withAgentInstallPaths,
 } from "./install-paths.js";
 import { installNodeFromMsi, windowsNodeArch, type InstallerFiles } from "./node-msi.js";
+import { installNodeForMac, macNodeArch } from "./node-macos.js";
 import { AgentCliUpdateAdmission, assertAgentCliInstallFree } from "./cli-update-admission.js";
 
 /**
@@ -835,6 +836,19 @@ export class AgentInstaller {
       status.requirementReason = reason;
       return false;
     };
+    if (this.#platform === "darwin" && requirement === "node") {
+      const outcome = await installNodeForMac({
+        runner: this.#runner,
+        environment: this.#withKnownPaths(this.#environment()),
+        arch: macNodeArch(),
+        files: this.#options.files ?? defaultFiles,
+        log: (text) => this.#append(status, text),
+      });
+      if (!outcome.ok) return fail(outcome.reason);
+      if (this.#hasRequirement("node")) return true;
+      this.#append(status, "Node.js 已装好，但还找不到 node/npm；重启 RLY/0 Hub 后重试。");
+      return fail("NOT_DETECTED");
+    }
     if (this.#platform !== "win32") {
       this.#append(status, `没有找到 ${name}，请手动安装后重试。`);
       return fail("WINGET_UNAVAILABLE");

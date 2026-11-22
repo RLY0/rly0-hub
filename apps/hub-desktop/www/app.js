@@ -961,7 +961,7 @@
     WINGET_UNAVAILABLE: "系统没有可用的 winget，请手动安装 Node.js 后重试",
     NETWORK: "下载 Node.js 失败，请检查网络后重试",
     PERMISSION: "安装 Node.js 没有获得权限，请手动安装后重试",
-    INSTALL_FAILED: "winget 没能装好 Node.js，请手动安装后重试",
+    INSTALL_FAILED: "Node.js 没能自动装好，请手动安装后重试",
     NOT_DETECTED: "安装后仍找不到 npm，请安装含 npm 的 Node.js 后重试",
   };
 

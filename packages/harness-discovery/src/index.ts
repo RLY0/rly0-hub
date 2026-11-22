@@ -23,7 +23,11 @@ export {
   type HarnessResolution,
   type RunnableCandidateContext,
 } from "./resolve.js";
-export { versionManagerBinaryDirectories, type VersionManagerContext } from "./version-managers.js";
+export {
+  hubNodeBinDirectory,
+  versionManagerBinaryDirectories,
+  type VersionManagerContext,
+} from "./version-managers.js";
 export {
   createInstallationManager,
   fetchInstallationText,
