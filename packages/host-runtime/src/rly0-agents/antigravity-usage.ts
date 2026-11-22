@@ -209,7 +209,17 @@ export class AntigravityUsageReader {
         if (text.length > 128 * 1024) return;
         const parsed = cachedStatusSchema.safeParse(JSON.parse(text));
         if (parsed.success) {
-          const { usage, checkedAt } = parsed.data;
+          const { checkedAt } = parsed.data;
+          // Once every window has reset, the saved numbers say nothing about today's quota (and
+          // the login may have changed since): show none rather than a month-old reading.
+          const now = Math.floor(this.#now() / 1000);
+          const usage =
+            parsed.data.usage &&
+            parsed.data.usage.windows.every(
+              (window) => window.resetsAt !== undefined && window.resetsAt <= now,
+            )
+              ? undefined
+              : parsed.data.usage;
           this.#last = {
             ...(usage
               ? {

@@ -23,6 +23,9 @@ export function describeAgentConnection(
     return `Codex 找不到 ${name}：先在这里安装它，装好后点“检测连接”`;
   }
   const text = `${entry.code ?? ""} ${entry.message ?? ""}`;
+  // agy itself says nobody is signed in: the fix is its Google sign-in, not a Hub setting.
+  if (agent?.id === "antigravity" && /not logged in|sign[ -]?in/iu.test(text))
+    return "Antigravity（agy）已装好，但还没登录 Google 账号：到「账号 → Google」点“登录 / 换账号”，或在下面的“使用”里改选零号中转或其他中转";
   if (/AUTH|auth_required|not configured|no provider|No API key|No models available/iu.test(text))
     return "还没有可用的模型来源：接入方式选零号中转或其他中转，或者登录官方账号";
   if (/interpreter not found/iu.test(text))

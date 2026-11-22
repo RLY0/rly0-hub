@@ -309,6 +309,8 @@ window.registerHubAgents = ({
     const text = `${entry.code || ""} ${entry.message || ""}`;
     if (entry.status === "notInstalled")
       return "Codex 那边还找不到它。刚装好的话点上面的“检测连接”，还不行就重启一次 Codex";
+    if (agent.id === "antigravity" && /not logged in|sign[ -]?in/iu.test(text))
+      return "Antigravity（agy）已装好，但还没登录 Google 账号：到「账号 → Google」点“登录 / 换账号”，或在下面的“使用”里改选零号中转或其他中转";
     if (/AUTH|auth_required|not configured|no provider|No API key|No models available/iu.test(text))
       return "还没有可用的模型来源：接入方式选零号中转或其他中转，或者登录官方账号";
     if (/interpreter not found/iu.test(text))

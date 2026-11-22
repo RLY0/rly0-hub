@@ -74,6 +74,21 @@ describe("connection hints", () => {
       "连接失败，下面是具体原因",
     );
     expect(describeAgentConnection(grok, { status: "ready" })).toBeNull();
+    // agy reports nobody signed in: point at its Google sign-in, not at a generic source.
+    const agy = { id: "antigravity", name: "Antigravity", installed: true } as const;
+    expect(
+      describeAgentConnection(agy, {
+        status: "error",
+        message: "error getting token source: You are not logged into Antigravity.",
+      }),
+    ).toContain("还没登录 Google 账号");
+    expect(describeAgentConnection(agy, { status: "error", message: "No API key" })).toContain(
+      "还没有可用的模型来源",
+    );
+    // Another agent's sign-in error keeps the general hint.
+    expect(
+      describeAgentConnection(grok, { status: "error", message: "Please sign in" }),
+    ).not.toContain("Google");
     const report = withConnectionHints(
       {
         requestId: null,

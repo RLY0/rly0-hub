@@ -28,8 +28,14 @@ window.registerHubAccountCards = ({
     node.innerHTML = markup; // fixed markup only, never service data
     return node;
   };
-  const clock = (ms) =>
-    new Date(ms).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  // "08:32" today, "10/21 08:32" on another day: a bare time would pass an old reading as today's.
+  const clock = (ms) => {
+    const date = new Date(ms);
+    const time = date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+    return date.toDateString() === new Date().toDateString()
+      ? time
+      : `${date.getMonth() + 1}/${date.getDate()} ${time}`;
+  };
   // A control that cannot act: still focusable so its reason shows as a hint.
   const unavailable = (button, reason) => {
     button.setAttribute("aria-disabled", "true");
@@ -123,7 +129,11 @@ window.registerHubAccountCards = ({
               h(
                 "span",
                 { class: "reset-when" },
-                w.resetsAt ? `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}` : "重置时间未知",
+                !w.resetsAt
+                  ? "重置时间未知"
+                  : w.resetsAt * 1000 <= Date.now()
+                    ? `已于 ${resetText(w.resetsAt)}，这是重置前的额度`
+                    : `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}`,
               ),
             );
           }),
@@ -606,6 +616,8 @@ window.registerHubAccountCards = ({
     USAGE_LIVE_ONLY: "未知 · 聊一句后更新",
   };
   function keyQuota(info) {
+    // A saved Claude token whose first read is still running: 刷新 can read it.
+    if (info && info.kind === "pending") return { refreshable: true, reason: null };
     if (!info || info.kind !== "subscription")
       return { refreshable: false, reason: "API Key 官方不提供额度查询" };
     // valid === false already gets the card's "换一个" warning.

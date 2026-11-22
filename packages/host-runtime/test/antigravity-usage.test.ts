@@ -85,6 +85,33 @@ describe("Antigravity /usage", () => {
     }
   });
 
+  it("stops showing a saved reading once every window has reset", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-agy-expired-"));
+    const snapshotPath = path.join(root, "usage.json");
+    try {
+      const windows = [
+        { kind: "secondary", label: "Gemini Models · 每周额度", usedPercent: 0, resetsAt: 2_000 },
+        { kind: "secondary", label: "Claude · 每周额度", usedPercent: 3.5, resetsAt: 3_000 },
+      ];
+      await fs.writeFile(
+        snapshotPath,
+        JSON.stringify({ usage: { windows, fetchedAt: 1_000 }, checkedAt: 1_000 }),
+      );
+      const reader = (nowSeconds: number) =>
+        new AntigravityUsageReader({
+          environment: async () => ({}),
+          snapshotPath,
+          now: () => nowSeconds * 1000,
+        });
+      // One window still ahead: the reading is still worth showing.
+      expect((await reader(2_500).cached()).usage?.windows).toHaveLength(2);
+      // Both have passed: nothing to show, but the last check time stays.
+      expect(await reader(3_000).cached()).toEqual({ checkedAt: 1_000 });
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads every bucket as a consumed-side window", () => {
     const usage = parseAntigravityUsage(`noise\n${USAGE_LINE}\n`, 1_000_000);
     expect(usage?.fetchedAt).toBe(1000);
