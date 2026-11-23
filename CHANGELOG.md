@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.56
+
+### Fixes
+- While the Hub was running, Codex's model menu stopped at GPT-6.1 and did not show the newest official models (such as GPT-6.2). Codex asks the Hub's local proxy for the official model list; the proxy answered every model-list request with the relays' list instead, which Codex could not read, so it fell back to the older list built into the app. Codex's own model-list request (with its official login) now goes to the official service unchanged; other model-list requests still get the relays' list. Only the Hub's core component changed (Windows and Mac).
+
+### 修复
+- 修复：开着 Hub 时 Codex 看不到最新官方模型（如 GPT-6.2），模型菜单最高只到 GPT-6.1。原因是 Hub 把 Codex 查询官方模型列表的请求也拦下来，回了中转站的列表，Codex 看不懂，就退回到程序里自带的旧列表。现在 Codex 自己查官方模型列表时原样交给官方，其他情况不变。只更新了 Hub 的核心组件（Windows 和 Mac 都有）。
+
 ## 0.11.55
 
 ### Updates
