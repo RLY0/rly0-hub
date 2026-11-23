@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.55
 
 ### Updates
 - Windows: when Codex is on a version the Hub has not verified (so it opens in safe mode with the Hub's additions off) and the Microsoft Store offers a verified one, the Hub now brings Codex to it instead of waiting for the Store. Once Codex has no task running and the computer has been left alone for five minutes, the Hub closes Codex, asks the Store to update Codex only (winget as fallback), checks that the installed version really changed, and opens Codex again. The Store's "app updates" switch is not touched, so this also works when you keep Store updates off. If neither route works, 设置 → 更新 → Codex 更新 says so and offers "现在更新" and "去微软商店更新"; the same buttons appear when Hub management of Codex updates is off (then nothing happens on its own). Not yet tried on a real Windows PC.
