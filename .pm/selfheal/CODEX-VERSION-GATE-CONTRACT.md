@@ -390,3 +390,36 @@ RPC 方法与错误码不变，所有 `codex.updates.*` 返回值的 `phase` 新
 - 关闭“由 Hub 管理 Codex 更新”和“恢复纯净状态”都会先恢复商店开关再保存关闭；关闭状态下每次 check 也会清理残留日志。
 - 试验机：数据目录有 `codex-update-canary.json` 时 `store.mode=canary`，永不拦截，并撤销之前的拦截；界面显示“这台是试验机，Codex 跟着微软商店随时更新”。增强降级照常按精确版本判断。
 - 卸载 Hub 前若仍在拦截，需先关闭管理或“恢复纯净状态”；直接删除不会自动恢复商店开关。
+
+## Windows 放行即更新（2026-11-23，分支 feat/codex-update-to-verified）
+
+用户已拍板：Hub 管理 Codex 版本时“放行即更新”，在 Codex 空闲时自动做。本节是对上面“Windows 商店拦截”一节的补充，其余 RPC、字段、hold 逻辑不变。仅 self_verified（隔离离线测试，假 Store/winget/Codex），**未在真机 Windows 上验证**。
+
+### 触发与流程（`codex-update-manager.ts` 的 `#advanceWindows`，驱动 `codex-windows-update.ts`）
+
+- 每次 check：商店提供的 build 是精确已验证版本、比本机新、且不是试验机 → `verifiedUpdate=<该 build>`；管理开启时进入 `waiting-idle`（不再直接 up-to-date）。商店提供未验证 build → 照旧 hold，不更新。本机已是该 build 或更新 → up-to-date。
+- waiting-idle：自动模式要“没任务 + 键鼠空闲 ≥5 分钟”（Windows 用 GetLastInputInfo，`windowsInputIdleMs`，读不到按在用），再叠加连续 15 秒复核；关 Codex 前重新读商店清单，变成未验证 → waiting-compatibility；已不比本机新 → up-to-date。
+- Codex 在运行才关（Launcher quit + 按路径结束进程，同“强制关闭 Codex”），写 `codex-update-session.json`；30 秒内没退出 → failed/CODEX_INSTALL_TIMEOUT 并重开。Codex 本来没开就不关、不重开、不做体检。
+- installing：先走商店队列（WinRT `AppInstallManager.SearchForUpdatesAsync('9PLM9XGG6VKS','','','',AppUpdateOptions{AutomaticallyDownloadAndInstallUpdateIfFound=true, AllowForcedAppRestart=true})`，为空再 `UpdateAppByPackageFamilyNameAsync(<OpenAI.Codex 的 PFN>)`，脚本最多看 20 秒 InstallState，Error/Canceled 视为失败）。失败、无更新或 15 分钟版本没变 → winget（`winget upgrade --id 9PLM9XGG6VKS --source msstore --silent --accept-package-agreements --accept-source-agreements --disable-interactivity`，不阻塞 RPC，后台跑，20 分钟上限）。**只以本机安装版本 ≥ 目标为成功**，脚本或 winget 说成功都不算。
+- 成功 → 发布新版本策略 → 重开 Codex（复用 `reopenCodexPass`，失败照旧 CODEX_REOPEN_FAILED 每分钟重试、30 分钟放弃）→ health-check（60 秒内 Codex 界面 ready，否则 CODEX_HEALTH_FAILED）→ up-to-date。
+- Hub 在 Codex 被关期间退出：下次启动读 session 记录（60 分钟内）重开 Codex。
+- 不改商店“应用更新”总开关：`user-off` 时也只更新 Codex 这一个包。试验机（canary）行为不变：不由 Hub 更新。
+- 关闭管理：取消还在等空闲的自动更新；已经在安装中的会做完并重开 Codex。关闭状态不自动更新，但 check 仍读商店清单给出 `verifiedUpdate` 提示。
+
+### 新增 phase、错误码、字段、RPC
+
+- phase `manual-update`：Hub 自己更新不了，需要用户手动；error 为下面两者之一。同一目标 6 小时内不再自动重试（期间 check 保持 manual-update），之后或商店换 build 再自动试。
+- 错误码 `CODEX_STORE_UPDATE_FAILED`：商店队列与 winget 都没能更新（拒绝、报错、没有可用更新、winget 不存在，或 winget 说装好了但 60 秒后版本仍未变）。
+- 错误码 `CODEX_STORE_UPDATE_TIMEOUT`：已开始更新，但 winget 阶段 21 分钟后安装版本仍未到目标。
+- status 可选字段：`verifiedUpdate?: string`（Windows，有比本机新的已验证商店 build 时出现）；`updateRoute?: "store"|"winget"`（installing 时）；`requested?: true`（用户点了“现在更新”，只等“没任务”，不等 5 分钟键鼠空闲）。
+- 新 RPC `codex.updates.updateNow` `{}`：Windows 下立即开始（管理关闭时也可用，用户明确操作）；商店提供的不是已验证且更新的 build 时不更新并返回对应 phase；Mac 等同 `codex.updates.check`。
+- `links.open` 新 target `codexStore` → `ms-windows-store://pdp/?productid=9PLM9XGG6VKS`。
+- 系统诊断（`Rly0DesktopCompatibility` 新可选 `updateHint`）：core/safe 模式文案在有可装的已验证版本时说明“Hub 会在 Codex 空闲时自动更新到 vY”或指向“现在更新/去微软商店更新”；本机版本比内置已验证版本旧时不再称“新版本”。
+
+### Mac 结论
+
+Mac 现有流程每次 check 都比较“appcast 最新版是否已验证且比本机新”，不依赖“出了新版”这一事件；本机停在未验证旧版、最新版已验证时会自动更新（测试 `codex-windows-update.test.ts` 的 Mac 用例）。已知限制（未改）：appcast 中若还有比本机新、但未验证的中间 build，按原保守规则（Sparkle 可能按系统/灰度选中中间版）仍停在 waiting-compatibility。
+
+### 仍需真机
+
+AppInstallManager 在 Hub 服务进程（无控制台、PowerShell 5.1、非管理员）里能否调用成功；SearchForUpdatesAsync 在 Windows 11 家庭版、商店灰度未推到本机时的返回；InstallService 在 PowerShell 退出后是否继续安装；AllowForcedAppRestart 是否会让商店自己拉起 Codex；服务 PATH 下 winget 别名能否启动、msstore 源首次使用的协议确认；GetLastInputInfo 在 Hub 服务进程所在会话是否反映用户键鼠。

@@ -12,13 +12,19 @@ import {
 
 import { codexNativeUpdateControlBlocker } from "./codex-update-control.js";
 import { CodexCompatibilityCatalog } from "./codex-compat.js";
-import { CodexUpdateManager } from "./codex-update-manager.js";
+import { CodexUpdateManager, type CodexUpdateStatus } from "./codex-update-manager.js";
 import {
   CodexStoreHold,
   codexStoreControlAllowed,
   createWindowsStoreUpdateDriver,
 } from "./codex-store-hold.js";
 import { codexIdleFromBusyAndInput, macInputIdleMs } from "./codex-input-idle.js";
+import {
+  CODEX_STORE_PAGE_URL,
+  createWindowsCodexUpdateDriver,
+  windowsInputIdleMs,
+} from "./codex-windows-update.js";
+import { findCommand } from "../rly0-agents/install-paths.js";
 import { createMacCodexUpdateDriver } from "./codex-sparkle.js";
 import { writeJsonFile } from "../rly0-maintenance/backend-reload-channel.js";
 import { openInBrowser, revealFolder } from "./desktop-open.js";
@@ -74,7 +80,10 @@ import {
   requestBackendReload,
 } from "../rly0-maintenance/backend-reload-channel.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
-import { Rly0DesktopCompatibility } from "../rly0-maintenance/desktop-compatibility.js";
+import {
+  Rly0DesktopCompatibility,
+  type DesktopUpdateHint,
+} from "../rly0-maintenance/desktop-compatibility.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { RLY0_RELAY_AGENTS, Rly0AgentRelaySettings } from "../rly0-relay/agent-relays.js";
 import {
@@ -170,9 +179,31 @@ export const RLY0_HUB_LINKS = {
   releases: RLY0_GITHUB_RELEASES_LATEST_URL,
   keys: "https://rly0.com/keys?from=hub",
   codexWebGpt: "https://github.com/miuuyy/codex-chatgpt-web/releases",
+  // Codex's page in the Microsoft Store (Windows: "去微软商店更新").
+  codexStore: CODEX_STORE_PAGE_URL,
 } as const;
 
 const empty = z.object({}).strict();
+
+/** What 系统诊断 says next while Codex runs an unverified build (see desktopUpdateHintText). */
+export function codexUpdateHint(status: CodexUpdateStatus | undefined): DesktopUpdateHint | null {
+  if (!status) return null;
+  // Windows: a verified Store build newer than the installed one.
+  if (status.verifiedUpdate)
+    return {
+      target: status.verifiedUpdate,
+      mode: status.enabled && status.phase !== "manual-update" ? "auto" : "manual",
+    };
+  // Mac: an update to a verified build is already under way.
+  if (
+    !status.store &&
+    status.enabled &&
+    status.latestVersion &&
+    ["downloading", "waiting-idle", "installing", "health-check"].includes(status.phase)
+  )
+    return { target: status.latestVersion, mode: "auto" };
+  return null;
+}
 /** `fullMode`: "以完整模式重启 Codex" from a safe-mode start (current Desktop version only). */
 const codexRestartParams = z.object({ fullMode: z.boolean().optional() }).strict();
 
@@ -187,7 +218,16 @@ type Rly0HubCompatibility = Pick<Rly0DesktopCompatibility, "check" | "takeNotice
 const addLoginIdParams = z.object({ id: z.string().regex(/^[0-9a-f]{16}$/u) }).strict();
 const linkParams = z
   .object({
-    target: z.enum(["site", "recharge", "github", "nodejs", "releases", "keys", "codexWebGpt"]),
+    target: z.enum([
+      "site",
+      "recharge",
+      "github",
+      "nodejs",
+      "releases",
+      "keys",
+      "codexWebGpt",
+      "codexStore",
+    ]),
   })
   .strict();
 
@@ -330,6 +370,8 @@ export class Rly0HubService {
         environment,
         installRoot: options.installRoot,
         catalog: this.#codexCatalog,
+        // Read lazily: the update manager is created after this.
+        updateHint: () => codexUpdateHint(this.#codexUpdates?.status()),
       });
     const compatibility = this.#compatibility;
     const { decideLaunchMode, allowFullMode } = compatibility;
@@ -460,6 +502,10 @@ export class Rly0HubService {
       environment,
       options.platform ?? process.platform,
     );
+    const storeControl = codexStoreControlAllowed(
+      environment,
+      options.platform ?? process.platform,
+    );
     this.#codexUpdates = new CodexUpdateManager({
       environment,
       state: this.#state,
@@ -467,9 +513,26 @@ export class Rly0HubService {
       currentVersion,
       busy: () => codexHeartbeatBusy(dataDirectory),
       // No task running AND keyboard/mouse untouched for five minutes (user decision 2026-11-09).
-      idle: codexIdleFromBusyAndInput(() => codexHeartbeatBusy(dataDirectory), macInputIdleMs()),
+      idle: codexIdleFromBusyAndInput(
+        () => codexHeartbeatBusy(dataDirectory),
+        windows ? windowsInputIdleMs() : macInputIdleMs(),
+      ),
       unsupportedReason,
-      storeHold: codexStoreControlAllowed(environment, options.platform ?? process.platform)
+      windowsDriver: storeControl
+        ? createWindowsCodexUpdateDriver({
+            findWinget: async () => {
+              const env = await this.#installer.searchEnvironment();
+              const file = findCommand("winget", env, "win32");
+              return file ? { file, environment: env } : null;
+            },
+            desktopRunning: () =>
+              options.codexDesktopRunning?.() ?? Promise.resolve<boolean | null>(null),
+            quit: async () => (await this.#codex.forceQuit()).ok,
+            reopen: async () => (await this.#codex.open()).ok,
+            healthy: async () => (await compatibility.check()).state === "ready",
+          })
+        : null,
+      storeHold: storeControl
         ? new CodexStoreHold({
             environment,
             driver: createWindowsStoreUpdateDriver({

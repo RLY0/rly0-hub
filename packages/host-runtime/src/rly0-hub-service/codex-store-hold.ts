@@ -247,8 +247,8 @@ export function parseStoreSetting(output: string): StoreUpdateSetting {
   return value;
 }
 
-export type PowerShellRunner = (script: string) => Promise<string>;
-export const runPowerShell: PowerShellRunner = (script) =>
+export type PowerShellRunner = (script: string, timeoutMs?: number) => Promise<string>;
+export const runPowerShell: PowerShellRunner = (script, timeoutMs = 30_000) =>
   new Promise((resolve, reject) => {
     const root = process.env.SystemRoot ?? "C:\\Windows";
     execFile(
@@ -261,7 +261,7 @@ export const runPowerShell: PowerShellRunner = (script) =>
         "-EncodedCommand",
         Buffer.from(script, "utf16le").toString("base64"),
       ],
-      { timeout: 30_000, maxBuffer: 64 * 1024, windowsHide: true },
+      { timeout: timeoutMs, maxBuffer: 64 * 1024, windowsHide: true },
       (error, stdout) => (error ? reject(error) : resolve(String(stdout))),
     );
   });

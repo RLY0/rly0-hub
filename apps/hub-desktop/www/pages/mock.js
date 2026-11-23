@@ -526,8 +526,64 @@ window.hubManagementMock = (() => {
   const noAccountModels = ["gpt-6-astra", "gpt-5.5"];
   const codexConfigPath = "C:\\Users\\demo\\.codex\\config.toml";
   const isolationRoot = "C:\\Users\\demo\\.rly0-hub\\sandbox-runtime";
+  /**
+   * Windows Codex update preview (codex-update-manager.ts, synthetic): ?cuStore=<phase> with
+   * waiting-idle | requested | installing | winget | health-check | manual-update | timeout |
+   * disabled | up-to-date. Without it the generic ?cu= preview in app.js answers.
+   */
+  const cuStore = new URLSearchParams(location.search).get("cuStore");
+  let codexStore = null;
+  if (cuStore) {
+    const phase =
+      { requested: "waiting-idle", winget: "installing", timeout: "manual-update" }[cuStore] ||
+      cuStore;
+    codexStore = {
+      enabled: cuStore !== "disabled",
+      defaulted: true,
+      noticePending: false,
+      supported: true,
+      phase,
+      currentVersion: phase === "up-to-date" ? "26.1117.4957.0" : "26.1111.9664.0",
+      latestVersion: "26.1117.4957.0",
+      ...(phase === "up-to-date" ? {} : { verifiedUpdate: "26.1117.4957.0" }),
+      ...(phase === "installing" ? { updateRoute: cuStore === "winget" ? "winget" : "store" } : {}),
+      ...(cuStore === "requested" ? { requested: true } : {}),
+      error:
+        cuStore === "timeout"
+          ? "CODEX_STORE_UPDATE_TIMEOUT"
+          : phase === "manual-update"
+            ? "CODEX_STORE_UPDATE_FAILED"
+            : null,
+      checkedAt: new Date().toISOString(),
+      store: { mode: "user-off", setting: "Disabled" },
+      compatibility: { source: "remote", updatedAt: null, error: null, hubVersion: "0.11.54" },
+      renderer: {
+        schemaVersion: 1,
+        mode: phase === "up-to-date" ? "full" : "core",
+        disabled: [],
+      },
+    };
+  }
   return ({ method, params: p }) => {
     switch (method) {
+      case "codex.updates.status":
+      case "codex.updates.check":
+      case "codex.updates.acknowledgeNotice":
+        return codexStore;
+      case "codex.updates.updateNow":
+        if (!codexStore) return null;
+        codexStore = { ...codexStore, phase: "waiting-idle", requested: true, error: null };
+        return codexStore;
+      case "codex.updates.setEnabled":
+        if (!codexStore) return null;
+        codexStore = {
+          ...codexStore,
+          enabled: p.enabled,
+          phase: p.enabled ? "waiting-idle" : "disabled",
+          requested: undefined,
+          error: null,
+        };
+        return codexStore;
       case "window.zoomGet":
         return { zoom, steps: zoomSteps };
       case "window.zoomSet":

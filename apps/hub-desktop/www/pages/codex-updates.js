@@ -20,6 +20,10 @@
       "Codex 已更新，但更新后的检查没通过。如果用起来有问题，可以在 维护 → 系统诊断 里看看。",
     CODEX_STATE_FAILED: "Hub 没能保存更新记录，稍后会再试。",
     CODEX_STORE_FAILED: "没能改微软商店的“应用更新”开关，稍后会自动再试。",
+    CODEX_STORE_UPDATE_FAILED:
+      "微软商店这次没有给 Codex 更新（用 winget 也没成功）。点“去微软商店更新”自己更新一下就好，Hub 过几个小时也会再试。",
+    CODEX_STORE_UPDATE_TIMEOUT:
+      "更新已经开始，但等了二十多分钟版本还是没变。点“去微软商店更新”看看进度，Hub 过几个小时也会再试。",
   };
 
   const v = (version) => (version ? `v${version}` : "未知");
@@ -43,10 +47,29 @@
     return ["这台电脑上 Hub 拦不住 Codex 更新", "Windows 版 Codex 由微软商店负责更新"];
   }
 
-  /** Windows: the Microsoft Store updates Codex; the Hub only turns the Store's switch off and on. */
+  /**
+   * Windows: the Hub turns the Store's switch off while the Store offers an unverified build, and
+   * itself updates Codex (only Codex) to a verified offer while Codex is idle.
+   */
   function describeStore(s) {
     const latest = v(s.latestVersion);
+    const target = v(s.verifiedUpdate || s.latestVersion);
     if (s.store.mode === "canary") return ["off", "这台是试验机，Codex 跟着微软商店随时更新"];
+    if (s.phase === "waiting-idle")
+      return s.requested
+        ? ["wait", `等 Codex 手上的任务做完，就关掉它更新到 ${target}`]
+        : ["wait", `${target} 已适配，等 Codex 没有任务、你也离开电脑 5 分钟后自动更新`];
+    if (s.phase === "installing")
+      return [
+        "wait",
+        s.updateRoute === "winget"
+          ? `微软商店没接手，正在用 winget 更新到 ${target}，好了会自动重新打开 Codex`
+          : `正在通过微软商店更新到 ${target}，好了会自动重新打开 Codex`,
+      ];
+    if (s.phase === "manual-update")
+      return ["hold", `Hub 没能自动更新到 ${target}，需要你手动更新一下`];
+    if (s.phase === "disabled" && s.verifiedUpdate)
+      return ["hold", `已适配的 ${target} 可以装了；你关了管理，Hub 不会自动更新`];
     if (s.phase === "waiting-compatibility" && s.store.mode === "user-off")
       return [
         "off",
@@ -59,12 +82,8 @@
       ];
     if (s.phase === "waiting-compatibility")
       return ["hold", `商店出了新版 ${latest}，Hub 正在适配，已先暂停微软商店所有应用的自动更新`];
-    if (
-      s.phase === "up-to-date" &&
-      s.latestVersion &&
-      !sameVersion(s.latestVersion, s.currentVersion)
-    )
-      return ["ok", `新版 ${latest} 已适配，微软商店会自动更新`];
+    if (s.phase === "up-to-date" && s.verifiedUpdate)
+      return ["ok", `新版 ${target} 已适配，Hub 会在 Codex 空闲时更新`];
     return null;
   }
 
@@ -138,6 +157,40 @@
         });
     }
 
+    /** "现在更新" (Windows): Codex is closed for the update, so say so before starting. */
+    function confirmUpdateNow(s) {
+      const ui = window.HubUI.dialog({ title: `现在更新到 ${v(s.verifiedUpdate)}？` });
+      ui.body.append(
+        h(
+          "p",
+          { class: "sub", "data-keep": "" },
+          "Hub 会等 Codex 手上的任务做完，然后关掉 Codex，通过微软商店更新，装好后自动重新打开，期间 Codex 会关掉几分钟。",
+        ),
+      );
+      ui.foot.append(
+        h("span", { class: "spacer" }),
+        h("button", { class: "btn", type: "button", onclick: () => ui.close() }, "先不更新"),
+        h(
+          "button",
+          {
+            class: "btn paper",
+            type: "button",
+            onclick: () => {
+              ui.close();
+              if (busy) return;
+              busy = true;
+              call("codex.updates.updateNow")
+                .then(render, failed)
+                .finally(() => {
+                  busy = false;
+                });
+            },
+          },
+          "现在更新",
+        ),
+      );
+    }
+
     function confirmOff() {
       const ui = window.HubUI.dialog({ title: "让 Codex 自己更新？" });
       ui.body.append(
@@ -200,7 +253,7 @@
       const notes = [
         // Settings reads keep failing: the main line carries the error, keep the phase visible here.
         prefsFailing ? [describe(s)[1], false] : null,
-        s.phase === "failed" && s.error
+        (s.phase === "failed" || s.phase === "manual-update") && s.error
           ? [
               s.error === "CODEX_REOPEN_FAILED" && s.reopenGivenUp
                 ? "Hub 试了半小时也没能重新打开 Codex，已停止自动重试，请手动打开 Codex。"
@@ -215,11 +268,38 @@
         compatNote(s.compatibility) ? [compatNote(s.compatibility), false] : null,
         s.renderer && s.renderer.mode !== "full"
           ? [
-              "现在这版 Codex 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。",
+              s.store && s.verifiedUpdate
+                ? `现在这版 Codex 还没适配，部分增强已暂停；Codex 和中转照常能用，更新到 ${v(s.verifiedUpdate)} 后自动恢复。`
+                : "现在这版 Codex 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。",
               true,
             ]
           : null,
         !mac ? ["装上还没适配的版本时，Hub 会自动暂停部分增强，Codex 照常能用。", false] : null,
+      ].filter(Boolean);
+      // Windows: a verified build the Hub can bring Codex to. "现在更新" while nothing runs yet (or
+      // only the automatic wait for five idle minutes); the Store page always works by hand.
+      const offerManual =
+        Boolean(s.store && s.verifiedUpdate) &&
+        (s.phase === "manual-update" ||
+          s.phase === "disabled" ||
+          s.phase === "failed" ||
+          (s.phase === "waiting-idle" && !s.requested));
+      const actions = [
+        offerManual
+          ? h(
+              "button",
+              { class: "btn paper", type: "button", onclick: () => confirmUpdateNow(s) },
+              "现在更新",
+            )
+          : null,
+        offerManual
+          ? button("去微软商店更新", () =>
+              call("links.open", { target: "codexStore" }).catch(failed),
+            )
+          : null,
+        button(s.phase === "failed" ? "重试" : "立即检查", () =>
+          call("codex.updates.check").then(render, failed),
+        ),
       ].filter(Boolean);
       card.replaceChildren(
         h("h2", null, "Codex 更新"),
@@ -234,7 +314,7 @@
               "span",
               null,
               s.store
-                ? "商店出了没适配的 Codex 新版时，先暂停微软商店所有应用的自动更新，适配好再打开"
+                ? "商店出了没适配的 Codex 新版时先暂停商店自动更新；适配好后在 Codex 空闲时把它更新上去"
                 : mac
                   ? "新版 Codex 先等 Hub 适配好，再自动更新"
                   : unsupported(s)[1],
@@ -256,13 +336,7 @@
         ...notes.map(([text, keep]) =>
           h("p", { class: "sub cu-note", "data-keep": keep || null }, text),
         ),
-        h(
-          "div",
-          { class: "row" },
-          button(s.phase === "failed" ? "重试" : "立即检查", () =>
-            call("codex.updates.check").then(render, failed),
-          ),
-        ),
+        h("div", { class: "row" }, ...actions),
       );
       schedule(s);
     }

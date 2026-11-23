@@ -319,13 +319,15 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
         "商店出了新版 v26.1117.4957.0，Hub 正在适配，已先暂停微软商店所有应用的自动更新",
       );
       expect(page.root.textContent).toContain("本机 v26.1117.3838.0 · 最新 v26.1117.4957.0");
-      expect(page.root.textContent).toContain("先暂停微软商店所有应用的自动更新，适配好再打开");
+      expect(page.root.textContent).toContain(
+        "先暂停商店自动更新；适配好后在 Codex 空闲时把它更新上去",
+      );
       expect(page.switchEl()?.props.disabled).toBe(false);
       expect(page.switchEl()?.props["aria-checked"]).toBe("true");
     });
-    it("says a newer adapted build comes from the Store, and hides 最新 for the same build", async () => {
+    it("no longer promises the Store will update by itself, and hides 最新 for the same build", async () => {
       const newer = await card({ ...win, latestVersion: "26.1117.5000.0" });
-      expect(newer.root.textContent).toContain("新版 v26.1117.5000.0 已适配，微软商店会自动更新");
+      expect(newer.root.textContent).not.toContain("微软商店会自动更新");
       const same = await card({ ...win, latestVersion: "26.1117.3838" });
       expect(same.root.textContent).toContain("已是适配好的最新版");
       expect(same.root.textContent).not.toContain("· 最新");
@@ -366,6 +368,71 @@ describe("设置 → 更新 → Codex 更新 (synthetic)", () => {
         store: { mode: "holding", setting: "Disabled" },
       });
       expect(offline.root.textContent).toContain("微软商店的应用自动更新仍暂停中");
+    });
+    const behind: Status = {
+      ...win,
+      currentVersion: "26.1111.9664.0",
+      latestVersion: "26.1117.4957.0",
+      verifiedUpdate: "26.1117.4957.0",
+      renderer: { schemaVersion: 1, mode: "core", disabled: [] },
+    };
+    it("waits for idle to update to the verified build; 现在更新 skips the five-minute wait", async () => {
+      const page = await card({ ...behind, phase: "waiting-idle" });
+      expect(page.root.textContent).toContain(
+        "v26.1117.4957.0 已适配，等 Codex 没有任务、你也离开电脑 5 分钟后自动更新",
+      );
+      expect(page.root.textContent).toContain("更新到 v26.1117.4957.0 后自动恢复");
+      expect(page.find("现在更新")).toBeDefined();
+      const requested = await card({ ...behind, phase: "waiting-idle", requested: true });
+      expect(requested.root.textContent).toContain(
+        "等 Codex 手上的任务做完，就关掉它更新到 v26.1117.4957.0",
+      );
+      expect(requested.find("现在更新")).toBeUndefined();
+    });
+    it("names the route while installing", async () => {
+      const store = await card({ ...behind, phase: "installing", updateRoute: "store" });
+      expect(store.root.textContent).toContain("正在通过微软商店更新到 v26.1117.4957.0");
+      const winget = await card({ ...behind, phase: "installing", updateRoute: "winget" });
+      expect(winget.root.textContent).toContain("正在用 winget 更新到 v26.1117.4957.0");
+      expect(winget.find("现在更新")).toBeUndefined();
+    });
+    it("manual update: reason, 去微软商店更新 opens the Store page, 现在更新 asks first", async () => {
+      const page = await card({
+        ...behind,
+        phase: "manual-update",
+        error: "CODEX_STORE_UPDATE_FAILED",
+      });
+      expect(page.root.textContent).toContain(
+        "Hub 没能自动更新到 v26.1117.4957.0，需要你手动更新一下",
+      );
+      expect(page.root.textContent).toContain(
+        "微软商店这次没有给 Codex 更新（用 winget 也没成功）",
+      );
+      const store = page.find("去微软商店更新")?.props.onclick;
+      expect(store).toBeTypeOf("function");
+      if (typeof store === "function") store();
+      await tick();
+      expect(page.calls.at(-1)).toEqual({ method: "links.open", params: { target: "codexStore" } });
+      const now = page.find("现在更新")?.props.onclick;
+      if (typeof now === "function") now();
+      expect(page.dialogs).toHaveLength(1);
+      expect(page.dialogs[0]?.textContent).toContain("现在更新到 v26.1117.4957.0？");
+      expect(page.calls.map((c) => c.method)).not.toContain("codex.updates.updateNow");
+      const dialog = page.dialogs[0] as Element & { ui: { foot: Element } };
+      const confirm = [...dialog.ui.foot.walk()].find(
+        (el) => el.tag === "button" && el.textContent === "现在更新",
+      )?.props.onclick;
+      if (typeof confirm === "function") confirm();
+      await tick();
+      expect(page.calls.map((c) => c.method)).toContain("codex.updates.updateNow");
+    });
+    it("management off: says Hub will not update by itself, still offers the buttons", async () => {
+      const page = await card({ ...behind, enabled: false, phase: "disabled" });
+      expect(page.root.textContent).toContain(
+        "已适配的 v26.1117.4957.0 可以装了；你关了管理，Hub 不会自动更新",
+      );
+      expect(page.find("现在更新")).toBeDefined();
+      expect(page.find("去微软商店更新")).toBeDefined();
     });
     it("does not show the Mac restart notice on Windows", async () => {
       const env = load({ ...win, noticePending: true });

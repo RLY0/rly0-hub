@@ -246,6 +246,37 @@ it("maps a safe-mode Controller to safe-mode with one plain notice per version",
   expect(await new Rly0DesktopCompatibility(f.options).takeNotice()).toBeNull();
 });
 
+it("safe/core mode: an older installed build is not '新版本' and says what happens next", async () => {
+  const f = await fixture();
+  // Older than the built-in verified macOS builds.
+  f.native.desktop.version = "26.1100.7";
+  f.startupRecord.desktop.version = f.native.desktop.version;
+  f.controller.renderer.state = "disabled";
+  await f.save();
+  expect((await f.monitor.check()).message).toBe(
+    "Codex v26.1100.7 还没经过 Hub 验证，已用安全模式打开：Codex 和叫 CC 干活都能正常用，Hub 的界面增强暂时关闭。",
+  );
+  let hint: { target: string; mode: "auto" | "manual" } | null = {
+    target: "26.1117.31558",
+    mode: "auto",
+  };
+  const hinted = new Rly0DesktopCompatibility({ ...f.options, updateHint: () => hint });
+  expect((await hinted.check()).message).toBe(
+    "Codex v26.1100.7 还没经过 Hub 验证，已用安全模式打开：Codex 和叫 CC 干活都能正常用，Hub 的界面增强暂时关闭。已验证的 v26.1117.31558 可以装了，Hub 会在 Codex 空闲时自动更新到这个版本。",
+  );
+  hint = { target: "26.1117.31558", mode: "manual" };
+  f.controller.renderer.state = "core";
+  await f.save();
+  expect((await hinted.check()).message).toBe(
+    "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用。已验证的 v26.1117.31558 可以装了：到 设置 → 更新 → Codex 更新，点“现在更新”或“去微软商店更新”。",
+  );
+  // A hint that is not newer than the installed build is ignored.
+  hint = { target: "26.1100.7.0", mode: "auto" };
+  expect((await hinted.check()).message).toBe(
+    "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。",
+  );
+});
+
 it.each([
   ["the previously connected but unverified version", "26.1021.3705.0", "26.1021.3705.0", "core"],
   ["a changed, unlisted version", "26.1021.3705.0", "26.1200.1", "core"],

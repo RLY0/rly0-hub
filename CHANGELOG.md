@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Updates
+- Windows: when Codex is on a version the Hub has not verified (so it opens in safe mode with the Hub's additions off) and the Microsoft Store offers a verified one, the Hub now brings Codex to it instead of waiting for the Store. Once Codex has no task running and the computer has been left alone for five minutes, the Hub closes Codex, asks the Store to update Codex only (winget as fallback), checks that the installed version really changed, and opens Codex again. The Store's "app updates" switch is not touched, so this also works when you keep Store updates off. If neither route works, 设置 → 更新 → Codex 更新 says so and offers "现在更新" and "去微软商店更新"; the same buttons appear when Hub management of Codex updates is off (then nothing happens on its own). Not yet tried on a real Windows PC.
+- 系统诊断: the safe-mode line no longer calls an older Codex "新版本", and says when the Hub will update Codex or where to update it by hand.
+
+### 更新
+- Windows：Codex 停在 Hub 还没验证的版本（以安全模式打开、Hub 增强关闭），而微软商店已经有验证过的版本时，Hub 不再干等商店，会主动把 Codex 更新上去。等 Codex 没有任务、电脑也 5 分钟没人动时，Hub 关掉 Codex，让微软商店只更新 Codex 这一个应用（不行再用 winget），确认装上的版本真的变了，再重新打开 Codex。不动商店的“应用更新”总开关，所以你关着商店自动更新也照样能更新 Codex。两种办法都不行时，设置 → 更新 → Codex 更新 会说明情况，并给出“现在更新”和“去微软商店更新”两个按钮；关掉“由 Hub 管理 Codex 更新”时也显示这两个按钮（但不会自己更新）。尚未在真实 Windows 电脑上试过。
+- 系统诊断：安全模式那句不再把旧版 Codex 叫“新版本”，并说明 Hub 什么时候会自动更新，或去哪里手动更新。
+
 ## 0.11.54
 
 0.11.53 was not released; this version contains all of it.

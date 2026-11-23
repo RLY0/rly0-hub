@@ -2,12 +2,17 @@ import { codexHeartbeatAfter } from "../rly0-maintenance/backend-reload-channel.
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { compareCodexVersions, type CodexUpdateSettings } from "@codexhost/shared-contracts";
+import {
+  compareCodexVersions,
+  sameDesktopVersion,
+  type CodexUpdateSettings,
+} from "@codexhost/shared-contracts";
 import type { CodexCompatibilityCatalog } from "./codex-compat.js";
 import type { Rly0HubStateStore } from "./hub-state.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import type { CodexUpdateUnsupportedReason } from "./codex-update-control.js";
 import type { CodexStoreHold, StoreHoldState } from "./codex-store-hold.js";
+import type { WindowsCodexUpdateDriver, WingetUpgradeResult } from "./codex-windows-update.js";
 import {
   REOPEN_GIVE_UP_MS,
   REOPEN_POLL_MS,
@@ -64,6 +69,8 @@ export type CodexUpdatePhase =
   | "downloading"
   | "installing"
   | "health-check"
+  /** Windows: the Hub could not bring Codex to the verified build itself; the person updates it. */
+  | "manual-update"
   | "failed";
 const UPDATE_ERRORS = [
   "CODEX_PREFERENCES_FAILED",
@@ -77,6 +84,10 @@ const UPDATE_ERRORS = [
   "CODEX_HEALTH_FAILED",
   "CODEX_STATE_FAILED",
   "CODEX_STORE_FAILED",
+  /** Windows: neither the Store queue nor winget would update Codex (refused, error, no update). */
+  "CODEX_STORE_UPDATE_FAILED",
+  /** Windows: an update was started but the installed version did not reach the target in time. */
+  "CODEX_STORE_UPDATE_TIMEOUT",
 ] as const;
 export type CodexUpdateError = (typeof UPDATE_ERRORS)[number] | null;
 export interface CodexUpdateStatus {
@@ -108,6 +119,15 @@ export interface CodexUpdateStatus {
    * `user-off` / `user-on` are the person's own value, which the Hub leaves alone.
    */
   store?: StoreHoldState;
+  /**
+   * Windows only: an exact-verified Codex build newer than the installed one that the Store offers
+   * (the Hub updates to it when idle, or the person does via "现在更新" / the Store page).
+   */
+  verifiedUpdate?: string;
+  /** Windows only, while installing: which route is updating Codex. */
+  updateRoute?: "store" | "winget";
+  /** Present while an update the person asked for ("现在更新") runs: waits only for no task. */
+  requested?: true;
   compatibility: ReturnType<CodexCompatibilityCatalog["status"]>;
   renderer: ReturnType<CodexCompatibilityCatalog["policy"]>;
 }
@@ -123,6 +143,22 @@ const ACTIVE = new Set<CodexUpdatePhase>([
   "health-check",
 ]);
 const REVALIDATION_RETRY_MS = 5 * 60_000;
+/** Windows: the Store queue gets this long to install before winget is tried. */
+const WINDOWS_STORE_TIMEOUT_MS = 15 * 60_000;
+/** Windows: winget's own run is bounded at 20 minutes; a little slack for the version read. */
+const WINDOWS_WINGET_TIMEOUT_MS = 21 * 60_000;
+/** Windows: after a manual-update result the Hub tries the same build again on its own this late. */
+const WINDOWS_MANUAL_RETRY_MS = 6 * 60 * 60_000;
+interface WindowsUpdateRun {
+  target: string;
+  /** Asked for by the person ("现在更新"): waits for no task running, not for keyboard idle. */
+  requested: boolean;
+  route: "store" | "winget" | null;
+  winget: "pending" | WingetUpgradeResult | "failed" | null;
+  wingetDoneAt: number | null;
+  /** Codex was running and the Hub closed it (so it is reopened and health-checked). */
+  closed: boolean;
+}
 class ReopenInterrupted extends Error {
   constructor() {
     super("reopen interrupted by stop");
@@ -137,6 +173,11 @@ export class CodexUpdateManager {
   #target: string | null = null;
   #userSkippedVersion: string | null = null;
   #store: StoreHoldState | null = null;
+  #win: WindowsUpdateRun | null = null;
+  #verifiedUpdate: string | null = null;
+  #manualFor: { target: string; error: CodexUpdateError; retryAt: number } | null = null;
+  /** Windows: a failed attempt (Codex would not close, unexpected error) is not retried before. */
+  #winRetry: { error: CodexUpdateError; at: number } | null = null;
   #skipOwnershipUnconfirmed = false;
   #candidates: string[] = [];
   #error: CodexUpdateError = null;
@@ -184,6 +225,10 @@ export class CodexUpdateManager {
       unsupportedReason?: CodexUpdateUnsupportedReason | null;
       /** Windows: holds the Microsoft Store's own updates while it offers an unverified build. */
       storeHold?: CodexStoreHold | null;
+      /** Windows: updates the Codex package itself and closes/reopens Codex around it. */
+      windowsDriver?: WindowsCodexUpdateDriver | null;
+      windowsStoreTimeoutMs?: number;
+      windowsWingetTimeoutMs?: number;
       currentVersion?: () => Promise<string | null>;
       busy: () => Promise<boolean | null>;
       idle?: CodexIdleDriver;
@@ -369,6 +414,11 @@ export class CodexUpdateManager {
       error: this.#error,
       checkedAt: this.#checkedAt,
       ...(this.#store && this.options.storeHold ? { store: this.#store } : {}),
+      ...(this.#verifiedUpdate && this.options.storeHold
+        ? { verifiedUpdate: this.#verifiedUpdate }
+        : {}),
+      ...(this.#win?.route && this.#phase === "installing" ? { updateRoute: this.#win.route } : {}),
+      ...(this.#win?.requested && ACTIVE.has(this.#phase) ? { requested: true as const } : {}),
       compatibility: this.options.catalog.status(),
       renderer: this.options.catalog.policy(this.#current),
     };
@@ -400,8 +450,10 @@ export class CodexUpdateManager {
       /* Unknown offer: keep whatever the switch is now (a held switch stays held). */
     }
     const verified = offered !== null && this.options.catalog.verified(offered);
+    let canary = false;
     try {
-      if (await hold.isCanary()) this.#store = await hold.release("canary");
+      canary = await hold.isCanary();
+      if (canary) this.#store = await hold.release("canary");
       else if (offered === null)
         this.#store = {
           mode:
@@ -421,9 +473,246 @@ export class CodexUpdateManager {
       this.#error = "CODEX_APPCAST_FAILED";
       return;
     }
-    // No "downloading" here: the Store installs at its own pace and that phase drives the Mac
-    // release loop. The page tells a newer verified offer apart by its versions.
-    this.#phase = verified ? "up-to-date" : "waiting-compatibility";
+    // A canary PC keeps following the Store on its own; elsewhere a newer verified offer is
+    // installed by the Hub when Codex is idle ("放行即更新"), whatever the Store switch says.
+    this.#verifiedUpdate = verified && !canary && this.#newer(offered) ? offered : null;
+    if (!verified) this.#phase = "waiting-compatibility";
+    else if (!this.#verifiedUpdate || !this.options.windowsDriver) this.#phase = "up-to-date";
+    else if (
+      this.#manualFor &&
+      sameDesktopVersion(this.#manualFor.target, this.#verifiedUpdate) &&
+      this.#now() < this.#manualFor.retryAt
+    ) {
+      this.#phase = "manual-update";
+      this.#error = this.#manualFor.error;
+    } else if (this.#winRetry && this.#now() < this.#winRetry.at) {
+      this.#phase = "failed";
+      this.#error = this.#winRetry.error;
+    } else this.#beginWindows(this.#verifiedUpdate, false);
+  }
+  /** True when `version` is newer than the installed Codex (installed unknown: not newer). */
+  #newer(version: string): boolean {
+    if (!this.#current) return false;
+    try {
+      return compareCodexVersions(version, this.#current) > 0;
+    } catch {
+      return false;
+    }
+  }
+  /** Management off: still tell the page whether a verified build is waiting (no Store writes). */
+  async #hintStore(hold: CodexStoreHold): Promise<void> {
+    try {
+      const offered = await hold.offeredVersion();
+      this.#latest = offered;
+      this.#verifiedUpdate =
+        this.options.catalog.verified(offered) && this.#newer(offered) && !(await hold.isCanary())
+          ? offered
+          : null;
+    } catch {
+      /* Unknown offer: keep the last hint. */
+    }
+  }
+  #beginWindows(target: string, requested: boolean): void {
+    this.#win = {
+      target,
+      requested,
+      route: null,
+      winget: null,
+      wingetDoneAt: null,
+      closed: false,
+    };
+    this.#target = target;
+    this.#phase = "waiting-idle";
+    this.#error = null;
+    this.#idleSince = null;
+    this.#revalidateAfter = 0;
+    this.#stageAt = this.#now();
+  }
+  async #windowsIdle(run: WindowsUpdateRun): Promise<boolean> {
+    // The person just asked for it: no task running is enough (they are at the keyboard).
+    return run.requested ? (await this.options.busy()) === false : this.#idle();
+  }
+  #startWinget(run: WindowsUpdateRun, driver: WindowsCodexUpdateDriver): void {
+    run.route = "winget";
+    run.winget = "pending";
+    this.#stageAt = this.#now();
+    // Not awaited: winget runs for minutes and RPCs must not queue behind it. The ticks poll.
+    void driver.wingetUpgrade().then(
+      (result) => {
+        run.winget = result;
+        run.wingetDoneAt = this.#now();
+      },
+      () => {
+        run.winget = "failed";
+        run.wingetDoneAt = this.#now();
+      },
+    );
+  }
+  async #windowsManual(error: "CODEX_STORE_UPDATE_FAILED" | "CODEX_STORE_UPDATE_TIMEOUT") {
+    const target = this.#win?.target ?? this.#verifiedUpdate ?? "";
+    this.#manualFor = { target, error, retryAt: this.#now() + WINDOWS_MANUAL_RETRY_MS };
+    this.#win = null;
+    this.#phase = "manual-update";
+    this.#error = error;
+    this.#idleSince = null;
+    // Never strand a Codex the Hub closed; a failing reopen reports CODEX_REOPEN_FAILED instead.
+    await this.#recoverClosed();
+  }
+  /** Installed version as Windows reports it now (null when it cannot be read). */
+  async #readCurrent(): Promise<string | null> {
+    const observed = await this.options.currentVersion?.().catch(() => null);
+    if (observed) this.#current = observed;
+    return observed ?? null;
+  }
+  /**
+   * Windows: wait for idle → close Codex → Store queue (then winget) → confirm the installed
+   * version → reopen → health check. Only the installed version counts as success.
+   */
+  async #advanceWindows(): Promise<void> {
+    const run = this.#win;
+    const driver = this.options.windowsDriver;
+    const hold = this.options.storeHold;
+    if (!run || !driver || !hold || this.#stopped) return;
+    try {
+      if (this.#phase === "waiting-idle") {
+        if (!(await this.#windowsIdle(run))) {
+          this.#idleSince = null;
+          return;
+        }
+        this.#idleSince ??= this.#now();
+        if (this.#now() - this.#idleSince < (this.options.idleMs ?? 15_000)) return;
+        if (this.#now() < this.#revalidateAfter) return;
+        // Never close Codex on a stale offer.
+        let offered: string;
+        try {
+          offered = await hold.offeredVersion();
+        } catch (error) {
+          this.#deferRelease(error);
+          return;
+        }
+        this.#latest = offered;
+        await this.#readCurrent();
+        if (!this.options.catalog.verified(offered)) {
+          // The Store moved on to an unverified build: the next check holds it again.
+          this.#win = null;
+          this.#verifiedUpdate = null;
+          this.#phase = "waiting-compatibility";
+          return;
+        }
+        if (!this.#newer(offered)) {
+          this.#win = null;
+          this.#verifiedUpdate = null;
+          this.#phase = "up-to-date";
+          return;
+        }
+        run.target = offered;
+        this.#target = offered;
+        this.#verifiedUpdate = offered;
+        if (!(await this.#windowsIdle(run)) || this.#stopped) {
+          this.#idleSince = null;
+          return;
+        }
+        if (await driver.isRunning()) {
+          await this.#recordSession();
+          this.#closedByHub = true;
+          run.closed = true;
+          try {
+            await driver.quit();
+          } catch {
+            /* Checked below: a Codex that is still running is not updated. */
+          }
+          if (!(await this.#waitFor(() => driver.installationStopped(), 30_000))) {
+            this.#win = null;
+            this.#fail("CODEX_INSTALL_TIMEOUT");
+            this.#winRetry = {
+              error: "CODEX_INSTALL_TIMEOUT",
+              at: this.#now() + WINDOWS_MANUAL_RETRY_MS,
+            };
+            await this.#recoverClosed();
+            return;
+          }
+        }
+        this.#phase = "installing";
+        this.#stageAt = this.#now();
+        this.#idleSince = null;
+        run.route = "store";
+        const started = await driver.storeUpdate().catch(() => null);
+        if (started === null || started === "no-update") this.#startWinget(run, driver);
+        return;
+      }
+      if (this.#phase === "installing") {
+        const installed = await this.#readCurrent();
+        let reached = false;
+        try {
+          reached = !!installed && compareCodexVersions(installed, run.target) >= 0;
+        } catch {
+          reached = false;
+        }
+        if (reached && installed) {
+          await this.options.catalog.publishPolicy(installed);
+          this.#verifiedUpdate = null;
+          this.#manualFor = null;
+          this.#winRetry = null;
+          if (!run.closed) {
+            // Codex was not open: nothing to reopen or health-check (never open a Codex they closed).
+            this.#win = null;
+            this.#phase = "up-to-date";
+            this.#failures = 0;
+            return;
+          }
+          await this.#recoverClosed();
+          if (this.#closedByHub || this.#error) {
+            this.#win = null;
+            return;
+          }
+          this.#phase = "health-check";
+          this.#stageAt = this.#now();
+          return;
+        }
+        if (run.route === "winget") {
+          if (run.winget === "failed" || run.winget === "no-update")
+            return await this.#windowsManual("CODEX_STORE_UPDATE_FAILED");
+          if (
+            run.winget === "installed" &&
+            run.wingetDoneAt !== null &&
+            this.#now() - run.wingetDoneAt > 60_000
+          )
+            return await this.#windowsManual("CODEX_STORE_UPDATE_FAILED");
+          if (
+            this.#now() - this.#stageAt >
+            (this.options.windowsWingetTimeoutMs ?? WINDOWS_WINGET_TIMEOUT_MS)
+          )
+            return await this.#windowsManual("CODEX_STORE_UPDATE_TIMEOUT");
+          return;
+        }
+        if (
+          this.#now() - this.#stageAt >
+          (this.options.windowsStoreTimeoutMs ?? WINDOWS_STORE_TIMEOUT_MS)
+        )
+          this.#startWinget(run, driver);
+        return;
+      }
+      if (this.#phase === "health-check") {
+        if (await driver.healthy()) {
+          this.#win = null;
+          this.#phase = "up-to-date";
+          this.#failures = 0;
+          return;
+        }
+        if (this.#now() - this.#stageAt > 60_000) {
+          this.#win = null;
+          this.#fail("CODEX_HEALTH_FAILED");
+        }
+      }
+    } catch {
+      this.#win = null;
+      this.#fail("CODEX_UPDATE_CHECK_FAILED");
+      this.#winRetry = {
+        error: "CODEX_UPDATE_CHECK_FAILED",
+        at: this.#now() + WINDOWS_MANUAL_RETRY_MS,
+      };
+      await this.#recoverClosed();
+    }
   }
   async #initialize(): Promise<void> {
     if (this.#initialized) return;
@@ -435,6 +724,7 @@ export class CodexUpdateManager {
     if (!this.options.driver) {
       await this.options.state.update({ codexUpdates: this.#settings });
       await this.#publishHold();
+      if (this.options.windowsDriver) await this.#recoverWindowsSession();
       this.#initialized = true;
       return;
     }
@@ -506,6 +796,77 @@ export class CodexUpdateManager {
     } else await this.options.driver.restoreVersionAlerts?.();
     await this.#publishHold();
     this.#initialized = true;
+  }
+  /** Windows: a Hub that stopped while Codex was closed for an update reopens it on start. */
+  async #recoverWindowsSession(): Promise<void> {
+    try {
+      const record: unknown = JSON.parse(await fs.readFile(this.#sessionFile(), "utf8"));
+      if (
+        typeof record === "object" &&
+        record !== null &&
+        "at" in record &&
+        typeof record.at === "number" &&
+        "closedByHub" in record &&
+        record.closedByHub === true &&
+        this.#now() >= record.at &&
+        this.#now() - record.at < 60 * 60_000
+      )
+        this.#closedByHub = true;
+      else await fs.rm(this.#sessionFile(), { force: true });
+    } catch {
+      /* Absent/corrupt record cannot trigger a start. */
+    }
+  }
+  /**
+   * "现在更新" (Windows): start bringing Codex to the verified build now, even with management off.
+   * It still waits for no task running, then closes Codex, updates and reopens it. Elsewhere it is
+   * an ordinary check.
+   */
+  updateNow(): Promise<CodexUpdateStatus> {
+    const hold = this.options.storeHold;
+    if (!hold || !this.options.windowsDriver) return this.check();
+    return this.#serial(async () => {
+      if (this.#stopped) return this.status();
+      try {
+        await this.#initialize();
+      } catch {
+        this.#fail("CODEX_PREFERENCES_FAILED");
+        return this.status();
+      }
+      if (this.#win && ACTIVE.has(this.#phase)) {
+        // Already under way: an automatic wait becomes the person's request.
+        this.#win.requested = true;
+        await this.#advanceWindows();
+        return this.status();
+      }
+      this.#checkedAt = new Date(this.#now()).toISOString();
+      await this.#readCurrent();
+      let offered: string;
+      try {
+        offered = await hold.offeredVersion();
+      } catch {
+        this.#phase = "failed";
+        this.#error = "CODEX_APPCAST_FAILED";
+        return this.status();
+      }
+      this.#latest = offered;
+      if (!this.options.catalog.verified(offered) || !this.#newer(offered)) {
+        this.#verifiedUpdate = null;
+        this.#error = null;
+        this.#phase = !this.#settings.enabled
+          ? "disabled"
+          : this.options.catalog.verified(offered)
+            ? "up-to-date"
+            : "waiting-compatibility";
+        return this.status();
+      }
+      this.#verifiedUpdate = offered;
+      this.#manualFor = null;
+      this.#winRetry = null;
+      this.#beginWindows(offered, true);
+      await this.#advanceWindows();
+      return this.status();
+    });
   }
   start(): Promise<CodexUpdateStatus> {
     this.#stopped = false;
@@ -612,7 +973,16 @@ export class CodexUpdateManager {
           await this.options.state.update({ codexUpdates: this.#settings });
         }
         this.#error = null;
-        this.#phase = enabled ? "checking" : "disabled";
+        const installingOnWindows =
+          !enabled &&
+          !!this.#win &&
+          (this.#phase === "installing" || this.#phase === "health-check");
+        // Switching management off cancels a pending automatic wait; an install already under
+        // way (Codex closed) finishes and reopens Codex.
+        if (!installingOnWindows) {
+          if (!enabled && this.#win && !this.#win.requested) this.#win = null;
+          this.#phase = enabled ? "checking" : this.#win ? "waiting-idle" : "disabled";
+        }
         this.#idleSince = null;
         this.#revalidateAfter = 0;
         this.#skipReadFailures = 0;
@@ -656,8 +1026,17 @@ export class CodexUpdateManager {
           this.#fail("CODEX_STATE_FAILED");
           return this.status();
         }
+        if (!this.options.driver && this.#win && ACTIVE.has(this.#phase)) {
+          await this.#advanceWindows();
+          return this.status();
+        }
+        if (!this.options.driver && this.#closedByHub) {
+          await this.#recoverClosed();
+          return this.status();
+        }
         if (!this.#settings.enabled) {
           this.#phase = "disabled";
+          this.#win = null;
           // Also undoes a hold left by a crash just before management was switched off.
           if (
             this.options.storeHold &&
@@ -667,6 +1046,7 @@ export class CodexUpdateManager {
               this.#phase = "failed";
               this.#error = "CODEX_STORE_FAILED";
             });
+          if (this.options.storeHold) await this.#hintStore(this.options.storeHold);
           return this.status();
         }
         const driver = this.options.driver;
@@ -779,7 +1159,9 @@ export class CodexUpdateManager {
   tick(): Promise<CodexUpdateStatus> {
     return this.#serial(async () => {
       try {
-        if (this.#initialized && this.#settings.enabled && ACTIVE.has(this.#phase))
+        if (this.#initialized && this.#win && !this.options.driver && ACTIVE.has(this.#phase))
+          await this.#advanceWindows();
+        else if (this.#initialized && this.#settings.enabled && ACTIVE.has(this.#phase))
           await this.#advance();
         else if (this.#closedByHub) await this.#recoverClosed();
       } catch {
@@ -891,7 +1273,7 @@ export class CodexUpdateManager {
     this.#reopenFailingSince = null;
   }
   async #recoverClosed(confirm = true) {
-    const driver = this.options.driver;
+    const driver = this.options.driver ?? this.options.windowsDriver ?? null;
     if (!this.#closedByHub || !driver) return;
     if (!confirm) {
       // Hub shutdown ignores the retry pause. Its unconfirmed start keeps the session record, so

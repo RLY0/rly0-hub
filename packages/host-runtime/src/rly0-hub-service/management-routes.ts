@@ -129,6 +129,15 @@ export function createHubManagementRoutes(options: {
       },
       () => ({ code: -32000, message: "CODEX_UPDATES_UNAVAILABLE" }),
     ),
+    // Windows "现在更新": bring Codex to the verified build now (still waits for no task running).
+    "codex.updates.updateNow": route(
+      empty,
+      () => {
+        if (!options.codexUpdates) throw new Error("CODEX_UPDATES_UNAVAILABLE");
+        return options.codexUpdates.updateNow();
+      },
+      () => ({ code: -32000, message: "CODEX_UPDATES_UNAVAILABLE" }),
+    ),
     "codex.updates.setEnabled": route(
       z.object({ enabled: z.boolean() }).strict(),
       (p) => {

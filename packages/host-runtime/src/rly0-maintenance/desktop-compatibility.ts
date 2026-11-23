@@ -6,7 +6,11 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import {
+  codexDesktopPlatform,
+  compareCodexVersions,
   isVerifiedDesktopVersion,
+  normalizeDesktopVersion,
+  RLY0_VERIFIED_DESKTOP_VERSIONS,
   type CodexRendererPolicy,
   type DesktopCompatibility,
 } from "@codexhost/shared-contracts";
@@ -72,6 +76,38 @@ interface Options {
   isAlive?: (pid: number) => boolean;
   now?: () => number;
   cacheMs?: number;
+  /**
+   * A verified Codex build the Hub can bring this machine to (codex.updates status): `auto` when
+   * the Hub installs it once Codex is idle, `manual` when the person has to start it.
+   */
+  updateHint?: () => DesktopUpdateHint | null;
+}
+
+export interface DesktopUpdateHint {
+  target: string;
+  mode: "auto" | "manual";
+}
+
+/** One sentence after a core/safe-mode message saying what happens next, or "". */
+export function desktopUpdateHintText(hint: DesktopUpdateHint | null | undefined): string {
+  if (!hint) return "";
+  return hint.mode === "auto"
+    ? `已验证的 v${hint.target} 可以装了，Hub 会在 Codex 空闲时自动更新到这个版本。`
+    : `已验证的 v${hint.target} 可以装了：到 设置 → 更新 → Codex 更新，点“现在更新”或“去微软商店更新”。`;
+}
+
+/** True when this platform's built-in verified list has a build newer than `version`. */
+function olderThanVerified(version: string, platform: NodeJS.Platform): boolean {
+  const name = codexDesktopPlatform(platform);
+  const own = normalizeDesktopVersion(version);
+  if (!name || !own) return false;
+  return RLY0_VERIFIED_DESKTOP_VERSIONS.some((entry) => {
+    try {
+      return entry.platform === name && compareCodexVersions(entry.version, own) > 0;
+    } catch {
+      return false;
+    }
+  });
 }
 
 /** Bounded read: never follows a log tail or reads account/configuration files. */
@@ -317,17 +353,17 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     }
     const renderer = status.renderer;
     result.checks.interfaceConnected = renderer.state === "installed";
-    if (renderer.state === "core")
-      return finish(
-        "core-mode",
-        "UNVERIFIED_VERSION",
-        "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。",
-      );
+    const hint = this.#hint(desktop.version);
+    const coreMessage = hint
+      ? `Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用。${desktopUpdateHintText(hint)}`
+      : "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。";
+    if (renderer.state === "core") return finish("core-mode", "UNVERIFIED_VERSION", coreMessage);
     if (renderer.state === "disabled") {
       return finish(
         "safe-mode",
         "UNVERIFIED_VERSION",
-        `Codex 新版本 v${desktop.version} 还没经过 Hub 验证，已用安全模式打开：Codex 和叫 CC 干活都能正常用，Hub 的界面增强暂时关闭。`,
+        // An installed build older than a verified one is not "新版本".
+        `${hint || olderThanVerified(desktop.version, this.#options.platform ?? process.platform) ? "Codex" : "Codex 新版本"} v${desktop.version} 还没经过 Hub 验证，已用安全模式打开：Codex 和叫 CC 干活都能正常用，Hub 的界面增强暂时关闭。${desktopUpdateHintText(hint)}`,
       );
     }
     if (renderer.state !== "installed") {
@@ -339,11 +375,7 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
     }
     if (renderer.state === "installed") {
       if ((await this.#policyFor(desktop.version)).mode !== "full")
-        return finish(
-          "core-mode",
-          "UNVERIFIED_VERSION",
-          "Codex 现在这个版本 Hub 还没适配，部分增强已暂停；Codex 和中转照常能用，适配好后自动恢复。",
-        );
+        return finish("core-mode", "UNVERIFIED_VERSION", coreMessage);
       if (
         this.#saved.lastCompatibleVersion !== desktop.version ||
         this.#saved.notifiedFor !== null
@@ -378,6 +410,18 @@ export class Rly0DesktopCompatibility implements DesktopCompatibilitySource {
         : "INTEGRATION_UNAVAILABLE",
       "Codex 界面连接失败；请使用“反馈问题”保存诊断。",
     );
+  }
+
+  /** The update hint, only when its target is newer than the installed build. */
+  #hint(installed: string): DesktopUpdateHint | null {
+    try {
+      const hint = this.#options.updateHint?.() ?? null;
+      const own = normalizeDesktopVersion(installed);
+      const target = hint ? normalizeDesktopVersion(hint.target) : null;
+      return hint && own && target && compareCodexVersions(target, own) > 0 ? hint : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Unchanged version/issue is not repeated; a proven recovery resets the notice. */

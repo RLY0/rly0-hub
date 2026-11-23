@@ -422,6 +422,10 @@ window.registerHubSystem = ({
         if (endpoint && endpoint.local)
           fixes.push(button("下载页", () => call("links.open", { target: "codexWebGpt" })));
       }
+      // A verified Codex the person has to install (Windows "需要你手动更新"): the buttons live
+      // in 设置 → 更新 → Codex 更新, so point there.
+      if (safeMode && /现在更新/u.test(d.desktopCompatibility.message))
+        fixes.push(button("去更新 Codex", () => go("updates")));
       // An unadapted Codex version stays in core/safe mode until the adapted list includes it;
       // a restart would not change that, so none is offered for it.
       if (!safeMode && codex && codex.running && (problems.length || proxyDown || rejection))
