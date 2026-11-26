@@ -218,6 +218,33 @@ describe("a binary replaced by a Hub update", () => {
       binary.cleanup();
     }
   });
+
+  it("restarts a running core on request (a Claude credential switch), keeping its proxy port", async () => {
+    const binary = binaryFile();
+    let spawned = 0;
+    const counting = ((...args: Parameters<typeof spawnFake>) => {
+      spawned += 1;
+      return spawnFake(...args);
+    }) as unknown as typeof spawn;
+    const bridge = new Rly0CoreBridge({ binaryPath: binary.file, spawn: counting });
+    try {
+      // Nothing running yet: nothing to restart, and nothing is started for it.
+      await bridge.restart();
+      expect(spawned).toBe(0);
+      await bridge.proxyStart({ port: 25_978 });
+      expect(spawned).toBe(1);
+      await bridge.restart();
+      await expect(bridge.proxyStatus()).resolves.toMatchObject({
+        available: true,
+        running: true,
+        port: 25_978,
+      });
+      expect(spawned).toBe(2);
+    } finally {
+      await bridge.dispose();
+      binary.cleanup();
+    }
+  });
 });
 
 describe("rly0CoreRpcError", () => {

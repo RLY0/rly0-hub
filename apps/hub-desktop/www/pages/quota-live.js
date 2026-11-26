@@ -73,7 +73,7 @@ window.registerHubQuotaLive = ({ h, now = () => Date.now(), doc = globalThis.doc
   function ingest(update) {
     const { provider, id, usage, observedAt } = update || {};
     if ((provider !== "codex" && provider !== "claude") || typeof id !== "string") return;
-    if (!usage || !Array.isArray(usage.windows) || !usage.windows.length) return;
+    if (!usage || !Array.isArray(usage.windows) || !(usage.windows.length || usage.limited)) return;
     const at = typeof observedAt === "number" ? observedAt : (usage.fetchedAt || 0) * 1000;
     const key = `${provider}:${id}`;
     if ((pushed.get(key)?.at ?? 0) > at) return;
@@ -130,12 +130,27 @@ window.registerHubQuotaLive = ({ h, now = () => Date.now(), doc = globalThis.doc
     );
   }
 
-  /** Keeps every freshness label current ("刚刚" → "1 分钟前" …). */
+  /**
+   * Keeps every freshness label current ("刚刚" → "1 分钟前" …), and turns a quota tile whose
+   * window reset while the page stayed open into 已重置 (account-cards.js), without a request.
+   */
   function repaint(root = doc) {
     if (!root || !root.querySelectorAll) return;
     for (const element of root.querySelectorAll(".fresh-at[data-at]")) {
       const at = Number(element.getAttribute("data-at"));
       if (at) element.textContent = freshness(at);
+    }
+    for (const tile of root.querySelectorAll(".reset-card[data-reset-at]")) {
+      const at = Number(tile.getAttribute("data-reset-at"));
+      if (!at || at * 1000 > now()) continue;
+      const amount = tile.querySelector("b");
+      const fill = tile.querySelector(".bar i");
+      const when = tile.querySelector(".reset-when");
+      if (amount) amount.textContent = "已重置";
+      if (fill) fill.style.width = "100%";
+      if (when) when.textContent = tile.getAttribute("data-reset-text") || "已重置，点刷新确认";
+      tile.classList.remove("low");
+      tile.removeAttribute("data-reset-at");
     }
   }
 

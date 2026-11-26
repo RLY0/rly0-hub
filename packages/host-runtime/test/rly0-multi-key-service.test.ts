@@ -163,3 +163,65 @@ describe("SYNTHETIC multiple Claude credentials", () => {
     }
   });
 });
+
+describe("SYNTHETIC Claude credential switch reaches the Codex-side Host", () => {
+  it("asks for Claude Code sessions to be replaced on every switch, not when a card is only added", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-claude-switch-"));
+    const request = path.join(root, "claude-sessions-refresh-request.json");
+    const requestId = async () =>
+      (JSON.parse(await fs.readFile(request, "utf8")) as { id: string }).id;
+    const entries = ["aaaaaaaaaaaa", "bbbbbbbbbbbb"].map((id) => ({
+      id,
+      name: id,
+      baseUrl: "https://api.anthropic.com",
+      models: [],
+      protocol: "responses",
+      enabled: true,
+      hasKey: true,
+    }));
+    const core = {
+      listRelays: async () => ({ available: true, relays: entries }),
+      claudeAccounts: async (method: string) =>
+        method === "saveKey" ? { id: "bbbbbbbbbbbb" } : { switched: true },
+      testRelay: async () => ({ available: true, ok: true, models: [] }),
+      proxyStatus: async () => ({
+        available: true,
+        running: true,
+        baseUrl: "http://127.0.0.1:25917/v1",
+      }),
+      dispose: async () => undefined,
+    } as unknown as Rly0CoreBridge;
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      core,
+      backendReloadTimeoutMs: 25,
+    });
+    try {
+      await service.handle("agents.officialKeys.set", {
+        vendor: "anthropic",
+        apiKey: "sk-ant-oat01-SYNTHETIC_TOKEN_1234567890",
+      });
+      await expect(fs.access(request)).rejects.toThrow();
+
+      await service.handle("agents.officialKeys.select", {
+        vendor: "anthropic",
+        id: "aaaaaaaaaaaa",
+      });
+      const first = await requestId();
+      // Choosing the same token again is still a request: it is how to start over on it.
+      await service.handle("agents.officialKeys.select", {
+        vendor: "anthropic",
+        id: "aaaaaaaaaaaa",
+      });
+      const second = await requestId();
+      expect(second).not.toBe(first);
+      await service.handle("agents.claudeAccounts.switch", { id: "dddddddddddd" });
+      expect(await requestId()).not.toBe(second);
+      expect(await service.handle("agents.relays.get", {})).toMatchObject({ claudeCode: null });
+    } finally {
+      await service.dispose().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});

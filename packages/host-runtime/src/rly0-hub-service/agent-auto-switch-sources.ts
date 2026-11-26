@@ -1,4 +1,8 @@
-import type { Rly0Relay } from "@codexhost/shared-contracts";
+import {
+  activeRly0UsageLimit,
+  type Rly0Relay,
+  type Rly0UsageLimit,
+} from "@codexhost/shared-contracts";
 
 import type { Rly0CoreBridge } from "../rly0-core/index.js";
 import { officialVendorOf } from "../rly0-relay/official-keys.js";
@@ -91,11 +95,26 @@ export function createAgentAutoSwitchSources(deps: AgentAutoSwitchSourceDeps) {
     return out;
   }
 
-  /** Live numbers only; a window whose reset has passed counts as unused again. */
+  /**
+   * Live numbers only; a window whose reset has passed counts as unused again. A token whose last
+   * real reply was refused counts as used up until the refusal ends, whatever its windows say.
+   */
   async function tokenUsage(relay: Rly0Relay) {
-    const usage = readQuotaUsage(await deps.tokenUsage(relay).catch(() => null));
-    if (!usage) return null;
+    const raw = await deps.tokenUsage(relay).catch(() => null);
     const now = (deps.nowSeconds ?? (() => Date.now() / 1000))();
+    const limited = activeRly0UsageLimit(raw as { limited?: Rly0UsageLimit } | null, now);
+    const usage = readQuotaUsage(raw);
+    if (limited)
+      return {
+        windows: (usage?.windows.length
+          ? usage.windows
+          : [
+              { kind: "primary", usedPercent: 100 },
+              { kind: "secondary", usedPercent: 100 },
+            ]
+        ).map((w) => ({ ...w, usedPercent: 100 })),
+      };
+    if (!usage) return null;
     return {
       windows: usage.windows.map((w) =>
         w.resetsAt !== undefined && w.resetsAt <= now ? { ...w, usedPercent: 0 } : w,

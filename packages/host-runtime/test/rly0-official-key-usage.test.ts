@@ -249,3 +249,72 @@ describe("SYNTHETIC persisted official-key quota", () => {
     }
   });
 });
+
+describe("SYNTHETIC refusals a real reply reported", () => {
+  it("survive a quota check (刷新) until they end or a reply is accepted again", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-quota-refusal-"));
+    const now = Math.floor(Date.now() / 1000);
+    const checked = {
+      windows: [{ kind: "primary", usedPercent: 0 }],
+      fetchedAt: now,
+      source: "live",
+    };
+    const core = {
+      listRelays: async () => ({ available: true, relays: [relay()] }),
+      claudeAccounts: async () => ({
+        kind: "subscription",
+        usage: { ...checked, fetchedAt: Math.floor(Date.now() / 1000) },
+      }),
+      dispose: async () => {},
+    } as unknown as Rly0CoreBridge;
+    const service = new Rly0HubService({
+      environment: { CODEXHOST_DATA_DIR: root },
+      installRoot: root,
+      core,
+      backendReloadTimeoutMs: 25,
+    });
+    const store = new Rly0OfficialKeyUsage({ CODEXHOST_DATA_DIR: root });
+    const refresh = async () =>
+      (
+        (await service.handle("agents.officialKeys.info", {
+          vendor: "anthropic",
+          id: "aaaaaaaaaaaa",
+        })) as { info: { usage?: { limited?: unknown } } }
+      ).info.usage;
+    const cached = async () => store.forRelay(relay(), await store.read())?.usage;
+    try {
+      const limited = { until: now + 3_600, claim: "five_hour" };
+      await store.record(relay(), {
+        kind: "subscription",
+        usage: { windows: [], limited, fetchedAt: now - 10, source: "live" },
+        conversation: true,
+      });
+      // The check reads "剩 100%"; the refusal still shows, and is still saved.
+      expect(await refresh()).toMatchObject({ windows: [{ usedPercent: 0 }], limited });
+      expect((await cached())?.limited).toEqual(limited);
+
+      // A reply accepted again (no refusal) ends it.
+      await store.record(relay(), {
+        kind: "subscription",
+        usage: { ...checked, fetchedAt: now + 5 },
+        conversation: true,
+      });
+      expect((await cached())?.limited).toBeUndefined();
+
+      // An expired refusal is not carried over by a check.
+      await store.record(relay(), {
+        kind: "subscription",
+        usage: { windows: [], limited: { until: now - 1 }, fetchedAt: now + 6, source: "live" },
+        conversation: true,
+      });
+      await store.record(relay(), {
+        kind: "subscription",
+        usage: { ...checked, fetchedAt: now + 7 },
+      });
+      expect((await cached())?.limited).toBeUndefined();
+    } finally {
+      await service.dispose().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+});

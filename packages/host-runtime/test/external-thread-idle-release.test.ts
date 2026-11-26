@@ -510,3 +510,42 @@ describe("external Thread idle release", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("external Thread release after a credential switch", () => {
+  it("closes the idle sessions it was given, keeps busy ones for later, and leaves others alone", async () => {
+    const f = await fixture();
+    const register = (name: string) => {
+      const id = hostThreadIdSchema.parse(name);
+      const session = new FakeHarnessSession(harnessIdSchema.parse("pi"));
+      const close = vi.spyOn(session, "close");
+      const thread = f.runtime.register({
+        record: { ...f.thread.record, hostThreadId: id },
+        session,
+        sessionId: id,
+        thread: { id },
+        turns: [],
+      });
+      return { thread, session, close };
+    };
+    const busy = register("synthetic-busy");
+    busy.thread.running = true;
+    const later = register("synthetic-opened-later");
+
+    const left = await f.idle.releaseIdle(new Set([f.thread, busy.thread]));
+
+    // The idle one is closed although a busy peer exists (unlike releaseForUpdate).
+    expect(f.close).toHaveBeenCalledTimes(1);
+    expect(busy.close).not.toHaveBeenCalled();
+    expect(later.close).not.toHaveBeenCalled();
+    expect(left).toEqual(new Set([busy.thread]));
+    expect(f.runtime.values()).toEqual([busy.thread, later.thread]);
+
+    // Once its turn is over, the next step replaces it too.
+    busy.thread.running = false;
+    expect(await f.idle.releaseIdle(left)).toEqual(new Set());
+    expect(busy.close).toHaveBeenCalledTimes(1);
+    expect(f.runtime.values()).toEqual([later.thread]);
+    f.idle.stop();
+    await later.session.close();
+  });
+});

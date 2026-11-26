@@ -9,12 +9,14 @@ import {
   AGENT_STATUS_FILE,
   BACKEND_RELOAD_REQUEST_FILE,
   BackendReloadChannel,
+  CLAUDE_SESSIONS_REFRESH_REQUEST_FILE,
   CODEX_HEARTBEAT_FILE,
   codexHeartbeatBusy,
   HubRequestChannel,
   readAgentStatus,
   requestAgentCheck,
   requestBackendReload,
+  requestClaudeSessionsRefresh,
   writeJsonFile,
 } from "../src/rly0-maintenance/backend-reload-channel.js";
 
@@ -219,5 +221,36 @@ describe("Codex heartbeat busy flag", () => {
     expect(await codexHeartbeatBusy(directory)).toBeNull();
     await writeJsonFile(file, { pid: process.pid, at: Date.now() - 60_000, busy: false });
     expect(await codexHeartbeatBusy(directory)).toBeNull();
+  });
+});
+
+describe("Claude credential switch requests", () => {
+  it("reaches the Host once per switch, ignoring one left from before it started", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "rly0-claude-refresh-"));
+    try {
+      await requestClaudeSessionsRefresh(directory);
+      const stale = JSON.parse(
+        await fs.readFile(path.join(directory, CLAUDE_SESSIONS_REFRESH_REQUEST_FILE), "utf8"),
+      ) as { id: string };
+      expect(stale.id).toMatch(/^[a-f0-9]{16}$/u);
+      const channel = new HubRequestChannel(directory, CLAUDE_SESSIONS_REFRESH_REQUEST_FILE);
+      const handled: string[] = [];
+      const handle = async (id: string) => {
+        handled.push(id);
+      };
+      await channel.poll(handle);
+      expect(handled).toEqual([]);
+      await requestClaudeSessionsRefresh(directory);
+      await channel.poll(handle);
+      await channel.poll(handle);
+      expect(handled).toHaveLength(1);
+      expect(handled[0]).not.toBe(stale.id);
+      // Choosing again (even the same token) is a new request.
+      await requestClaudeSessionsRefresh(directory);
+      await channel.poll(handle);
+      expect(handled).toHaveLength(2);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
   });
 });

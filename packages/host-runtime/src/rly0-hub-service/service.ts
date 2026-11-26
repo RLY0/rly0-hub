@@ -6,6 +6,7 @@ import {
   type AgentCliUpdateDriver,
 } from "./agent-cli-update-driver.js";
 import {
+  activeRly0UsageLimit,
   agentCliUpdateSetParamsSchema,
   agentCliUpdateCheckParamsSchema,
 } from "@codexhost/shared-contracts";
@@ -78,6 +79,7 @@ import {
   type AgentStatusReport,
   requestAgentCheck,
   requestBackendReload,
+  requestClaudeSessionsRefresh,
 } from "../rly0-maintenance/backend-reload-channel.js";
 import { Rly0FirstRunBackup } from "../rly0-maintenance/first-run-backup.js";
 import {
@@ -255,6 +257,8 @@ export interface Rly0HubServiceOptions {
   readonly compatibility?: Rly0HubCompatibility;
   /** Ends Codex directly when the Launcher cannot (see `codex-processes.ts`); production only. */
   readonly killCodexProcesses?: () => Promise<number>;
+  /** Stops the shared Host on 重启 Codex (`stopMacSharedHost`); production macOS only. */
+  readonly stopSharedHost?: () => Promise<number>;
   /** Whether Codex Desktop itself is running (`codex-processes.ts`); production only. */
   readonly codexDesktopRunning?: () => Promise<boolean | null>;
   readonly appearance?: Rly0AppearanceManager;
@@ -410,6 +414,7 @@ export class Rly0HubService {
         pure: async () => (await this.#state.read()).pure === true,
         ...(options.codexDesktopRunning ? { desktopRunning: options.codexDesktopRunning } : {}),
         ...(options.killCodexProcesses ? { killProcesses: options.killCodexProcesses } : {}),
+        ...(options.stopSharedHost ? { stopSharedHost: options.stopSharedHost } : {}),
         ...(options.platform ? { platform: options.platform } : {}),
       });
     const dataDirectory = resolveRly0DataDir(environment);
@@ -1156,6 +1161,17 @@ export class Rly0HubService {
     await this.#codexConfig.ensureDefault({ baseUrl, model });
   }
 
+  /**
+   * After Claude Code's token or account is switched: the long-lived Codex-side Host replaces the
+   * Claude Code processes it already runs (see `CLAUDE_SESSIONS_REFRESH_REQUEST_FILE`). Sent even
+   * when the same entry is chosen again, so choosing it is also a way to start over on it.
+   */
+  async #claudeCredentialChanged(): Promise<void> {
+    await requestClaudeSessionsRefresh(resolveRly0DataDir(this.#options.environment)).catch(
+      () => undefined,
+    );
+  }
+
   async #ensureProxyForRelays(): Promise<void> {
     const relays = await this.#core.listRelays();
     if (relays.available && relays.relays.some((relay) => relay.enabled)) {
@@ -1630,6 +1646,7 @@ export class Rly0HubService {
           const { id } = await saveAnthropicApiKey(core, p.apiKey);
           await this.#agentRelays.set({ claudeCode: id });
           await this.#ensureProxyForRelays().catch(() => undefined);
+          await this.#claudeCredentialChanged();
           return { ok: true, id };
         },
       ),
@@ -1653,6 +1670,7 @@ export class Rly0HubService {
           const result = await importClaudeCredentials(this.#options.environment, p.content);
           // An imported login means the official account, not a pinned relay or key.
           await this.#agentRelays.set({ claudeCode: null });
+          await this.#claudeCredentialChanged();
           return result;
         },
       ),
@@ -1733,7 +1751,10 @@ export class Rly0HubService {
           const result = await core.claudeAccounts("switch", { id: p.id });
           if (!result) throw codedHubError("RLY0_CORE_UNAVAILABLE");
           // An account login means the official account, not a relay or API key.
-          if (result.switched) await this.#agentRelays.set({ claudeCode: null });
+          if (result.switched) {
+            await this.#agentRelays.set({ claudeCode: null });
+            await this.#claudeCredentialChanged();
+          }
           return result;
         },
       ),
@@ -1895,6 +1916,9 @@ export class Rly0HubService {
               !info.usage && info.valid !== false && info.usageError !== "USAGE_TOKEN_EXPIRED"
                 ? previous?.usage
                 : undefined;
+            // The check cannot tell a refusal; one a real reply reported still shows until it ends.
+            const limited =
+              info.usage && !fallback ? activeRly0UsageLimit(previous?.usage) : undefined;
             const final = await this.#officialKey(core, p.vendor, relay.id);
             if (!final || (relay.keyRevision && final.keyRevision !== relay.keyRevision))
               throw codedHubError("OFFICIAL_KEY_CHANGED");
@@ -1902,6 +1926,12 @@ export class Rly0HubService {
               info: {
                 ...info,
                 ...(fallback ? { usage: fallback, usageCached: true } : {}),
+                ...(limited &&
+                typeof info.usage === "object" &&
+                info.usage &&
+                !("limited" in info.usage)
+                  ? { usage: { ...info.usage, limited } }
+                  : {}),
                 ...(saved ? {} : { cacheError: "USAGE_CACHE_SAVE_FAILED" }),
                 id: relay.id,
                 name: final.name,
@@ -1966,6 +1996,7 @@ export class Rly0HubService {
             throw codedHubError("OFFICIAL_KEY_NOT_AVAILABLE");
           await this.#ensureProxyForRelays();
           await this.#agentRelays.set({ claudeCode: relay.id });
+          await this.#claudeCredentialChanged();
           return { ok: true, id: relay.id };
         },
       ),
@@ -1991,9 +2022,11 @@ export class Rly0HubService {
           return next;
         },
       ),
-      "agents.relays.set": route(rly0RelayAgentsSetParamsSchema, (p) =>
-        this.#agentRelays.set({ claudeCode: p.claudeCode }),
-      ),
+      "agents.relays.set": route(rly0RelayAgentsSetParamsSchema, async (p) => {
+        const result = await this.#agentRelays.set({ claudeCode: p.claudeCode });
+        await this.#claudeCredentialChanged();
+        return result;
+      }),
 
       "backup.status": route(empty, () => this.#backup.status()),
       "backup.restore": route(empty, () => this.#backup.restore()),

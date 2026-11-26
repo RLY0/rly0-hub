@@ -118,6 +118,7 @@ import {
   rly0RelayAgentsGetParamsSchema,
   rly0RelayAgentsSetParamsSchema,
   type Rly0RelayAgentsResult,
+  type Rly0UsageLimit,
   rly0RelayListParamsSchema,
   rly0RelayAddParamsSchema,
   rly0RelayUpdateParamsSchema,
@@ -290,6 +291,7 @@ import {
   AGENT_CHECK_REQUEST_FILE,
   AGENT_STATUS_FILE,
   BackendReloadChannel,
+  CLAUDE_SESSIONS_REFRESH_REQUEST_FILE,
   CODEX_HEARTBEAT_FILE,
   HubRequestChannel,
   writeJsonFile,
@@ -1010,8 +1012,9 @@ export class AppServerHost {
   readonly #unifiedResponsesForwarder = new UnifiedResponsesForwarder();
   readonly #claudeRelayForwarder = new ClaudeRelayForwarder({
     resolve: () => this.#currentClaudeRelay(),
-    describeAlternatives: (relayId) => this.#claudeAlternatives(relayId),
-    observeResponse: (relayId, headers) => this.#observeClaudeRelayHeaders(relayId, headers),
+    describeAlternatives: (relayId, limited) => this.#claudeAlternatives(relayId, limited),
+    observeResponse: (relayId, headers, status) =>
+      this.#observeClaudeRelayHeaders(relayId, headers, status),
   });
   /** Quota numbers real replies carried, handed to the Hub window (live-quota-feed.ts). */
   readonly #liveQuotaFeed: Rly0LiveQuotaFeed;
@@ -1046,6 +1049,13 @@ export class AppServerHost {
   #backendReloadChannel: BackendReloadChannel | undefined;
   /** The Hub's "check connections" requests (diagnostics now live in the Hub). */
   #agentCheckChannel: HubRequestChannel | undefined;
+  /** The Hub's "Claude Code's credential changed" requests (token or account switch). */
+  #claudeRefreshChannel: HubRequestChannel | undefined;
+  /** Claude Code Sessions started before the last credential switch and not replaced yet. */
+  #claudeSessionsToRefresh = new Set<ExternalThread>();
+  /** This Host's rly0-core still has to restart for the last credential switch. */
+  #claudeCoreRestartPending = false;
+  #claudeRefreshRunning = false;
   readonly #rly0AddAccount: Rly0AddAccountLogins;
   #nativeAccountObserver: NativeAccountObserver | undefined;
   #externalAdapters: Map<ExternalHarnessId, HarnessAdapter>;
@@ -1711,9 +1721,21 @@ export class AppServerHost {
       AGENT_CHECK_REQUEST_FILE,
     );
     const agentChannel = this.#agentCheckChannel;
+    this.#claudeRefreshChannel ??= new HubRequestChannel(
+      path.dirname(this.#rly0AgentRelays.path()),
+      CLAUDE_SESSIONS_REFRESH_REQUEST_FILE,
+    );
+    const claudeChannel = this.#claudeRefreshChannel;
     const check = (): void => {
       void agentChannel
         .poll((id) => this.#writeAgentStatus(id))
+        .catch((error: unknown) => this.#diagnose(error));
+      void claudeChannel
+        .poll(() => {
+          this.#markClaudeSessionsForRefresh();
+          return Promise.resolve();
+        })
+        .then(() => this.#refreshClaudeSessions())
         .catch((error: unknown) => this.#diagnose(error));
       void channel
         .poll(async () => (await this.reloadOfficialBackend()).status)
@@ -1763,6 +1785,10 @@ export class AppServerHost {
    * agent also carries its Model / Thinking / Permission Mode catalog for 新对话默认设置.
    */
   async #writeAgentStatus(requestId: string | null): Promise<void> {
+    // A Desktop-side Host that hands new Threads to the shared Host loads no agents of its own. It
+    // used to answer too, with an empty report that arrived first: the Hub took it, said 全部正常
+    // and kept showing the previous outcome. Only the Host that runs the agents answers.
+    if (!this.#options.externalOnly && this.#options.sharedThreads?.options.delegateCreates) return;
     await this.#waitForPlugins();
     const agents: Record<string, AgentConnectionStatus> = {};
     await Promise.all(
@@ -1818,6 +1844,40 @@ export class AppServerHost {
       checkedAt: Date.now(),
       agents,
     });
+  }
+
+  /**
+   * The Hub switched Claude Code's token or account. This long-lived Host outlives Codex restarts,
+   * so the Claude Code processes it already runs, and its own rly0-core, would otherwise keep
+   * whatever they built on the previous credential (seen as 429s on a fresh token). Every Claude
+   * Code Session loaded now is replaced once it is idle, and rly0-core restarts between turns.
+   */
+  #markClaudeSessionsForRefresh(): void {
+    for (const thread of this.#externalRuntime.values())
+      if (thread.harnessId === "claude-code") this.#claudeSessionsToRefresh.add(thread);
+    this.#claudeCoreRestartPending = true;
+    // Rebuild the overlays even when the saved choice itself did not change.
+    this.#relaySettingsStamp = "";
+  }
+
+  /** One step of the replacement above; runs on every check until nothing is left. */
+  async #refreshClaudeSessions(): Promise<void> {
+    if (this.#claudeRefreshRunning || this.#closeRequested) return;
+    if (!this.#claudeSessionsToRefresh.size && !this.#claudeCoreRestartPending) return;
+    this.#claudeRefreshRunning = true;
+    try {
+      if (this.#claudeSessionsToRefresh.size)
+        this.#claudeSessionsToRefresh = await this.#externalRuntime.idleRelease.releaseIdle(
+          this.#claudeSessionsToRefresh,
+        );
+      if (this.#claudeCoreRestartPending && !this.#hasActiveWork()) {
+        this.#claudeCoreRestartPending = false;
+        await this.#rly0Core.restart();
+        this.#relaySettingsStamp = "";
+      }
+    } finally {
+      this.#claudeRefreshRunning = false;
+    }
   }
 
   /** Rebuilds the relay overlays once at a time; resolves whether the rebuild went through. */
@@ -1937,7 +1997,7 @@ export class AppServerHost {
   }
 
   /** The other saved Anthropic tokens/keys and their last known quota, for a 429. */
-  async #claudeAlternatives(relayId: string): Promise<string | null> {
+  async #claudeAlternatives(relayId: string, limited?: Rly0UsageLimit): Promise<string | null> {
     const listed = await this.#rly0Core.listRelays();
     if (!listed.available) return null;
     const environment = this.#options.environment ?? process.env;
@@ -1951,6 +2011,7 @@ export class AppServerHost {
       listed.relays.filter((relay) => officialVendorOf(relay) === "anthropic"),
       (relay) => usage.forRelay(relay, snapshots),
       state.agentAutoSwitch?.claude?.enabled === true,
+      limited,
     );
   }
 
@@ -3249,8 +3310,12 @@ export class AppServerHost {
   }
 
   /** Anthropic's unified rate-limit headers on a forwarded reply → the capsule and the Hub. */
-  #observeClaudeRelayHeaders(relayId: string, headers: http.IncomingHttpHeaders): void {
-    const usage = parseAnthropicRateLimitHeaders(headers);
+  #observeClaudeRelayHeaders(
+    relayId: string,
+    headers: http.IncomingHttpHeaders,
+    status: number,
+  ): void {
+    const usage = parseAnthropicRateLimitHeaders(headers, undefined, status);
     if (!usage) return;
     this.#claudeKeyQuota.observe(relayId, usage);
     this.#liveQuotaFeed.record({ provider: "claude", key: relayId, usage });

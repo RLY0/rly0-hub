@@ -1,9 +1,14 @@
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 
-import type { Rly0Relay } from "@codexhost/shared-contracts";
+import {
+  activeRly0UsageLimit,
+  type Rly0Relay,
+  type Rly0UsageLimit,
+} from "@codexhost/shared-contracts";
 
 import { CLAUDE_CODE_RELAY_TOKEN } from "./agent-relays.js";
+import { parseAnthropicRateLimitHeaders } from "./live-quota-feed.js";
 import type { OfficialKeyUsageSnapshot } from "./official-key-usage.js";
 
 /**
@@ -25,13 +30,20 @@ export interface ClaudeRelayForwarderOptions {
   /** The relay Claude Code should use now; null when it is back on its own login. */
   readonly resolve: () => Promise<ClaudeRelayTarget | null>;
   /** Plain-words lines appended to a quota rejection (429): the other saved credentials. */
-  readonly describeAlternatives?: (currentRelayId: string) => Promise<string | null>;
+  readonly describeAlternatives?: (
+    currentRelayId: string,
+    limited?: Rly0UsageLimit,
+  ) => Promise<string | null>;
   /**
    * Every upstream response's headers, before the body streams (429s included). The host reads
    * Anthropic's unified rate-limit headers from them, so a reply updates the token's quota
    * without another request. Must not throw or block.
    */
-  readonly observeResponse?: (relayId: string, headers: http.IncomingHttpHeaders) => void;
+  readonly observeResponse?: (
+    relayId: string,
+    headers: http.IncomingHttpHeaders,
+    status: number,
+  ) => void;
 }
 
 /**
@@ -147,7 +159,7 @@ export class ClaudeRelayForwarder {
         (upstreamResponse) => {
           const status = upstreamResponse.statusCode ?? 502;
           try {
-            this.#options.observeResponse?.(target.relayId, upstreamResponse.headers);
+            this.#options.observeResponse?.(target.relayId, upstreamResponse.headers, status);
           } catch {
             // Observation never affects the reply.
           }
@@ -192,7 +204,12 @@ export class ClaudeRelayForwarder {
     const encoding = headers["content-encoding"];
     const hint =
       size <= MAX_REWRITTEN_ERROR_BYTES && (!encoding || encoding === "identity")
-        ? await this.#options.describeAlternatives?.(relayId).catch(() => null)
+        ? await this.#options
+            .describeAlternatives?.(
+              relayId,
+              parseAnthropicRateLimitHeaders(upstream.headers, undefined, 429)?.limited,
+            )
+            .catch(() => null)
         : null;
     if (hint) {
       try {
@@ -215,10 +232,40 @@ export class ClaudeRelayForwarder {
   }
 }
 
+const LIMIT_NAMES: Readonly<Record<string, string>> = {
+  five_hour: "5 小时额度",
+  seven_day: "每周额度",
+  seven_day_opus: "每周 Opus 额度",
+  seven_day_sonnet: "每周 Sonnet 额度",
+  rate_limit: "请求频率限制",
+};
+
+/** The limit a refusal names, in plain words. */
+export function claudeLimitName(claim: string | undefined): string {
+  return (claim && LIMIT_NAMES[claim]) || "用量限制";
+}
+
+/** "14:05", or "11月27日 14:05" when it is not today. */
+function clockText(seconds: number, now = new Date()): string {
+  const at = new Date(seconds * 1000);
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  return at.toDateString() === now.toDateString()
+    ? time
+    : `${at.getMonth() + 1}月${at.getDate()}日 ${time}`;
+}
+
+/** "被限流（5 小时额度），预计 14:05 恢复". */
+export function claudeLimitText(limited: Rly0UsageLimit): string {
+  return `被限流（${claudeLimitName(limited.claim)}），预计 ${clockText(limited.until)} 恢复`;
+}
+
 function remainingText(snapshot: OfficialKeyUsageSnapshot | undefined): {
   text: string;
   least: number | null;
 } {
+  // A refusal outranks the percentages: they can look unused while every request is refused.
+  const limited = activeRly0UsageLimit(snapshot?.usage);
+  if (limited) return { text: claudeLimitText(limited), least: 0 };
   const windows = snapshot?.usage.windows ?? [];
   if (windows.length === 0) return { text: "额度未知", least: null };
   const parts = windows.map((window) => {
@@ -236,13 +283,15 @@ function remainingText(snapshot: OfficialKeyUsageSnapshot | undefined): {
 /**
  * The text a quota rejection (429) carries in the Thread: the other saved Claude subscription
  * tokens and keys with their last known remaining quota (or 额度未知), most remaining first, and
- * how to switch. Switching takes effect for this open Thread on the next request.
+ * how to switch. Switching takes effect for this open Thread on the next request. `limited` is
+ * what the refusal itself said (which limit, until when), when it said so.
  */
 export function describeClaudeAlternatives(
   currentRelayId: string,
   relays: readonly Rly0Relay[],
   usageFor: (relay: Rly0Relay) => OfficialKeyUsageSnapshot | undefined,
   autoSwitchOn = false,
+  limited?: Rly0UsageLimit,
 ): string {
   const others = relays
     .filter((relay) => relay.id !== currentRelayId && relay.enabled && relay.hasKey)
@@ -251,7 +300,11 @@ export function describeClaudeAlternatives(
       ...remainingText(usageFor(relay)),
     }))
     .sort((a, b) => (b.least ?? -1) - (a.least ?? -1));
-  const lines = ["RLY/0 Hub：这个账号的额度用完了（429）。"];
+  const lines = [
+    limited
+      ? `RLY/0 Hub：这个账号${claudeLimitText(limited)}（Anthropic 返回 429）。在此之前重试仍会被拒绝，重启 Codex 也不会恢复。`
+      : "RLY/0 Hub：这个账号的额度用完了（429）。",
+  ];
   if (others.length === 0) {
     lines.push("没有其他已保存的 Claude 账号或令牌；可在 RLY/0 Hub → 账号 添加。");
     return lines.join("\n");

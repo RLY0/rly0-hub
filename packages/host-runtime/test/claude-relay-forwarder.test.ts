@@ -312,3 +312,73 @@ describe("describeClaudeAlternatives", () => {
     ).toContain("没有其他已保存的 Claude 账号或令牌");
   });
 });
+
+describe("quota refusals in the Thread", () => {
+  it("passes what Anthropic said about the refusal to the hint", async () => {
+    const reset = Math.floor(Date.now() / 1000) + 3_600;
+    const proxy = await fakeProxy((_relayId, response) => {
+      response.writeHead(429, {
+        "content-type": "application/json",
+        "anthropic-ratelimit-unified-status": "rejected",
+        "anthropic-ratelimit-unified-reset": String(reset),
+        "anthropic-ratelimit-unified-representative-claim": "five_hour",
+        "anthropic-ratelimit-unified-5h-utilization": "0",
+      });
+      response.end('{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}');
+    });
+    const said: unknown[] = [];
+    const observed: number[] = [];
+    const instance = forwarder({
+      resolve: () => Promise.resolve({ proxyBaseUrl: proxy.baseUrl, relayId: "aaaaaaaaaaaa" }),
+      describeAlternatives: (_id, limited) => {
+        said.push(limited);
+        return Promise.resolve("hint");
+      },
+      observeResponse: (_id, _headers, status) => observed.push(status),
+    });
+    expect((await post(await instance.url(), "{}")).status).toBe(429);
+    expect(said).toEqual([{ until: reset, claim: "five_hour" }]);
+    expect(observed).toEqual([429]);
+  });
+
+  it("names the limit and when it ends, and marks other refused tokens", () => {
+    const now = new Date();
+    const at = (hours: number, minutes: number) =>
+      Math.floor(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes).getTime() / 1000,
+      );
+    const later = Math.floor(Date.now() / 1000) + 7_200;
+    const text = describeClaudeAlternatives(
+      "aaaaaaaaaaaa",
+      [
+        relay("aaaaaaaaaaaa", "在用"),
+        relay("bbbbbbbbbbbb", "也被限流"),
+        relay("cccccccccccc", "空闲"),
+      ],
+      (entry) =>
+        entry.id === "aaaaaaaaaaaa"
+          ? undefined
+          : {
+              id: entry.id,
+              revision: "a".repeat(64),
+              usage: {
+                windows: [{ kind: "primary", usedPercent: 0 }],
+                ...(entry.id === "bbbbbbbbbbbb"
+                  ? { limited: { until: later, claim: "seven_day_opus" } }
+                  : {}),
+                fetchedAt: at(9, 5),
+                source: "snapshot",
+              },
+            },
+      false,
+      { until: at(23, 20), claim: "five_hour" },
+    );
+    const lines = text.split("\n");
+    expect(lines[0]).toBe(
+      "RLY/0 Hub：这个账号被限流（5 小时额度），预计 23:20 恢复（Anthropic 返回 429）。在此之前重试仍会被拒绝，重启 Codex 也不会恢复。",
+    );
+    // A refused token sorts last, whatever its windows show.
+    expect(lines.at(-2)).toBe("· 空闲：5 小时剩 100%（09:05 查询）");
+    expect(lines.at(-1)).toMatch(/^· 也被限流：被限流（每周 Opus 额度），预计 .+ 恢复$/u);
+  });
+});

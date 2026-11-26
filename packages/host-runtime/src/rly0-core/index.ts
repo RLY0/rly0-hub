@@ -136,11 +136,18 @@ export function sanitizeRly0Usage(raw: unknown): Rly0AccountUsage | undefined {
       }),
     ];
   });
+  const limitedRaw = isRecord(raw.limited) ? raw.limited : null;
+  const until = optionalInt(limitedRaw?.until);
+  const claim =
+    typeof limitedRaw?.claim === "string" && /^[a-z0-9_]{1,40}$/u.test(limitedRaw.claim)
+      ? limitedRaw.claim
+      : undefined;
   const parsed = rly0AccountUsageSchema.safeParse(
     compact({
       windows,
       plan: optionalString(raw.plan, 64),
       resetCredits: optionalInt(raw.resetCredits),
+      limited: until === undefined ? undefined : compact({ until, claim }),
       fetchedAt: optionalInt(raw.fetchedAt),
       source: raw.source === "snapshot" ? "snapshot" : "live",
     }),
@@ -321,6 +328,15 @@ export class Rly0CoreBridge {
     if (this.#restarting || !this.#client.binaryReplaced()) return false;
     await this.#restartKeepingProxy();
     return true;
+  }
+
+  /**
+   * Restarts a running rly0-core (its local routing proxy comes back on the same port), so no
+   * state it built on a previous credential outlives a credential switch.
+   */
+  async restart(): Promise<void> {
+    if (!this.#client.isRunning) return;
+    await this.#restartKeepingProxy();
   }
 
   /**

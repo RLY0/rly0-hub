@@ -1,6 +1,10 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import type { Rly0AccountUsage, Rly0Relay } from "@codexhost/shared-contracts";
+import {
+  activeRly0UsageLimit,
+  type Rly0AccountUsage,
+  type Rly0Relay,
+} from "@codexhost/shared-contracts";
 import { sanitizeRly0Usage } from "../rly0-core/index.js";
 import { resolveRly0DataDir } from "../rly0-maintenance/paths.js";
 import { officialVendorOf } from "./official-keys.js";
@@ -41,7 +45,7 @@ export class Rly0OfficialKeyUsage {
           /^[a-f0-9]{12}$/u.test(entry.id) &&
           typeof entry.revision === "string" &&
           /^[a-f0-9]{64}$/u.test(entry.revision) &&
-          usage?.windows.length
+          (usage?.windows.length || usage?.limited)
         )
           result.set(`${entry.id}:${entry.revision}`, {
             id: entry.id,
@@ -65,12 +69,17 @@ export class Rly0OfficialKeyUsage {
       : undefined;
   }
 
-  /** Serialize local writers so concurrent token refreshes retain each other's snapshots. */
+  /**
+   * Serialize local writers so concurrent token refreshes retain each other's snapshots.
+   * `info.conversation` marks numbers a real Claude Code reply carried: only such a reply says
+   * whether requests are refused, so a quota check (刷新) keeps a refusal that has not expired.
+   */
   record(relay: Rly0Relay, info: Record<string, unknown>): Promise<boolean> {
     if (!relay.keyRevision || officialVendorOf(relay) !== "anthropic") return Promise.resolve(true);
     const invalid = info.valid === false || info.usageError === "USAGE_TOKEN_EXPIRED";
     const usage = sanitizeRly0Usage(info.usage);
-    if (!invalid && (info.kind !== "subscription" || !usage?.windows.length))
+    const conversation = info.conversation === true;
+    if (!invalid && (info.kind !== "subscription" || !(usage?.windows.length || usage?.limited)))
       return Promise.resolve(true);
     const revision = relay.keyRevision;
     const write = this.#writes
@@ -80,8 +89,20 @@ export class Rly0OfficialKeyUsage {
         if (!invalid && usage && (entries.get(key)?.usage.fetchedAt ?? -1) > usage.fetchedAt)
           return true;
         if (invalid) entries.delete(key);
-        else if (usage)
-          entries.set(key, { id: relay.id, revision, usage: { ...usage, source: "snapshot" } });
+        else if (usage) {
+          const kept = conversation
+            ? undefined
+            : activeRly0UsageLimit(entries.get(key)?.usage, usage.fetchedAt);
+          entries.set(key, {
+            id: relay.id,
+            revision,
+            usage: {
+              ...usage,
+              ...(kept && !usage.limited ? { limited: kept } : {}),
+              source: "snapshot",
+            },
+          });
+        }
         const retained = [...entries.values()]
           .sort((a, b) => b.usage.fetchedAt - a.usage.fetchedAt)
           .slice(0, 256);

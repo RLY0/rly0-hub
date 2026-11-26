@@ -73,6 +73,28 @@ window.registerHubAccountCards = ({
     credits: "额度",
   };
   const windowLabel = (w) => w.label || KIND_LABELS[w.kind] || "额度";
+  // The limit a refused request named (Anthropic's representative claim).
+  const LIMIT_LABELS = {
+    five_hour: "5 小时额度",
+    seven_day: "每周额度",
+    seven_day_opus: "每周 Opus 额度",
+    seven_day_sonnet: "每周 Sonnet 额度",
+    rate_limit: "请求频率限制",
+  };
+  // A real request was refused (429) and the refusal has not ended: the percentages can still look
+  // unused then, so this is said above them instead of a misleading "剩 100%".
+  const activeLimit = (usage) =>
+    usage && usage.limited && usage.limited.until * 1000 > Date.now() ? usage.limited : null;
+  // A window whose reset time has passed: shown as refilled until a read confirms the number.
+  const resetDoneText = (seconds) => `已于 ${resetText(seconds)}，点刷新确认`;
+  const limitNote = (limited) =>
+    limited
+      ? h(
+          "p",
+          { class: "warn-text quota-note quota-limited" },
+          `正在被限流（${LIMIT_LABELS[limited.claim] || "用量限制"}），预计 ${clock(limited.until * 1000)} 恢复。在此之前请求会被拒绝（429），重启 Codex 也不会恢复。`,
+        )
+      : null;
 
   /* ---------- Quota tiles ---------- */
   // Known usage: one tile per window. Otherwise the same two tiles marked 未知 / 不支持 with the
@@ -97,6 +119,7 @@ window.registerHubAccountCards = ({
     const fresh = live && quotaLive ? quotaLive.pick(live.provider, live.id, given) : null;
     const usage = fresh && fresh.usage ? fresh.usage : given;
     const known = Boolean(usage && usage.windows && usage.windows.length);
+    const limited = activeLimit(usage);
     const staleNote = stale
       ? h(
           "p",
@@ -110,20 +133,34 @@ window.registerHubAccountCards = ({
       return h(
         "div",
         { class: "quota-block" },
+        limitNote(limited),
         h(
           "div",
           { class: "reset-cards" },
           usage.windows.map((w) => {
-            const left = Math.max(0, Math.round(100 - w.usedPercent));
+            // A window past its reset has refilled, whatever the last read said: Claude tokens are
+            // not read on a timer, so the card would otherwise sit at the old number. Nothing is
+            // requested for this; 刷新 confirms it. A refusal still in force says otherwise.
+            const passed = !limited && w.resetsAt && w.resetsAt * 1000 <= Date.now();
+            const left = passed ? 100 : Math.max(0, Math.round(100 - w.usedPercent));
             return h(
               "div",
-              { class: `reset-card ${left <= 15 ? "low" : ""}` },
+              {
+                class: `reset-card ${!passed && (left <= 15 || limited) ? "low" : ""}`,
+                // Still ahead: quota-live's repaint switches the tile when the time comes.
+                ...(!limited && w.resetsAt && !passed
+                  ? {
+                      "data-reset-at": String(w.resetsAt),
+                      "data-reset-text": resetDoneText(w.resetsAt),
+                    }
+                  : {}),
+              },
               h(
                 "div",
                 { class: "row" },
                 h("span", { class: "reset-kind" }, windowLabel(w)),
                 h("span", { class: "spacer" }),
-                h("b", { class: "tabular" }, `剩 ${left}%`),
+                h("b", { class: "tabular" }, passed ? "已重置" : `剩 ${left}%`),
               ),
               h("div", { class: "bar" }, h("i", { style: { width: `${left}%` } })),
               h(
@@ -131,8 +168,8 @@ window.registerHubAccountCards = ({
                 { class: "reset-when" },
                 !w.resetsAt
                   ? "重置时间未知"
-                  : w.resetsAt * 1000 <= Date.now()
-                    ? `已于 ${resetText(w.resetsAt)}，这是重置前的额度`
+                  : passed
+                    ? resetDoneText(w.resetsAt)
                     : `${countdown(w.resetsAt)} · ${resetText(w.resetsAt)}`,
               ),
             );
@@ -149,6 +186,7 @@ window.registerHubAccountCards = ({
     return h(
       "div",
       { class: "quota-block" },
+      limitNote(limited),
       h(
         "div",
         { class: "reset-cards unknown" },

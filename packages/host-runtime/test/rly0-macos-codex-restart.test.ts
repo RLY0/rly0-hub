@@ -136,6 +136,51 @@ describe("macOS Codex restart (synthetic processes)", () => {
     expect(f.quitRequests()).toBe(0);
   });
 
+  it("stops the shared Host after Codex quits, so the reopened Codex starts a new one", async () => {
+    const steps: string[] = [];
+    const control = new Rly0CodexControl({
+      environment: {},
+      installRoot: "/Volumes/Synthetic/RLY0 Hub.app/Contents/Resources",
+      platform: "darwin",
+      fileExists: () => true,
+      heartbeatAlive: async () => false,
+      killProcesses: async () => {
+        steps.push("quit Codex");
+        return 3;
+      },
+      stopSharedHost: async () => {
+        steps.push("stop shared Host");
+        return 1;
+      },
+      restartDelayMs: 0,
+      startDetached: () => steps.push("open Codex"),
+    });
+    expect(await control.restart()).toEqual({ ok: true });
+    expect(steps).toEqual(["quit Codex", "stop shared Host", "open Codex"]);
+  });
+
+  it("still restarts when only the shared Host was left running, and when stopping it fails", async () => {
+    const started: string[] = [];
+    const control = (stopSharedHost: () => Promise<number>) =>
+      new Rly0CodexControl({
+        environment: {},
+        installRoot: "/Volumes/Synthetic/RLY0 Hub.app/Contents/Resources",
+        platform: "darwin",
+        fileExists: () => true,
+        heartbeatAlive: async () => false,
+        killProcesses: async () => 0,
+        stopSharedHost,
+        restartDelayMs: 0,
+        startDetached: (executable) => started.push(executable),
+      });
+    expect(await control(async () => 1).restart()).toEqual({ ok: true });
+    expect(started).toHaveLength(1);
+    expect(
+      await control(() => Promise.reject(new Error("SYNTHETIC_STOP_FAILED"))).restart(),
+    ).toEqual({ ok: false });
+    expect(started).toHaveLength(1);
+  });
+
   it("restarts on macOS without a Launcher descriptor: quit, wait, then reopen through bin/codexhost", async () => {
     const started: string[] = [];
     const control = new Rly0CodexControl({

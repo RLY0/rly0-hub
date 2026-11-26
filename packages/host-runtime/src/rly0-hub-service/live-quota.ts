@@ -138,7 +138,7 @@ export class Rly0HubLiveQuota {
         const relay = relays.find((candidate) => candidate.id === entry.key);
         if (!relay || officialVendorOf(relay) !== "anthropic") continue;
         await this.#options
-          .recordToken(relay, { kind: "subscription", usage: entry.usage })
+          .recordToken(relay, { kind: "subscription", usage: entry.usage, conversation: true })
           .catch(() => undefined);
         this.#publish("claude", relay.id, entry, announce);
       }

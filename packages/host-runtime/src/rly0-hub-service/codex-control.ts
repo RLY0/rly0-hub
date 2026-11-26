@@ -61,6 +61,13 @@ export interface Rly0CodexControlOptions {
    * quitting and restarting only work through the Launcher.
    */
   readonly killProcesses?: () => Promise<number>;
+  /**
+   * Stops the shared codexhost Host (with the Claude Code and rly0-core processes it runs), which
+   * `killProcesses` leaves alone because it outlives Codex. A restart stops it after Codex has
+   * quit, so the next Codex start brings up a new one instead of reusing it. Returns how many
+   * stopped.
+   */
+  readonly stopSharedHost?: () => Promise<number>;
   /** Pause between ending Codex and opening it again on a direct restart. */
   readonly restartDelayMs?: number;
   /** 恢复官方原样 is on: open Codex the official way, never through the Launcher. */
@@ -239,7 +246,10 @@ export class Rly0CodexControl {
     }
     await this.#request("quit");
     const killed = await this.#options.killProcesses().catch(() => 0);
-    if (killed === 0 && !(await this.status()).running) return { ok: false };
+    // Otherwise Codex reattaches to the running Host, and every open conversation keeps the
+    // Claude Code processes (and credential state) it had before the restart.
+    const stopped = (await this.#options.stopSharedHost?.().catch(() => 0)) ?? 0;
+    if (killed === 0 && stopped === 0 && !(await this.status()).running) return { ok: false };
     await new Promise((resolve) => setTimeout(resolve, this.#options.restartDelayMs ?? 1500));
     return this.open();
   }

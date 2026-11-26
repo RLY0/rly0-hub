@@ -165,3 +165,163 @@ describe("timed quota refresh", () => {
     expect(run.mock.calls.length).toBe(calls);
   });
 });
+
+describe("quota tiles for a refused token", () => {
+  function cards() {
+    const window: Record<string, unknown> = {
+      registerHubResetCredits: () => ({ tile: () => null }),
+      HubUI: { armable: () => () => true },
+    };
+    runInNewContext(page("account-cards.js"), { window, Date, Math, Promise });
+    const register = window.registerHubAccountCards as (options: unknown) => {
+      quotaCards(usage: unknown, options?: Record<string, unknown>): Node;
+    };
+    return register({
+      h,
+      call: vi.fn(),
+      toast: vi.fn(),
+      failed: vi.fn(),
+      explain: (code: string) => code,
+      countdown: () => "1 小时后",
+      resetText: () => "23:20",
+      resetCardTile: () => null,
+    });
+  }
+  const now = Math.floor(Date.now() / 1000);
+
+  it("says it is refused above windows that look unused, until the refusal ends", () => {
+    const { quotaCards } = cards();
+    const usage = {
+      windows: [{ kind: "primary", usedPercent: 0, resetsAt: now + 3_600 }],
+      fetchedAt: now,
+      source: "snapshot",
+    };
+    const refused = text(
+      quotaCards({ ...usage, limited: { until: now + 3_600, claim: "five_hour" } }),
+    );
+    expect(refused).toContain("正在被限流（5 小时额度），预计");
+    expect(refused).toContain("重启 Codex 也不会恢复");
+    expect(refused).toContain("剩 100%");
+    expect(text(quotaCards({ ...usage, limited: { until: now - 1 } }))).not.toContain("限流");
+    // Known only as refused (a plain 429 without windows).
+    expect(
+      text(
+        quotaCards({ windows: [], limited: { until: now + 60 }, fetchedAt: now, source: "live" }),
+      ),
+    ).toContain("正在被限流（用量限制）");
+  });
+
+  it("takes in a pushed refusal even without windows", () => {
+    const clock = { now: Date.now() };
+    const live = load(clock);
+    const refused = { windows: [], limited: { until: now + 60 }, fetchedAt: now, source: "live" };
+    live.ingest({ provider: "claude", id: "aaaaaaaaaaaa", usage: refused, observedAt: clock.now });
+    expect(live.pick("claude", "aaaaaaaaaaaa", null).usage).toEqual(refused);
+  });
+});
+
+describe("quota tiles past their reset time", () => {
+  function cards() {
+    const window: Record<string, unknown> = {
+      registerHubResetCredits: () => ({ tile: () => null }),
+      HubUI: { armable: () => () => true },
+    };
+    runInNewContext(page("account-cards.js"), { window, Date, Math, Promise });
+    const register = window.registerHubAccountCards as (options: unknown) => {
+      quotaCards(usage: unknown, options?: Record<string, unknown>): Node;
+    };
+    return register({
+      h,
+      call: vi.fn(),
+      toast: vi.fn(),
+      failed: vi.fn(),
+      explain: (code: string) => code,
+      countdown: () => "1 小时后",
+      resetText: () => "23:20 重置",
+      resetCardTile: () => null,
+    });
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const find = (node: unknown, test: (n: Node) => boolean): Node[] =>
+    node && typeof node === "object" && "children" in node
+      ? [
+          ...(test(node as Node) ? [node as Node] : []),
+          ...(node as Node).children.flatMap((child) => find(child, test)),
+        ]
+      : [];
+
+  it("shows a window whose reset passed as refilled, asking for 刷新 to confirm", () => {
+    const { quotaCards } = cards();
+    const usage = {
+      windows: [
+        { kind: "primary", usedPercent: 100, resetsAt: now - 60 },
+        { kind: "secondary", usedPercent: 40, resetsAt: now + 86_400 },
+      ],
+      fetchedAt: now - 7_200,
+      source: "snapshot",
+    };
+    const shown = quotaCards(usage);
+    const content = text(shown);
+    expect(content).toContain("已重置");
+    expect(content).toContain("已于 23:20 重置，点刷新确认");
+    expect(content).toContain("剩 60%");
+    expect(content).not.toContain("剩 0%");
+    // Only the window still ahead waits for its time.
+    const waiting = find(shown, (n) => n.props["data-reset-at"] !== undefined);
+    expect(waiting.map((n) => n.props["data-reset-at"])).toEqual([String(now + 86_400)]);
+  });
+
+  it("never shows a refused token as refilled", () => {
+    const { quotaCards } = cards();
+    const content = text(
+      quotaCards({
+        windows: [{ kind: "primary", usedPercent: 100, resetsAt: now - 60 }],
+        limited: { until: now + 600, claim: "seven_day_opus" },
+        fetchedAt: now,
+        source: "live",
+      }),
+    );
+    expect(content).toContain("正在被限流");
+    expect(content).not.toContain("已重置");
+  });
+
+  it("switches an open page's tile when its reset time comes", () => {
+    const clock = { now: (now + 10) * 1000 };
+    const live = load(clock);
+    const make = (resetAt: number) => {
+      const attributes = new Map([
+        ["data-reset-at", String(resetAt)],
+        ["data-reset-text", "已于 23:20 重置，点刷新确认"],
+      ]);
+      const amount = { textContent: "剩 0%" };
+      const fill = { style: { width: "0%" } };
+      const when = { textContent: "马上 · 23:20 重置" };
+      const classes = new Set(["reset-card", "low"]);
+      return {
+        amount,
+        fill,
+        when,
+        classes,
+        attributes,
+        getAttribute: (name: string) => attributes.get(name) ?? null,
+        removeAttribute: (name: string) => attributes.delete(name),
+        classList: { remove: (name: string) => classes.delete(name) },
+        querySelector: (selector: string) =>
+          selector === "b" ? amount : selector === ".bar i" ? fill : when,
+      };
+    };
+    const due = make(now);
+    const later = make(now + 3_600);
+    const root = {
+      querySelectorAll: (selector: string) =>
+        selector.startsWith(".reset-card") ? [due, later] : [],
+    };
+    (live as unknown as { repaint(root: unknown): void }).repaint(root);
+    expect(due.amount.textContent).toBe("已重置");
+    expect(due.fill.style.width).toBe("100%");
+    expect(due.when.textContent).toBe("已于 23:20 重置，点刷新确认");
+    expect(due.classes.has("low")).toBe(false);
+    expect(due.attributes.has("data-reset-at")).toBe(false);
+    expect(later.amount.textContent).toBe("剩 0%");
+  });
+});

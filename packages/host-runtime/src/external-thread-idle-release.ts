@@ -239,6 +239,37 @@ export class ExternalThreadIdleRelease {
       .some((thread) => thread.harnessId === harnessId && !thread.record.subagent);
   }
 
+  /**
+   * Closes those of `sessions` that are idle now, the same safe way as for a CLI update, so their
+   * next turn starts a new native process. Unlike `releaseForUpdate`, a busy peer does not hold
+   * the idle ones back. Resolves the given sessions that are still loaded; a Thread reopened in
+   * the meantime is a new session and is not among them.
+   */
+  async releaseIdle(sessions: ReadonlySet<ExternalThread>): Promise<Set<ExternalThread>> {
+    for (const thread of this.options.threads()) {
+      if (!sessions.has(thread) || !this.#eligible(thread, true)) continue;
+      const task = this.options.queue.run(thread.id, async () => {
+        if (!this.#eligible(thread, true)) return;
+        const closing = this.#close(thread, true);
+        this.#closing.set(thread.id, closing);
+        try {
+          await closing;
+        } finally {
+          this.#closing.delete(thread.id);
+        }
+      });
+      this.#pending.add(task);
+      try {
+        await task;
+      } catch (error) {
+        this.options.diagnose(error);
+      } finally {
+        this.#pending.delete(task);
+      }
+    }
+    return new Set(this.options.threads().filter((thread) => sessions.has(thread)));
+  }
+
   check(): void {
     for (const thread of this.options.threads()) {
       if (this.#scheduled.has(thread.id) || !this.#eligible(thread)) continue;

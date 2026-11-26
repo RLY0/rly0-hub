@@ -22,6 +22,12 @@ export const BACKEND_RELOAD_RESULT_FILE = "codex-reload-result.json";
 export const AGENT_CHECK_REQUEST_FILE = "agent-check-request.json";
 export const AGENT_STATUS_FILE = "agent-status.json";
 /**
+ * The Hub changed Claude Code's credential (switched token or account). The Host replaces the
+ * Claude Code processes started before it and restarts its own rly0-core, so nothing started
+ * on the previous credential keeps serving an open conversation.
+ */
+export const CLAUDE_SESSIONS_REFRESH_REQUEST_FILE = "claude-sessions-refresh-request.json";
+/**
  * Written every few seconds by the Codex side while it runs: `{ pid, at, busy }`; `busy` is true
  * while a reply, tool call or agent task is in progress (older builds omit it).
  */
@@ -167,6 +173,17 @@ async function request(
     if (result && matches(result, id)) return result;
   }
   return null;
+}
+
+/**
+ * Hub side: tells the Host that Claude Code's credential changed. Does not wait: the Host acts on
+ * its next check, and one that is not running starts on the new credential anyway.
+ */
+export async function requestClaudeSessionsRefresh(dataDirectory: string): Promise<void> {
+  await writeJsonFile(path.join(dataDirectory, CLAUDE_SESSIONS_REFRESH_REQUEST_FILE), {
+    id: randomBytes(8).toString("hex"),
+    at: Date.now(),
+  });
 }
 
 /** Hub side: asks for a reload and waits for the Host's answer (null when nobody answers). */

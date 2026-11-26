@@ -60,14 +60,67 @@ function header(headers: HeaderBag, name: string): string | undefined {
   return typeof first === "string" ? first.trim() : undefined;
 }
 
+/** When nothing says how long a refusal lasts: short, so a stale mark never sticks for long. */
+const UNKNOWN_LIMIT_SECONDS = 5 * 60;
+
+function unixSeconds(value: string | undefined): number | undefined {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 && number < 100_000_000_000
+    ? number
+    : undefined;
+}
+
+/**
+ * Whether a reply was a quota refusal and until when. Anthropic marks it with
+ * `anthropic-ratelimit-unified-status: rejected`, the overall `-reset` and the limit that applied
+ * (`-representative-claim`); a plain 429 without them (requests per minute, a relay) is still a
+ * refusal, lasting `retry-after` seconds. The usage windows can look unused meanwhile, which is
+ * how a token showed "剩 100%" while every request was refused.
+ */
+function anthropicRefusal(
+  headers: HeaderBag,
+  status: number | undefined,
+  windows: readonly Rly0UsageWindow[],
+  nowSeconds: number,
+): Rly0AccountUsage["limited"] {
+  const unified = header(headers, "anthropic-ratelimit-unified-status");
+  if (unified !== "rejected" && status !== 429) return undefined;
+  const rawClaim = header(headers, "anthropic-ratelimit-unified-representative-claim");
+  const claim =
+    rawClaim && /^[a-z0-9_]{1,40}$/u.test(rawClaim)
+      ? rawClaim
+      : unified === "rejected"
+        ? undefined
+        : "rate_limit";
+  const claimed =
+    claim === "five_hour"
+      ? windows.find((window) => window.kind === "primary")?.resetsAt
+      : claim?.startsWith("seven_day")
+        ? windows.find((window) => window.kind === "secondary")?.resetsAt
+        : undefined;
+  const retryAfter = Number(header(headers, "retry-after"));
+  const until =
+    unixSeconds(header(headers, "anthropic-ratelimit-unified-reset")) ??
+    claimed ??
+    (Number.isFinite(retryAfter) && retryAfter > 0
+      ? nowSeconds + Math.ceil(retryAfter)
+      : nowSeconds + UNKNOWN_LIMIT_SECONDS);
+  return {
+    until: until > nowSeconds ? until : nowSeconds + 60,
+    ...(claim ? { claim } : {}),
+  };
+}
+
 /**
  * Anthropic's unified rate-limit headers → the Hub's usage windows. Utilization is 0–1; the
- * reset is unix seconds. Returns null when the response carries neither window (API keys,
- * relays, errors before the limiter).
+ * reset is unix seconds. A refusal (see `anthropicRefusal`) is kept as `limited`, also when the
+ * reply carries no window. Returns null when it carries neither (API keys, relays, errors before
+ * the limiter).
  */
 export function parseAnthropicRateLimitHeaders(
   headers: HeaderBag,
   nowSeconds: number = Math.floor(Date.now() / 1000),
+  status?: number,
 ): Rly0AccountUsage | null {
   const windows: Rly0UsageWindow[] = [];
   for (const [key, kind, seconds] of [
@@ -88,8 +141,9 @@ export function parseAnthropicRateLimitHeaders(
       windows.push({ ...window, resetsAt: reset });
     } else windows.push(window);
   }
-  if (windows.length === 0) return null;
-  return { windows, fetchedAt: nowSeconds, source: "live" };
+  const limited = anthropicRefusal(headers, status, windows, nowSeconds);
+  if (windows.length === 0 && !limited) return null;
+  return { windows, ...(limited ? { limited } : {}), fetchedAt: nowSeconds, source: "live" };
 }
 
 /** Codex's plan rows (from a rate-limit notification) → the Hub's usage windows. */
@@ -129,7 +183,7 @@ function cleanEntry(value: unknown): LiveQuotaEntry | null {
   )
     return null;
   const usage = sanitizeRly0Usage(entry.usage);
-  if (!usage?.windows.length) return null;
+  if (!usage?.windows.length && !usage?.limited) return null;
   const email =
     typeof entry.email === "string" && entry.email.length <= 320 && entry.email.includes("@")
       ? entry.email

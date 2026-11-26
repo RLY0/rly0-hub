@@ -313,3 +313,63 @@ describe("Hub live quota ingestion", () => {
     expect(balance).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("quota refusals in Anthropic replies", () => {
+  const now = 1_791_990_000;
+  it("keeps a rejection with its limit and reset, although the windows look unused", () => {
+    expect(
+      parseAnthropicRateLimitHeaders(
+        {
+          "anthropic-ratelimit-unified-status": "rejected",
+          "anthropic-ratelimit-unified-reset": "1792000000",
+          "anthropic-ratelimit-unified-representative-claim": "seven_day_opus",
+          "anthropic-ratelimit-unified-5h-utilization": "0",
+          "anthropic-ratelimit-unified-7d-utilization": "0",
+        },
+        now,
+        429,
+      ),
+    ).toMatchObject({
+      windows: [{ usedPercent: 0 }, { usedPercent: 0 }],
+      limited: { until: 1_792_000_000, claim: "seven_day_opus" },
+    });
+  });
+
+  it("takes a claimed window's reset, then retry-after, then a short default", () => {
+    expect(
+      parseAnthropicRateLimitHeaders(
+        {
+          "anthropic-ratelimit-unified-status": "rejected",
+          "anthropic-ratelimit-unified-representative-claim": "five_hour",
+          "anthropic-ratelimit-unified-5h-utilization": "1",
+          "anthropic-ratelimit-unified-5h-reset": "1791999000",
+        },
+        now,
+      )?.limited,
+    ).toEqual({ until: 1_791_999_000, claim: "five_hour" });
+    // A plain 429 (requests per minute, no unified headers) still counts, for retry-after.
+    expect(parseAnthropicRateLimitHeaders({ "retry-after": "30" }, now, 429)).toEqual({
+      windows: [],
+      limited: { until: now + 30, claim: "rate_limit" },
+      fetchedAt: now,
+      source: "live",
+    });
+    expect(parseAnthropicRateLimitHeaders({}, now, 429)?.limited).toEqual({
+      until: now + 300,
+      claim: "rate_limit",
+    });
+  });
+
+  it("says nothing about refusals for accepted replies", () => {
+    const accepted = parseAnthropicRateLimitHeaders(
+      {
+        "anthropic-ratelimit-unified-status": "allowed_warning",
+        "anthropic-ratelimit-unified-5h-utilization": "0.9",
+      },
+      now,
+      200,
+    );
+    expect(accepted?.limited).toBeUndefined();
+    expect(parseAnthropicRateLimitHeaders({}, now, 200)).toBeNull();
+  });
+});

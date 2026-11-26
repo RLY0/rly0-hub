@@ -58,11 +58,38 @@ export const rly0AccountUsageSchema = z
     plan: z.string().max(64).optional(),
     /** Rate-limit reset cards OpenAI gave the account (wham/usage rate_limit_reset_credits). */
     resetCredits: z.number().int().nonnegative().max(1000).optional(),
+    /**
+     * A real request was refused for quota (429) at `fetchedAt`. The windows' percentages may
+     * still look unused then (a limit they do not show, or a stale read), so this is what says
+     * the token cannot be used until `until`.
+     */
+    limited: z
+      .object({
+        /** Unix seconds when requests are expected to be accepted again. */
+        until: z.number().int().nonnegative().max(100_000_000_000),
+        /** Which limit: Anthropic's representative claim (five_hour, seven_day…) or rate_limit. */
+        claim: z
+          .string()
+          .regex(/^[a-z0-9_]{1,40}$/u)
+          .optional(),
+      })
+      .strict()
+      .optional(),
     fetchedAt: z.number().int().nonnegative().max(100_000_000_000),
     source: z.enum(["live", "snapshot"]),
   })
   .strict();
 export type Rly0AccountUsage = z.infer<typeof rly0AccountUsageSchema>;
+export type Rly0UsageLimit = NonNullable<Rly0AccountUsage["limited"]>;
+
+/** The refusal `usage` reports, while it still applies at `nowSeconds`; otherwise undefined. */
+export function activeRly0UsageLimit(
+  usage: Pick<Rly0AccountUsage, "limited"> | null | undefined,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): Rly0UsageLimit | undefined {
+  const limited = usage?.limited;
+  return limited && limited.until > nowSeconds ? limited : undefined;
+}
 
 /** Error codes rly0-core reports for usage lookups; anything else maps to a generic message. */
 export const RLY0_USAGE_ERROR_CODES = [

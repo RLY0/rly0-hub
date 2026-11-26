@@ -69,3 +69,57 @@ describe("auto-switch sources: Claude subscription tokens", () => {
     expect(calls).not.toContain("claude/keyInfo");
   });
 });
+
+describe("auto-switch sources: refused Claude tokens", () => {
+  it("count a token refused by a real reply as used up until the refusal ends", async () => {
+    const usage = new Map<string, unknown>([
+      // Windows look unused, yet the last reply was refused for another hour.
+      [
+        "aaaaaaaaaaaa",
+        {
+          windows: [{ kind: "primary", usedPercent: 0, resetsAt: NOW + 600 }],
+          limited: { until: NOW + 3_600, claim: "seven_day_opus" },
+        },
+      ],
+      // A refusal with no windows at all.
+      ["bbbbbbbbbbbb", { windows: [], limited: { until: NOW + 60 } }],
+      // A refusal that already ended: the windows count again.
+      [
+        "cccccccccccc",
+        { windows: [{ kind: "primary", usedPercent: 10 }], limited: { until: NOW - 1 } },
+      ],
+    ]);
+    const sources = createAgentAutoSwitchSources({
+      core: {
+        claudeAccounts: async (method: string) => (method === "list" ? { accounts: [] } : null),
+        grokAccounts: async () => null,
+        listRelays: async () => ({
+          available: true as const,
+          relays: [
+            token("aaaaaaaaaaaa", "1111"),
+            token("bbbbbbbbbbbb", "2222"),
+            token("cccccccccccc", "3333"),
+          ],
+        }),
+      } as never,
+      claudeSelection: async () => "aaaaaaaaaaaa",
+      tokenUsage: async (relay) => usage.get(relay.id),
+      nowSeconds: () => NOW,
+      handle: async () => null,
+    });
+    const all = await sources.candidates("claude", "all");
+    expect(all?.map((c) => [c.id, c.usage])).toEqual([
+      ["aaaaaaaaaaaa", { windows: [{ kind: "primary", usedPercent: 100, resetsAt: NOW + 600 }] }],
+      [
+        "bbbbbbbbbbbb",
+        {
+          windows: [
+            { kind: "primary", usedPercent: 100 },
+            { kind: "secondary", usedPercent: 100 },
+          ],
+        },
+      ],
+      ["cccccccccccc", { windows: [{ kind: "primary", usedPercent: 10 }] }],
+    ]);
+  });
+});
