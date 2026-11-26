@@ -1194,7 +1194,8 @@ fn force_stop_external_desktop(
         }
         if started.elapsed() >= timeout {
             return Err(last_termination_error
-                .unwrap_or_else(|| "Codex Desktop did not exit after forced restart".into()));
+                .unwrap_or_else(|| "Codex Desktop did not exit after forced restart".into())
+                .into());
         }
         thread::sleep(Duration::from_millis(50));
     }
