@@ -67,6 +67,11 @@ export const RLY0_VERIFIED_DESKTOP_VERSIONS: readonly {
   { version: "26.1117.3838", platform: "windows" },
   // Codex mode passed the Windows UI check; ChatGPT Work new chats get the Agent picker bridge.
   { version: "26.1117.4957", platform: "windows" },
+  // Adapted in 0.11.57 against this exact build's source (38-slot Model hook, 56-slot
+  // collaboration memo, deeper native control Fibers). Windows 26.1120.6357 ships the
+  // same renderer bundle (app 26.1120.50957, identical webview files).
+  { version: "26.1120.50957", platform: "macos" },
+  { version: "26.1120.6357", platform: "windows" },
 ];
 
 export function desktopVersionFamily(version: string): string | null {

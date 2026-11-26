@@ -93,18 +93,22 @@ export function findScopedDraftModelBinding(
       const settings = result.modelSettings as Draft | null;
       const group = groups.get(row);
       const candidate = group?.[group.indexOf(row) - 1];
-      // Desktop 26.1029/26.1106 add one/three slots before the active-mode inputs.
+      // Desktop 26.1029/26.1106 add one/three slots before the active-mode inputs; 26.1120
+      // adds one more after them (the mode copy and the result move to 53 and 55).
       // Keep identity checks for the reviewed layouts; never accept arbitrary rows.
-      const offset = candidate?.length === 55 ? 3 : candidate?.length === 53 ? 1 : 0;
+      const length = candidate?.length;
+      const offset = length === 55 || length === 56 ? 3 : length === 53 ? 1 : 0;
+      const tail = length === 56 ? 4 : offset;
       const mode = candidate?.[44 + offset] as Draft | null;
-      const value = candidate?.[51 + offset] as Draft | null;
+      const value = candidate?.[51 + tail] as Draft | null;
       if (
-        (candidate?.length === 52 || candidate?.length === 53 || candidate?.length === 55) &&
+        candidate &&
+        (length === 52 || length === 53 || length === 55 || length === 56) &&
         settings &&
         candidate[39 + offset] === settings.model &&
         candidate[40 + offset] === settings.reasoningEffort &&
         mode &&
-        mode === candidate[49 + offset] &&
+        mode === candidate[49 + tail] &&
         mode.settings === candidate[41 + offset] &&
         (mode.settings as Draft | null)?.model === settings.model &&
         value?.activeMode === mode
@@ -165,6 +169,23 @@ function modelHookLayout(row: unknown[]): ModelHookLayout | null {
         cells[25] === context.usesAccountPreferences &&
         typeof context.setModelAndReasoningEffort === "function" &&
         cells[26] === context.setModelAndReasoningEffort,
+    };
+  }
+  if (row.length === 38) {
+    // Desktop 26.1120 caches the team preference key at index 24 between the
+    // new-thread flag and the draft setter; every later slot moves up by one.
+    return {
+      conversation: 16,
+      newThreadDraft: 21,
+      update: 25,
+      context: 35,
+      result: 37,
+      setter: 28,
+      setterCopy: 34,
+      contextCheck: (cells, context) =>
+        cells[26] === context.usesAccountPreferences &&
+        typeof context.setModelAndReasoningEffort === "function" &&
+        cells[27] === context.setModelAndReasoningEffort,
     };
   }
   return null;

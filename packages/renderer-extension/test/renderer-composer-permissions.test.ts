@@ -8,6 +8,7 @@ function nativePermissionButton(
     includeOwner?: boolean;
     codexhost?: boolean;
     hasMenu?: boolean;
+    ownerDepth?: number;
   } = {},
 ): Element {
   const target = options.target ?? "permissions";
@@ -27,12 +28,17 @@ function nativePermissionButton(
           },
           return: null,
         };
+  // Codex Desktop 26.1120 puts more layers between the trigger and its owning Composer.
+  let parent: { memoizedProps: Record<string, unknown>; return: unknown } | null = owner;
+  for (let index = 0; index < Math.max(0, (options.ownerDepth ?? 1) - 1); index += 1) {
+    parent = { memoizedProps: {}, return: parent };
+  }
   const fiber = {
     memoizedProps: {
       "data-composer-navigation-target": target,
       "aria-haspopup": options.hasMenu === false ? "dialog" : "menu",
     },
-    return: owner,
+    return: parent,
   };
   const element = {
     hasAttribute(name: string) {
@@ -53,6 +59,9 @@ function nativePermissionButton(
 describe("versioned native Permission Mode control ownership", () => {
   it("accepts the reviewed semantic trigger and Composer ownership chain", () => {
     expect(isNativePermissionModeControlCandidate(nativePermissionButton())).toBe(true);
+    expect(isNativePermissionModeControlCandidate(nativePermissionButton({ ownerDepth: 65 }))).toBe(
+      true,
+    );
   });
 
   it("does not identify by visible label or a partial DOM match", () => {

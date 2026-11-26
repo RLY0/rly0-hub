@@ -198,6 +198,11 @@ describe("compatibility manifest (synthetic)", () => {
     expect(verified("26.1117.31558", "0.0.0", "darwin", null as never)).toBe(true);
     expect(verified("26.1117.4957", "0.0.0", "darwin", null as never)).toBe(false);
     expect(verified("26.1117.31558", "0.0.0", "win32", null as never)).toBe(false);
+    // 26.1120: adapted in 0.11.57; the job's earlier Mac build 26.1120.41243 was never reviewed.
+    expect(verified("26.1120.50957", "0.0.0", "darwin", null as never)).toBe(true);
+    expect(verified("26.1120.6357.0", "0.0.0", "win32", null as never)).toBe(true);
+    expect(verified("26.1120.41243", "0.0.0", "darwin", null as never)).toBe(false);
+    expect(verified("26.1120.50957", "0.0.0", "win32", null as never)).toBe(false);
     // A newer build of a verified family is not verified (26.1117.4957 changed the composer).
     expect(verified("26.1117.5012.0", "0.0.0", "win32", null as never)).toBe(false);
     expect(verified("26.1111.21308", "0.0.0", "darwin", null as never)).toBe(false);

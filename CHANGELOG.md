@@ -1,18 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.11.57
 
 ### Fixes
 - Claude in Codex kept answering 429 after the token's quota came back, until the background processes were ended by hand. The Hub's shared background service outlives Codex: 重启 Codex, quitting Codex, or restarting the Hub all left it and its Claude Code processes running. On Mac, 重启 Codex now also restarts the shared background service, so Codex comes back on fresh processes. Switching Claude Code's token or account in the Hub now also replaces the Claude Code sessions already running (idle ones at once, busy ones after their reply), without restarting Codex.
 - A Claude token that Anthropic refuses (429) no longer shows "剩 100%": the token card says it is rate-limited, which limit (5-hour, weekly, weekly Opus…) and when it is expected to end, and 刷新 no longer clears that before it ends. The 429 message in the conversation says the same and that retrying or restarting Codex will not help until then. Auto-switch treats a refused token as used up.
 - A quota window past its reset time now shows 已重置 (with "点刷新确认") instead of the old number, also on a page left open. Nothing is requested for this.
 - 检测连接 on the AI 助手 page could answer "全部正常" and keep showing an old result (for example "Antigravity not signed in" after signing in): an empty report from a Codex-side process arrived before the real one. Only the process that runs the agents answers now.
+- Codex 26.1120: picking an external Agent in a new chat would not stick and its first message could start on a Codex model, because Codex 26.1120 added a slot to the new-chat model cache and to the collaboration-mode cache the Hub reads. Both new layouts are now recognized (and still checked slot by slot). The Hub also looks deeper for Codex's own Model and Permission Mode buttons, which sit further down the page (from upstream CodexHost v0.28.0). Codex 26.1120 (Mac 26.1120.50957, Windows 26.1120.6357) is now on the Hub's verified list, so it opens with the Hub's additions instead of safe mode.
 
 ### 修复
 - 修复：Claude 令牌额度恢复后，Codex 里的 Claude 对话仍一直报 429，必须手动结束后台进程才好。原因是 Hub 的共享后台不随 Codex 退出，点「重启 Codex」、退出 Codex、重启 Hub 都不会重启它和其中的 Claude 进程。现在 Mac 上点「重启 Codex」会连共享后台一起重启；在 Hub 里换 Claude 令牌或账号后，已经在跑的 Claude 会话也会换成新的（空闲的立即换，正在回复的等这一轮结束），不用重启 Codex。
 - 修复：被 Anthropic 限流（429）的 Claude 令牌不再显示「剩 100%」。卡片会写明正在被限流、卡在哪个限额（5 小时、每周、每周 Opus 等）和预计恢复时间，点刷新也不会提前清掉；对话里的 429 提示同样写明，并说明在此之前重试或重启 Codex 都没用。自动切换把被限流的令牌当作额度用完。
 - 修复：额度过了重置时间后显示「已重置」（并提示点刷新确认），不再停在旧数字；页面一直开着也会自动切换，不发任何请求。
 - 修复：AI 助手页点「检测连接」可能提示「全部正常」却仍显示旧结果（比如已经登录 Antigravity 还显示没登录）。原因是 Codex 窗口那边的进程先回了一份空结果；现在只由真正运行助手的后台回复。
+- 修复：Codex 26.1120 在新对话里选外部助手可能不生效，第一条消息仍按 Codex 模型发出。原因是 26.1120 给新对话的模型缓存和协作模式缓存各加了一格，Hub 认不出来；现在两种新布局都能识别（仍逐格核对）。另外 Codex 26.1120 把模型按钮和权限按钮放得更深，Hub 现在会往更深处找（来自上游 CodexHost v0.28.0）。Codex 26.1120（Mac 26.1120.50957、Windows 26.1120.6357）已加入 Hub 验证过的版本，打开后启用 Hub 增强，不再进安全模式。
 
 ## 0.11.56
 

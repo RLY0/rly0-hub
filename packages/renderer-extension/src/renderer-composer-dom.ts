@@ -241,6 +241,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// Codex Desktop 26.1120 nests the native Model and Permission Mode triggers deeper below the
+// Composer that owns their props (from upstream CodexHost v0.28.0).
+const NATIVE_CONTROL_FIBER_WALK_DEPTH = 120;
+
 export function isNativeModelControlCandidate(element: Element): boolean {
   if (
     element.hasAttribute(CONTROL_ATTRIBUTE) ||
@@ -272,7 +276,7 @@ export function isNativeModelControlCandidate(element: Element): boolean {
         memoizedProps?: unknown;
       } | null)
     : null;
-  for (let depth = 0; fiber && depth < 80; depth += 1) {
+  for (let depth = 0; fiber && depth < NATIVE_CONTROL_FIBER_WALK_DEPTH; depth += 1) {
     const props = fiber.memoizedProps;
     if (
       isRecord(props) &&
@@ -337,7 +341,7 @@ export function isNativePermissionModeControlCandidate(element: Element): boolea
     : null;
   let ownsTrigger = false;
   let ownsComposerPermissionState = false;
-  for (let depth = 0; fiber && depth < 60; depth += 1) {
+  for (let depth = 0; fiber && depth < NATIVE_CONTROL_FIBER_WALK_DEPTH; depth += 1) {
     const props = fiber.memoizedProps;
     if (isRecord(props)) {
       if (
