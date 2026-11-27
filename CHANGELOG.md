@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.58
+
+### Fixes
+- Windows: closing Codex for a restart (重启 Codex, the Hub's Codex update, or opening Codex through the Hub while another Codex window is still running) could stop at once with "could not terminate Codex PID … (os error 5)" when a Codex process refused to close for a moment, for example while it was already shutting down. The Hub now keeps trying until the usual 10-second limit and only then reports the last error (from upstream CodexHost v0.28.1).
+
+### 修复
+- 修复：Windows 上 Hub 需要先关掉 Codex 时（点「重启 Codex」、Hub 更新 Codex、通过 Hub 打开 Codex 而旧窗口还开着），如果某个 Codex 进程一时关不掉（例如正在退出），会立刻报错「拒绝访问（os error 5）」并中断。现在会在原有的 10 秒内继续重试，到时仍关不掉才报出最后一次的错误（来自上游 CodexHost v0.28.1）。
+
 ## 0.11.57
 
 ### Fixes
