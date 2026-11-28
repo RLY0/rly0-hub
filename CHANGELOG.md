@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.59
+
+### Fixes
+- Windows: the Hub's background service could fail to start with "Access is denied (os error 5)" when it was started from inside a restricted Windows job, for example by a process that the Microsoft Store version of Codex launched. The Hub now asks to leave the job only when Windows allows it, and otherwise starts the service inside it instead of failing (from upstream CodexHost v0.29.0).
+- Mac: Claude Code started by the Hub app only saw the short system PATH when PATH was already set, so commands installed through Homebrew, nvm and similar tools (used by hooks, MCP servers or the Bash tool) could be "command not found". The directories from your login shell are now added after the existing ones (from upstream CodexHost v0.29.0).
+
+### 修复
+- 修复：Windows 上 Hub 的后台服务在某些受限环境里启动（例如由商店版 Codex 拉起的进程来启动）会报「拒绝访问（os error 5）」而起不来。现在只在 Windows 允许时才让后台服务脱离原环境，不允许就留在原环境里照常启动（来自上游 CodexHost v0.29.0）。
+- 修复：Mac 上由 Hub 启动的 Claude Code 只拿到系统最基本的命令路径，用 Homebrew、nvm 等装的命令（钩子、MCP 服务、命令行工具会用到）可能提示「找不到命令」。现在会把你登录终端里的命令路径补在后面（来自上游 CodexHost v0.29.0）。
+
 ## 0.11.58
 
 ### Fixes
